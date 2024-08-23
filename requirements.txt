@@ -1,9 +1,19 @@
 # Dependencies for data_import service
 Flask==2.0.1
 requests==2.25.1
-numpy==1.21.0
-scipy==1.7.0
-pytest==6.2.4
+numpy
+scipy
+pytest
+setuptools
+pandas
+scikit-learn
+matplotlib
+torch
+torchvision
+tqdm
+seaborn
+numpy
+
 
 # Dependencies for hyper_param service
 # Add any additional dependencies here

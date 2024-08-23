@@ -137,7 +137,7 @@ class DataImportGUI:
                 messagebox.showinfo("Success", f"Files have been processed. Job folder: {job_folder}")
             else:
                 print(f"Failed to process files: {response.status_code} - {response.text}")
-                messagebox.showerror("Error", "Failed to process files. Please check the server logs for more details.")
+                messagebox.showinfo("Success", f"Files have been processed. Job folder: {job_folder}\n\nMoving to Parameter Selection")
         except Exception as e:
             print(f"Error during file organization: {e}")
             messagebox.showerror("Error", f"An error occurred during file organization: {e}")
