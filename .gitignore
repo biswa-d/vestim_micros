@@ -145,3 +145,4 @@ logs/
 # Ignore data directories
 data/
 datasets/
+sample data/
