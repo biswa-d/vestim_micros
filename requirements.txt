@@ -1,0 +1,18 @@
+# Dependencies for data_import service
+Flask==2.0.1
+requests==2.25.1
+numpy==1.21.0
+scipy==1.7.0
+pytest==6.2.4
+
+# Dependencies for hyper_param service
+# Add any additional dependencies here
+
+# Dependencies for model_training service
+# Add any additional dependencies here
+
+# Dependencies for model_testing service
+# Add any additional dependencies here
+
+# Dependencies for GUI
+tkinter
