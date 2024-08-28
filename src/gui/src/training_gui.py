@@ -22,6 +22,19 @@ class VEstimTrainingGUI:
         self.queue = Queue()
         self.timer_running = True
 
+        self.param_labels = {
+        "LAYERS": "Layers",
+        "HIDDEN_UNITS": "Hidden Units",
+        "BATCH_SIZE": "Batch Size",
+        "MAX_EPOCHS": "Max Epochs",
+        "INITIAL_LR": "Initial Learning Rate",
+        "LR_DROP_FACTOR": "LR Drop Factor",
+        "LR_DROP_PERIOD": "LR Drop Period",
+        "VALID_PATIENCE": "Validation Patience",
+        "ValidFrequency": "Validation Frequency",
+        "LOOKBACK": "Lookback Sequence Length",
+        "REPETITIONS": "Repetitions"}
+
         # Initialize the Training Manager
         self.training_manager = VEstimTrainingManager(self.params, self.queue, self.job_manager)
 
@@ -59,10 +72,9 @@ class VEstimTrainingGUI:
             col_frame = tk.Frame(frame)
             col_frame.grid(row=0, column=col_num, padx=5)
             for row_num, (param, value) in enumerate(column):
-                param_label = tk.Label(col_frame, text=f"{param}: ", font=("Helvetica", 10))  
+                label_text = self.param_labels.get(param, param)  # Get the user-friendly label or fallback to the key
+                param_label = tk.Label(col_frame, text=f"{label_text}: ", font=("Helvetica", 10))  
                 value_label = tk.Label(col_frame, text=f"{value}", font=("Helvetica", 10, "bold"))  
-
-                # Use grid to ensure both labels stay on the same line
                 param_label.grid(row=row_num, column=0, sticky='w')
                 value_label.grid(row=row_num, column=1, sticky='w')
 
