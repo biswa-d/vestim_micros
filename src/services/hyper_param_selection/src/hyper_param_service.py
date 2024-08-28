@@ -1,3 +1,5 @@
+# src/services/hyper_param_selection/src/hyper_param_service.py
+
 from flask import Flask, request, jsonify
 import json
 import os
@@ -17,10 +19,9 @@ class VEstimHyperParamService:
         else:
             return {}
 
-    def save_hyperparams(self, new_params, output_dir, job_id):
+    def save_hyperparams(self, new_params, job_folder):
         self.params.update(new_params)
-        os.makedirs(output_dir, exist_ok=True)
-        param_file = os.path.join(output_dir, job_id, 'hyperparams.json')
+        param_file = os.path.join(job_folder, 'hyperparams.json')
         os.makedirs(os.path.dirname(param_file), exist_ok=True)
         with open(param_file, 'w') as file:
             json.dump(self.params, file, indent=4)
@@ -32,6 +33,12 @@ class VEstimHyperParamService:
         with open(filepath, 'w') as file:
             json.dump(self.params, file, indent=4)
         return filepath
+
+    def update_params(self, new_params):
+        self.params.update(new_params)
+
+    def get_current_params(self):
+        return self.params
 
 param_service = VEstimHyperParamService()
 
@@ -49,10 +56,11 @@ def load_params_from_json():
 def save_hyperparams():
     data = request.get_json()
     new_params = data.get('params')
-    output_dir = data.get('output_dir')
-    job_id = data.get('job_id')
+    job_folder = data.get('job_folder')
+    if not job_folder:
+        return jsonify({"message": "job_folder is required"}), 400
 
-    param_file = param_service.save_hyperparams(new_params, output_dir, job_id)
+    param_file = param_service.save_hyperparams(new_params, job_folder)
     return jsonify({"message": f"Parameters saved to {param_file}"}), 200
 
 @app.route('/save_params_to_file', methods=['POST'])

@@ -1,4 +1,3 @@
-
 import shutil
 from flask import Flask, request, jsonify
 import requests
@@ -6,18 +5,29 @@ import sys
 import os
 
 from src.config import ROOT_DIR, OUTPUT_DIR  # Import the ROOT_DIR from config
+from src.gateway.src.job_manager import JobManager
 
 app = Flask(__name__)
+
+job_manager = JobManager()
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
     data = request.get_json()
     train_files = data['train_files']
     test_files = data['test_files']
-    job_id = data['job_id']
+    job_id = data.get('job_id')
+    
+    if not job_id:
+        return jsonify({"error": "job_id is required"}), 400
 
+    # Ensure job manager knows about the job ID
+    job_manager.job_id = job_id
+    job_folder = job_manager.get_job_folder()
+    
+    if not job_folder:
+        return jsonify({"error": "Unable to determine job folder"}), 500
 
-    job_folder = os.path.join(OUTPUT_DIR, f"Job_{job_id}")
     os.makedirs(job_folder, exist_ok=True)
 
     # Create subdirectories for raw and processed data
