@@ -84,7 +84,7 @@ class VEstimTrainSetupGUI:
 
             self.training_manager.setup_training()  # Automatically updates the status as it progresses
 
-            self.update_status(f"Task info and metadata being saved in task folders in {self.job_manager.get_job_folder()}...")
+            self.update_status("Task info and metadata being saved\nin task folders\n", self.job_manager.get_job_folder())
             time.sleep(2)  # Optional delay before transitioning
 
             self.timer_running = False  # Stop the timer before transitioning
@@ -96,9 +96,13 @@ class VEstimTrainSetupGUI:
 
         self.update_elapsed_time()
 
-    def update_status(self, message):
-        """Updates the status message on the GUI."""
-        self.status_label.config(text=message)
+    def update_status(self, message, path=""):
+        # Break the path into a smaller font size
+        path_label = f"\n{path}"
+        formatted_message = f"{message}{path_label}"
+
+        # Update the status label with the formatted message
+        self.status_label.config(text=formatted_message, font=("Helvetica", 10, "italic"))  # Smaller and italic font for path
 
 
     def transition_to_training_gui(self):
@@ -141,7 +145,42 @@ class VEstimTrainSetupGUI:
         for col in range(num_columns * 2):
             self.hyperparam_frame.grid_columnconfigure(col, weight=1)
 
+    
+    # def display_hyperparameters(self, params):
+    #     # Clear previous widgets in the hyperparam_frame
+    #     for widget in self.hyperparam_frame.winfo_children():
+    #         widget.destroy()
 
+    #     # Number of columns for parameters and values
+    #     num_columns = 2
+    #     items = list(params.items())
+        
+    #     # Calculate number of rows needed
+    #     num_rows = (len(items) + num_columns - 1) // num_columns
+        
+    #     # Create a grid layout for parameters and values
+    #     for i in range(num_rows):
+    #         for j in range(num_columns):
+    #             index = i + j * num_rows
+    #             if index < len(items):
+    #                 param, value = items[index]
+    #                 label_text = self.param_labels.get(param, param)  # Get the user-friendly label or fallback to the key
+
+    #                 # Create a frame to contain the parameter label and value, adding border and padding
+    #                 frame = tk.Frame(self.hyperparam_frame, bd=1, relief="solid", padx=5, pady=5, bg="#f2f2f2")
+    #                 frame.grid(row=i, column=j, padx=10, pady=5, sticky="w")
+
+    #                 # Label for the parameter name inside the frame
+    #                 param_label = tk.Label(frame, text=f"{label_text}: ", font=("Helvetica", 12), anchor="w", bg="#f2f2f2")
+    #                 param_label.pack(side="left", padx=(5, 2))
+
+    #                 # Label for the parameter value inside the frame
+    #                 value_label = tk.Label(frame, text=f"{value}", font=("Helvetica", 12, "bold"), fg="#004d99", anchor="w", bg="#f2f2f2")
+    #                 value_label.pack(side="left", padx=(2, 5))
+
+    #     # Adjust column weights to ensure labels are left-aligned and spaced properly
+    #     for col in range(num_columns):
+    #         self.hyperparam_frame.grid_columnconfigure(col, weight=1)
 
 
     def update_elapsed_time(self):

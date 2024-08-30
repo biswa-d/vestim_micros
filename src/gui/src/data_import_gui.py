@@ -4,7 +4,7 @@ import threading
 import queue
 import os
 from src.gateway.src.job_manager import JobManager
-from src.gui.src.hyper_param_gui_test import VEstimHyperParamGUI
+from src.gui.src.hyper_param_gui import VEstimHyperParamGUI
 from src.services.data_processor.src.data_processor import DataProcessor  # Import the combined DataProcessor
 
 job_manager = JobManager()
