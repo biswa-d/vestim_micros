@@ -3,7 +3,7 @@ from tkinter import filedialog, Label, Toplevel
 import os
 import json
 
-from src.gui.src.training_setup_gui import VEstimTrainSetupGUI
+from src.gui.src.training_setup_gui_test import VEstimTrainSetupGUI
 from src.gateway.src.job_manager import JobManager
 from src.gateway.src.hyper_param_manager import VEstimHyperParamManager
 
