@@ -1,11 +1,10 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
-import threading
-import queue
+from datetime import datetime
+import requests
 import os
-from src.gateway.src.job_manager import JobManager
-from src.gui.src.hyper_param_gui_test import VEstimHyperParamGUI
-from src.services.data_processor.src.data_processor import DataProcessor  # Import the combined DataProcessor
+from src.gateway.src.job_manager import JobManager  # Import the JobManager class
+from src.gui.src.hyper_param_gui import VEstimHyperParamGUI  # Import the Hyperparameter GUI
 
 job_manager = JobManager()
 
@@ -17,8 +16,6 @@ class DataImportGUI:
         self.test_folder_path = ""
         self.selected_files = {'train': [], 'test': []}
         self.job_manager = JobManager()  # Create an instance of JobManager
-        self.data_processor = DataProcessor()  # Create an instance of DataProcessor
-        self.queue = queue.Queue()
 
         self.setup_gui()
 
@@ -26,6 +23,7 @@ class DataImportGUI:
         self.master.title("VEstim Modelling Tool")
         self.master.geometry("800x600")
         self.master.minsize(800, 600)
+        # self.master.state('zoomed')
         self.master.configure(bg="#e3e8e8")
         self.master.attributes('-alpha', 0.95)
 
@@ -59,20 +57,17 @@ class DataImportGUI:
         paned_window.add(test_listbox_frame)
 
         self.organize_button = tk.Button(
-            self.master,
-            text="Load and Prepare Files",
-            command=self.organize_files,
-            bg="#ccffcc",  
-            fg="black",  
-            activebackground="#b3ffb3",  
-            relief=tk.GROOVE
-        )
+        self.master,
+        text="Load and Prepare Files",
+        command=self.organize_files,
+        bg="#ccffcc",  # Light green background
+        fg="black",  # Black text color for better contrast with light green
+        activebackground="#b3ffb3",  # Even lighter green when the button is clicked
+        relief=tk.GROOVE)
+       
 
         self.organize_button.pack(pady=10)
         self.organize_button.config(state=tk.DISABLED)
-        self.progress_label = tk.Label(self.master, text="Processing...", font=("Helvetica", 12))
-        self.progress_label.pack(pady=10)
-        self.progress_label.pack_forget()  # Hide initially
 
     def select_train_folder(self):
         self.train_folder_path = filedialog.askdirectory()
@@ -103,43 +98,36 @@ class DataImportGUI:
                     listbox.insert(tk.END, file_path)
 
     def organize_files(self):
-        self.progress_label.pack()  # Show the processing label
-        threading.Thread(target=self._background_organize_files).start()
-        self.process_queue()  # Start processing the queue to handle background updates
-
-    def _background_organize_files(self):
+        job_id, job_folder = self.job_manager.create_new_job()
         train_files = [self.train_files_listbox.get(i) for i in self.train_files_listbox.curselection()]
         test_files = [self.test_files_listbox.get(i) for i in self.test_files_listbox.curselection()]
 
         if not train_files or not test_files:
-            self.queue.put("error: No files selected for either training or testing.")
+            messagebox.showerror("Error", "No files selected for either training or testing.")
             return
 
         try:
-            job_folder = self.data_processor.organize_and_convert_files(train_files, test_files)
-            self.queue.put(f"success: Files have been processed. Job folder: {job_folder}")
+            response = requests.post(
+                "http://127.0.0.1:5001/upload",
+                json={'train_files': train_files, 'test_files': test_files, 'job_id': job_id}
+            )
+            if response.status_code == 200:
+                print(f"Files have been processed. Job folder: {job_folder}")
+                messagebox.showinfo("Success", f"Files have been processed. Job folder: {job_folder}")
+                # Clear the current window
+                for widget in self.master.winfo_children():
+                    widget.destroy()
+
+                # Initialize and display the Hyperparameter GUI
+                params = {}  # Pass any initial parameters if needed
+                gui = VEstimHyperParamGUI(self.master, params)
+            else:
+                print(f"Failed to process files: {response.status_code} - {response.text}")
+                messagebox.showinfo("Success", f"Files have been processed. Job folder: {job_folder}\n\nMoving to Parameter Selection")
         except Exception as e:
-            self.queue.put(f"error: An error occurred during file organization: {e}")
+            print(f"Error during file organization: {e}")
+            messagebox.showerror("Error", f"An error occurred during file organization: {e}")
 
-    def process_queue(self):
-        try:
-            message = self.queue.get_nowait()
-            if message.startswith("success"):
-                self.progress_label.config(text="Completed!")
-                self.move_to_next_screen()  # Transition to the next GUI screen
-            elif message.startswith("error"):
-                messagebox.showerror("Error", message.split("error: ")[1])
-            self.progress_label.pack_forget()  # Hide the processing label when done
-        except queue.Empty:
-            self.master.after(100, self.process_queue)
-
-    def move_to_next_screen(self):
-        for widget in self.master.winfo_children():
-            widget.destroy()
-
-        # params = {}  # Pass any initial parameters if needed
-        gui = VEstimHyperParamGUI(self.master)
-                
 if __name__ == "__main__":
     root = tk.Tk()
     gui = DataImportGUI(root)

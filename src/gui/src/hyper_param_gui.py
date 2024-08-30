@@ -1,26 +1,29 @@
 import tkinter as tk
 from tkinter import filedialog, Label, Toplevel
 import os
-import requests
+import json
 
-from src.gui.src.training_gui_test import VEstimTrainingGUI
-from src.services.hyper_param_selection.src.hyper_param_service import VEstimHyperParamService
+from src.gui.src.training_setup_gui import VEstimTrainSetupGUI
 from src.gateway.src.job_manager import JobManager
+from src.gateway.src.hyper_param_manager import VEstimHyperParamManager
 
 # Initialize the JobManager
 job_manager = JobManager()
 
 class VEstimHyperParamGUI:
-    def __init__(self, master, params):
+    def __init__(self, master):
         self.master = master
-        self.service = VEstimHyperParamService(params)  # Create an instance of the service class
+        self.params = {}  # Initialize an empty params dictionary
         self.job_manager = job_manager  # Use the shared JobManager instance
+        self.hyper_param_manager = VEstimHyperParamManager()  # Initialize HyperParamManager
+        self.param_entries = {}  # To store the entry widgets for parameters
+
         self.setup_window()
         self.build_gui()
 
     def setup_window(self):
         self.master.title("VEstim")
-        self.master.geometry("700x600")  # Increased window size
+        self.master.geometry("700x600")
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
         icon_path = os.path.join(resources_path, 'icon.ico')
         if os.path.exists(icon_path):
@@ -53,17 +56,17 @@ class VEstimHyperParamGUI:
 
     def add_param_widgets(self):
         hyperparameters = [
-            {"label": "Layers:", "default": self.service.params.get("LAYERS", "1"), "tooltip": "Number of LSTM layers in the model", "param": "LAYERS"},
-            {"label": "Hidden Units:", "default": self.service.params.get("HIDDEN_UNITS", "10"), "tooltip": "Number of units in each LSTM layer", "param": "HIDDEN_UNITS"},
-            {"label": "Mini-batches:", "default": self.service.params.get("BATCH_SIZE", "100"), "tooltip": "Number of mini-batches to use during training", "param": "BATCH_SIZE"},
-            {"label": "Max Epochs:", "default": self.service.params.get("MAX_EPOCHS", "5000"), "tooltip": "Maximum number of epochs to train the model", "param": "MAX_EPOCHS"},
-            {"label": "Initial LR:", "default": self.service.params.get("INITIAL_LR", "0.00001"), "tooltip": "The starting learning rate for the optimizer", "param": "INITIAL_LR"},
-            {"label": "LR Drop Factor:", "default": self.service.params.get("LR_DROP_FACTOR", "0.5"), "tooltip": "Factor by which the learning rate is reduced after Drop Period", "param": "LR_DROP_FACTOR"},
-            {"label": "LR Drop Period:", "default": self.service.params.get("LR_DROP_PERIOD", "10"), "tooltip": "The number of epochs after which the learning rate drops", "param": "LR_DROP_PERIOD"},
-            {"label": "Validation Patience:", "default": self.service.params.get("VALID_PATIENCE", "10"), "tooltip": "Number of epochs to wait for validation improvement before early stopping", "param": "VALID_PATIENCE"},
-            {"label": "Validation Freq:", "default": self.service.params.get("ValidFrequency", "3"), "tooltip": "How often (in epochs) to perform validation", "param": "ValidFrequency"},
-            {"label": "Lookback:", "default": self.service.params.get("LOOKBACK", "400"), "tooltip": "Number of previous time steps to consider for each timestep", "param": "LOOKBACK"},
-            {"label": "Repetitions:", "default": self.service.params.get("REPETITIONS", "1"), "tooltip": "Number of times to repeat the entire training process with randomized initial parameters", "param": "REPETITIONS"},
+            {"label": "Layers:", "default": self.params.get("LAYERS", "1"), "tooltip": "Number of LSTM layers in the model", "param": "LAYERS"},
+            {"label": "Hidden Units:", "default": self.params.get("HIDDEN_UNITS", "10"), "tooltip": "Number of units in each LSTM layer", "param": "HIDDEN_UNITS"},
+            {"label": "Mini-batches:", "default": self.params.get("BATCH_SIZE", "100"), "tooltip": "Number of mini-batches to use during training", "param": "BATCH_SIZE"},
+            {"label": "Max Epochs:", "default": self.params.get("MAX_EPOCHS", "5000"), "tooltip": "Maximum number of epochs to train the model", "param": "MAX_EPOCHS"},
+            {"label": "Initial LR:", "default": self.params.get("INITIAL_LR", "0.00001"), "tooltip": "The starting learning rate for the optimizer", "param": "INITIAL_LR"},
+            {"label": "LR Drop Factor:", "default": self.params.get("LR_DROP_FACTOR", "0.5"), "tooltip": "Factor by which the learning rate is reduced after Drop Period", "param": "LR_DROP_FACTOR"},
+            {"label": "LR Drop Period:", "default": self.params.get("LR_DROP_PERIOD", "10"), "tooltip": "The number of epochs after which the learning rate drops", "param": "LR_DROP_PERIOD"},
+            {"label": "Validation Patience:", "default": self.params.get("VALID_PATIENCE", "10"), "tooltip": "Number of epochs to wait for validation improvement before early stopping", "param": "VALID_PATIENCE"},
+            {"label": "Validation Freq:", "default": self.params.get("ValidFrequency", "3"), "tooltip": "How often (in epochs) to perform validation", "param": "ValidFrequency"},
+            {"label": "Lookback:", "default": self.params.get("LOOKBACK", "400"), "tooltip": "Number of previous time steps to consider for each timestep", "param": "LOOKBACK"},
+            {"label": "Repetitions:", "default": self.params.get("REPETITIONS", "1"), "tooltip": "Number of times to repeat the entire training process with randomized initial parameters", "param": "REPETITIONS"},
         ]
 
         for idx, param in enumerate(hyperparameters):
@@ -83,7 +86,7 @@ class VEstimHyperParamGUI:
             entry.insert(0, default_value)
             entry.grid(row=row, column=column + 1, padx=20, pady=15, sticky='ew')
 
-            self.service.param_entries[param_name] = entry
+            self.param_entries[param_name] = entry
 
     def create_tooltip(self, widget, text):
         tooltip = None
@@ -105,9 +108,10 @@ class VEstimHyperParamGUI:
         widget.bind("<Leave>", on_leave)
 
     def proceed_to_training(self):
-        new_params = {param: entry.get() for param, entry in self.service.param_entries.items()}
-        self.service.update_params(new_params)
-        self.save_params_to_json()
+        # Collect updated parameters from the user inputs
+        new_params = {param: entry.get() for param, entry in self.param_entries.items()}
+        self.update_params(new_params)
+        self.hyper_param_manager.save_params()  # Save the params using the manager
 
         for widget in self.master.winfo_children():
             widget.destroy()
@@ -115,61 +119,28 @@ class VEstimHyperParamGUI:
         self.master.title("VEstim - Training LSTM Model")
 
         # Transition to the training GUI
-        VEstimTrainingGUI(self.master, self.service.params, job_manager)
+        VEstimTrainSetupGUI(self.master, new_params, job_manager)
 
     def load_params_from_json(self):
         filepath = filedialog.askopenfilename(defaultextension=".json", filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")])
         if filepath:
-            # Make a POST request to load params from the JSON file via the Flask service
-            response = requests.post('http://127.0.0.1:5003/load_params_from_json', json={'filepath': filepath})
-            if response.status_code == 200:
-                self.service.params = response.json().get('params', {})
-                self.update_gui_with_loaded_params()
-            else:
-                print(f"Failed to load parameters: {response.text}")
+            self.params = self.hyper_param_manager.load_params(filepath)  # Use the manager to load params
+            self.update_gui_with_loaded_params()
 
     def save_params_to_json(self):
-        # Default save operation (saves to the output/job_id/hyperparams.json)
-        job_folder = self.job_manager.get_job_folder()  # Get the job folder from JobManager
+        new_params = {param: entry.get() for param, entry in self.param_entries.items()}
+        self.update_params(new_params)
+        self.hyper_param_manager.save_params()  # Save the params using the manager
 
-        if job_folder is None:
-            print("Error: Job folder is not set.")
-            return
-
-        new_params = {param: entry.get() for param, entry in self.service.param_entries.items()}
-        self.service.update_params(new_params)
-
-        # Make a POST request to save params to the default location
-        response = requests.post('http://127.0.0.1:5003/save_hyperparams', json={
-            'params': self.service.get_current_params(),
-            'job_folder': job_folder  # Pass the correct job folder
-        })
-        if response.status_code == 200:
-            print(response.json().get('message', 'Parameters saved successfully'))
-        else:
-            print(f"Failed to save parameters: {response.text}")
-
-    def save_params_to_custom_location(self):
-        filepath = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")])
-        if filepath:
-            new_params = {param: entry.get() for param, entry in self.service.param_entries.items()}
-            self.service.update_params(new_params)
-
-            # Make a POST request to save params to the specified file location
-            response = requests.post('http://127.0.0.1:5003/save_params_to_file', json={
-                'params': self.service.get_current_params(),
-                'filepath': filepath
-            })
-            if response.status_code == 200:
-                print(response.json().get('message', 'Parameters saved successfully'))
-            else:
-                print(f"Failed to save parameters: {response.text}")
+    def update_params(self, new_params):
+        self.params.update(new_params)
+        self.hyper_param_manager.update_params(new_params)  # Update the params in the manager
 
     def update_gui_with_loaded_params(self):
-        for param_name, entry in self.service.param_entries.items():
-            if param_name in self.service.params:
+        for param_name, entry in self.param_entries.items():
+            if param_name in self.params:
                 entry.delete(0, tk.END)
-                entry.insert(0, self.service.params[param_name])
+                entry.insert(0, self.params[param_name])
 
     def open_guide(self, event=None):
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
@@ -185,5 +156,5 @@ class VEstimHyperParamGUI:
 if __name__ == "__main__":
     root = tk.Tk()
     params = {}
-    gui = VEstimHyperParamGUI(root, params)
+    gui = VEstimHyperParamGUI(root)
     root.mainloop()

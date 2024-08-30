@@ -23,18 +23,17 @@ class VEstimTrainingGUI:
         self.timer_running = True
 
         self.param_labels = {
-            "LAYERS": "Layers",
-            "HIDDEN_UNITS": "Hidden Units",
-            "BATCH_SIZE": "Batch Size",
-            "MAX_EPOCHS": "Max Epochs",
-            "INITIAL_LR": "Initial Learning Rate",
-            "LR_DROP_FACTOR": "LR Drop Factor",
-            "LR_DROP_PERIOD": "LR Drop Period",
-            "VALID_PATIENCE": "Validation Patience",
-            "ValidFrequency": "Validation Frequency",
-            "LOOKBACK": "Lookback Sequence Length",
-            "REPETITIONS": "Repetitions"
-        }
+        "LAYERS": "Layers",
+        "HIDDEN_UNITS": "Hidden Units",
+        "BATCH_SIZE": "Batch Size",
+        "MAX_EPOCHS": "Max Epochs",
+        "INITIAL_LR": "Initial Learning Rate",
+        "LR_DROP_FACTOR": "LR Drop Factor",
+        "LR_DROP_PERIOD": "LR Drop Period",
+        "VALID_PATIENCE": "Validation Patience",
+        "ValidFrequency": "Validation Frequency",
+        "LOOKBACK": "Lookback Sequence Length",
+        "REPETITIONS": "Repetitions"}
 
         # Initialize the Training Manager
         self.training_manager = VEstimTrainingManager(self.params, self.queue, self.job_manager)
@@ -47,7 +46,7 @@ class VEstimTrainingGUI:
             widget.destroy()
 
         # Update the window title and show initial message
-        self.master.title("VEstim - Training LSTM Model")
+        self.master.title("VEstim - Building LSTM Model")
         self.master.geometry("900x600")
         self.master.minsize(900, 600)
 
@@ -57,18 +56,34 @@ class VEstimTrainingGUI:
         main_frame.pack_propagate(False)
 
         # Title Label
-        title_label = tk.Label(main_frame, text="Training LSTM models with hyperparameter set", font=("Helvetica", 12, "bold"))
+        title_label = tk.Label(main_frame, text="Training LSTM Model with Hyperparameters", font=("Helvetica", 12, "bold"))
         title_label.pack(pady=5)
 
         # Frame for hyperparameter labels
-        self.hyperparam_frame = tk.Frame(main_frame)
-        self.hyperparam_frame.pack(fill=tk.X, pady=5)
+        frame = tk.Frame(main_frame)
+        frame.pack(fill=tk.X, pady=5)
 
-        # Display placeholders for hyperparameter values
-        self.display_hyperparameters(self.params)
+        # Filter out the TRAIN_FOLDER and TEST_FOLDER from being displayed
+        params_items = [(key, value) for key, value in self.params.items() if key not in ['TRAIN_FOLDER', 'TEST_FOLDER']]
+        columns = [params_items[i::5] for i in range(5)]  # Splits into five columns
+
+        # Display each column with labels
+        for col_num, column in enumerate(columns):
+            col_frame = tk.Frame(frame)
+            col_frame.grid(row=0, column=col_num, padx=5)
+            for row_num, (param, value) in enumerate(column):
+                label_text = self.param_labels.get(param, param)  # Get the user-friendly label or fallback to the key
+                param_label = tk.Label(col_frame, text=f"{label_text}: ", font=("Helvetica", 10))  
+                value_label = tk.Label(col_frame, text=f"{value}", font=("Helvetica", 10, "bold"))  
+                param_label.grid(row=row_num, column=0, sticky='w')
+                value_label.grid(row=row_num, column=1, sticky='w')
+
+        # Centering the hyperparameters table
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_columnconfigure(len(columns) - 1, weight=1)
 
         # Initialize status label
-        self.status_label = tk.Label(main_frame, text="Starting training...", fg="green", font=("Helvetica", 10, "bold"))
+        self.status_label = tk.Label(main_frame, text="Training the LSTM model...", fg="green", font=("Helvetica", 10, "bold"))
         self.status_label.pack(pady=5)
 
         # Create a frame to hold both labels
@@ -117,17 +132,38 @@ class VEstimTrainingGUI:
         # Start training
         self.start_training()
 
-    def update_progress(self, progress_data):
-        # Update the GUI with the current training progress
-        pass  # Implementation as before
+    def update_progress(self, repetition, epoch, train_loss, validation_error):
+        if epoch == 1 or epoch % self.params['ValidFrequency'] == 0 or epoch == self.params['MAX_EPOCHS']:
+            self.valid_x_values.append(epoch)
+            self.train_loss_values.append(train_loss[-1] * 100)  
+            self.valid_loss_values.append(validation_error[-1] * 100)  
 
-    def display_hyperparameters(self, params):
-        # Display hyperparameters in the GUI
-        pass  # Implementation as before
+            self.ax.clear()
+            self.ax.plot(self.valid_x_values, self.train_loss_values, label='Train Loss')
+            self.ax.plot(self.valid_x_values, self.valid_loss_values, label='Validation Loss')
+            self.ax.set_xlim(1, self.params['MAX_EPOCHS'])
+            xticks = list(range(1, self.params['MAX_EPOCHS'] + 1, self.params['ValidFrequency']))
+            if self.params['MAX_EPOCHS'] not in xticks:
+                xticks.append(self.params['MAX_EPOCHS'])
+            self.ax.set_xticks(xticks)
+            self.ax.legend()
+            self.ax.set_xlabel("Epoch", labelpad=15)
+            self.ax.set_ylabel("Loss [% RMSE]")
+            self.ax.set_title("Training and Validation Loss")
+            self.ax.xaxis.set_label_coords(0.5, -0.1)
+            self.canvas.draw()
+
+        self.log_text.insert(tk.END, f"Repetition: {repetition}, Epoch: {epoch}, Train Loss: {train_loss[-1] * 100:.4f}%, Validation Loss: {validation_error[-1] * 100:.4f}%\n")
+        self.log_text.see(tk.END)
 
     def update_elapsed_time(self):
-        # Update the elapsed time
-        pass  # Implementation as before
+        if self.timer_running:
+            elapsed_time = time.time() - self.start_time
+            self.final_time = elapsed_time  
+            hours, remainder = divmod(elapsed_time, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            self.time_value_label.config(text=f" {int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
+            self.master.after(1000, self.update_elapsed_time)
 
     def start_training(self):
         self.start_time = time.time()
@@ -146,8 +182,8 @@ class VEstimTrainingGUI:
     def process_queue(self):
         try:
             while True:
-                progress_data = self.queue.get_nowait()
-                self.update_progress(progress_data)
+                repetition, epoch, train_loss, validation_error = self.queue.get_nowait()
+                self.update_progress(repetition, epoch, train_loss, validation_error)
         except Empty:
             self.master.after(100, self.process_queue)
 
@@ -159,10 +195,13 @@ class VEstimTrainingGUI:
             minutes, seconds = divmod(remainder, 60)
             self.time_value_label.config(text=f"Training Time: {int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
             self.status_label.config(text="Training Stopped! Saving Model...", fg="red")
+            
+            # Call the stop_training method from the training manager
             self.training_manager.stop_training()
 
             self.stop_button.pack_forget()
             self.show_results()
+
 
     def show_results(self):
         self.timer_running = False  
