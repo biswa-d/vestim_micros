@@ -57,5 +57,5 @@ class LSTMModelService:
         :return: The built LSTM model.
         """
         model = self.build_lstm_model(params)
-        self.save_model(model, model_path)
+        # self.save_model(model, model_path)
         return model

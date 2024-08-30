@@ -3,8 +3,8 @@ import os,json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.gateway.src.hyper_param_manager import VEstimHyperParamManager
 from src.services.model_training.src.training_service import TrainingService
-from src.services.model_training.src.LSTM_model_service_test import LSTMModelService
-from src.services.model_training.src.data_loader_service_test import DataLoaderService
+from src.services.model_training.src.LSTM_model_service import LSTMModelService
+from src.services.model_training.src.data_loader_service import DataLoaderService
 from src.gateway.src.job_manager import JobManager
 
 class VEstimTrainingManager:
@@ -118,8 +118,6 @@ class VEstimTrainingManager:
         lr_drop_periods = [int(drop) for drop in self.current_hyper_params['LR_DROP_PERIOD'].split(',')]
         valid_patience_values = [int(vp) for vp in self.current_hyper_params['VALID_PATIENCE'].split(',')]
         repetitions = int(self.current_hyper_params['REPETITIONS'])
-        batch_sizes = [int(bs) for bs in self.current_hyper_params['BATCH_SIZE'].split(',')]
-        lookbacks = [int(lb) for lb in self.current_hyper_params['LOOKBACK'].split(',')]
 
         # Iterate through models, data loaders, and training parameters
         for model_task in self.models:  # Iterate through the list of models
@@ -133,13 +131,15 @@ class VEstimTrainingManager:
             }
 
             for data_loader_task in self.data_loaders:  # Iterate through the combined loaders
+                # Extract lookback and batch_size directly from the data_loader_task
+                lookback = data_loader_task['lookback']
+                batch_size = data_loader_task['batch_size']
                 for lr in learning_rates:
                     for drop_period in lr_drop_periods:
                         for patience in valid_patience_values:
                             for rep in range(1, repetitions + 1):
-                                for batch_size in batch_sizes:
-                                    for lookback in lookbacks:
-
+                                # for batch_size in batch_sizes:
+                                #     for lookback in lookbacks:
                                         # Create a unique directory for each task based on all parameters, including batch and lookback
                                         task_dir = os.path.join(
                                             model_task['model_dir'],

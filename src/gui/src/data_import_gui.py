@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import threading
 import queue
-import os
+import os, time
 from src.gateway.src.job_manager import JobManager
 from src.gui.src.hyper_param_gui import VEstimHyperParamGUI
 from src.services.data_processor.src.data_processor import DataProcessor  # Import the combined DataProcessor
@@ -27,7 +27,7 @@ class DataImportGUI:
         self.master.geometry("800x600")
         self.master.minsize(800, 600)
         self.master.configure(bg="#e3e8e8")
-        self.master.attributes('-alpha', 0.95)
+        self.master.attributes('-alpha', 0.99)
 
         self.label = tk.Label(self.master, text="Select data folders to train your LSTM Model", font=("Helvetica", 16, "bold"), fg="green")
         self.label.pack(pady=10)
@@ -58,6 +58,7 @@ class DataImportGUI:
         paned_window.add(train_listbox_frame)
         paned_window.add(test_listbox_frame)
 
+        # Define the button and label in the setup
         self.organize_button = tk.Button(
             self.master,
             text="Load and Prepare Files",
@@ -67,12 +68,25 @@ class DataImportGUI:
             activebackground="#b3ffb3",  
             relief=tk.GROOVE
         )
-
         self.organize_button.pack(pady=10)
-        self.organize_button.config(state=tk.DISABLED)
-        self.progress_label = tk.Label(self.master, text="Processing...", font=("Helvetica", 12))
+
+        # Updated progress label with light blue background
+        self.progress_label = tk.Label(
+            self.master,
+            text="Processing...",
+            font=("Helvetica", 10),
+            bg="#e6f7ff",  # Light blue background
+            fg="black"
+        )
         self.progress_label.pack(pady=10)
         self.progress_label.pack_forget()  # Hide initially
+
+    # Animate loading function
+    def animate_loading(self):
+        loading_text = "Processing"
+        num_dots = (int(time.time() * 2) % 4)  # Change number of dots based on time
+        self.progress_label.config(text=loading_text + "." * num_dots)
+        self.master.after(500, self.animate_loading)  # Update every 500ms
 
     def select_train_folder(self):
         self.train_folder_path = filedialog.askdirectory()

@@ -51,7 +51,7 @@ class VEstimTrainSetupGUI:
 
         # Frame for hyperparameter labels with better padding
         self.hyperparam_frame = tk.Frame(main_frame)
-        self.hyperparam_frame.pack(fill=tk.X, pady=(0, 20))  # Added padding below hyperparameters
+        self.hyperparam_frame.pack(fill=tk.X, padx=(20, 20), pady=(0, 20))  # Added padding below hyperparameters
 
         # Display placeholders for hyperparameter values in two columns
         self.display_hyperparameters(self.params)
@@ -130,6 +130,47 @@ class VEstimTrainSetupGUI:
         root.mainloop()  # Start the main loop for the training GUI
 
     #tested code to be used unless the one below works better
+    # def display_hyperparameters(self, params):
+    #     # Clear previous widgets in the hyperparam_frame
+    #     for widget in self.hyperparam_frame.winfo_children():
+    #         widget.destroy()
+
+    #     # Number of columns for labels and values (4 total: 2 for labels, 2 for values)
+    #     num_columns = 4
+    #     items = list(params.items())
+
+    #     # Calculate number of rows needed
+    #     num_rows = (len(items) + 1) // 2  # Each parameter takes up 2 columns (label + value)
+
+    #     # Create a grid layout for parameters and values
+    #     for i in range(num_rows):
+    #         for j in range(2):  # 2 because we have label and value pairs
+    #             index = i * 2 + j
+    #             if index < len(items):
+    #                 param, value = items[index]
+    #                 label_text = self.param_labels.get(param, param)  # Get the user-friendly label or fallback to the key
+
+    #                 # Label for the parameter name with subtle background color and fixed width
+    #                 param_label = tk.Label(self.hyperparam_frame, text=f"{label_text}: ", font=("Helvetica", 10), anchor="w", bg="#f0f0f0", bd=0.2, relief="solid", padx=5)
+    #                 param_label.grid(row=i, column=j * 2, sticky="w", padx=(10, 5), pady=4)
+    #                 param_label.config(width=20)  # Set a fixed width for label columns
+
+    #                 # Label for the parameter value with subtle background color and fixed width
+    #                 value_label = tk.Label(self.hyperparam_frame, text=f"{value}", font=("Helvetica", 10, "bold"), fg="#004d99", anchor="w", bg="#f0f0f0", bd=0.2, relief="solid", padx=5)
+    #                 value_label.grid(row=i, column=j * 2 + 1, sticky="w", padx=(5, 10), pady=4)
+    #                 value_label.config(width=10)  # Set a fixed width for value columns
+
+    #     # Adjust column weights to give labels more width (3:1 ratio)
+    #     self.hyperparam_frame.grid_columnconfigure(0, weight=3)
+    #     self.hyperparam_frame.grid_columnconfigure(1, weight=1)
+    #     self.hyperparam_frame.grid_columnconfigure(2, weight=3)
+    #     self.hyperparam_frame.grid_columnconfigure(3, weight=1)
+
+    #     # Adjust row weights if needed
+    #     for i in range(num_rows):
+    #         self.hyperparam_frame.grid_rowconfigure(i, weight=1)
+
+
     def display_hyperparameters(self, params):
         # Clear previous widgets in the hyperparam_frame
         for widget in self.hyperparam_frame.winfo_children():
@@ -150,66 +191,27 @@ class VEstimTrainSetupGUI:
                     param, value = items[index]
                     label_text = self.param_labels.get(param, param)  # Get the user-friendly label or fallback to the key
 
-                    # Label for the parameter name with subtle background color and fixed width
-                    param_label = tk.Label(self.hyperparam_frame, text=f"{label_text}: ", font=("Helvetica", 10), anchor="w", bg="#f0f0f0", bd=1, relief="solid", padx=5)
-                    param_label.grid(row=i, column=j * 2, sticky="w", padx=(10, 5), pady=4)
+                    # Label for the parameter name with subtle background color and adjusted border
+                    param_label = tk.Label(self.hyperparam_frame, text=f"{label_text}: ", font=("Helvetica", 10), anchor="w", 
+                                        bg="#f0f0f0", bd=0.5, relief="solid", padx=5, pady=2)
+                    param_label.grid(row=i, column=j * 2, sticky="w", padx=(10, 5), pady=4, ipadx=4, ipady=5)
                     param_label.config(width=20)  # Set a fixed width for label columns
 
-                    # Label for the parameter value with subtle background color and fixed width
-                    value_label = tk.Label(self.hyperparam_frame, text=f"{value}", font=("Helvetica", 10, "bold"), fg="#004d99", anchor="w", bg="#f0f0f0", bd=1, relief="solid", padx=5)
-                    value_label.grid(row=i, column=j * 2 + 1, sticky="w", padx=(5, 10), pady=4)
+                    # Label for the parameter value with subtle background color and adjusted border
+                    value_label = tk.Label(self.hyperparam_frame, text=f"{value}", font=("Helvetica", 10, "bold"), fg="#005878", 
+                                        anchor="w", bg="#f0f0f6", bd=0.5, relief="solid", padx=5, pady=2)
+                    value_label.grid(row=i, column=j * 2 + 1, sticky="w", padx=(5, 10), pady=4, ipadx=4, ipady=5)
                     value_label.config(width=10)  # Set a fixed width for value columns
 
         # Adjust column weights to give labels more width (3:1 ratio)
-        self.hyperparam_frame.grid_columnconfigure(0, weight=3)
+        self.hyperparam_frame.grid_columnconfigure(0, weight=2)
         self.hyperparam_frame.grid_columnconfigure(1, weight=1)
-        self.hyperparam_frame.grid_columnconfigure(2, weight=3)
+        self.hyperparam_frame.grid_columnconfigure(2, weight=2)
         self.hyperparam_frame.grid_columnconfigure(3, weight=1)
 
         # Adjust row weights if needed
         for i in range(num_rows):
             self.hyperparam_frame.grid_rowconfigure(i, weight=1)
-
-
-    # def display_hyperparameters(self, params):
-    #     # Clear previous widgets in the hyperparam_frame
-    #     for widget in self.hyperparam_frame.winfo_children():
-    #         widget.destroy()
-
-    #     # Number of columns for parameters and values
-    #     num_columns = 2
-    #     items = list(params.items())
-        
-    #     # Calculate number of rows needed
-    #     num_rows = (len(items) + num_columns - 1) // num_columns
-        
-    #     # Fixed width for labels and values
-    #     label_width = 150  # Adjust this value as necessary
-    #     value_width = 100  # Adjust this value as necessary
-        
-    #     # Create a grid layout for parameters and values
-    #     for i in range(num_rows):
-    #         for j in range(num_columns):
-    #             index = i + j * num_rows
-    #             if index < len(items):
-    #                 param, value = items[index]
-    #                 label_text = self.param_labels.get(param, param)  # Get the user-friendly label or fallback to the key
-                    
-    #                 # Label for the parameter name with subtle background color and fixed width
-    #                 param_label = tk.Label(self.hyperparam_frame, text=f"{label_text}: ", font=("Helvetica", 12), anchor="w", 
-    #                                     bg="#f0f0f0", width=label_width)
-    #                 param_label.grid(row=i, column=j*2, sticky="w", padx=(14, 6), pady=2)
-                    
-    #                 # Label for the parameter value with subtle background color and fixed width
-    #                 value_label = tk.Label(self.hyperparam_frame, text=f"{value}", font=("Helvetica", 12, "bold"), fg="#004d99", 
-    #                                     anchor="w", bg="#f0f0f0", wraplength=value_width)
-    #                 value_label.grid(row=i, column=j*2+1, sticky="w", padx=(0, 10), pady=4)
-            
-    #     # Adjust column weights to give labels more width (3:1 ratio)
-    #     self.hyperparam_frame.grid_columnconfigure(0, weight=3)
-    #     self.hyperparam_frame.grid_columnconfigure(1, weight=1)
-    #     self.hyperparam_frame.grid_columnconfigure(2, weight=3)
-    #     self.hyperparam_frame.grid_columnconfigure(3, weight=1)
 
 
     def update_elapsed_time(self):
