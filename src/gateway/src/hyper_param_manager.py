@@ -1,5 +1,5 @@
 # src/gateway/hyper_param_manager.py
-
+import os, json
 from src.services.hyper_param_selection.src.hyper_param_service import VEstimHyperParamService
 from src.gateway.src.job_manager import JobManager
 
@@ -31,5 +31,14 @@ class VEstimHyperParamManager:
         self.param_sets.append(self.service.get_current_params())
 
     def get_current_params(self):
-        return self.service.get_current_params()
+        # Load the parameters from the saved JSON file in the job folder
+        job_folder = self.job_manager.get_job_folder()
+        params_file = os.path.join(job_folder, 'hyperparams.json')
+        
+        if os.path.exists(params_file):
+            with open(params_file, 'r') as file:
+                current_params = json.load(file)
+                return current_params
+        else:
+            raise FileNotFoundError("Hyperparameters JSON file not found in the job folder.")
 

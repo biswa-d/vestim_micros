@@ -52,17 +52,16 @@ class LSTMModelService:
         """
         torch.save(model.state_dict(), model_path)
 
-    def create_and_save_lstm_model(self, input_size, output_size, layers, hidden_units, model_path):
+    def create_and_return_lstm_model(self, input_size, output_size, layers, hidden_units):
         """
-        Creates an LSTM model with the specified configuration and saves it to a file.
+        Creates an LSTM model with the specified configuration and returns it.
 
         :param input_size: The number of features in the input data.
         :param output_size: The number of output features.
         :param layers: The number of LSTM layers.
         :param hidden_units: A list containing the number of hidden units for each layer.
-        :param model_path: The path where the model will be saved.
         :return: The created PyTorch LSTM model.
         """
         model = self.create_lstm_model(input_size, output_size, layers, hidden_units)
-        self.save_model(model, model_path)
         return model
+    

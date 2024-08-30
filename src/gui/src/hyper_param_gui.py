@@ -3,7 +3,7 @@ from tkinter import filedialog, Label, Toplevel
 import os
 import requests
 
-from src.gui.src.training_gui import VEstimTrainingGUI
+from src.gui.src.training_gui_test import VEstimTrainingGUI
 from src.services.hyper_param_selection.src.hyper_param_service import VEstimHyperParamService
 from src.gateway.src.job_manager import JobManager
 
@@ -115,7 +115,7 @@ class VEstimHyperParamGUI:
         self.master.title("VEstim - Training LSTM Model")
 
         # Transition to the training GUI
-        VEstimTrainingGUI(self.master, self.service.params)
+        VEstimTrainingGUI(self.master, self.service.params, job_manager)
 
     def load_params_from_json(self):
         filepath = filedialog.askopenfilename(defaultextension=".json", filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")])

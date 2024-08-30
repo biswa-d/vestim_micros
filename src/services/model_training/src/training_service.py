@@ -1,10 +1,24 @@
+from flask import Flask, request, jsonify
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import time
+from threading import Thread
+
+app = Flask(__name__)
 
 class TrainingService:
-    def start_training(self, model, data_loader, hyper_params, update_progress):
+    def __init__(self):
+        self.start_time = None
+        self.progress_data = {}
+
+    def start_training(self, model, data_loader, hyper_params):
+        self.start_time = time.time()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        if torch.cuda.device_count() > 1:
+            model = nn.DataParallel(model)
+
         model = model.to(device)
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=hyper_params['INITIAL_LR'])
@@ -23,12 +37,16 @@ class TrainingService:
                 total_train_loss += loss.item()
 
             train_loss_avg = total_train_loss / len(data_loader)
-            
+
             if epoch % hyper_params['ValidFrequency'] == 0 or epoch == hyper_params['MAX_EPOCHS']:
                 validation_error = self.validate_model(model, data_loader, criterion, device)
-                update_progress(epoch, train_loss_avg, validation_error)
+                self.progress_data = {
+                    'epoch': epoch,
+                    'train_loss': train_loss_avg,
+                    'validation_error': validation_error,
+                    'elapsed_time': self.get_elapsed_time()
+                }
 
-        # Save the model after training
         self.save_trained_model(model, hyper_params)
 
     def validate_model(self, model, data_loader, criterion, device):
@@ -43,5 +61,33 @@ class TrainingService:
         return total_loss / len(data_loader)
 
     def save_trained_model(self, model, hyper_params):
-        # Logic to save the trained model
+        # Save logic here
         pass
+
+    def get_elapsed_time(self):
+        elapsed_time = time.time() - self.start_time
+        return self._format_time(elapsed_time)
+
+    def _format_time(self, elapsed_time):
+        hours, remainder = divmod(elapsed_time, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s"
+
+training_service = TrainingService()
+
+@app.route('/start_training', methods=['POST'])
+def start_training():
+    data = request.get_json()
+    model = data['model']
+    data_loader = data['data_loader']
+    hyper_params = data['hyper_params']
+    thread = Thread(target=training_service.start_training, args=(model, data_loader, hyper_params))
+    thread.start()
+    return jsonify({"message": "Training started"}), 200
+
+@app.route('/get_progress', methods=['GET'])
+def get_progress():
+    return jsonify(training_service.progress_data), 200
+
+if __name__ == '__main__':
+    app.run(port=5004, debug=True)

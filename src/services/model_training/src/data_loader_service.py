@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, random_split
 
 class DataLoaderService:
     def __init__(self):
@@ -34,24 +34,36 @@ class DataLoaderService:
 
         return X_data, Y_data
 
-    def create_data_loader(self, train_folder, lookback, batch_size):
+    def create_data_loaders(self, data_folder, lookback, batch_size, num_workers=4, valid_split=0.2):
         """
-        Creates a DataLoader for the given training data.
+        Creates DataLoaders for training and validation data.
 
-        :param train_folder: Path to the folder containing the training data files.
+        :param data_folder: Path to the folder containing the data files.
         :param lookback: The lookback window for creating sequences.
         :param batch_size: The batch size for the DataLoader.
-        :return: A PyTorch DataLoader object.
+        :param num_workers: Number of subprocesses to use for data loading.
+        :param valid_split: Fraction of the data to use for validation.
+        :return: A tuple of (train_loader, val_loader) PyTorch DataLoader objects.
         """
         # Generate data sequences
-        X_data, Y_data = self.create_data_sequences(train_folder, lookback)
+        X_data, Y_data = self.create_data_sequences(data_folder, lookback)
 
         # Convert to PyTorch tensors
         X_tensor = torch.tensor(X_data, dtype=torch.float32)
         Y_tensor = torch.tensor(Y_data, dtype=torch.float32)
 
-        # Create a TensorDataset and DataLoader
+        # Create a TensorDataset
         dataset = TensorDataset(X_tensor, Y_tensor)
-        data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-        return data_loader
+        # Calculate split sizes
+        val_size = int(len(dataset) * valid_split)
+        train_size = len(dataset) - val_size
+
+        # Split the dataset
+        train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+        # Create DataLoaders
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+        return train_loader, val_loader
