@@ -1,8 +1,8 @@
 import tkinter as tk
 from threading import Thread
 import time
-from src.gateway.src.training_manager_test import VEstimTrainingManager
-from src.gui.src.training_gui_test import VEstimTrainingGUI
+from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
+from gui.src.training_task_gui_test import VEstimTrainingGUI
 from src.gateway.src.job_manager import JobManager
 
 class VEstimTrainSetupGUI:
@@ -26,7 +26,7 @@ class VEstimTrainSetupGUI:
         }
 
         # Initialize the Training Manager
-        self.training_manager = VEstimTrainingManager(self.update_status)
+        self.training_manager = VEstimTrainingSetupManager(self.update_status)
         self.build_gui()
 
     def build_gui(self):

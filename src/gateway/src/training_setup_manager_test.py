@@ -1,13 +1,13 @@
 import time
 import os,json
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from gateway.src.hyper_param_manager__m import VEstimHyperParamManager
+from src.gateway.src.hyper_param_manager import VEstimHyperParamManager
 from src.services.model_training.src.training_service import TrainingService
-from src.services.model_training.src.LSTM_model_service_test import LSTMModelService
-from src.services.model_training.src.data_loader_service_test import DataLoaderService
+from src.services.model_training.src.LSTM_model_service import LSTMModelService
+from src.services.model_training.src.data_loader_service import DataLoaderService
 from src.gateway.src.job_manager import JobManager
 
-class VEstimTrainingManager:
+class VEstimTrainingSetupManager:
     def __init__(self,update_status_callback):
         self.params = None
         self.current_hyper_params = None
@@ -36,10 +36,10 @@ class VEstimTrainingManager:
         self.update_status("Building models...")
         # Build models
         self.build_models()
-        # Update status to indicate data loader creation is starting
-        self.update_status("Creating data loaders...")
-        # Create data loaders
-        self.create_data_loaders()
+        # # Update status to indicate data loader creation is starting
+        # self.update_status("Creating data loaders...")
+        # # Create data loaders
+        # self.create_data_loaders()
         # Update status to indicate training task creation is starting
         self.update_status("Creating training tasks...")
         # Create training tasks
@@ -85,10 +85,11 @@ class VEstimTrainingManager:
         batch_sizes = [int(bs) for bs in self.current_hyper_params['BATCH_SIZE'].split(',')]
         num_workers = 4
 
-        self.data_loaders = {'train': [], 'val': []}  # Initialize a dictionary to store train and validation loaders
+        self.data_loaders = []  # Initialize a list to store the combined data loaders
 
         for lookback in lookbacks:
             for batch_size in batch_sizes:
+                # Create both train and validation loaders for the same lookback and batch size
                 train_loader, val_loader = self.data_loader_service.create_data_loaders(
                     folder_path=os.path.join(self.job_manager.get_job_folder(), 'train', 'processed_data'),
                     lookback=lookback,
@@ -96,14 +97,9 @@ class VEstimTrainingManager:
                     num_workers=num_workers
                 )
 
-                # Store the data loaders along with their specific hyperparameters
-                self.data_loaders['train'].append({
+                # Store the pair of loaders with their specific hyperparameters
+                self.data_loaders.append({
                     'train_loader': train_loader,
-                    'lookback': lookback,
-                    'batch_size': batch_size
-                })
-
-                self.data_loaders['val'].append({
                     'val_loader': val_loader,
                     'lookback': lookback,
                     'batch_size': batch_size
@@ -112,7 +108,7 @@ class VEstimTrainingManager:
 
     def create_training_tasks(self):
         """
-        Create a list of training tasks by combining models, data loaders, and relevant training parameters.
+        Create a list of training tasks by combining models, DataLoader parameters, and relevant training hyperparameters.
         This method will also save the task information to disk for future use.
         """
         task_list = []  # Initialize a list to store tasks
@@ -122,13 +118,12 @@ class VEstimTrainingManager:
         lr_drop_periods = [int(drop) for drop in self.current_hyper_params['LR_DROP_PERIOD'].split(',')]
         valid_patience_values = [int(vp) for vp in self.current_hyper_params['VALID_PATIENCE'].split(',')]
         repetitions = int(self.current_hyper_params['REPETITIONS'])
+        lookbacks = [int(lb) for lb in self.current_hyper_params['LOOKBACK'].split(',')]
+        batch_sizes = [int(bs) for bs in self.current_hyper_params['BATCH_SIZE'].split(',')]
 
-        # Iterate through models, data loaders, and training parameters
-        for model_task in self.models:  # Iterate through the list of models
+        # Iterate through each model
+        for model_task in self.models:
             model = model_task['model']
-            model_dir = model_task['model_dir']
-
-            # Collect model metadata
             model_metadata = {
                 'model_type': 'LSTMModel',
                 'input_size': model.input_size,
@@ -137,67 +132,63 @@ class VEstimTrainingManager:
                 # Add more metadata if necessary
             }
 
-            for train_loader_task in self.data_loaders['train']:
-                for val_loader_task in self.data_loaders['val']:
-                    for lr in learning_rates:
-                        for drop_period in lr_drop_periods:
-                            for patience in valid_patience_values:
+            # Iterate through hyperparameters and DataLoader parameters
+            for lr in learning_rates:
+                for drop_period in lr_drop_periods:
+                    for patience in valid_patience_values:
+                        for lookback in lookbacks:
+                            for batch_size in batch_sizes:
                                 for rep in range(1, repetitions + 1):
-
-                                    # Create a unique directory for each task based on hyperparameters
+                                    # Create a unique directory for each task based on all parameters
                                     task_dir = os.path.join(
-                                        model_dir,
-                                        f'lr_{lr}_drop_{drop_period}_patience_{patience}_rep_{rep}'
+                                        model_task['model_dir'],
+                                        f'lr_{lr}_drop_{drop_period}_patience_{patience}_rep_{rep}_lookback_{lookback}_batch_{batch_size}'
                                     )
                                     os.makedirs(task_dir, exist_ok=True)
 
-                                    # Define task information, excluding the DataLoader objects
+                                    # Define task information, including model metadata and training parameters
                                     task_info = {
                                         'model_metadata': model_metadata,  # Use metadata instead of the full model
-                                        'train_loader_params': {
-                                            'lookback': train_loader_task['lookback'],
-                                            'batch_size': train_loader_task['batch_size'],
-                                            # Include other necessary parameters here
-                                        },
-                                        'val_loader_params': {
-                                            'lookback': val_loader_task['lookback'],
-                                            'batch_size': val_loader_task['batch_size'],
+                                        'data_loader_params': {
+                                            'lookback': lookback,
+                                            'batch_size': batch_size,
                                             # Include other necessary parameters here
                                         },
                                         'model_dir': task_dir,
                                         'hyperparams': {
                                             'LAYERS': self.current_hyper_params['LAYERS'],
-                                            'HIDDEN_UNITS': model_task['hyperparams']['HIDDEN_UNITS'],
-                                            'BATCH_SIZE': train_loader_task['batch_size'],
-                                            'LOOKBACK': train_loader_task['lookback'],
+                                            'HIDDEN_UNITS': model_metadata['hidden_units'],
+                                            'BATCH_SIZE': batch_size,
+                                            'LOOKBACK': lookback,
                                             'INITIAL_LR': lr,
                                             'LR_DROP_PERIOD': drop_period,
                                             'VALID_PATIENCE': patience,
                                             'ValidFrequency': self.current_hyper_params['ValidFrequency'],
                                             'REPETITIONS': rep,
-                                            'model_path': os.path.join(task_dir, 'model.pth')
+                                            'model_path': os.path.join(task_dir, 'model.pth')  # Where the model will be saved later
                                         }
                                     }
 
                                     # Append the task to the task list
                                     task_list.append(task_info)
 
-                                    # Save the task info to disk as a JSON file, excluding the actual DataLoader objects
+                                    # Save the task info to disk as a JSON file
                                     task_info_file = os.path.join(task_dir, 'task_info.json')
                                     with open(task_info_file, 'w') as f:
-                                        json.dump(task_info, f, indent=4)
+                                        json.dump({k: v for k, v in task_info.items() if k != 'model'}, f, indent=4)
 
         # Replace the existing training tasks with the newly created task list
         self.training_tasks = task_list
 
-        # Optionally, save the entire task list for future reference
+        # Optionally, save the entire task list for future reference at the root level
         tasks_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
         with open(tasks_summary_file, 'w') as f:
-            json.dump(self.training_tasks, f, indent=4)
+            json.dump([{k: v for k, v in task.items() if k != 'model'} for task in self.training_tasks], f, indent=4)
 
         print(f"Created {len(self.training_tasks)} training tasks and saved to disk.")
-
-
+    
+    def get_task_list(self):
+        return self.training_tasks
 
     def start_training(self):
         """Start the training process for all tasks."""
