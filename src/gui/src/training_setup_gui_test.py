@@ -25,8 +25,8 @@ class VEstimTrainSetupGUI:
             "REPETITIONS": "Repetitions"
         }
 
-        # Initialize the Training Manager
-        self.training_manager = VEstimTrainingSetupManager(self.update_status)
+        # Initialize the Training Setup Manager
+        self.training_setup_manager = VEstimTrainingSetupManager(self.update_status)
         self.build_gui()
 
     def build_gui(self):
@@ -75,7 +75,6 @@ class VEstimTrainSetupGUI:
         # Start the setup process
         self.start_setup()
 
-
     def start_setup(self):
         self.start_time = time.time()
 
@@ -83,10 +82,10 @@ class VEstimTrainSetupGUI:
             self.update_status("Building models and data loaders...")
 
             # Run the training setup
-            self.training_manager.setup_training()
+            self.training_setup_manager.setup_training()
 
             # Get the number of training tasks created
-            task_count = len(self.training_manager.training_tasks)
+            task_count = len(self.training_setup_manager.training_tasks)
 
             # Update the status with the task count
             self.update_status("Task summary saved in the job folder\n", 
@@ -103,7 +102,6 @@ class VEstimTrainSetupGUI:
 
         self.update_elapsed_time()
 
-    #tested code to be used unless the one below works better
     def update_status(self, message, path="", task_count=None):
         if task_count is not None:
             task_message = f"{task_count} training tasks created,\n"
@@ -115,104 +113,50 @@ class VEstimTrainSetupGUI:
         else:
             formatted_message = f"{task_message}{message}"
 
-        self.status_label.config(text=formatted_message, font=("Helvetica", 10, "italic"))  # Adjusted font size and style
-
+        self.status_label.config(text=formatted_message, font=("Helvetica", 10, "italic"))
 
     def show_proceed_button(self):
         proceed_button = tk.Button(self.master, text="Proceed to Training", font=("Helvetica", 12, "bold"), fg="white", bg="green", command=self.transition_to_training_gui)
-        proceed_button.pack(pady=20)  # Adjust padding as necessary
+        proceed_button.pack(pady=20)
 
     def transition_to_training_gui(self):
-        # Clear the existing content from the master window
         self.master.destroy()  # Close the setup window
         root = tk.Tk()  # Create a new root for the training GUI
         VEstimTrainingGUI(root, self.params, self.job_manager)  # Initialize the Training GUI
         root.mainloop()  # Start the main loop for the training GUI
 
-    #tested code to be used unless the one below works better
-    # def display_hyperparameters(self, params):
-    #     # Clear previous widgets in the hyperparam_frame
-    #     for widget in self.hyperparam_frame.winfo_children():
-    #         widget.destroy()
-
-    #     # Number of columns for labels and values (4 total: 2 for labels, 2 for values)
-    #     num_columns = 4
-    #     items = list(params.items())
-
-    #     # Calculate number of rows needed
-    #     num_rows = (len(items) + 1) // 2  # Each parameter takes up 2 columns (label + value)
-
-    #     # Create a grid layout for parameters and values
-    #     for i in range(num_rows):
-    #         for j in range(2):  # 2 because we have label and value pairs
-    #             index = i * 2 + j
-    #             if index < len(items):
-    #                 param, value = items[index]
-    #                 label_text = self.param_labels.get(param, param)  # Get the user-friendly label or fallback to the key
-
-    #                 # Label for the parameter name with subtle background color and fixed width
-    #                 param_label = tk.Label(self.hyperparam_frame, text=f"{label_text}: ", font=("Helvetica", 10), anchor="w", bg="#f0f0f0", bd=0.2, relief="solid", padx=5)
-    #                 param_label.grid(row=i, column=j * 2, sticky="w", padx=(10, 5), pady=4)
-    #                 param_label.config(width=20)  # Set a fixed width for label columns
-
-    #                 # Label for the parameter value with subtle background color and fixed width
-    #                 value_label = tk.Label(self.hyperparam_frame, text=f"{value}", font=("Helvetica", 10, "bold"), fg="#004d99", anchor="w", bg="#f0f0f0", bd=0.2, relief="solid", padx=5)
-    #                 value_label.grid(row=i, column=j * 2 + 1, sticky="w", padx=(5, 10), pady=4)
-    #                 value_label.config(width=10)  # Set a fixed width for value columns
-
-    #     # Adjust column weights to give labels more width (3:1 ratio)
-    #     self.hyperparam_frame.grid_columnconfigure(0, weight=3)
-    #     self.hyperparam_frame.grid_columnconfigure(1, weight=1)
-    #     self.hyperparam_frame.grid_columnconfigure(2, weight=3)
-    #     self.hyperparam_frame.grid_columnconfigure(3, weight=1)
-
-    #     # Adjust row weights if needed
-    #     for i in range(num_rows):
-    #         self.hyperparam_frame.grid_rowconfigure(i, weight=1)
-
-
     def display_hyperparameters(self, params):
-        # Clear previous widgets in the hyperparam_frame
         for widget in self.hyperparam_frame.winfo_children():
             widget.destroy()
 
-        # Number of columns for labels and values (4 total: 2 for labels, 2 for values)
         num_columns = 4
         items = list(params.items())
+        num_rows = (len(items) + 1) // 2
 
-        # Calculate number of rows needed
-        num_rows = (len(items) + 1) // 2  # Each parameter takes up 2 columns (label + value)
-
-        # Create a grid layout for parameters and values
         for i in range(num_rows):
-            for j in range(2):  # 2 because we have label and value pairs
+            for j in range(2):
                 index = i * 2 + j
-                if index < len(items):
+                if index < len(items)):
                     param, value = items[index]
-                    label_text = self.param_labels.get(param, param)  # Get the user-friendly label or fallback to the key
+                    label_text = self.param_labels.get(param, param)
 
-                    # Label for the parameter name with subtle background color and adjusted border
                     param_label = tk.Label(self.hyperparam_frame, text=f"{label_text}: ", font=("Helvetica", 10), anchor="w", 
                                         bg="#f0f0f0", bd=0.5, relief="solid", padx=5, pady=2)
                     param_label.grid(row=i, column=j * 2, sticky="w", padx=(10, 5), pady=4, ipadx=4, ipady=5)
-                    param_label.config(width=20)  # Set a fixed width for label columns
+                    param_label.config(width=20)
 
-                    # Label for the parameter value with subtle background color and adjusted border
                     value_label = tk.Label(self.hyperparam_frame, text=f"{value}", font=("Helvetica", 10, "bold"), fg="#005878", 
                                         anchor="w", bg="#f0f0f6", bd=0.5, relief="solid", padx=5, pady=2)
                     value_label.grid(row=i, column=j * 2 + 1, sticky="w", padx=(5, 10), pady=4, ipadx=4, ipady=5)
-                    value_label.config(width=10)  # Set a fixed width for value columns
+                    value_label.config(width=10)
 
-        # Adjust column weights to give labels more width (3:1 ratio)
         self.hyperparam_frame.grid_columnconfigure(0, weight=2)
         self.hyperparam_frame.grid_columnconfigure(1, weight=1)
         self.hyperparam_frame.grid_columnconfigure(2, weight=2)
         self.hyperparam_frame.grid_columnconfigure(3, weight=1)
 
-        # Adjust row weights if needed
         for i in range(num_rows):
             self.hyperparam_frame.grid_rowconfigure(i, weight=1)
-
 
     def update_elapsed_time(self):
         if self.timer_running:
