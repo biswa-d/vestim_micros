@@ -2,7 +2,7 @@ import tkinter as tk
 from threading import Thread
 import time
 from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
-from gui.src.training_task_gui_test import VEstimTrainingGUI
+from src.gui.src.training_task_gui_test import VEstimTrainingTaskGUI
 from src.gateway.src.job_manager import JobManager
 
 class VEstimTrainSetupGUI:
@@ -122,8 +122,10 @@ class VEstimTrainSetupGUI:
     def transition_to_training_gui(self):
         self.master.destroy()  # Close the setup window
         root = tk.Tk()  # Create a new root for the training GUI
-        VEstimTrainingGUI(root, self.params, self.job_manager)  # Initialize the Training GUI
+        task_list = self.training_setup_manager.get_task_list()  # Get the task list
+        VEstimTrainingTaskGUI(root, task_list, self.params, self.job_manager)  # Pass the task list, params, and job_manager
         root.mainloop()  # Start the main loop for the training GUI
+
 
     def display_hyperparameters(self, params):
         for widget in self.hyperparam_frame.winfo_children():
@@ -136,7 +138,7 @@ class VEstimTrainSetupGUI:
         for i in range(num_rows):
             for j in range(2):
                 index = i * 2 + j
-                if index < len(items)):
+                if index < len(items):
                     param, value = items[index]
                     label_text = self.param_labels.get(param, param)
 

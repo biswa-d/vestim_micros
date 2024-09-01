@@ -15,7 +15,7 @@ class VEstimTrainingSetupManager:
         self.start_time = None
         self.models = []
         self.training_tasks = []
-        self.update_status = update_status_callback
+        self.update_status = update_status_callback or (lambda message: None)  # Default to no-op function
 
     def setup_training(self):
         """Set up the training process, including building models and creating training tasks."""

@@ -5,19 +5,22 @@ from queue import Queue, Empty
 from threading import Thread
 import time
 from src.gateway.src.training_task_manager_test import TrainingTaskManager
-from src.gateway.src.training_setup_manager_test import TrainingSetupManager
+from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
 from src.gateway.src.job_manager import JobManager
-from src.gui.src.testing_gui_test import VEstimTestingGui
+# from src.gui.src.testing_gui_test import VEstimTestingGui
 
 # Initialize the managers at the top level
-training_task_manager = TrainingTaskManager()
-training_setup_manager = TrainingSetupManager()
+# training_setup_manager = VEstimTrainingSetupManager()
 
 class VEstimTrainingTaskGUI:
-    def __init__(self, master):
+    def __init__(self, master, task_list, params, job_manager):
         self.master = master
-        self.training_task_manager = training_task_manager
-        self.training_setup_manager = training_setup_manager
+        self.training_task_manager = TrainingTaskManager()
+        
+        # Store the task list, params, and job_manager
+        self.task_list = task_list
+        self.params = params
+        self.job_manager = job_manager
 
         # Initialize variables
         self.train_loss_values = []
@@ -283,8 +286,6 @@ class VEstimTrainingTaskGUI:
         root = tk.Tk()
         VEstimTestingGui(root)  # Assuming VEstimTestingGui is the class for the testing GUI
         root.mainloop()
-
-
 
 if __name__ == "__main__":
     root = tk.Tk()
