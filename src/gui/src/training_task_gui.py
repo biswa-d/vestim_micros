@@ -131,7 +131,6 @@ class VEstimTrainingTaskGUI:
         # Ensure 'MAX_EPOCHS' and 'ValidFrequency' are integers
         max_epochs = int(task['hyperparams']['MAX_EPOCHS'])
         valid_frequency = int(task['hyperparams']['ValidFrequency'])
-        tick_frequency = max(1, valid_frequency)  # Ensure a minimum of 1
 
         # Setting up Matplotlib figure for loss plots
         fig = Figure(figsize=(6, 2.5), dpi=100)
@@ -139,11 +138,10 @@ class VEstimTrainingTaskGUI:
         self.ax.set_xlabel("Epoch", labelpad=0)
         self.ax.set_ylabel("Loss [% RMSE]")
         self.ax.set_xlim(1, max_epochs)
-        
 
         # Set x-ticks to ensure a maximum of 10 parts or based on validation frequency
         max_ticks = 10
-        if max_epochs/tick_frequency <= max_ticks:
+        if max_epochs <= max_ticks:
             xticks = list(range(1, max_epochs + 1))
         else:
             xticks = list(range(1, max_epochs + 1, max(1, max_epochs // max_ticks)))
@@ -175,9 +173,6 @@ class VEstimTrainingTaskGUI:
         self.ax.margins(y=0.1)
         fig.subplots_adjust(bottom=0.2)
 
-        # Clear the plot to ensure no old data remains
-        self.clear_plot()
-
     def setup_log_window(self, main_frame, task):
         # Rolling window for displaying detailed logs
         self.log_text = tk.Text(main_frame, height=1, wrap=tk.WORD)
@@ -199,9 +194,6 @@ class VEstimTrainingTaskGUI:
 
         # Start processing tasks sequentially
         self.start_time = time.time()
-
-        # Clear the plot before starting the new task
-        self.clear_plot()
 
         def run_training_task(task):
             # Process the current task using the TrainingTaskManager
@@ -272,25 +264,14 @@ class VEstimTrainingTaskGUI:
             self.valid_loss_values.append(val_loss)
             self.valid_x_values.append(epoch)
 
-            # # Clear the plot and re-plot with the new data
-            # self.ax.clear()
-            # self.ax.set_title("Training and Validation Loss")
-            # self.ax.set_xlabel("Epoch")
-            # self.ax.set_ylabel("Loss [% RMSE]")
-            # self.ax.plot(self.valid_x_values, self.train_loss_values, label='Train Loss')
-            # self.ax.plot(self.valid_x_values, self.valid_loss_values, label='Validation Loss')
-            # self.ax.legend()
-            # self.canvas.draw()
-            
-            # Update plot data without resetting the x-ticks
-            self.ax.lines[0].set_data(self.valid_x_values, self.train_loss_values)
-            self.ax.lines[1].set_data(self.valid_x_values, self.valid_loss_values)
-
-            # Dynamically adjust y-axis limits
-            self.ax.set_ylim(min(min(self.train_loss_values), min(self.valid_loss_values)) * 0.9,
-                            max(max(self.train_loss_values), max(self.valid_loss_values)) * 1.1)
-
-            # Redraw the plot
+            # Clear the plot and re-plot with the new data
+            self.ax.clear()
+            self.ax.set_title("Training and Validation Loss")
+            self.ax.set_xlabel("Epoch")
+            self.ax.set_ylabel("Loss [% RMSE]")
+            self.ax.plot(self.valid_x_values, self.train_loss_values, label='Train Loss')
+            self.ax.plot(self.valid_x_values, self.valid_loss_values, label='Validation Loss')
+            self.ax.legend()
             self.canvas.draw()
 
             # Update the log text widget with the new progress data
@@ -333,20 +314,6 @@ class VEstimTrainingTaskGUI:
         else:
             self.status_label.config(text="All Training Tasks Completed!")
             self.show_proceed_to_testing_button()
-
-    def clear_plot(self):
-        """Clear the existing plot to prepare for a new task."""
-        self.train_loss_values = []
-        self.valid_loss_values = []
-        self.valid_x_values = []
-
-        self.ax.clear()
-        self.ax.set_title("Training and Validation Loss")
-        self.ax.set_xlabel("Epoch")
-        self.ax.set_ylabel("Loss [% RMSE]")
-        self.ax.legend(["Train Loss", "Validation Loss"])
-        self.canvas.draw()
-
 
     def show_proceed_to_testing_button(self):
         # Create a button to proceed to testing
