@@ -4,20 +4,19 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from queue import Queue, Empty
 from threading import Thread
 import time
-from src.gateway.src.training_task_manager_test import TrainingTaskManager
-from src.gateway.src.training_setup_manager_test import TrainingSetupManager
+from src.gateway.src.training_task_manager import TrainingTaskManager
 from src.gateway.src.job_manager import JobManager
-from src.gui.src.testing_gui_test import VEstimTestingGui
-
-# Initialize the managers at the top level
-training_task_manager = TrainingTaskManager()
-training_setup_manager = TrainingSetupManager()
+# from src.gui.src.testing_gui_test import VEstimTestingGui
 
 class VEstimTrainingTaskGUI:
-    def __init__(self, master):
+    def __init__(self, master, task_list, params, job_manager):
         self.master = master
-        self.training_task_manager = training_task_manager
-        self.training_setup_manager = training_setup_manager
+        self.training_task_manager = TrainingTaskManager()
+
+        # Store the task list, params, and job_manager
+        self.task_list = task_list
+        self.params = params
+        self.job_manager = job_manager
 
         # Initialize variables
         self.train_loss_values = []
@@ -26,9 +25,6 @@ class VEstimTrainingTaskGUI:
         self.start_time = None
         self.queue = Queue()
         self.timer_running = True
-        
-        # Retrieve the task list from the training setup manager
-        self.task_list = self.training_setup_manager.get_task_list()
 
         # Dictionary for displaying labels
         self.param_labels = {
@@ -81,14 +77,45 @@ class VEstimTrainingTaskGUI:
         self.status_label.pack(pady=5)
 
         # Time Frame, Plot Setup, and Log Window
-        self.setup_time_and_plot(main_frame)
-        self.setup_log_window(main_frame)
+        self.setup_time_and_plot(main_frame, task)
+        self.setup_log_window(main_frame, task)
 
         # Stop button
         self.stop_button = tk.Button(main_frame, text="Stop Training", command=self.stop_training, bg="red", fg="white")
         self.stop_button.pack(pady=10)
 
-    def setup_time_and_plot(self, main_frame):
+    def display_hyperparameters(self, params):
+        # Clear previous widgets in the hyperparam_frame
+        for widget in self.hyperparam_frame.winfo_children():
+            widget.destroy()
+
+        # Get the parameter items
+        param_items = [(self.param_labels.get(param, param), value) for param, value in params.items()]
+
+        # Split the parameters into five columns
+        columns = [param_items[i::5] for i in range(5)]  # Splits into five columns
+
+        # Display each column with labels
+        for col_num, column in enumerate(columns):
+            col_frame = tk.Frame(self.hyperparam_frame)
+            col_frame.grid(row=0, column=col_num, padx=5)
+            for row_num, (param, value) in enumerate(column):
+                param_label = tk.Label(col_frame, text=f"{param}: ", font=("Helvetica", 10))  # Regular font for label
+                value_label = tk.Label(col_frame, text=f"{value}", font=("Helvetica", 10, "bold"))  # Bold font for value
+
+                # Use grid to ensure both labels stay on the same line
+                param_label.grid(row=row_num, column=0, sticky='w')
+                value_label.grid(row=row_num, column=1, sticky='w')
+
+        # Centering the hyperparameters table
+        self.hyperparam_frame.grid_columnconfigure(0, weight=1)
+        self.hyperparam_frame.grid_columnconfigure(len(columns) - 1, weight=1)
+
+    def setup_time_and_plot(self, main_frame, task):
+        # Debugging statement to check the structure of the task
+        print(f"Current task: {task}")
+        print(f"Hyperparameters in the task: {task['hyperparams']}")
+
         # Time Frame
         time_frame = tk.Frame(main_frame)
         time_frame.pack(pady=5)
@@ -101,47 +128,59 @@ class VEstimTrainingTaskGUI:
         self.time_value_label = tk.Label(time_frame, text="00h:00m:00s", fg="blue", font=("Helvetica", 10, "bold"))
         self.time_value_label.pack(side=tk.LEFT)
 
+        # Ensure 'MAX_EPOCHS' and 'ValidFrequency' are integers
+        max_epochs = int(task['hyperparams']['MAX_EPOCHS'])
+        valid_frequency = int(task['hyperparams']['ValidFrequency'])
+
         # Setting up Matplotlib figure for loss plots
         fig = Figure(figsize=(6, 2.5), dpi=100)
         self.ax = fig.add_subplot(111)
         self.ax.set_xlabel("Epoch", labelpad=0)
         self.ax.set_ylabel("Loss [% RMSE]")
-        self.ax.set_xlim(1, self.task_list[self.current_task_index]['hyperparams']['MAX_EPOCHS'])
-        xticks = list(range(1, self.task_list[self.current_task_index]['hyperparams']['MAX_EPOCHS'] + 1, 
-                            self.task_list[self.current_task_index]['hyperparams']['ValidFrequency']))
-        if self.task_list[self.current_task_index]['hyperparams']['MAX_EPOCHS'] not in xticks:
-            xticks.append(self.task_list[self.current_task_index]['hyperparams']['MAX_EPOCHS'])
+        self.ax.set_xlim(1, max_epochs)
+
+        # Set x-ticks to ensure a maximum of 10 parts or based on validation frequency
+        max_ticks = 10
+        if max_epochs <= max_ticks:
+            xticks = list(range(1, max_epochs + 1))
+        else:
+            xticks = list(range(1, max_epochs + 1, max(1, max_epochs // max_ticks)))
+        
+        # Ensure the last epoch is included
+        if max_epochs not in xticks:
+            xticks.append(max_epochs)
+        
         self.ax.set_xticks(xticks)
+        self.ax.set_xticklabels(xticks, rotation=45, ha="right")  # Rotate labels for better readability
+        
+        # # Generate x-ticks based on the max epochs and validation frequency
+        # xticks = list(range(1, max_epochs + 1, valid_frequency))
+        # if max_epochs not in xticks:
+        #     xticks.append(max_epochs)
+        # self.ax.set_xticks(xticks)
+
         self.ax.set_title("Training and Validation Loss")
         self.ax.legend(["Train Loss", "Validation Loss"])
+
+        # Initialize the plot lines
         self.ax.plot([], [], label='Train Loss')
         self.ax.plot([], [], label='Validation Loss')
         self.ax.legend()
+
+        # Attach the Matplotlib figure to the Tkinter frame
         self.canvas = FigureCanvasTkAgg(fig, master=main_frame)
         self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.ax.margins(y=0.1)
         fig.subplots_adjust(bottom=0.2)
 
-    def setup_log_window(self, main_frame):
+    def setup_log_window(self, main_frame, task):
         # Rolling window for displaying detailed logs
         self.log_text = tk.Text(main_frame, height=1, wrap=tk.WORD)
         self.log_text.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        self.log_text.insert(tk.END, "Initial Parameters:\n")
-        self.log_text.insert(tk.END, f"Repetition: 1/{self.task_list[self.current_task_index]['hyperparams']['REPETITIONS']}, "
-                                     f"Epoch: 0, Train Loss: N/A, Validation Error: N/A\n")
+        # self.log_text.insert(tk.END, "Initial Parameters:\n")
+        self.log_text.insert(tk.END, f"Repetition: 1/{task['hyperparams']['REPETITIONS']}, "
+                                    f"Epoch: 0, Train Loss: N/A, Validation Error: N/A\n")
         self.log_text.see(tk.END)
-
-    def display_hyperparameters(self, params):
-        # Clear previous widgets in the hyperparam_frame
-        for widget in self.hyperparam_frame.winfo_children():
-            widget.destroy()
-
-        # Display the hyperparameters
-        for param, value in params.items():
-            if param in self.param_labels:
-                label_text = self.param_labels[param]
-                param_label = tk.Label(self.hyperparam_frame, text=f"{label_text}: {value}", font=("Helvetica", 10))
-                param_label.pack(anchor="w")
 
     def start_task_processing(self):
         # Update the status label to show that the task is starting
@@ -166,7 +205,6 @@ class VEstimTrainingTaskGUI:
 
         self.update_elapsed_time()
         self.process_queue()
-
 
     def update_elapsed_time(self):
         if self.timer_running:
@@ -196,38 +234,52 @@ class VEstimTrainingTaskGUI:
         self.log_text.see(tk.END)
         self.stop_button.pack_forget()
 
-
-
     def update_gui_after_epoch(self, progress_data):
-        # Update the plot with the new training and validation loss
-        epoch = progress_data['epoch']
-        train_loss = progress_data['train_loss']
-        val_loss = progress_data['val_loss']
-        delta_t_valid = progress_data['delta_t_valid']
-        # elapsed_time = progress_data['elapsed_time']
+        # Combine task index and dynamic status for the status label
+        task_info = f"Task {self.current_task_index + 1}/{len(self.task_list)}"
 
-        # Append new data to the existing lists
-        self.train_loss_values.append(train_loss)
-        self.valid_loss_values.append(val_loss)
-        self.valid_x_values.append(epoch)
+        # Always show the task info, and append the status if available
+        if 'status' in progress_data:
+            self.status_label.config(
+                text=f"{task_info} - {progress_data['status']}",
+                fg="#004d99",  # Dark blue text color for emphasis
+                font=("Helvetica", 10, "bold")
+            )
+        else:
+            self.status_label.config(
+                text=f"{task_info} - LSTM model being trained with hyperparameters...",
+                fg="#004d99",  # Dark blue text color for emphasis
+                font=("Helvetica", 10, "bold")
+            )
 
-        # Clear the plot and re-plot with the new data
-        self.ax.clear()
-        self.ax.set_title("Training and Validation Loss")
-        self.ax.set_xlabel("Epoch")
-        self.ax.set_ylabel("Loss [% RMSE]")
-        self.ax.plot(self.valid_x_values, self.train_loss_values, label='Train Loss')
-        self.ax.plot(self.valid_x_values, self.valid_loss_values, label='Validation Loss')
-        self.ax.legend()
-        self.canvas.draw()
+        # Now handle epoch-based updates as before
+        if 'epoch' in progress_data:
+            epoch = progress_data['epoch']
+            train_loss = progress_data['train_loss']
+            val_loss = progress_data['val_loss']
+            delta_t_valid = progress_data['delta_t_valid']
 
-        # Update the log text widget with the new progress data
-        # elapsed_time = progress_data['elapsed_time']
-        log_message = f"Epoch: {epoch}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, ΔT: {delta_t_valid:.2f}s\n"
-        self.log_text.insert(tk.END, log_message)
-        self.log_text.see(tk.END)
+            # Append new data to the existing lists
+            self.train_loss_values.append(train_loss)
+            self.valid_loss_values.append(val_loss)
+            self.valid_x_values.append(epoch)
 
-        # If there's any additional GUI elements to update, do that here as well
+            # Clear the plot and re-plot with the new data
+            self.ax.clear()
+            self.ax.set_title("Training and Validation Loss")
+            self.ax.set_xlabel("Epoch")
+            self.ax.set_ylabel("Loss [% RMSE]")
+            self.ax.plot(self.valid_x_values, self.train_loss_values, label='Train Loss')
+            self.ax.plot(self.valid_x_values, self.valid_loss_values, label='Validation Loss')
+            self.ax.legend()
+            self.canvas.draw()
+
+            # Update the log text widget with the new progress data
+            log_message = f"Epoch: {epoch}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, ΔT: {delta_t_valid:.2f}s\n"
+            self.log_text.insert(tk.END, log_message)
+            self.log_text.see(tk.END)
+        
+        self.master.update()  # Ensure all updates are reflected immediately
 
 
     def stop_training(self):
@@ -240,7 +292,6 @@ class VEstimTrainingTaskGUI:
 
             # Proceed to saving and completing the task
             self.master.after(1000, self.task_completed)
-
 
     def task_completed(self):
         # Called when a task is completed
@@ -269,24 +320,15 @@ class VEstimTrainingTaskGUI:
         self.proceed_button = tk.Button(self.master, text="Proceed to Testing", font=("Helvetica", 12, "bold"), fg="white", bg="green", command=self.transition_to_testing_gui)
         self.proceed_button.pack(pady=20)  # Adjust padding as necessary
 
-        # Initially hide the button
-        self.proceed_button.pack_forget()
-
-        # Show the button after all tasks are completed
-        if self.current_task_index == len(self.task_list) - 1:
-            self.proceed_button.pack(pady=20)  # Now make the button visible
-
-
     def transition_to_testing_gui(self):
         # Destroy the current window and move to the testing GUI
         self.master.destroy()
         root = tk.Tk()
-        VEstimTestingGui(root)  # Assuming VEstimTestingGui is the class for the testing GUI
+        # VEstimTestingGui(root)  # Assuming VEstimTestingGui is the class for the testing GUI
         root.mainloop()
-
-
 
 if __name__ == "__main__":
     root = tk.Tk()
-    gui = VEstimTrainingTaskGUI(root)
+    # Replace `task_list`, `params`, and `job_manager` with actual instances
+    gui = VEstimTrainingTaskGUI(root, task_list, params, job_manager)
     root.mainloop()

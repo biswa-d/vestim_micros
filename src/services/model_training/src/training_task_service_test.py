@@ -32,7 +32,7 @@ class TrainingTaskService:
             total_train_loss.append(loss.item())
 
             # Log the training progress for each batch
-            if batch_idx % 15 == 0:  # For example, every 10 batches
+            if batch_idx % 150 == 0:  # For example, every 10 batches
                     print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
                     print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
             # print(f"Epoch {epoch}, Batch {train_loader.batch_size}: Train Loss = {loss.item()}")
@@ -57,7 +57,7 @@ class TrainingTaskService:
 
                 # Log the validation progress for each batch
                 # Log the training progress for each batch
-                if batch_idx % 15 == 0:  # For example, every 10 batches
+                if batch_idx % 150 == 0:  # For example, every 10 batches
                         print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
                         print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
                 # print(f"Epoch {epoch}, Batch {val_loader.batch_size}: Validation Loss = {loss.item()}")

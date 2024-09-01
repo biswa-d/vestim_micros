@@ -12,53 +12,58 @@ class TrainingTaskService:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
         
-    def train_epoch(self, model, train_loader, optimizer, params, device):
+    def train_epoch(self, model, train_loader, optimizer, h_s, h_c, epoch, device):
         """Train the model for a single epoch."""
-        model.train()  # Set the model to training mode
+        model.train()
         total_train_loss = []
 
-        for X_batch, y_batch in train_loader:
-            # Initialize the hidden and cell states
-            h_s = torch.zeros(params['LAYERS'], params['BATCH_SIZE'], params['HIDDEN_UNITS']).to(device)
-            h_c = torch.zeros(params['LAYERS'], params['BATCH_SIZE'], params['HIDDEN_UNITS']).to(device)
-
+        for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
+            h_s, h_c = torch.zeros_like(h_s), torch.zeros_like(h_c)
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
 
-            optimizer.zero_grad()  # Clear previous gradients
-
-            # Forward pass
+            optimizer.zero_grad()
             y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
-            y_pred = y_pred.squeeze(-1)  # Ensure y_pred is 2D [batch_size, 1] -> [batch_size]
+            y_pred = y_pred.squeeze(-1)
 
-            loss = self.criterion(y_pred, y_batch)  # Calculate loss
-            loss.backward()  # Backward pass
-            optimizer.step()  # Update weights
+            loss = self.criterion(y_pred, y_batch)
+            loss.backward()
+            optimizer.step()
 
             total_train_loss.append(loss.item())
 
-        # Calculate the average loss for the epoch
-        train_loss_avg = np.mean(total_train_loss)
-        return train_loss_avg
+            # Log the training progress for each batch
+            if batch_idx % 150 == 0:  # For example, every 10 batches
+                    print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
+                    print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
+            # print(f"Epoch {epoch}, Batch {train_loader.batch_size}: Train Loss = {loss.item()}")
 
-    def validate_epoch(self, model, val_loader):
+        return sum(total_train_loss) / len(total_train_loss)
+
+    def validate_epoch(self, model, val_loader, h_s, h_c, epoch, device):
         """Validate the model for a single epoch."""
-        model.eval()  # Set the model to evaluation mode
-        running_loss = 0.0
+        model.eval()
+        total_loss = 0
         total_samples = 0
 
-        with torch.no_grad():  # Disable gradient calculation
-            for inputs, targets in val_loader:
-                inputs, targets = inputs.to(model.device), targets.to(model.device)
-                
-                outputs, _ = model(inputs)  # Forward pass
-                outputs = outputs.squeeze(-1)  # Ensure outputs are 2D [batch_size] if necessary
-                
-                loss = self.criterion(outputs, targets)  # Calculate loss
-                running_loss += loss.item() * inputs.size(0)  # Accumulate loss
-                total_samples += inputs.size(0)  # Accumulate sample count
+        with torch.no_grad():
+             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
+                y_pred = y_pred.squeeze(-1)
 
-        epoch_loss = running_loss / total_samples  # Average loss per sample
-        return epoch_loss
+                loss = self.criterion(y_pred, y_batch)
+                total_loss += loss.item() * X_batch.size(0)
+                total_samples += X_batch.size(0)
+
+                # Log the validation progress for each batch
+                # Log the training progress for each batch
+                if batch_idx % 150 == 0:  # For example, every 10 batches
+                        print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
+                        print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
+                # print(f"Epoch {epoch}, Batch {val_loader.batch_size}: Validation Loss = {loss.item()}")
+
+        return total_loss / total_samples
+
     
     def save_model(self, model, model_path):
         """Save the model to disk."""
