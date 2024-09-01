@@ -42,7 +42,7 @@ class VEstimHyperParamGUI:
 
         self.add_param_widgets()
 
-        start_button = tk.Button(self.master, text="Start Training", command=self.proceed_to_training, bg="blue", fg="white")
+        start_button = tk.Button(self.master, text="Create Training Tasks", command=self.proceed_to_training, bg="blue", fg="white")
         start_button.grid(row=11, column=1, columnspan=2, pady=15, sticky="ew")
 
         # load_button = tk.Button(self.master, text="Load Params from File", command=self.load_params_from_json)

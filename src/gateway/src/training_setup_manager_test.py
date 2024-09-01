@@ -83,6 +83,7 @@ class VEstimTrainingSetupManager:
         repetitions = int(self.current_hyper_params['REPETITIONS'])
         lookbacks = [int(lb) for lb in self.current_hyper_params['LOOKBACK'].split(',')]
         batch_sizes = [int(bs) for bs in self.current_hyper_params['BATCH_SIZE'].split(',')]
+        max_epochs = int(self.current_hyper_params['MAX_EPOCHS'])  # Ensure MAX_EPOCHS is included
 
         # Iterate through each model
         for model_task in self.models:
@@ -110,12 +111,14 @@ class VEstimTrainingSetupManager:
 
                                     # Define task information
                                     task_info = {
+                                        'model': model,  # Ensure this model instance is correctly initialized
                                         'model_metadata': model_metadata,  # Use metadata instead of the full model
                                         'data_loader_params': {
                                             'lookback': lookback,
                                             'batch_size': batch_size,
                                         },
                                         'model_dir': task_dir,
+                                        'model_path': os.path.join(task_dir, 'model.pth'),
                                         'hyperparams': {
                                             'LAYERS': self.current_hyper_params['LAYERS'],
                                             'HIDDEN_UNITS': model_metadata['hidden_units'],
@@ -126,7 +129,7 @@ class VEstimTrainingSetupManager:
                                             'VALID_PATIENCE': patience,
                                             'ValidFrequency': self.current_hyper_params['ValidFrequency'],
                                             'REPETITIONS': rep,
-                                            'model_path': os.path.join(task_dir, 'model.pth')
+                                            'MAX_EPOCHS': max_epochs,  # Include MAX_EPOCHS here
                                         }
                                     }
 
@@ -147,6 +150,7 @@ class VEstimTrainingSetupManager:
             json.dump([{k: v for k, v in task.items() if k != 'model'} for task in self.training_tasks], f, indent=4)
 
         print(f"Created {len(self.training_tasks)} training tasks and saved to disk.")
-    
+
     def get_task_list(self):
+        """Returns the list of training tasks."""
         return self.training_tasks

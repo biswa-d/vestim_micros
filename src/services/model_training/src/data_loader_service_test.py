@@ -23,8 +23,8 @@ class DataLoaderService:
 
         for file in csv_files:
             df = pd.read_csv(file)
-            X_data = df[['Voltage', 'Current', 'Temp']].values
-            Y_data = df['SOC'].values
+            X_data = df[['SOC', 'Current', 'Temp']].values
+            Y_data = df['Voltage'].values
             X, y = self.create_data_sequence(X_data, Y_data, lookback)
             data_sequences.append(X)
             target_sequences.append(y)

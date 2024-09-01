@@ -2,27 +2,47 @@ import torch
 import torch.nn as nn
 
 class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_units, num_layers):
+    def __init__(self, input_size, hidden_units, num_layers, device):
         super(LSTMModel, self).__init__()
-        self.input_size = input_size  # Store input_size
-        self.hidden_units = hidden_units  # Store hidden_units
-        self.num_layers = num_layers  # Store num_layers
-        self.lstm = nn.LSTM(input_size, hidden_units, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_units, 1)  # Assuming regression, adjust for your use case
+        self.input_size = input_size
+        self.hidden_units = hidden_units
+        self.num_layers = num_layers
+        self.device = device  # Store the device in the model
+        self.lstm = nn.LSTM(input_size, hidden_units, num_layers, batch_first=True).to(self.device)
+        self.fc = nn.Linear(hidden_units, 1).to(self.device)  # Assuming regression, adjust if needed
 
     def forward(self, x, h_s=None, h_c=None):
-        # If h_s and h_c are not provided, initialize them
-        if h_s is None or h_c is None:
-            h_s = torch.zeros(self.lstm.num_layers, x.size(0), self.lstm.hidden_size).to(x.device)
-            h_c = torch.zeros(self.lstm.num_layers, x.size(0), self.lstm.hidden_size).to(x.device)
+        # Ensure the input is on the correct device
+        x = x.to(self.device)
         
+        # Debugging: Print input shape
+        # print(f"Input shape: {x.shape}")
+        
+        # Initialize hidden and cell states if not provided
+        if h_s is None or h_c is None:
+            h_s = torch.zeros(self.lstm.num_layers, x.size(0), self.hidden_units).to(self.device)
+            h_c = torch.zeros(self.lstm.num_layers, x.size(0), self.hidden_units).to(self.device)
+        
+        # Pass input through LSTM
         out, (h_s, h_c) = self.lstm(x, (h_s, h_c))
-        out = self.fc(out[:, -1, :])
+        
+        # Debugging: Print output shape after LSTM
+        # print(f"Output shape after LSTM: {out.shape}")
+        
+        # Check if output shape is as expected before slicing
+        if len(out.shape) == 3:
+            out = out[:, -1, :]  # Get the last time step's output
+        else:
+            raise ValueError(f"Unexpected output shape from LSTM: {out.shape}")
+        
+        # Pass the LSTM output through the fully connected layer
+        out = self.fc(out)
         return out, (h_s, h_c)
+
 
 class LSTMModelService:
     def __init__(self):
-        pass
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def build_lstm_model(self, params):
         """
@@ -36,7 +56,7 @@ class LSTMModelService:
         num_layers = int(params["LAYERS"])
         
         print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
-        return LSTMModel(input_size, hidden_units, num_layers)
+        return LSTMModel(input_size, hidden_units, num_layers, self.device)
 
     def save_model(self, model, model_path):
         """
@@ -57,5 +77,5 @@ class LSTMModelService:
         :return: The built LSTM model.
         """
         model = self.build_lstm_model(params)
-        # self.save_model(model, model_path)
+        self.save_model(model, model_path)
         return model
