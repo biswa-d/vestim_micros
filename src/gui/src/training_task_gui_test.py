@@ -4,7 +4,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from queue import Queue, Empty
 from threading import Thread
 import time
-from src.gateway.src.training_task_manager import TrainingTaskManager
+from src.gateway.src.training_task_manager_test import TrainingTaskManager
 from src.gateway.src.job_manager import JobManager
 # from src.gui.src.testing_gui_test import VEstimTestingGui
 
@@ -65,7 +65,7 @@ class VEstimTrainingTaskGUI:
         main_frame.pack_propagate(False)
 
         # Title Label
-        title_label = tk.Label(main_frame, text="Training LSTM Model with Hyperparameters", font=("Helvetica", 12, "bold"))
+        title_label = tk.Label(main_frame, text="Training LSTM Model with Hyperparameters", font=("Helvetica", 12, "bold"), fg="#006400")
         title_label.pack(pady=5)
 
         # Hyperparameters Frame
@@ -157,7 +157,14 @@ class VEstimTrainingTaskGUI:
         self.ax.set_xticks(xticks)
         self.ax.set_xticklabels(xticks, rotation=45, ha="right")  # Rotate labels for better readability
 
-        self.ax.set_title("Training and Validation Loss")
+        self.ax.set_title(
+            "Training and Validation Loss",
+            fontsize=12,  # Font size
+            fontweight='normal',  # Font weight
+            color='#0f0c0c',  # Title color
+            pad=6  # Padding between the title and the plot
+        )
+
         
         # Initialize the plot lines with empty data
         self.train_line, = self.ax.plot([], [], label='Train Loss')
@@ -220,7 +227,7 @@ class VEstimTrainingTaskGUI:
             elapsed_time = time.time() - self.start_time
             hours, remainder = divmod(elapsed_time, 3600)
             minutes, seconds = divmod(remainder, 60)
-            self.time_value_label.config(text=f"Total Time: {int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
+            self.time_value_label.config(text=f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
 
 
     def process_queue(self):
@@ -268,11 +275,12 @@ class VEstimTrainingTaskGUI:
             val_loss = progress_data['val_loss']
             delta_t_valid = progress_data['delta_t_valid']
             learning_rate = progress_data.get('learning_rate', None)  # Default to 0.0 if not present
+            best_val_loss = progress_data.get('best_val_loss', None)  # Default to 0.0 if not present
             # If learning_rate is None, print a warning
             if learning_rate is None:
                 print("Warning: learning_rate is not found in progress_data")
 
-                
+
             # Append new data to the existing lists
             self.train_loss_values.append(train_loss)
             self.valid_loss_values.append(val_loss)
@@ -296,8 +304,28 @@ class VEstimTrainingTaskGUI:
             self.canvas.draw()
 
             # Update the log text widget with the new progress data
-            log_message = f"\tEpoch: {epoch}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, ΔT: {delta_t_valid:.2f}s, LR: {learning_rate}\n"
-            self.log_text.insert(tk.END, log_message)
+            # log_message = f"\tEpoch: {epoch}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, ΔT: {delta_t_valid:.2f}s, LR: {learning_rate}\n"
+            
+            # Create a tag for bold text that can be applied to values
+            self.log_text.tag_configure('bold', font=('Helvetica', 9, 'bold'))
+            self.log_text.tag_configure('b_bold', font=('Helvetica', 9, 'normal'), foreground='#310847') # Dark purple color, change if required
+
+
+            # Insert the text with the bold tag applied to the values
+            self.log_text.insert(tk.END, f" Epoch: ", '')
+            self.log_text.insert(tk.END, f"{epoch}, ", 'b_bold')
+            self.log_text.insert(tk.END, f" Train Loss: ", '')
+            self.log_text.insert(tk.END, f"{train_loss:.4f}, ", 'b_bold')
+            self.log_text.insert(tk.END, f" Val Loss: ", '')
+            self.log_text.insert(tk.END, f"{val_loss:.4f}, ", 'b_bold')
+            self.log_text.insert(tk.END, f" Best Val Loss: ", '')
+            self.log_text.insert(tk.END, f"{best_val_loss:.4f}, ", 'b_bold')
+            self.log_text.insert(tk.END, f" ΔT: ", '')
+            self.log_text.insert(tk.END, f"{delta_t_valid:.2f}s, ", 'b_bold')
+            self.log_text.insert(tk.END, f" LR: ", '')
+            self.log_text.insert(tk.END, f"{learning_rate:.1e}\n", 'b_bold')
+
+            # Ensure the log is scrolled to the end
             self.log_text.see(tk.END)
 
         self.master.update()  # Ensure all updates are reflected immediately

@@ -86,8 +86,12 @@ class TrainingTaskManager:
 
                 # Train the model for one epoch
                 train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device)
-
+                
+                # Retrieve the current learning rate from the optimizer
+                current_lr = optimizer.param_groups[0]['lr']
+                print(f"current_lr: {current_lr}")
                 # Validate the model at the specified frequency
+                
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
                     # Reinitialize hidden states for validation phase
                     h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
