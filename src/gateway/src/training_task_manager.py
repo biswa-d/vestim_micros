@@ -3,7 +3,7 @@ import torch
 from threading import Thread
 from src.gateway.src.job_manager import JobManager
 from src.services.model_training.src.data_loader_service import DataLoaderService
-from src.services.model_training.src.training_task_service_test import TrainingTaskService
+from src.services.model_training.src.training_task_service import TrainingTaskService
 
 class TrainingTaskManager:
     def __init__(self):
@@ -34,7 +34,7 @@ class TrainingTaskManager:
             train_loader, val_loader = self.create_data_loaders(task)
 
             # Step 2: Starting Training
-            update_progress_callback({'status': f'Training started on {device}...'})
+            update_progress_callback({'status': f'Training started on {device}. Creating DataLoaders'})
             # Start training in a separate thread
             training_thread = Thread(target=self.run_training, args=(task, queue, update_progress_callback, train_loader, val_loader, device))
             training_thread.setDaemon(True)
@@ -86,8 +86,12 @@ class TrainingTaskManager:
 
                 # Train the model for one epoch
                 train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device)
-
+                
+                # Retrieve the current learning rate from the optimizer
+                current_lr = optimizer.param_groups[0]['lr']
+                print(f"current_lr: {current_lr}")
                 # Validate the model at the specified frequency
+                
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
                     # Reinitialize hidden states for validation phase
                     h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
@@ -100,13 +104,19 @@ class TrainingTaskManager:
                     delta_t_valid = current_time - last_validation_time
                     last_validation_time = current_time  # Update the last validation time
 
+                    # Retrieve the current learning rate from the optimizer
+                    current_lr = optimizer.param_groups[0]['lr']
+                    print(f"current_lr: {current_lr}")
+                    
                     # Prepare progress data
                     progress_data = {
                         'epoch': epoch,
                         'train_loss': train_loss,
                         'val_loss': val_loss,
                         'elapsed_time': current_time - start_time,
-                        'delta_t_valid': delta_t_valid  # Include the time delta
+                        'delta_t_valid': delta_t_valid,  # Include the time delta
+                        'learning_rate': current_lr, # Include the current learning rate
+                        'best_val_loss': best_validation_loss,  # Include the best validation loss so far
                     }
 
                     # Send progress update to the GUI via the callback

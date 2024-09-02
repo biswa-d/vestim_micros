@@ -164,8 +164,8 @@ class VEstimTrainingTaskGUI:
             color='#0f0c0c',  # Title color
             pad=6  # Padding between the title and the plot
         )
+              
 
-        
         # Initialize the plot lines with empty data
         self.train_line, = self.ax.plot([], [], label='Train Loss')
         self.valid_line, = self.ax.plot([], [], label='Validation Loss')

@@ -51,6 +51,9 @@ class VEstimTrainingTaskGUI:
         for widget in self.master.winfo_children():
             widget.destroy()
 
+        # Clear the plot to ensure no residual data from the previous task
+        self.clear_plot()
+
         # Set window title and size
         self.master.title(f"VEstim - Training Task {self.current_task_index + 1}")
         self.master.geometry("900x600")
@@ -62,7 +65,7 @@ class VEstimTrainingTaskGUI:
         main_frame.pack_propagate(False)
 
         # Title Label
-        title_label = tk.Label(main_frame, text="Training LSTM Model with Hyperparameters", font=("Helvetica", 12, "bold"))
+        title_label = tk.Label(main_frame, text="Training LSTM Model with Hyperparameters", font=("Helvetica", 12, "bold"), fg="#006400")
         title_label.pack(pady=5)
 
         # Hyperparameters Frame
@@ -77,6 +80,7 @@ class VEstimTrainingTaskGUI:
         self.status_label.pack(pady=5)
 
         # Time Frame, Plot Setup, and Log Window
+        print(f"Entering setup_time_and_plot with task: {task}")
         self.setup_time_and_plot(main_frame, task)
         self.setup_log_window(main_frame, task)
 
@@ -145,26 +149,26 @@ class VEstimTrainingTaskGUI:
             xticks = list(range(1, max_epochs + 1))
         else:
             xticks = list(range(1, max_epochs + 1, max(1, max_epochs // max_ticks)))
-        
+
         # Ensure the last epoch is included
         if max_epochs not in xticks:
             xticks.append(max_epochs)
-        
+
         self.ax.set_xticks(xticks)
         self.ax.set_xticklabels(xticks, rotation=45, ha="right")  # Rotate labels for better readability
-        
-        # # Generate x-ticks based on the max epochs and validation frequency
-        # xticks = list(range(1, max_epochs + 1, valid_frequency))
-        # if max_epochs not in xticks:
-        #     xticks.append(max_epochs)
-        # self.ax.set_xticks(xticks)
 
-        self.ax.set_title("Training and Validation Loss")
-        self.ax.legend(["Train Loss", "Validation Loss"])
+        self.ax.set_title(
+            "Training and Validation Loss",
+            fontsize=12,  # Font size
+            fontweight='normal',  # Font weight
+            color='#0f0c0c',  # Title color
+            pad=6  # Padding between the title and the plot
+        )
+              
 
-        # Initialize the plot lines
-        self.ax.plot([], [], label='Train Loss')
-        self.ax.plot([], [], label='Validation Loss')
+        # Initialize the plot lines with empty data
+        self.train_line, = self.ax.plot([], [], label='Train Loss')
+        self.valid_line, = self.ax.plot([], [], label='Validation Loss')
         self.ax.legend()
 
         # Attach the Matplotlib figure to the Tkinter frame
@@ -178,8 +182,7 @@ class VEstimTrainingTaskGUI:
         self.log_text = tk.Text(main_frame, height=1, wrap=tk.WORD)
         self.log_text.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         # self.log_text.insert(tk.END, "Initial Parameters:\n")
-        self.log_text.insert(tk.END, f"Repetition: 1/{task['hyperparams']['REPETITIONS']}, "
-                                    f"Epoch: 0, Train Loss: N/A, Validation Error: N/A\n")
+        self.log_text.insert(tk.END, f"Repetition: {task['hyperparams']['REPETITIONS']}\n")
         self.log_text.see(tk.END)
 
     def start_task_processing(self):
@@ -194,6 +197,9 @@ class VEstimTrainingTaskGUI:
 
         # Start processing tasks sequentially
         self.start_time = time.time()
+
+        # Clear the plot before starting the new task
+        # self.clear_plot() #commenting this to test calling this method from build_gui method, toggle between the two to test output
 
         def run_training_task(task):
             # Process the current task using the TrainingTaskManager
@@ -212,7 +218,17 @@ class VEstimTrainingTaskGUI:
             hours, remainder = divmod(elapsed_time, 3600)
             minutes, seconds = divmod(remainder, 60)
             self.time_value_label.config(text=f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
-            self.master.after(1000, self.update_elapsed_time)
+            
+            # Continue updating the timer as long as the task is running
+            if self.master.winfo_exists():
+                self.master.after(1000, self.update_elapsed_time)
+        else:
+            # When the timer stops, it will not continue to update, but the last time will be displayed
+            elapsed_time = time.time() - self.start_time
+            hours, remainder = divmod(elapsed_time, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            self.time_value_label.config(text=f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
+
 
     def process_queue(self):
         try:
@@ -258,29 +274,61 @@ class VEstimTrainingTaskGUI:
             train_loss = progress_data['train_loss']
             val_loss = progress_data['val_loss']
             delta_t_valid = progress_data['delta_t_valid']
+            learning_rate = progress_data.get('learning_rate', None)  # Default to 0.0 if not present
+            best_val_loss = progress_data.get('best_val_loss', None)  # Default to 0.0 if not present
+            # If learning_rate is None, print a warning
+            if learning_rate is None:
+                print("Warning: learning_rate is not found in progress_data")
+
 
             # Append new data to the existing lists
             self.train_loss_values.append(train_loss)
             self.valid_loss_values.append(val_loss)
             self.valid_x_values.append(epoch)
 
-            # Clear the plot and re-plot with the new data
-            self.ax.clear()
-            self.ax.set_title("Training and Validation Loss")
-            self.ax.set_xlabel("Epoch")
-            self.ax.set_ylabel("Loss [% RMSE]")
-            self.ax.plot(self.valid_x_values, self.train_loss_values, label='Train Loss')
-            self.ax.plot(self.valid_x_values, self.valid_loss_values, label='Validation Loss')
-            self.ax.legend()
+            # Use the correct parameter for the current task
+            max_epochs = int(self.task_list[self.current_task_index]['hyperparams']['MAX_EPOCHS'])
+
+            # Update the plot lines with the new data
+            self.train_line.set_data(self.valid_x_values, self.train_loss_values)
+            self.valid_line.set_data(self.valid_x_values, self.valid_loss_values)
+
+            # Adjust y-axis limits dynamically based on the new data
+            self.ax.set_ylim(min(min(self.train_loss_values), min(self.valid_loss_values)) * 0.9,
+                            max(max(self.train_loss_values), max(self.valid_loss_values)) * 1.1)
+
+            # Ensure x-limits remain consistent
+            self.ax.set_xlim(1, max_epochs)
+
+            # Redraw the plot
             self.canvas.draw()
 
             # Update the log text widget with the new progress data
-            log_message = f"Epoch: {epoch}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, ΔT: {delta_t_valid:.2f}s\n"
-            self.log_text.insert(tk.END, log_message)
-            self.log_text.see(tk.END)
-        
-        self.master.update()  # Ensure all updates are reflected immediately
+            # log_message = f"\tEpoch: {epoch}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, ΔT: {delta_t_valid:.2f}s, LR: {learning_rate}\n"
+            
+            # Create a tag for bold text that can be applied to values
+            self.log_text.tag_configure('bold', font=('Helvetica', 9, 'bold'))
+            self.log_text.tag_configure('b_bold', font=('Helvetica', 9, 'normal'), foreground='#310847') # Dark purple color, change if required
 
+
+            # Insert the text with the bold tag applied to the values
+            self.log_text.insert(tk.END, f" Epoch: ", '')
+            self.log_text.insert(tk.END, f"{epoch}, ", 'bold')
+            self.log_text.insert(tk.END, f" Train Loss: ", '')
+            self.log_text.insert(tk.END, f"{train_loss:.4f}, ", 'bold')
+            self.log_text.insert(tk.END, f" Val Loss: ", '')
+            self.log_text.insert(tk.END, f"{val_loss:.4f}, ", 'bold')
+            self.log_text.insert(tk.END, f" Best Val Loss: ", '')
+            self.log_text.insert(tk.END, f"{best_val_loss:.4f}, ", 'bold')
+            self.log_text.insert(tk.END, f" ΔT: ", '')
+            self.log_text.insert(tk.END, f"{delta_t_valid:.2f}s, ", 'bold')
+            self.log_text.insert(tk.END, f" LR: ", '')
+            self.log_text.insert(tk.END, f"{learning_rate:.1e}\n", 'bold')
+
+            # Ensure the log is scrolled to the end
+            self.log_text.see(tk.END)
+
+        self.master.update()  # Ensure all updates are reflected immediately
 
     def stop_training(self):
         if self.training_thread.is_alive():
@@ -297,12 +345,19 @@ class VEstimTrainingTaskGUI:
         # Called when a task is completed
         self.timer_running = False
 
-        # Update GUI for completed task
-        self.status_label.config(text=f"Task {self.current_task_index + 1} Completed! Saving model to task folder...")
+        # Calculate time taken for the completed task
+        task_time_elapsed = time.time() - self.start_time
+        hours, remainder = divmod(task_time_elapsed, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        formatted_task_time = f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s"
 
-        # Pause for a moment to allow the user to read the completion status
+        # Update GUI for completed task with time taken
+        self.status_label.config(text=f"Task {self.current_task_index + 1} Completed! Time taken: {formatted_task_time}. Saving model to task folder...")
+
+        # Update the elapsed time display to show total time taken for the completed task
+        self.time_value_label.config(text=f" {formatted_task_time}")
+
         self.master.update()  # Force update to display the message
-        time.sleep(3)  # Pause for 3 seconds
 
         # Proceed to the next task or finish
         if self.current_task_index < len(self.task_list) - 1:
@@ -312,10 +367,42 @@ class VEstimTrainingTaskGUI:
             self.build_gui(self.task_list[self.current_task_index])
             self.start_task_processing()
         else:
+            total_training_time = time.time() - self.start_time  # Total time for all tasks
+            total_hours, total_remainder = divmod(total_training_time, 3600)
+            total_minutes, total_seconds = divmod(total_remainder, 60)
+            formatted_total_time = f"{int(total_hours):02}h:{int(total_minutes):02}m:{int(total_seconds):02}s"
+            
+            # Update static text label and dynamic time label for total training time
+            self.static_text_label.config(text="Total Training Time:")
+            self.time_value_label.config(text=f"{formatted_total_time}")
+            
             self.status_label.config(text="All Training Tasks Completed!")
             self.show_proceed_to_testing_button()
 
+    def clear_plot(self):
+        """Clear the existing plot and reinitialize plot lines for a new task."""
+        self.train_loss_values = []
+        self.valid_loss_values = []
+        self.valid_x_values = []
+
+        if hasattr(self, 'ax'):  # Ensure ax exists (important for the first task)
+            # Clear the plot and reset title, labels, and lines
+            self.ax.clear()
+            self.ax.set_title("Training and Validation Loss")
+            self.ax.set_xlabel("Epoch")
+            self.ax.set_ylabel("Loss [% RMSE]")
+
+            # Reinitialize the plot lines after clearing the plot
+            self.train_line, = self.ax.plot([], [], label='Train Loss')
+            self.valid_line, = self.ax.plot([], [], label='Validation Loss')
+            self.ax.legend()
+
+            # Redraw the canvas with the cleared plot
+            self.canvas.draw()
+
     def show_proceed_to_testing_button(self):
+        # Hide the Stop Training button
+        self.stop_button.pack_forget()
         # Create a button to proceed to testing
         self.proceed_button = tk.Button(self.master, text="Proceed to Testing", font=("Helvetica", 12, "bold"), fg="white", bg="green", command=self.transition_to_testing_gui)
         self.proceed_button.pack(pady=20)  # Adjust padding as necessary

@@ -2,7 +2,7 @@ import time
 import os,json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.gateway.src.hyper_param_manager import VEstimHyperParamManager
-from src.services.model_training.src.training_service import TrainingService
+from services.model_training.src.training_service_m import TrainingService
 from src.services.model_training.src.LSTM_model_service import LSTMModelService
 from src.services.model_training.src.data_loader_service import DataLoaderService
 from src.gateway.src.job_manager import JobManager
