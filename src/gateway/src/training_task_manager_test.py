@@ -100,13 +100,19 @@ class TrainingTaskManager:
                     delta_t_valid = current_time - last_validation_time
                     last_validation_time = current_time  # Update the last validation time
 
+                    # Retrieve the current learning rate from the optimizer
+                    current_lr = optimizer.param_groups[0]['lr']
+                    print(f"current_lr: {current_lr}")
+                    
                     # Prepare progress data
                     progress_data = {
                         'epoch': epoch,
                         'train_loss': train_loss,
                         'val_loss': val_loss,
                         'elapsed_time': current_time - start_time,
-                        'delta_t_valid': delta_t_valid  # Include the time delta
+                        'delta_t_valid': delta_t_valid,  # Include the time delta
+                        'learning_rate': current_lr, # Include the current learning rate
+                        'best_val_loss': best_validation_loss,  # Include the best validation loss so far
                     }
 
                     # Send progress update to the GUI via the callback
