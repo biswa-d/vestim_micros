@@ -34,7 +34,7 @@ class TrainingTaskManager:
             train_loader, val_loader = self.create_data_loaders(task)
 
             # Step 2: Starting Training
-            update_progress_callback({'status': f'Training started on {device}...'})
+            update_progress_callback({'status': f'Training started on {device}. Creating DataLoaders'})
             # Start training in a separate thread
             training_thread = Thread(target=self.run_training, args=(task, queue, update_progress_callback, train_loader, val_loader, device))
             training_thread.setDaemon(True)

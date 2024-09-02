@@ -313,17 +313,17 @@ class VEstimTrainingTaskGUI:
 
             # Insert the text with the bold tag applied to the values
             self.log_text.insert(tk.END, f" Epoch: ", '')
-            self.log_text.insert(tk.END, f"{epoch}, ", 'b_bold')
+            self.log_text.insert(tk.END, f"{epoch}, ", 'bold')
             self.log_text.insert(tk.END, f" Train Loss: ", '')
-            self.log_text.insert(tk.END, f"{train_loss:.4f}, ", 'b_bold')
+            self.log_text.insert(tk.END, f"{train_loss:.4f}, ", 'bold')
             self.log_text.insert(tk.END, f" Val Loss: ", '')
-            self.log_text.insert(tk.END, f"{val_loss:.4f}, ", 'b_bold')
+            self.log_text.insert(tk.END, f"{val_loss:.4f}, ", 'bold')
             self.log_text.insert(tk.END, f" Best Val Loss: ", '')
-            self.log_text.insert(tk.END, f"{best_val_loss:.4f}, ", 'b_bold')
+            self.log_text.insert(tk.END, f"{best_val_loss:.4f}, ", 'bold')
             self.log_text.insert(tk.END, f" ΔT: ", '')
-            self.log_text.insert(tk.END, f"{delta_t_valid:.2f}s, ", 'b_bold')
+            self.log_text.insert(tk.END, f"{delta_t_valid:.2f}s, ", 'bold')
             self.log_text.insert(tk.END, f" LR: ", '')
-            self.log_text.insert(tk.END, f"{learning_rate:.1e}\n", 'b_bold')
+            self.log_text.insert(tk.END, f"{learning_rate:.1e}\n", 'bold')
 
             # Ensure the log is scrolled to the end
             self.log_text.see(tk.END)
