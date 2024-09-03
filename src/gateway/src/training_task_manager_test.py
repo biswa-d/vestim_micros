@@ -36,9 +36,9 @@ class TrainingTaskManager:
             # Step 2: Starting Training
             update_progress_callback({'status': f'Training started on {device}. Creating DataLoaders'})
             # Start training in a separate thread
-            training_thread = Thread(target=self.run_training, args=(task, queue, update_progress_callback, train_loader, val_loader, device))
-            training_thread.setDaemon(True)
-            training_thread.start()
+            self.training_thread = Thread(target=self.run_training, args=(task, queue, update_progress_callback, train_loader, val_loader, device))
+            self.training_thread.setDaemon(True)
+            self.training_thread.start()
 
         except Exception as e:
             queue.put({'task_error': str(e)})
@@ -78,6 +78,7 @@ class TrainingTaskManager:
 
             for epoch in range(1, max_epochs + 1):
                 if self.stop_requested:
+                    print("Stopping training...")
                     break
 
                 # Initialize hidden states for training phase
@@ -85,8 +86,11 @@ class TrainingTaskManager:
                 h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
 
                 # Train the model for one epoch
-                train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device)
-                
+                train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested)
+                 # If training was stopped within train_epoch, break out of the loop
+                if self.stop_requested:
+                    print("Training stopped after training phase.")
+                    break
                 # Retrieve the current learning rate from the optimizer
                 current_lr = optimizer.param_groups[0]['lr']
                 print(f"current_lr: {current_lr}")
@@ -97,8 +101,11 @@ class TrainingTaskManager:
                     h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
                     h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
 
-                    val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device)
-
+                    val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested)
+                    # If training was stopped within validate_epoch, break out of the loop
+                    if self.stop_requested:
+                        print("Training stopped after validation phase.")
+                        break
                     # Calculate the time delta since the last validation
                     current_time = time.time()
                     delta_t_valid = current_time - last_validation_time
@@ -134,7 +141,10 @@ class TrainingTaskManager:
                         break
 
                 scheduler.step()  # Adjust learning rate
-
+            # Ensure we properly check for stop_requested after the loop
+            if self.stop_requested:
+                print("Training was stopped early. Saving Model...")
+                self.save_model(task)  # Save the model before stopping
             # Signal task completion
             queue.put({'task_completed': True})
 
@@ -169,3 +179,9 @@ class TrainingTaskManager:
         # Save the model state dictionary
         torch.save(model.state_dict(), model_path)
 
+    def stop_task(self):
+        self.stop_requested = True  # Set the flag to request a stop
+        if self.training_thread and self.training_thread.is_alive():
+            print("Waiting for the training thread to finish before saving the model...")
+            self.training_thread.join()  # Wait for the thread to finish cleanly
+            print("Training thread has finished. Proceeding to save the model.")

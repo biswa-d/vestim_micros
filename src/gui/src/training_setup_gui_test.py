@@ -2,7 +2,7 @@ import tkinter as tk
 from threading import Thread
 import time
 from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
-from src.gui.src.training_task_gui_test import VEstimTrainingTaskGUI
+from src.gui.src.training_task_gui_1_test import VEstimTrainingTaskGUI
 from src.gateway.src.job_manager import JobManager
 
 class VEstimTrainSetupGUI:

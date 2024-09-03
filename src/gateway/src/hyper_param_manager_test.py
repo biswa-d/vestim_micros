@@ -13,7 +13,8 @@ class VEstimHyperParamManager:
     def __init__(self):
         if not hasattr(self, 'initialized'):
             self.job_manager = JobManager()
-            self.current_params = None  # Initialize current_params as None
+            self.current_params = {}  # Initialize current_params as None
+            # self.param_sets = []  # Initialize param_sets as an empty list
             self.initialized = True
 
     def load_params(self, filepath):
@@ -21,41 +22,44 @@ class VEstimHyperParamManager:
         with open(filepath, 'r') as file:
             params = json.load(file)
             validated_params = self.validate_and_normalize_params(params)
-            self.param_sets.append(validated_params)
+            # self.param_sets.append(validated_params)
             self.current_params = validated_params  # Set the current_params to the loaded params
         return validated_params
 
     def validate_and_normalize_params(self, params):
-        """Validate and normalize the parameter values."""
+        """Validate the parameter values without altering them."""
         validated_params = {}
 
         for key, value in params.items():
             if isinstance(value, str):
                 # Split the string into a list, allowing for comma or space separation
                 value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
-                # Convert to appropriate data types
+                # Check data types without converting
                 if key in ['LAYERS', 'HIDDEN_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD', 'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS']:
-                    # Convert to integers
-                    try:
-                        validated_params[key] = [int(v) for v in value_list]
-                    except ValueError:
+                    # Ensure values are integers
+                    if not all(v.isdigit() for v in value_list):
                         raise ValueError(f"Invalid value for {key}: Expected integers, got {value_list}")
+                    validated_params[key] = value  # Keep the original string
+
                 elif key in ['INITIAL_LR', 'LR_DROP_FACTOR']:
-                    # Convert to floats
+                    # Ensure values are floats
                     try:
-                        validated_params[key] = [float(v) for v in value_list]
+                        [float(v) for v in value_list]
                     except ValueError:
                         raise ValueError(f"Invalid value for {key}: Expected floats, got {value_list}")
+                    validated_params[key] = value  # Keep the original string
+
                 else:
-                    validated_params[key] = value_list if len(value_list) > 1 else value_list[0]
+                    validated_params[key] = value
 
             elif isinstance(value, list):
-                # Process lists directly
+                # Check list elements without altering them
                 validated_params[key] = value
             else:
-                validated_params[key] = [value]
+                validated_params[key] = value
 
         return validated_params
+
 
     def save_params(self):
         """Save the current parameters to the job folder."""

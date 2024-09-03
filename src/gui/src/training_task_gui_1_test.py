@@ -30,6 +30,8 @@ class VEstimTrainingTaskGUI:
         self.queue = Queue()
         self.timer_running = True
         self.training_process_stopped = False
+        # Add this flag to avoid multiple completions
+        self.task_completed_flag = False
 
         # Dictionary for displaying labels
         self.param_labels = {
@@ -91,7 +93,17 @@ class VEstimTrainingTaskGUI:
 
         # Stop button
         self.stop_button = tk.Button(main_frame, text="Stop Training", command=self.stop_training, bg="red", fg="white")
-        self.stop_button.pack(pady=10)
+        self.stop_button.pack(pady=8)
+        # Progress Label - initially hidden
+        self.progress_label = tk.Label(
+            main_frame,
+            text="Processing...",
+            font=("Helvetica", 10),
+            bg="#e6f7ff",  # Light blue background
+            fg="black"
+        )
+        self.progress_label.pack(pady=10)
+        self.progress_label.pack_forget()  # Initially hidden
 
     def display_hyperparameters(self, params):
         # Clear previous widgets in the hyperparam_frame
@@ -340,36 +352,6 @@ class VEstimTrainingTaskGUI:
         self.master.update()  # Ensure all updates are reflected immediately
 
 
-    def task_completed(self):
-        self.timer_running = False
-
-        # Check if the stop flag is set
-        if getattr(self, 'training_process_stopped', False):
-            print("Training process was stopped early.")
-            self.status_label.config(text="Training stopped early. Saving model to task folder...", fg="red")
-            self.show_proceed_to_testing_button()
-            return  # Exit the task loop early
-
-        # Move to the next task if there are more tasks to process
-        if self.current_task_index < len(self.task_list) - 1:
-            self.current_task_index += 1
-            self.build_gui(self.task_list[self.current_task_index])
-            self.start_task_processing()
-        else:
-            total_training_time = time.time() - self.start_time  # Total time for all tasks
-            total_hours, total_remainder = divmod(total_training_time, 3600)
-            total_minutes, total_seconds = divmod(total_remainder, 60)
-            formatted_total_time = f"{int(total_hours):02}h:{int(total_minutes):02}m:{int(total_seconds):02}s"
-            
-            # Update static text label and dynamic time label for total training time
-            self.static_text_label.config(text="Total Training Time:")
-            self.time_value_label.config(text=f"{formatted_total_time}")
-            
-            self.status_label.config(text="All Training Tasks Completed!")
-            self.show_proceed_to_testing_button()
-    
-
-
     def clear_plot(self):
         """Clear the existing plot and reinitialize plot lines for a new task."""
         self.train_loss_values = []
@@ -390,13 +372,6 @@ class VEstimTrainingTaskGUI:
 
             # Redraw the canvas with the cleared plot
             self.canvas.draw()
-
-    def show_proceed_to_testing_button(self):
-        # Hide the Stop Training button
-        self.stop_button.pack_forget()
-        # Create a button to proceed to testing
-        self.proceed_button = tk.Button(self.master, text="Proceed to Testing", font=("Helvetica", 12, "bold"), fg="white", bg="green", command=self.transition_to_testing_gui)
-        self.proceed_button.pack(pady=20)  # Adjust padding as necessary
     
     def stop_training(self):
         print("Stop training button clicked")
@@ -410,59 +385,128 @@ class VEstimTrainingTaskGUI:
         
         # Immediate GUI update to reflect stopping state
         self.status_label.config(text="Stopping Training...", fg="red")
+        self.progress_label.config(text="Processing...", fg="black", bg="#e6f7ff")
+        self.progress_label.pack(pady=10)
+        self.stop_button.config(text="Stopping...", state=tk.DISABLED, bg="grey")
         self.master.update_idletasks()  # Force immediate GUI update
-
-        # Hide stop button and show stopping status
-        self.stop_button.pack_forget()
-
-        # After a short delay, complete the task
-        self.master.after(1000, self.task_completed)
-
-    def stop_training_process(self):
-        print("Stop training process initiated")
         
-        # Stop the current training task
-        self.stop_training()  # Call the existing method to stop the current task
-        
-        # Set a flag or condition to prevent further tasks from starting
+        # Set flag to prevent further tasks
         self.training_process_stopped = True
-        
-        # Update the GUI to show that the training process is stopping
-        self.status_label.config(text="Stopping Training Process...", fg="red")
-        self.master.update_idletasks()  # Force immediate GUI update
 
-         # Wait for a short moment to ensure that the current task is stopped
+        # Check if the training thread has finished
+        self.master.after(100, self.check_if_stopped)
+
+    def check_if_stopped(self):
         if self.training_thread and self.training_thread.is_alive():
-            self.training_thread.join(timeout=5)  # Wait for a maximum of 5 seconds for the thread to stop
-        
-        # After stopping, ensure that no further tasks are processed
-        self.master.after(1000, self.finish_stopping_process)
-
-    def finish_stopping_process(self):
-        # Check if there are further tasks queued
-        if self.current_task_index < len(self.task_list) - 1:
-            print("Further tasks are queued, but training process is stopped.")
-            self.status_label.config(text="Training process has been stopped. No further tasks will be processed.", fg="red")
+            # Continue checking until the thread has stopped
+            self.master.after(100, self.check_if_stopped)
         else:
-            print("Training process stopped successfully.")
-            self.status_label.config(text="Training process stopped successfully.", fg="red")
+            # Once the thread is confirmed to be stopped
+            print("Training thread has stopped.")
+            self.progress_label.config(text="Training stopped.", fg="red")
+            print("Calling task_completed() after training thread has stopped.") # Debugging statement
+            self.task_completed()  # Proceed to handle task completion
+            self.master.update_idletasks()  # Force GUI update
+    
+    def task_completed(self):
+        print("Entering task_completed() method.")
+        if self.task_completed_flag:
+            return  # Exit if this method has already been called
+        self.task_completed_flag = True  # Set the flag to True on the first call
 
-        # Optional: Provide an option to proceed to testing or close the GUI
-        self.show_proceed_to_testing_button()
+        self.timer_running = False
 
+        if getattr(self, 'training_process_stopped', False):
+            print(f"Training process stopped flag: {self.training_process_stopped}")
+            print("Training process was stopped early.")
+            self.status_label.config(text="Training stopped early. Saving model to task folder...", fg="red")
+            self.show_proceed_to_testing_button()
+            return
 
-    def transition_to_testing_gui(self):
-        # Destroy the current window and move to the testing GUI
-        self.master.destroy()
-        root = tk.Tk()
-        VEstimTestingGUI(root)  # Assuming VEstimTestingGui is the class for the testing GUI
-        root.mainloop()
+        if self.current_task_index < len(self.task_list) - 1:
+            self.current_task_index += 1
+            self.build_gui(self.task_list[self.current_task_index])
+            self.start_task_processing()
+        else:
+            total_training_time = time.time() - self.start_time
+            total_hours, total_remainder = divmod(total_training_time, 3600)
+            total_minutes, total_seconds = divmod(total_remainder, 60)
+            formatted_total_time = f"{int(total_hours):02}h:{int(total_minutes):02}m:{int(total_seconds):02}s"
+
+            self.static_text_label.config(text="Total Training Time:")
+            self.time_value_label.config(text=f"{formatted_total_time}")
+
+            self.status_label.config(text="All Training Tasks Completed!")
+            self.show_proceed_to_testing_button()
+
+    # def stop_training_process(self):
+    #     print("Stop training process initiated")
+        
+    #     # Stop the current training task
+    #     self.stop_training()  # Call the existing method to stop the current task
+        
+    #     # Set a flag or condition to prevent further tasks from starting
+    #     self.training_process_stopped = True
+        
+    #     # Update the GUI to show that the training process is stopping
+    #     self.status_label.config(text="Stopping Training Process...", fg="red")
+    #     self.master.update_idletasks()  # Force immediate GUI update
+
+    #      # Wait for a short moment to ensure that the current task is stopped
+    #     if self.training_thread and self.training_thread.is_alive():
+    #         self.training_thread.join(timeout=5)  # Wait for a maximum of 5 seconds for the thread to stop
+        
+    #     # After stopping, ensure that no further tasks are processed
+    #     self.master.after(1000, self.finish_stopping_process)
+
+    # def finish_stopping_process(self):
+    #     # Check if there are further tasks queued
+    #     if self.current_task_index < len(self.task_list) - 1:
+    #         print("Further tasks are queued, but training process is stopped.")
+    #         self.status_label.config(text="Training process has been stopped. No further tasks will be processed.", fg="red")
+    #     else:
+    #         print("Training process stopped successfully.")
+    #         self.status_label.config(text="Training process stopped successfully.", fg="red")
+
+    #     # Optional: Provide an option to proceed to testing or close the GUI
+    #     self.show_proceed_to_testing_button()
     
     def on_closing(self):
         # Handle the window close event
-        if self.training_thread.is_alive():
+        if self.training_thread and self.training_thread.is_alive():
+            print("Stopping training before closing...")
             self.stop_training()  # Stop the training thread
-        self.master.destroy()  # Close the window
+            self.master.after(100, self.wait_for_thread_to_stop)
+        else:
+            self.master.destroy()  # Close the window
+
+    def wait_for_thread_to_stop(self):
+        if self.training_thread and self.training_thread.is_alive():
+            # Continue checking until the thread has stopped
+            self.master.after(100, self.wait_for_thread_to_stop)
+        else:
+            # Once the thread is confirmed to be stopped
+            print("Training thread has stopped, now closing the window.")
+            self.master.destroy()  # Close the window
+
+    def show_proceed_to_testing_button(self):
+        if hasattr(self, 'proceed_button'):
+            return  # Exit if the button has already been created
+        self.stop_button.pack_forget()
+        self.proceed_button = tk.Button(self.master, text="Proceed to Testing", font=("Helvetica", 12, "bold"), fg="white", bg="green", command=self.transition_to_testing_gui)
+        self.proceed_button.pack(pady=20)
+    
+    def transition_to_testing_gui(self):
+        # Destroy the current window
+        self.master.destroy()
+
+        # Create a new Tkinter root window
+        new_root = tk.Tk()
+
+        # Pass the new root window to the Testing GUI
+        VEstimTestingGUI(new_root)
+        new_root.mainloop()
+
 
 if __name__ == "__main__":
     root = tk.Tk()

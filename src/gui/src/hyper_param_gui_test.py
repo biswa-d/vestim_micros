@@ -4,7 +4,7 @@ import os
 import json
 from src.gui.src.training_setup_gui_test import VEstimTrainSetupGUI
 from src.gateway.src.job_manager import JobManager
-from src.gateway.src.hyper_param_manager import VEstimHyperParamManager
+from src.gateway.src.hyper_param_manager_test import VEstimHyperParamManager
 
 # Initialize the JobManager
 job_manager = JobManager()
@@ -133,7 +133,7 @@ class VEstimHyperParamGUI:
     def update_params(self, new_params):
         try:
             self.hyper_param_manager.update_params(new_params)
-            self.params = self.hyper_param_manager.get_current_params()
+            # self.params = self.hyper_param_manager.get_current_params()
         except ValueError as e:
             messagebox.showerror("Error", f"Invalid parameter input: {str(e)}")
         self.update_gui_with_loaded_params()

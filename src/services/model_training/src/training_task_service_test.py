@@ -12,12 +12,16 @@ class TrainingTaskService:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
         
-    def train_epoch(self, model, train_loader, optimizer, h_s, h_c, epoch, device):
+    def train_epoch(self, model, train_loader, optimizer, h_s, h_c, epoch, device, stop_requested):
         """Train the model for a single epoch."""
         model.train()
         total_train_loss = []
 
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
+            if stop_requested:  # Check if a stop has been requested
+                print("Stop requested during training")
+                break  # Exit the loop if stop is requested
+
             h_s, h_c = torch.zeros_like(h_s), torch.zeros_like(h_c)
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
 
@@ -32,21 +36,24 @@ class TrainingTaskService:
             total_train_loss.append(loss.item())
 
             # Log the training progress for each batch
-            if batch_idx % 150 == 0:  # For example, every 10 batches
-                    print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
-                    print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
-            # print(f"Epoch {epoch}, Batch {train_loader.batch_size}: Train Loss = {loss.item()}")
+            if batch_idx % 150 == 0:  # For example, every 150 batches
+                print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
+                print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
 
         return sum(total_train_loss) / len(total_train_loss)
 
-    def validate_epoch(self, model, val_loader, h_s, h_c, epoch, device):
+    def validate_epoch(self, model, val_loader, h_s, h_c, epoch, device, stop_requested):
         """Validate the model for a single epoch."""
         model.eval()
         total_loss = 0
         total_samples = 0
 
         with torch.no_grad():
-             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
+            for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
+                if stop_requested:  # Check if a stop has been requested
+                    print("Stop requested during validation")
+                    break  # Exit the loop if stop is requested
+
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                 y_pred = y_pred.squeeze(-1)
@@ -56,15 +63,12 @@ class TrainingTaskService:
                 total_samples += X_batch.size(0)
 
                 # Log the validation progress for each batch
-                # Log the training progress for each batch
-                if batch_idx % 150 == 0:  # For example, every 10 batches
-                        print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
-                        print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
-                # print(f"Epoch {epoch}, Batch {val_loader.batch_size}: Validation Loss = {loss.item()}")
+                if batch_idx % 150 == 0:  # For example, every 150 batches
+                    print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
+                    print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
 
         return total_loss / total_samples
 
-    
     def save_model(self, model, model_path):
         """Save the model to disk."""
         torch.save(model.state_dict(), model_path)

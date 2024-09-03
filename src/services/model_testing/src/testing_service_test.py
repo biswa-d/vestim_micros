@@ -37,7 +37,7 @@ class VEstimTestingService:
         with torch.no_grad():
             # Convert test data to tensors and move to the device
             X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(self.device)
-            y_test_tensor = torch.tensor(y_test, dtype=torch.float32).to(self.device)
+            # y_test_tensor = torch.tensor(y_test, dtype=torch.float32).to(self.device)
 
             # Initialize hidden states (if your model requires them)
             h_s = torch.zeros(model.num_layers, X_test_tensor.size(0), model.hidden_units).to(self.device)

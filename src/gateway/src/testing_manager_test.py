@@ -5,7 +5,7 @@ from threading import Thread
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from job_manager import JobManager
+from src.gateway.src.job_manager import JobManager
 from src.services.model_testing.src.testing_service_test import VEstimTestingService
 from src.services.model_testing.src.test_data_service_test import VEstimTestDataService
 from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
@@ -19,12 +19,13 @@ class VEstimTestingManager:
         self.test_data_service = VEstimTestDataService()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.max_workers = 4  # Number of concurrent threads
+        self.testing_thread = None  # Add this line to initialize the thread attribute
 
     def start_testing(self, queue, update_progress_callback):
         # Start the testing process in a separate thread
-        testing_thread = Thread(target=self._run_testing_tasks, args=(queue, update_progress_callback))
-        testing_thread.setDaemon(True)
-        testing_thread.start()
+        self.testing_thread = Thread(target=self._run_testing_tasks, args=(queue, update_progress_callback))
+        self.testing_thread.setDaemon(True)
+        self.testing_thread.start()
 
     def _run_testing_tasks(self, queue, update_progress_callback):
         try:
