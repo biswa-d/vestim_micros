@@ -4,7 +4,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from queue import Queue, Empty
 from threading import Thread
 import time
-from src.gateway.src.training_manager import VEstimTrainingManager
+from gateway.src.testing_manager_test import VEstimTrainingManager
 from src.gateway.src.job_manager import JobManager
 
 class VEstimTrainingGUI:

@@ -6,7 +6,7 @@ from threading import Thread
 import time
 from src.gateway.src.training_task_manager_test import TrainingTaskManager
 from src.gateway.src.job_manager import JobManager
-# from src.gui.src.testing_gui_test import VEstimTestingGui
+from src.gui.src.testing_gui_test import VEstimTestingGui
 
 class VEstimTrainingTaskGUI:
     def __init__(self, master, task_list, params, job_manager):
@@ -411,7 +411,7 @@ class VEstimTrainingTaskGUI:
         # Destroy the current window and move to the testing GUI
         self.master.destroy()
         root = tk.Tk()
-        # VEstimTestingGui(root)  # Assuming VEstimTestingGui is the class for the testing GUI
+        VEstimTestingGui(root)  # Assuming VEstimTestingGui is the class for the testing GUI
         root.mainloop()
 
 if __name__ == "__main__":

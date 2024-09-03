@@ -71,7 +71,6 @@ class VEstimTrainSetupGUI:
         # Label for the dynamic time value in bold with padding
         self.time_value_label = tk.Label(time_frame, text="00h:00m:00s", fg="blue", font=("Helvetica", 12, "bold"))
         self.time_value_label.pack(side=tk.LEFT, padx=(5, 0))
-
         # Start the setup process
         self.start_setup()
 

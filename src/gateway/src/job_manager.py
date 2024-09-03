@@ -42,3 +42,15 @@ class JobManager:
         if self.job_id:
             return os.path.join(self.get_job_folder(), 'test', 'processed_data')
         return None
+    
+    #Folder where test data will be stored
+    def get_test_results_folder(self):
+        """
+        Returns the path to the test results folder.
+        :return: Path to the test results folder within the job directory.
+        """
+        if self.job_id:
+            results_folder = os.path.join(self.get_job_folder(), 'test', 'results')
+            os.makedirs(results_folder, exist_ok=True)
+            return results_folder
+        return None

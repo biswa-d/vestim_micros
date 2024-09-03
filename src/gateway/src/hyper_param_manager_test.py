@@ -1,44 +1,99 @@
-# src/gateway/hyper_param_manager.py
-import os, json
-from src.services.hyper_param_selection.src.hyper_param_service import VEstimHyperParamService
+import os
+import json
 from src.gateway.src.job_manager import JobManager
 
-
 class VEstimHyperParamManager:
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(VEstimHyperParamManager, cls).__new__(cls)
+        return cls._instance
+    
     def __init__(self):
-        self.service = VEstimHyperParamService()
-        self.job_manager = JobManager()  # Initialize JobManager
-        self.param_sets = []
+        if not hasattr(self, 'initialized'):
+            self.job_manager = JobManager()
+            self.current_params = None  # Initialize current_params as None
+            self.initialized = True
 
     def load_params(self, filepath):
-        params = self.service.load_params_from_json(filepath)
-        if params:
-            self.param_sets.append(params)
-        return params
+        """Load and validate parameters from a JSON file."""
+        with open(filepath, 'r') as file:
+            params = json.load(file)
+            validated_params = self.validate_and_normalize_params(params)
+            self.param_sets.append(validated_params)
+            self.current_params = validated_params  # Set the current_params to the loaded params
+        return validated_params
+
+    def validate_and_normalize_params(self, params):
+        """Validate and normalize the parameter values."""
+        validated_params = {}
+
+        for key, value in params.items():
+            if isinstance(value, str):
+                # Split the string into a list, allowing for comma or space separation
+                value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
+                # Convert to appropriate data types
+                if key in ['LAYERS', 'HIDDEN_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD', 'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS']:
+                    # Convert to integers
+                    try:
+                        validated_params[key] = [int(v) for v in value_list]
+                    except ValueError:
+                        raise ValueError(f"Invalid value for {key}: Expected integers, got {value_list}")
+                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR']:
+                    # Convert to floats
+                    try:
+                        validated_params[key] = [float(v) for v in value_list]
+                    except ValueError:
+                        raise ValueError(f"Invalid value for {key}: Expected floats, got {value_list}")
+                else:
+                    validated_params[key] = value_list if len(value_list) > 1 else value_list[0]
+
+            elif isinstance(value, list):
+                # Process lists directly
+                validated_params[key] = value
+            else:
+                validated_params[key] = [value]
+
+        return validated_params
 
     def save_params(self):
-        job_folder = self.job_manager.get_job_folder()  # Get the job folder from the manager
-        if job_folder:
-            return self.service.save_hyperparams(self.service.get_current_params(), job_folder)
+        """Save the current parameters to the job folder."""
+        job_folder = self.job_manager.get_job_folder()
+        if job_folder and self.current_params:
+            params_file = os.path.join(job_folder, 'hyperparams.json')
+            with open(params_file, 'w') as file:
+                json.dump(self.current_params, file, indent=4)
         else:
-            raise ValueError("Job folder is not set.")
+            raise ValueError("Job folder is not set or current parameters are not available.")
 
     def save_params_to_file(self, new_params, filepath):
-        return self.service.save_params_to_file(new_params, filepath)
+        """Save new parameters to a specified file."""
+        with open(filepath, 'w') as file:
+            json.dump(new_params, file, indent=4)
 
     def update_params(self, new_params):
-        self.service.update_params(new_params)
-        self.param_sets.append(self.service.get_current_params())
+        """Update the current parameters with new values."""
+        validated_params = self.validate_and_normalize_params(new_params)
+        self.current_params.update(validated_params)
+        # self.param_sets.append(self.current_params)
 
     def get_current_params(self):
-        # Load the parameters from the saved JSON file in the job folder
+        """Load the parameters from the saved JSON file in the job folder."""
         job_folder = self.job_manager.get_job_folder()
         params_file = os.path.join(job_folder, 'hyperparams.json')
         
         if os.path.exists(params_file):
             with open(params_file, 'r') as file:
                 current_params = json.load(file)
+                self.current_params = current_params  # Set the current_params to the loaded params
                 return current_params
         else:
             raise FileNotFoundError("Hyperparameters JSON file not found in the job folder.")
 
+    def get_hyper_params(self):
+        """Return the current hyperparameters stored in memory."""
+        if self.current_params:
+            return self.current_params
+        else:
+            raise ValueError("No current parameters are available in memory.")

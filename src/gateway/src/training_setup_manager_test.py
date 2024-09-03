@@ -6,16 +6,36 @@ from src.services.model_training.src.LSTM_model_service_test import LSTMModelSer
 from src.gateway.src.job_manager import JobManager
 
 class VEstimTrainingSetupManager:
-    def __init__(self, update_status_callback):
-        self.params = None
-        self.current_hyper_params = None
-        self.hyper_param_manager = VEstimHyperParamManager()
-        self.lstm_model_service = LSTMModelService()
-        self.job_manager = JobManager()
-        self.start_time = None
-        self.models = []
-        self.training_tasks = []
-        self.update_status = update_status_callback or (lambda message: None)  # Default to no-op function
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(VEstimTrainingSetupManager, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self, update_status_callback=None):
+        if not hasattr(self, 'initialized'):  # Check if already initialized
+            self.params = None
+            self.current_hyper_params = None
+            self.hyper_param_manager = VEstimHyperParamManager()
+            self.lstm_model_service = LSTMModelService()
+            self.job_manager = JobManager()
+            self.start_time = None
+            self.models = []
+            self.training_tasks = []
+            self.update_status = update_status_callback or (lambda message: None)
+            self.load_cached_task_list()  # Load cached task list on initialization
+            self.initialized = True  # Mark as initialized
+
+    def load_cached_task_list(self):
+        """Loads the cached task list from disk if available."""
+        tasks_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
+        if os.path.exists(tasks_summary_file):
+            with open(tasks_summary_file, 'r') as f:
+                self.training_tasks = json.load(f)
+            print(f"Loaded {len(self.training_tasks)} tasks from cache.")
+        else:
+            print("No cached tasks found.")
 
     def setup_training(self):
         """Set up the training process, including building models and creating training tasks."""
@@ -84,6 +104,7 @@ class VEstimTrainingSetupManager:
         lookbacks = [int(lb) for lb in self.current_hyper_params['LOOKBACK'].split(',')]
         batch_sizes = [int(bs) for bs in self.current_hyper_params['BATCH_SIZE'].split(',')]
         max_epochs = int(self.current_hyper_params['MAX_EPOCHS'])  # Ensure MAX_EPOCHS is included
+
 
         # Iterate through each model
         for model_task in self.models:
