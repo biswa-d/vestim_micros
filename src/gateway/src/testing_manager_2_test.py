@@ -115,7 +115,7 @@ class VEstimTestingManager:
             print(f"Testing model: {model_path} with lookback: {lookback}")
 
             print("Loading and processing test data...")
-            X_test, y_test = self.testing_service.load_and_process_data(test_folder, lookback)
+            X_test, y_test = self.test_data_service.load_and_process_data(test_folder, lookback)
 
             print("Generating shorthand name for model...")
             shorthand_name = self.generate_shorthand_name(model_path)
@@ -124,7 +124,7 @@ class VEstimTestingManager:
             status_queue.put(f'Testing model: {shorthand_name}')
 
             # Run testing and save results
-            results = self.testing_service.run_testing(model_path, X_test, y_test, save_dir)
+            results = self.testing_service.run_testing(task, model_path, X_test, y_test, save_dir)
             self.testing_service.save_test_results(results, shorthand_name, save_dir)
 
             # Update the queue with the test results for the current task

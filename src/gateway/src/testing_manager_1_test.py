@@ -66,8 +66,8 @@ class VEstimTestingManager:
             def status_updater():
                 while True:
                     status_message = status_queue.get()
-                    if status_message is None:
-                        break  # Exit loop if None is received
+                    if status_message is None or self.stop_flag:
+                        break  # Exit loop if None is received or stop flag is set
                     print(f"Status Update: {status_message}")
                     update_progress_callback({'status': status_message})
                     status_queue.task_done()
@@ -85,6 +85,9 @@ class VEstimTestingManager:
                 }
 
                 for future in as_completed(future_to_task):
+                    if self.stop_flag:
+                        print("Stop flag detected. Exiting testing loop.")
+                        break
                     task = future_to_task[future]
                     try:
                         future.result()  # Retrieve the result, raises exception if occurred in thread
@@ -104,28 +107,42 @@ class VEstimTestingManager:
             print(f"An error occurred during testing: {str(e)}")
             queue.put({'task_error': str(e)})
 
+
     def _test_single_model(self, task, idx, test_folder, save_dir, queue, status_queue):
         try:
+            if self.stop_flag:
+                print("Stop flag is set. Exiting test early.")
+                return  # Exit early if stop is requested
             print(f"Preparing test data for Task {idx + 1}...")
+
             status_queue.put(f'Preparing test data for Task {idx + 1}...')
 
+            if self.stop_flag:
+                print("Stop flag is set. Exiting test early after data preparation.")
+                return  # Exit early if stop is requested
+            
             # Extract lookback and model path from the task
             lookback = task['hyperparams']['LOOKBACK']
             model_path = task['model_path']
             print(f"Testing model: {model_path} with lookback: {lookback}")
 
             print("Loading and processing test data...")
-            X_test, y_test = self.testing_service.load_and_process_data(test_folder, lookback)
+            X_test, y_test = self.test_data_service.load_and_process_data(test_folder, lookback)
 
             print("Generating shorthand name for model...")
             shorthand_name = self.generate_shorthand_name(model_path)
 
             print(f"Running testing on model: {shorthand_name}...")
             status_queue.put(f'Testing model: {shorthand_name}')
-
+            
             # Run testing and save results
-            results = self.testing_service.run_testing(model_path, X_test, y_test, save_dir)
+            results = self.testing_service.run_testing(task, model_path, X_test, y_test, save_dir)
             self.testing_service.save_test_results(results, shorthand_name, save_dir)
+
+            # Continue to check stop_flag during long-running operations
+            if self.stop_flag:
+                print("Stop flag is set. Exiting test early after running the test.")
+                return  # Exit early if stop is requested
 
             # Update the queue with the test results for the current task
             print(f"Results for model {shorthand_name}: {results}")
@@ -144,6 +161,7 @@ class VEstimTestingManager:
             print(f"Error testing model {task['model_path']}: {str(e)}")
             queue.put({'task_error': str(e)})
 
+
     def generate_shorthand_name(self, model_path):
         # Split the model path into components
         path_parts = model_path.split(os.sep)
@@ -158,16 +176,7 @@ class VEstimTestingManager:
 
         print(f"Generated shorthand name: {shorthand_name}")
         return shorthand_name
-    
-    def stop_testing(self):
-        self.stop_flag = True  # Set the stop flag
-        if self.testing_thread is not None and self.testing_thread.is_alive():
-            print("Stopping testing thread...")
-            self.testing_thread.join(timeout=5)  # Wait for a maximum of 5 seconds for the thread to finish
-            if self.testing_thread.is_alive():
-                print("Testing thread did not finish in time. Forcing exit.")
 
-        # Clean up any other resources if necessary
 
 
 if __name__ == "__main__":

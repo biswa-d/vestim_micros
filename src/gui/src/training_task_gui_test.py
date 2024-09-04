@@ -7,7 +7,7 @@ import time
 from src.gateway.src.training_task_manager_test import TrainingTaskManager
 from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
 from src.gateway.src.job_manager import JobManager
-from src.gui.src.testing_gui_test import VEstimTestingGUI
+from src.gui.src.testing_gui_2_test import VEstimTestingGUI
 
 class VEstimTrainingTaskGUI:
     def __init__(self, master, task_list, params, job_manager):

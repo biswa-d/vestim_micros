@@ -1,9 +1,11 @@
 import tkinter as tk
+import json, torch
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from queue import Queue, Empty
 from threading import Thread
 import time
+from src.services.model_training.src.training_task_service_test import TrainingTaskService
 from src.gateway.src.training_task_manager_test import TrainingTaskManager
 from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
 from src.gateway.src.job_manager import JobManager
@@ -15,6 +17,7 @@ class VEstimTrainingTaskGUI:
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)  # Bind the window close event
         self.training_task_manager = TrainingTaskManager()
         self.training_setup_manager = VEstimTrainingSetupManager()
+        self.training_service = TrainingTaskService()
         self.job_manager = JobManager()
 
         # Store the task list, params, and job_manager
@@ -376,67 +379,71 @@ class VEstimTrainingTaskGUI:
     def stop_training(self):
         print("Stop training button clicked")
 
-        # Directly stop the timer
+        # Stop the timer
         self.timer_running = False
 
-        # Send stop request and log
+        # Send stop request to the task manager
         self.training_task_manager.stop_task()
         print("Stop request sent to training task manager")
-        
-        # Immediate GUI update to reflect stopping state
+
+        # Immediate GUI update to reflect the stopping state
         self.status_label.config(text="Stopping Training...", fg="red")
-        self.progress_label.config(text="Processing...", fg="black", bg="#e6f7ff")
-        self.progress_label.pack(pady=10)
+        self.master.update_idletasks()
+
+        # Disable stop button to avoid multiple presses
         self.stop_button.config(text="Stopping...", state=tk.DISABLED, bg="grey")
-        self.master.update_idletasks()  # Force immediate GUI update
-        
+
         # Set flag to prevent further tasks
         self.training_process_stopped = True
 
         # Check if the training thread has finished
         self.master.after(100, self.check_if_stopped)
 
+
     def check_if_stopped(self):
         if self.training_thread and self.training_thread.is_alive():
-            # Continue checking until the thread has stopped
+            # Keep checking until the thread has stopped
             self.master.after(100, self.check_if_stopped)
         else:
-            # Once the thread is confirmed to be stopped
+            # Once the thread is confirmed to be stopped, proceed to task completion
             print("Training thread has stopped.")
             
-            # Update the progress label to indicate training has stopped
-            self.progress_label.config(text="Training stopped.", fg="red")
-            self.master.update_idletasks()  # Ensure the GUI reflects this immediately
-            
-            # Ensure task_completed() is only called once
+            # Update status to indicate training has stopped
+            self.status_label.config(text="Training stopped.", fg="red")
+            self.master.update_idletasks()
+
+            # Call task_completed() after confirming the thread has stopped
             if not self.task_completed_flag:
-                print("Calling task_completed() after training thread has stopped.")  # Debugging statement
-                self.task_completed()  # Proceed to handle task completion
-            else:
-                print("task_completed() was already called, skipping.")
+                print("Calling task_completed() after thread has stopped.")
+                self.task_completed()
+
 
 
     def task_completed(self):
         print("Entering task_completed() method.")
         if self.task_completed_flag:
-            return  # Exit if this method has already been called for this task
+            return  # Exit if this method has already been called
         self.task_completed_flag = True  # Set the flag to True on the first call
 
+        # Stop the timer
         self.timer_running = False
 
-        if self.master.winfo_exists():  # Check if the window still exists
-            if getattr(self, 'training_process_stopped', False):
-                print(f"Training process stopped flag: {self.training_process_stopped}")
+        if self.master.winfo_exists():
+            # Check if the process was stopped early
+            if self.training_process_stopped:
                 print("Training process was stopped early.")
                 self.status_label.config(text="Training stopped early. Saving model to task folder...", fg="red")
+
+                # Save the model using the current task information
+                current_task = self.task_list[self.current_task_index]
+                self.training_service.save_model(current_task)
+
                 self.show_proceed_to_testing_button()
                 return
 
-            # Check if there are more tasks to process
+            # If all tasks are completed, proceed to the next logic
             if self.current_task_index < len(self.task_list) - 1:
-                print(f"Completed task {self.current_task_index + 1}/{len(self.task_list)}.")
                 self.current_task_index += 1
-                self.task_completed_flag = False  # Reset the flag for the next task
                 self.build_gui(self.task_list[self.current_task_index])
                 self.start_task_processing()
             else:
@@ -449,44 +456,35 @@ class VEstimTrainingTaskGUI:
                 self.time_value_label.config(text=f"{formatted_total_time}")
 
                 self.status_label.config(text="All Training Tasks Completed!")
+                
+                # Save the model using the final task
+                final_task = self.task_list[self.current_task_index]
+                self.save_model(final_task)
+
                 self.show_proceed_to_testing_button()
-        else:
-            print("Task completed method was called after the window was destroyed.")
 
+    def save_model(self, task):
+        """Save the trained model to disk using the task's parameters."""
+        model_path = task.get('model_path', None)
+        if model_path is None:
+            raise ValueError("Model path not found in task.")
 
+        model = task.get('model', None)
+        if model is None:
+            raise ValueError("No model instance found in task.")
 
-    # def stop_training_process(self):
-    #     print("Stop training process initiated")
+        # Save the model's state dictionary to the specified path
+        print(f"Saving model to {model_path}...")
+        torch.save(model.state_dict(), model_path)
+
+        # Save the hyperparameters associated with the model
+        hyperparams_path = model_path + '_hyperparams.json'
+        with open(hyperparams_path, 'w') as f:
+            json.dump(model.hyperparams, f, indent=4)
         
-    #     # Stop the current training task
-    #     self.stop_training()  # Call the existing method to stop the current task
-        
-    #     # Set a flag or condition to prevent further tasks from starting
-    #     self.training_process_stopped = True
-        
-    #     # Update the GUI to show that the training process is stopping
-    #     self.status_label.config(text="Stopping Training Process...", fg="red")
-    #     self.master.update_idletasks()  # Force immediate GUI update
+        print(f"Model saved successfully at {model_path} and hyperparameters at {hyperparams_path}.")
 
-    #      # Wait for a short moment to ensure that the current task is stopped
-    #     if self.training_thread and self.training_thread.is_alive():
-    #         self.training_thread.join(timeout=5)  # Wait for a maximum of 5 seconds for the thread to stop
-        
-    #     # After stopping, ensure that no further tasks are processed
-    #     self.master.after(1000, self.finish_stopping_process)
-
-    # def finish_stopping_process(self):
-    #     # Check if there are further tasks queued
-    #     if self.current_task_index < len(self.task_list) - 1:
-    #         print("Further tasks are queued, but training process is stopped.")
-    #         self.status_label.config(text="Training process has been stopped. No further tasks will be processed.", fg="red")
-    #     else:
-    #         print("Training process stopped successfully.")
-    #         self.status_label.config(text="Training process stopped successfully.", fg="red")
-
-    #     # Optional: Provide an option to proceed to testing or close the GUI
-    #     self.show_proceed_to_testing_button()
-    
+ 
     def on_closing(self):
         # Handle the window close event
         if self.training_thread and self.training_thread.is_alive():

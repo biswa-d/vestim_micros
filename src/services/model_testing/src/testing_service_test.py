@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from src.services.model_training.src.LSTM_model_service_test import LSTMModel
 
 class VEstimTestingService:
     def __init__(self, device='cpu'):
@@ -77,12 +78,16 @@ class VEstimTestingService:
 
     def save_test_results(self, results, model_name, save_dir):
         """
-        Saves the test results to a specified directory.
+        Saves the test results to a model-specific subdirectory within the save directory.
 
         :param results: Dictionary containing predictions, true values, and metrics.
         :param model_name: Name of the model (or model file) to label the results.
         :param save_dir: Directory where the results will be saved.
         """
+        # Create a model-specific subdirectory within save_dir
+        model_dir = os.path.join(save_dir, model_name)
+        os.makedirs(model_dir, exist_ok=True)  # Create the directory if it doesn't exist
+
         # Create a DataFrame to store the predictions and true values
         df = pd.DataFrame({
             'True Values (V)': results['true_values'],
@@ -90,30 +95,55 @@ class VEstimTestingService:
             'Difference (mV)': (results['true_values'] - results['predictions']) * 1000  # Difference in mV
         })
 
-        # Save the DataFrame as a CSV file
-        result_file = os.path.join(save_dir, f"{model_name}_test_results.csv")
+        # Save the DataFrame as a CSV file in the model-specific directory
+        result_file = os.path.join(model_dir, f"{model_name}_test_results.csv")
         df.to_csv(result_file, index=False)
 
-        # Save the metrics separately
-        metrics_file = os.path.join(save_dir, f"{model_name}_metrics.txt")
+        # Save the metrics separately in the same model-specific directory
+        metrics_file = os.path.join(model_dir, f"{model_name}_metrics.txt")
         with open(metrics_file, 'w') as f:
             f.write(f"RMS Error (mV): {results['rms_error_mv']:.2f}\n")
             f.write(f"MAE (mV): {results['mae_mv']:.2f}\n")
             f.write(f"MAPE (%): {results['mape']:.2f}\n")
             f.write(f"R²: {results['r2']:.4f}\n")
 
-    def run_testing(self, model_path, X_test, y_test, save_dir):
+        print(f"Results and metrics for model '{model_name}' saved to {model_dir}")
+
+    def run_testing(self, task, model_path, X_test, y_test, save_dir):
         """
         Orchestrates the testing process by loading the model, running tests, and saving the results.
 
+        :param task: Dictionary containing task metadata, including hyperparameters.
         :param model_path: Path to the model .pth file.
         :param X_test: Input sequences for testing.
         :param y_test: True output values.
         :param save_dir: Directory where the results will be saved.
         :return: A dictionary containing predictions and evaluation metrics.
         """
-        model = self.load_model(model_path)
+
+        # Extract hyperparameters from the task
+        model_metadata = task["model_metadata"]
+        input_size = model_metadata["input_size"]
+        hidden_units = model_metadata["hidden_units"]
+        num_layers = model_metadata["num_layers"]
+
+        # Instantiate the model with the extracted hyperparameters
+        model = LSTMModel(input_size=input_size,
+                        hidden_units=hidden_units,
+                        num_layers=num_layers,
+                        device=self.device)
+
+        # Load the model weights
+        model.load_state_dict(torch.load(model_path))
+        model.eval()  # Set the model to evaluation mode
+
+        # Run the testing process
         results = self.test_model(model, X_test, y_test)
+
+        # Get the model name for saving results
         model_name = os.path.splitext(os.path.basename(model_path))[0]
+
+        # Save the test results
         self.save_test_results(results, model_name, save_dir)
+
         return results
