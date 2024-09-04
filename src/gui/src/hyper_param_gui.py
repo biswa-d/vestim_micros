@@ -1,8 +1,7 @@
 import tkinter as tk
-from tkinter import filedialog, Label, Toplevel
+from tkinter import filedialog, Label, Toplevel, messagebox
 import os
 import json
-
 from src.gui.src.training_setup_gui import VEstimTrainSetupGUI
 from src.gateway.src.job_manager import JobManager
 from src.gateway.src.hyper_param_manager import VEstimHyperParamManager
@@ -124,23 +123,45 @@ class VEstimHyperParamGUI:
     def load_params_from_json(self):
         filepath = filedialog.askopenfilename(defaultextension=".json", filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")])
         if filepath:
-            self.params = self.hyper_param_manager.load_params(filepath)  # Use the manager to load params
-            self.update_gui_with_loaded_params()
+            try:
+                # Load and validate parameters using the manager
+                self.params = self.hyper_param_manager.load_params(filepath)
+                self.update_gui_with_loaded_params()
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load parameters: {str(e)}")
+
+    def update_params(self, new_params):
+        try:
+            self.hyper_param_manager.update_params(new_params)
+            # self.params = self.hyper_param_manager.get_current_params()
+        except ValueError as e:
+            messagebox.showerror("Error", f"Invalid parameter input: {str(e)}")
+        self.update_gui_with_loaded_params()
+
+    def update_gui_with_loaded_params(self):
+        for param_name, entry in self.param_entries.items():
+            if param_name in self.params:
+                value = ', '.join(map(str, self.params[param_name])) if isinstance(self.params[param_name], list) else str(self.params[param_name])
+                entry.delete(0, tk.END)
+                entry.insert(0, value)
 
     def save_params_to_json(self):
         new_params = {param: entry.get() for param, entry in self.param_entries.items()}
         self.update_params(new_params)
         self.hyper_param_manager.save_params()  # Save the params using the manager
 
-    def update_params(self, new_params):
-        self.params.update(new_params)
-        self.hyper_param_manager.update_params(new_params)  # Update the params in the manager
+    # def update_params(self, new_params):
+    #     self.params.update(new_params)
+    #     self.hyper_param_manager.update_params(new_params)  # Update the params in the manager
 
-    def update_gui_with_loaded_params(self):
-        for param_name, entry in self.param_entries.items():
-            if param_name in self.params:
-                entry.delete(0, tk.END)
-                entry.insert(0, self.params[param_name])
+    # def update_gui_with_loaded_params(self):
+    #     for param_name, entry in self.param_entries.items():
+    #         if param_name in self.params:
+    #             # If the parameter is a list, join it into a string for display
+    #             value = ', '.join(map(str, self.params[param_name])) if isinstance(self.params[param_name], list) else self.params[param_name]
+    #             entry.delete(0, tk.END)
+    #             entry.insert(0, value)
+
 
     def open_guide(self, event=None):
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')

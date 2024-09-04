@@ -98,13 +98,13 @@ class VEstimTrainingSetupManager:
 
         # Retrieve relevant hyperparameters for training
         learning_rates = [float(lr) for lr in self.current_hyper_params['INITIAL_LR'].split(',')]
+        lr_drop_factors = [float(drop_factor) for drop_factor in self.current_hyper_params['LR_DROP_FACTOR'].split(',')]
         lr_drop_periods = [int(drop) for drop in self.current_hyper_params['LR_DROP_PERIOD'].split(',')]
         valid_patience_values = [int(vp) for vp in self.current_hyper_params['VALID_PATIENCE'].split(',')]
         repetitions = int(self.current_hyper_params['REPETITIONS'])
         lookbacks = [int(lb) for lb in self.current_hyper_params['LOOKBACK'].split(',')]
         batch_sizes = [int(bs) for bs in self.current_hyper_params['BATCH_SIZE'].split(',')]
         max_epochs = int(self.current_hyper_params['MAX_EPOCHS'])  # Ensure MAX_EPOCHS is included
-
 
         # Iterate through each model
         for model_task in self.models:
@@ -118,49 +118,51 @@ class VEstimTrainingSetupManager:
 
             # Iterate through hyperparameters
             for lr in learning_rates:
-                for drop_period in lr_drop_periods:
-                    for patience in valid_patience_values:
-                        for lookback in lookbacks:
-                            for batch_size in batch_sizes:
-                                for rep in range(1, repetitions + 1):
-                                    # Create a unique directory for each task based on all parameters
-                                    task_dir = os.path.join(
-                                        model_task['model_dir'],
-                                        f'lr_{lr}_drop_{drop_period}_patience_{patience}_rep_{rep}_lookback_{lookback}_batch_{batch_size}'
-                                    )
-                                    os.makedirs(task_dir, exist_ok=True)
+                for drop_factor in lr_drop_factors:
+                    for drop_period in lr_drop_periods:
+                        for patience in valid_patience_values:
+                            for lookback in lookbacks:
+                                for batch_size in batch_sizes:
+                                    for rep in range(1, repetitions + 1):
+                                        # Create a unique directory for each task based on all parameters
+                                        task_dir = os.path.join(
+                                            model_task['model_dir'],
+                                            f'lr_{lr}_drop_{drop_period}_factor_{drop_factor}_patience_{patience}_rep_{rep}_lookback_{lookback}_batch_{batch_size}'
+                                        )
+                                        os.makedirs(task_dir, exist_ok=True)
 
-                                    # Define task information
-                                    task_info = {
-                                        'model': model,  # Ensure this model instance is correctly initialized
-                                        'model_metadata': model_metadata,  # Use metadata instead of the full model
-                                        'data_loader_params': {
-                                            'lookback': lookback,
-                                            'batch_size': batch_size,
-                                        },
-                                        'model_dir': task_dir,
-                                        'model_path': os.path.join(task_dir, 'model.pth'),
-                                        'hyperparams': {
-                                            'LAYERS': self.current_hyper_params['LAYERS'],
-                                            'HIDDEN_UNITS': model_metadata['hidden_units'],
-                                            'BATCH_SIZE': batch_size,
-                                            'LOOKBACK': lookback,
-                                            'INITIAL_LR': lr,
-                                            'LR_DROP_PERIOD': drop_period,
-                                            'VALID_PATIENCE': patience,
-                                            'ValidFrequency': self.current_hyper_params['ValidFrequency'],
-                                            'REPETITIONS': rep,
-                                            'MAX_EPOCHS': max_epochs,  # Include MAX_EPOCHS here
+                                        # Define task information
+                                        task_info = {
+                                            'model': model,  # Ensure this model instance is correctly initialized
+                                            'model_metadata': model_metadata,  # Use metadata instead of the full model
+                                            'data_loader_params': {
+                                                'lookback': lookback,
+                                                'batch_size': batch_size,
+                                            },
+                                            'model_dir': task_dir,
+                                            'model_path': os.path.join(task_dir, 'model.pth'),
+                                            'hyperparams': {
+                                                'LAYERS': self.current_hyper_params['LAYERS'],
+                                                'HIDDEN_UNITS': model_metadata['hidden_units'],
+                                                'BATCH_SIZE': batch_size,
+                                                'LOOKBACK': lookback,
+                                                'INITIAL_LR': lr,
+                                                'LR_DROP_FACTOR': drop_factor,
+                                                'LR_DROP_PERIOD': drop_period,
+                                                'VALID_PATIENCE': patience,
+                                                'ValidFrequency': self.current_hyper_params['ValidFrequency'],
+                                                'REPETITIONS': rep,
+                                                'MAX_EPOCHS': max_epochs,  # Include MAX_EPOCHS here
+                                            }
                                         }
-                                    }
 
-                                    # Append the task to the task list
-                                    task_list.append(task_info)
+                                        # Append the task to the task list
+                                        task_list.append(task_info)
 
-                                    # Save the task info to disk as a JSON file
-                                    task_info_file = os.path.join(task_dir, 'task_info.json')
-                                    with open(task_info_file, 'w') as f:
-                                        json.dump({k: v for k, v in task_info.items() if k != 'model'}, f, indent=4)
+                                        # Save the task info to disk as a JSON file
+                                        task_info_file = os.path.join(task_dir, 'task_info.json')
+                                        with open(task_info_file, 'w') as f:
+                                            json.dump({k: v for k, v in task_info.items() if k != 'model'}, f, indent=4)
 
         # Replace the existing training tasks with the newly created task list
         self.training_tasks = task_list
@@ -171,6 +173,7 @@ class VEstimTrainingSetupManager:
             json.dump([{k: v for k, v in task.items() if k != 'model'} for task in self.training_tasks], f, indent=4)
 
         print(f"Created {len(self.training_tasks)} training tasks and saved to disk.")
+
 
     def get_task_list(self):
         """Returns the list of training tasks."""

@@ -1,6 +1,6 @@
 import torch
 import os
-import json
+import json, hashlib
 from threading import Thread
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -118,7 +118,7 @@ class VEstimTestingManager:
             X_test, y_test = self.test_data_service.load_and_process_data(test_folder, lookback)
 
             print("Generating shorthand name for model...")
-            shorthand_name = self.generate_shorthand_name(model_path)
+            shorthand_name = self.generate_shorthand_name(task)
 
             print(f"Running testing on model: {shorthand_name}...")
             status_queue.put(f'Testing model: {shorthand_name}')
@@ -143,20 +143,46 @@ class VEstimTestingManager:
         except Exception as e:
             print(f"Error testing model {task['model_path']}: {str(e)}")
             queue.put({'task_error': str(e)})
+    
 
-    def generate_shorthand_name(self, model_path):
-        # Split the model path into components
-        path_parts = model_path.split(os.sep)
+    
+    @staticmethod
+    def generate_shorthand_name(task):
+        """
+        Generate a shorthand name for the task based on key hyperparameters.
+        
+        :param task: Dictionary containing task information.
+        :return: A unique shorthand name.
+        """
+        # Extract relevant hyperparameters from the task's 'hyperparams' field
+        hyperparams = task['hyperparams']
+        
+        # Extract key hyperparameters
+        layers = hyperparams.get('LAYERS', 'NA')
+        hidden_units = hyperparams.get('HIDDEN_UNITS', 'NA')
+        batch_size = hyperparams.get('BATCH_SIZE', 'NA')
+        max_epochs = hyperparams.get('MAX_EPOCHS', 'NA')
+        lr = hyperparams.get('INITIAL_LR', 'NA')
+        lr_drop_period = hyperparams.get('LR_DROP_PERIOD', 'NA')
+        valid_patience = hyperparams.get('VALID_PATIENCE', 'NA')
+        valid_frequency = hyperparams.get('ValidFrequency', 'NA')
+        lookback = hyperparams.get('LOOKBACK', 'NA')
+        repetitions = hyperparams.get('REPETITIONS', 'NA')
 
-        # Extract relevant directory names
-        model_dir = path_parts[-2]  # Directory containing model.pth
-        parent_dir = path_parts[-3]  # Parent directory of model_dir
-
-        # Parse key parameters from the directory names
-        params = model_dir.split('_')
-        shorthand_name = f"{params[1]}_hu_{params[2]}..look_{params[-2]}..bat_{params[-1]}"
-
-        print(f"Generated shorthand name: {shorthand_name}")
+        # Create a shorthand string from key hyperparameters
+        short_name = (f"Lr{layers}_H{hidden_units}_B{batch_size}_Lk{lookback}_"
+                    f"E{max_epochs}_LR{lr}_LDR{lr_drop_period}_ValP{valid_patience}_"
+                    f"ValFr{valid_frequency}_Rep{repetitions}")
+        
+        # Create a unique identifier based on all relevant hyperparameters
+        param_string = f"{layers}_{hidden_units}_{batch_size}_{lookback}_{lr}_{valid_patience}_{max_epochs}"
+        
+        # Generate a short hash for uniqueness
+        short_hash = hashlib.md5(param_string.encode()).hexdigest()[:6]  # First 6 chars
+        
+        # Combine short name with the hash for uniqueness
+        shorthand_name = f"{short_name}_{short_hash}"
+    
         return shorthand_name
     
     def stop_testing(self):

@@ -4,8 +4,6 @@ import torch.optim as optim
 import json
 import logging
 
-
-
 class TrainingTaskService:
     def __init__(self):
         self.criterion = nn.MSELoss()  # Assuming you're using Mean Squared Error Loss for regression tasks
@@ -39,6 +37,8 @@ class TrainingTaskService:
             if batch_idx % 150 == 0:  # For example, every 150 batches
                 print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
                 print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
+            # Clear unused memory
+            del X_batch, y_batch, y_pred  # Explicitly clear tensors
 
         return sum(total_train_loss) / len(total_train_loss)
 
@@ -66,6 +66,8 @@ class TrainingTaskService:
                 if batch_idx % 150 == 0:  # For example, every 150 batches
                     print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
                     print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
+                # Clear unused memory
+                del X_batch, y_batch, y_pred  # Explicitly clear tensors
 
         return total_loss / total_samples
 

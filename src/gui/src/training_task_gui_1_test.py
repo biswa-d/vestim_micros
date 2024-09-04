@@ -1,9 +1,11 @@
 import tkinter as tk
+import json, torch
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from queue import Queue, Empty
 from threading import Thread
 import time
+from src.services.model_training.src.training_task_service_test import TrainingTaskService
 from src.gateway.src.training_task_manager_test import TrainingTaskManager
 from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
 from src.gateway.src.job_manager import JobManager
@@ -15,6 +17,7 @@ class VEstimTrainingTaskGUI:
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)  # Bind the window close event
         self.training_task_manager = TrainingTaskManager()
         self.training_setup_manager = VEstimTrainingSetupManager()
+        self.training_service = TrainingTaskService()
         self.job_manager = JobManager()
 
         # Store the task list, params, and job_manager
@@ -87,7 +90,7 @@ class VEstimTrainingTaskGUI:
         self.status_label.pack(pady=5)
 
         # Time Frame, Plot Setup, and Log Window
-        print(f"Entering setup_time_and_plot with task: {task}")
+        print(f"Entering setup_time_and_plot with task {self.current_task_index + 1}: {task}")
         self.setup_time_and_plot(main_frame, task)
         self.setup_log_window(main_frame, task)
 
@@ -110,7 +113,7 @@ class VEstimTrainingTaskGUI:
         for widget in self.hyperparam_frame.winfo_children():
             widget.destroy()
 
-        # Get the parameter items
+        # Get the parameter items (mapping them to the correct labels if necessary)
         param_items = [(self.param_labels.get(param, param), value) for param, value in params.items()]
 
         # Split the parameters into five columns
@@ -121,8 +124,20 @@ class VEstimTrainingTaskGUI:
             col_frame = tk.Frame(self.hyperparam_frame)
             col_frame.grid(row=0, column=col_num, padx=5)
             for row_num, (param, value) in enumerate(column):
-                param_label = tk.Label(col_frame, text=f"{param}: ", font=("Helvetica", 10))  # Regular font for label
-                value_label = tk.Label(col_frame, text=f"{value}", font=("Helvetica", 10, "bold"))  # Bold font for value
+                # Truncate the value if it contains more than 2 items (values separated by commas)
+                value_str = str(value)
+                if "," in value_str:
+                    values = value_str.split(",")  # Split the values by comma
+                    if len(values) > 2:  # If more than 2 values, show only the first two with "..."
+                        display_value = f"{values[0]},{values[1]},..."
+                    else:
+                        display_value = value_str  # Display the whole value if there are 2 or fewer
+                else:
+                    display_value = value_str  # If it's a single value
+
+                # Create parameter label
+                param_label = tk.Label(col_frame, text=f"{param}: ", font=("Helvetica", 10))  # Regular font for the label
+                value_label = tk.Label(col_frame, text=f"{display_value}", font=("Helvetica", 10, "bold"))  # Bold font for value
 
                 # Use grid to ensure both labels stay on the same line
                 param_label.grid(row=row_num, column=0, sticky='w')
@@ -131,6 +146,7 @@ class VEstimTrainingTaskGUI:
         # Centering the hyperparameters table
         self.hyperparam_frame.grid_columnconfigure(0, weight=1)
         self.hyperparam_frame.grid_columnconfigure(len(columns) - 1, weight=1)
+
 
     def setup_time_and_plot(self, main_frame, task):
         # Debugging statement to check the structure of the task
@@ -376,44 +392,49 @@ class VEstimTrainingTaskGUI:
     def stop_training(self):
         print("Stop training button clicked")
 
-        # Directly stop the timer
+        # Stop the timer
         self.timer_running = False
 
-        # Send stop request and log
+        # Send stop request to the task manager
         self.training_task_manager.stop_task()
         print("Stop request sent to training task manager")
-        
-        # Immediate GUI update to reflect stopping state
+
+        # Immediate GUI update to reflect the stopping state
         self.status_label.config(text="Stopping Training...", fg="red")
-        self.progress_label.config(text="Processing...", fg="black", bg="#e6f7ff")
-        self.progress_label.pack(pady=10)
+        self.master.update_idletasks()
+
+        # Disable stop button to avoid multiple presses
         self.stop_button.config(text="Stopping...", state=tk.DISABLED, bg="grey")
-        self.master.update_idletasks()  # Force immediate GUI update
-        
+
         # Set flag to prevent further tasks
         self.training_process_stopped = True
+        print(f"Training process stopped flag is now {self.training_process_stopped}")
 
         # Check if the training thread has finished
         self.master.after(100, self.check_if_stopped)
 
+
     def check_if_stopped(self):
         if self.training_thread and self.training_thread.is_alive():
-            # Continue checking until the thread has stopped
+            # Keep checking until the thread has stopped
             self.master.after(100, self.check_if_stopped)
         else:
-            # Once the thread is confirmed to be stopped
+            # Once the thread is confirmed to be stopped, proceed to task completion
             print("Training thread has stopped.")
             
-            # Update the progress label to indicate training has stopped
-            self.progress_label.config(text="Training stopped.", fg="red")
-            self.master.update_idletasks()  # Ensure the GUI reflects this immediately
-            
-            # Ensure task_completed() is only called once
+            # Update status to indicate training has stopped
+            self.status_label.config(text="Training stopped.", fg="red")
+            self.master.update_idletasks()
+
+            # Call task_completed() after confirming the thread has stopped
             if not self.task_completed_flag:
-                print("Calling task_completed() after training thread has stopped.")  # Debugging statement
-                self.task_completed()  # Proceed to handle task completion
+                print("Calling task_completed() after training thread has stopped.")
+                self.task_completed()
             else:
                 print("task_completed() was already called, skipping.")
+            # Display the proceed to testing button
+            # self.show_proceed_to_testing_button()
+
 
 
     def task_completed(self):
@@ -454,39 +475,28 @@ class VEstimTrainingTaskGUI:
             print("Task completed method was called after the window was destroyed.")
 
 
+    def save_model(self, task):
+        """Save the trained model to disk using the task's parameters."""
+        model_path = task.get('model_path', None)
+        if model_path is None:
+            raise ValueError("Model path not found in task.")
 
-    # def stop_training_process(self):
-    #     print("Stop training process initiated")
-        
-    #     # Stop the current training task
-    #     self.stop_training()  # Call the existing method to stop the current task
-        
-    #     # Set a flag or condition to prevent further tasks from starting
-    #     self.training_process_stopped = True
-        
-    #     # Update the GUI to show that the training process is stopping
-    #     self.status_label.config(text="Stopping Training Process...", fg="red")
-    #     self.master.update_idletasks()  # Force immediate GUI update
+        model = task.get('model', None)
+        if model is None:
+            raise ValueError("No model instance found in task.")
 
-    #      # Wait for a short moment to ensure that the current task is stopped
-    #     if self.training_thread and self.training_thread.is_alive():
-    #         self.training_thread.join(timeout=5)  # Wait for a maximum of 5 seconds for the thread to stop
+        # Save the model's state dictionary to the specified path
+        print(f"Saving model to {model_path}...")
+        torch.save(model.state_dict(), model_path)
+
+        # Save the hyperparameters associated with the model
+        hyperparams_path = model_path + '_hyperparams.json'
+        with open(hyperparams_path, 'w') as f:
+            json.dump(model.hyperparams, f, indent=4)
         
-    #     # After stopping, ensure that no further tasks are processed
-    #     self.master.after(1000, self.finish_stopping_process)
+        print(f"Model saved successfully at {model_path} and hyperparameters at {hyperparams_path}.")
 
-    # def finish_stopping_process(self):
-    #     # Check if there are further tasks queued
-    #     if self.current_task_index < len(self.task_list) - 1:
-    #         print("Further tasks are queued, but training process is stopped.")
-    #         self.status_label.config(text="Training process has been stopped. No further tasks will be processed.", fg="red")
-    #     else:
-    #         print("Training process stopped successfully.")
-    #         self.status_label.config(text="Training process stopped successfully.", fg="red")
-
-    #     # Optional: Provide an option to proceed to testing or close the GUI
-    #     self.show_proceed_to_testing_button()
-    
+ 
     def on_closing(self):
         # Handle the window close event
         if self.training_thread and self.training_thread.is_alive():

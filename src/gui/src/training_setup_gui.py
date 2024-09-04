@@ -71,7 +71,6 @@ class VEstimTrainSetupGUI:
         # Label for the dynamic time value in bold with padding
         self.time_value_label = tk.Label(time_frame, text="00h:00m:00s", fg="blue", font=("Helvetica", 12, "bold"))
         self.time_value_label.pack(side=tk.LEFT, padx=(5, 0))
-
         # Start the setup process
         self.start_setup()
 
@@ -128,30 +127,47 @@ class VEstimTrainSetupGUI:
 
 
     def display_hyperparameters(self, params):
+        # Clear the previous widgets in the hyperparam_frame
         for widget in self.hyperparam_frame.winfo_children():
             widget.destroy()
 
+        # Set number of columns and rows based on parameter count
         num_columns = 4
         items = list(params.items())
-        num_rows = (len(items) + 1) // 2
+        num_rows = (len(items) + 1) // 2  # Number of rows to display the hyperparameters
 
+        # Iterate through the rows and columns to display hyperparameters
         for i in range(num_rows):
-            for j in range(2):
+            for j in range(2):  # Two columns of parameters
                 index = i * 2 + j
                 if index < len(items):
                     param, value = items[index]
                     label_text = self.param_labels.get(param, param)
 
+                    # Handle the case where the value contains multiple items (e.g., 100,200,300,400, etc.)
+                    value_str = str(value)
+                    if "," in value_str:
+                        values = value_str.split(",")  # Split the values
+                        if len(values) > 2:  # Show only first two values and append '...'
+                            display_value = f"{values[0]},{values[1]},..."
+                        else:
+                            display_value = value_str  # Show all values if 2 or less
+                    else:
+                        display_value = value_str  # If it's a single value
+
+                    # Create and display parameter label
                     param_label = tk.Label(self.hyperparam_frame, text=f"{label_text}: ", font=("Helvetica", 10), anchor="w", 
                                         bg="#f0f0f0", bd=0.5, relief="solid", padx=5, pady=2)
                     param_label.grid(row=i, column=j * 2, sticky="w", padx=(10, 5), pady=4, ipadx=4, ipady=5)
                     param_label.config(width=20)
 
-                    value_label = tk.Label(self.hyperparam_frame, text=f"{value}", font=("Helvetica", 10, "bold"), fg="#005878", 
+                    # Create and display value label (truncated if needed)
+                    value_label = tk.Label(self.hyperparam_frame, text=f"{display_value}", font=("Helvetica", 10, "bold"), fg="#005878", 
                                         anchor="w", bg="#f0f0f6", bd=0.5, relief="solid", padx=5, pady=2)
                     value_label.grid(row=i, column=j * 2 + 1, sticky="w", padx=(5, 10), pady=4, ipadx=4, ipady=5)
                     value_label.config(width=10)
 
+        # Configure grid columns and rows to ensure proper resizing and alignment
         self.hyperparam_frame.grid_columnconfigure(0, weight=2)
         self.hyperparam_frame.grid_columnconfigure(1, weight=1)
         self.hyperparam_frame.grid_columnconfigure(2, weight=2)
@@ -159,6 +175,7 @@ class VEstimTrainSetupGUI:
 
         for i in range(num_rows):
             self.hyperparam_frame.grid_rowconfigure(i, weight=1)
+
 
     def update_elapsed_time(self):
         if self.timer_running:

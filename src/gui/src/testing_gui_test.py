@@ -3,7 +3,7 @@ from tkinter import ttk
 from threading import Thread
 import time, os
 from queue import Queue, Empty
-from src.gateway.src.testing_manager_test import VEstimTestingManager
+from gateway.src.testing_manager import VEstimTestingManager
 from src.gateway.src.job_manager import JobManager
 from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
 from src.gateway.src.hyper_param_manager import VEstimHyperParamManager

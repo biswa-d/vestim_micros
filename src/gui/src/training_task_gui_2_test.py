@@ -90,7 +90,7 @@ class VEstimTrainingTaskGUI:
         self.status_label.pack(pady=5)
 
         # Time Frame, Plot Setup, and Log Window
-        print(f"Entering setup_time_and_plot with task: {task}")
+        print(f"Entering setup_time_and_plot with task {self.current_task_index + 1}: {task}")
         self.setup_time_and_plot(main_frame, task)
         self.setup_log_window(main_frame, task)
 
@@ -113,7 +113,7 @@ class VEstimTrainingTaskGUI:
         for widget in self.hyperparam_frame.winfo_children():
             widget.destroy()
 
-        # Get the parameter items
+        # Get the parameter items (mapping them to the correct labels if necessary)
         param_items = [(self.param_labels.get(param, param), value) for param, value in params.items()]
 
         # Split the parameters into five columns
@@ -124,8 +124,20 @@ class VEstimTrainingTaskGUI:
             col_frame = tk.Frame(self.hyperparam_frame)
             col_frame.grid(row=0, column=col_num, padx=5)
             for row_num, (param, value) in enumerate(column):
-                param_label = tk.Label(col_frame, text=f"{param}: ", font=("Helvetica", 10))  # Regular font for label
-                value_label = tk.Label(col_frame, text=f"{value}", font=("Helvetica", 10, "bold"))  # Bold font for value
+                # Truncate the value if it contains more than 2 items (values separated by commas)
+                value_str = str(value)
+                if "," in value_str:
+                    values = value_str.split(",")  # Split the values by comma
+                    if len(values) > 2:  # If more than 2 values, show only the first two with "..."
+                        display_value = f"{values[0]},{values[1]},..."
+                    else:
+                        display_value = value_str  # Display the whole value if there are 2 or fewer
+                else:
+                    display_value = value_str  # If it's a single value
+
+                # Create parameter label
+                param_label = tk.Label(col_frame, text=f"{param}: ", font=("Helvetica", 10))  # Regular font for the label
+                value_label = tk.Label(col_frame, text=f"{display_value}", font=("Helvetica", 10, "bold"))  # Bold font for value
 
                 # Use grid to ensure both labels stay on the same line
                 param_label.grid(row=row_num, column=0, sticky='w')
@@ -134,6 +146,7 @@ class VEstimTrainingTaskGUI:
         # Centering the hyperparameters table
         self.hyperparam_frame.grid_columnconfigure(0, weight=1)
         self.hyperparam_frame.grid_columnconfigure(len(columns) - 1, weight=1)
+
 
     def setup_time_and_plot(self, main_frame, task):
         # Debugging statement to check the structure of the task
@@ -395,6 +408,7 @@ class VEstimTrainingTaskGUI:
 
         # Set flag to prevent further tasks
         self.training_process_stopped = True
+        print(f"Training process stopped flag is now {self.training_process_stopped}")
 
         # Check if the training thread has finished
         self.master.after(100, self.check_if_stopped)
@@ -414,36 +428,36 @@ class VEstimTrainingTaskGUI:
 
             # Call task_completed() after confirming the thread has stopped
             if not self.task_completed_flag:
-                print("Calling task_completed() after thread has stopped.")
+                print("Calling task_completed() after training thread has stopped.")
                 self.task_completed()
+            else:
+                print("task_completed() was already called, skipping.")
+            # Display the proceed to testing button
+            # self.show_proceed_to_testing_button()
 
 
 
     def task_completed(self):
         print("Entering task_completed() method.")
         if self.task_completed_flag:
-            return  # Exit if this method has already been called
+            return  # Exit if this method has already been called for this task
         self.task_completed_flag = True  # Set the flag to True on the first call
 
-        # Stop the timer
         self.timer_running = False
 
-        if self.master.winfo_exists():
-            # Check if the process was stopped early
-            if self.training_process_stopped:
+        if self.master.winfo_exists():  # Check if the window still exists
+            if getattr(self, 'training_process_stopped', False):
+                print(f"Training process stopped flag: {self.training_process_stopped}")
                 print("Training process was stopped early.")
                 self.status_label.config(text="Training stopped early. Saving model to task folder...", fg="red")
-
-                # Save the model using the current task information
-                current_task = self.task_list[self.current_task_index]
-                self.training_service.save_model(current_task)
-
                 self.show_proceed_to_testing_button()
                 return
 
-            # If all tasks are completed, proceed to the next logic
+            # Check if there are more tasks to process
             if self.current_task_index < len(self.task_list) - 1:
+                print(f"Completed task {self.current_task_index + 1}/{len(self.task_list)}.")
                 self.current_task_index += 1
+                self.task_completed_flag = False  # Reset the flag for the next task
                 self.build_gui(self.task_list[self.current_task_index])
                 self.start_task_processing()
             else:
@@ -456,12 +470,10 @@ class VEstimTrainingTaskGUI:
                 self.time_value_label.config(text=f"{formatted_total_time}")
 
                 self.status_label.config(text="All Training Tasks Completed!")
-                
-                # Save the model using the final task
-                final_task = self.task_list[self.current_task_index]
-                self.save_model(final_task)
-
                 self.show_proceed_to_testing_button()
+        else:
+            print("Task completed method was called after the window was destroyed.")
+
 
     def save_model(self, task):
         """Save the trained model to disk using the task's parameters."""

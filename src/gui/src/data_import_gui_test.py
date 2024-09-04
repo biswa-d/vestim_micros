@@ -5,7 +5,7 @@ import queue
 import os, time
 from src.gateway.src.job_manager import JobManager
 from src.gui.src.hyper_param_gui_test import VEstimHyperParamGUI
-from src.services.data_processor.src.data_processor import DataProcessor  # Import the combined DataProcessor
+from src.services.data_processor.src.data_processor_1_test import DataProcessor  # Import the combined DataProcessor
 
 job_manager = JobManager()
 
@@ -158,3 +158,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     gui = DataImportGUI(root)
     root.mainloop()
+

@@ -2,7 +2,7 @@ import time
 import torch
 from threading import Thread
 from src.gateway.src.job_manager import JobManager
-from src.services.model_training.src.data_loader_service import DataLoaderService
+from src.services.model_training.src.data_loader_service__m import DataLoaderService
 from src.services.model_training.src.training_task_service_test import TrainingTaskService
 
 class TrainingTaskManager:
@@ -183,5 +183,5 @@ class TrainingTaskManager:
         self.stop_requested = True  # Set the flag to request a stop
         if self.training_thread and self.training_thread.is_alive():
             print("Waiting for the training thread to finish before saving the model...")
-            self.training_thread.join()  # Wait for the thread to finish cleanly
+            self.training_thread.join(timeout=7)  # Wait for the thread to finish cleanly
             print("Training thread has finished. Proceeding to save the model.")
