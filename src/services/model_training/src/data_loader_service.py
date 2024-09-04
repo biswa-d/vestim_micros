@@ -4,6 +4,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, TensorDataset, SubsetRandomSampler
 from datetime import datetime
+import gc  # For garbage collection
 
 class DataLoaderService:
     def __init__(self):
@@ -21,19 +22,28 @@ class DataLoaderService:
         data_sequences = []
         target_sequences = []
 
+        # Process each CSV file individually
         for file in csv_files:
             df = pd.read_csv(file)
             X_data = df[['SOC', 'Current', 'Temp']].values
             Y_data = df['Voltage'].values
             X, y = self.create_data_sequence(X_data, Y_data, lookback)
+            
+            # Append the sequences
             data_sequences.append(X)
             target_sequences.append(y)
 
+            # Clear the DataFrame and arrays to free memory after use
+            del df, X_data, Y_data, X, y
+            # gc.collect()
+
+        # Combine the sequences into large arrays
         X_combined = np.concatenate(data_sequences, axis=0)
         y_combined = np.concatenate(target_sequences, axis=0)
 
         # Clean up cache after processing
         del data_sequences, target_sequences
+        # gc.collect()
 
         return X_combined, y_combined
 
@@ -76,6 +86,10 @@ class DataLoaderService:
         X_tensor = torch.tensor(X, dtype=torch.float32)
         y_tensor = torch.tensor(y, dtype=torch.float32)
 
+        # Clean up numpy arrays after conversion to tensors
+        del X, y
+        # gc.collect()
+
         # Create a TensorDataset
         dataset = TensorDataset(X_tensor, y_tensor)
         dataset_size = len(dataset)
@@ -99,5 +113,6 @@ class DataLoaderService:
 
         # Clean up cache variables after DataLoaders are created
         del X_tensor, y_tensor, indices, train_indices, valid_indices
+        gc.collect()
 
         return train_loader, val_loader
