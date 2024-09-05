@@ -7,9 +7,9 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import pandas as pd
 from tkinter.ttk import Progressbar
-from src.gateway.src.testing_manager_2_test import VEstimTestingManager
+from src.gateway.src.testing_manager import VEstimTestingManager
 from src.gateway.src.job_manager import JobManager
-from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
+from src.gateway.src.training_setup_manager import VEstimTrainingSetupManager
 from src.gateway.src.hyper_param_manager import VEstimHyperParamManager
 
 class VEstimTestingGUI:

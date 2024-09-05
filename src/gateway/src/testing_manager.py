@@ -6,9 +6,9 @@ from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.gateway.src.job_manager import JobManager
-from src.services.model_testing.src.testing_service_test import VEstimTestingService
-from src.services.model_testing.src.test_data_service_test import VEstimTestDataService
-from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
+from src.services.model_testing.src.testing_service import VEstimTestingService
+from src.services.model_testing.src.test_data_service import VEstimTestDataService
+from src.gateway.src.training_setup_manager import VEstimTrainingSetupManager
 
 class VEstimTestingManager:
     def __init__(self):

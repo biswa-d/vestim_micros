@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from src.services.model_training.src.LSTM_model_service_test import LSTMModel
+from src.services.model_training.src.LSTM_model_service import LSTMModel
 
 class VEstimTestingService:
     def __init__(self, device='cpu'):
