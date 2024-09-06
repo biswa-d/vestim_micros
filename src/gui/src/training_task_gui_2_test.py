@@ -11,6 +11,7 @@ from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManag
 from src.gateway.src.job_manager import JobManager
 from src.gui.src.testing_gui_2_test import VEstimTestingGUI
 
+
 class VEstimTrainingTaskGUI:
     def __init__(self, master, task_list, params, job_manager):
         self.master = master
