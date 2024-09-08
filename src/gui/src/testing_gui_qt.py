@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QPushButton, QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QDialog, QFileDialog, QMessageBox, QGridLayout
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QDialog, QFileDialog, QMessageBox, QGridLayout
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont
 import os, sys, time
@@ -17,27 +17,35 @@ class TestingThread(QThread):
     # Define the signals at the class level
     update_status_signal = pyqtSignal(str)  # Signal to send status messages
     result_signal = pyqtSignal(dict)        # Signal to send test results
+    testing_complete_signal = pyqtSignal()  # Signal to indicate all tasks are complete
 
     def __init__(self, testing_manager, queue):
         super().__init__()
         self.testing_manager = testing_manager
         self.queue = queue
+        self.stop_flag = False
 
     def run(self):
         try:
             self.testing_manager.start_testing(self.queue)  # Pass the queue to the manager
-            while True:
+            while not self.stop_flag:
                 try:
                     result = self.queue.get(timeout=1)  # Non-blocking queue retrieval
                     if result:
-                        self.result_signal.emit(result)
+                        # Check for the special completion message
+                        if 'all_tasks_completed' in result:
+                            self.testing_complete_signal.emit()  # Emit signal to inform the GUI
+                            self.stop_flag = True  # Stop the thread loop
+                        else:
+                            self.result_signal.emit(result)
                 except Empty:
                     continue  # Continue checking until the thread finishes testing
         except Exception as e:
             self.update_status_signal.emit(f"Error: {str(e)}")
         finally:
+            print("Testing thread is stopping...")
             self.quit()  # Ensure the thread stops properly
-
+            # self.wait()  # Make sure all operations are completed before exiting
 
 
 class VEstimTestingGUI(QMainWindow):
@@ -69,6 +77,7 @@ class VEstimTestingGUI(QMainWindow):
         self.testing_thread = None
         self.results_list = []  # List to store results
         self.hyper_params = {}  # Placeholder for hyperparameters
+        self.sl_no_counter = 1  # Counter for sequential Sl.No
 
 
         self.initUI()
@@ -131,10 +140,33 @@ class VEstimTestingGUI(QMainWindow):
         self.main_layout.addWidget(self.progress)
 
         # Button to open results folder
-        self.open_results_button = QPushButton("Open Results Folder")
+        self.open_results_button = QPushButton("Open Results Folder", self)
+        self.open_results_button.setStyleSheet("""
+            background-color: #0b6337;  /* Matches the green color */
+            font-weight: bold; 
+            padding: 10px 20px;  /* Adds padding inside the button */
+            color: white;  /* Set the text color to white */
+        """)
+        self.open_results_button.setFixedHeight(40)  # Ensure consistent height
+        self.open_results_button.setMinimumWidth(150)  # Set minimum width to ensure consistency
+        self.open_results_button.setMaximumWidth(300)  # Set a reasonable maximum width
         self.open_results_button.clicked.connect(self.open_results_folder)
-        self.main_layout.addWidget(self.open_results_button)
-        self.open_results_button.hide()  # Hide the button by default
+
+        # Center the button using a layout
+        open_button_layout = QHBoxLayout()
+        open_button_layout.addStretch(1)  # Add stretchable space before the button
+        open_button_layout.addWidget(self.open_results_button, alignment=Qt.AlignCenter)
+        open_button_layout.addStretch(1)  # Add stretchable space after the button
+
+        # Add padding around the button by setting the margins
+        open_button_layout.setContentsMargins(50, 20, 50, 20)  # Add margins (left, top, right, bottom)
+
+        # Add the button layout to the main layout
+        self.main_layout.addLayout(open_button_layout)
+
+        # Initially hide the button
+        self.open_results_button.hide()
+
 
     def display_hyperparameters(self, params):
         print(f"Displaying hyperparameters: {params}")
@@ -192,25 +224,57 @@ class VEstimTestingGUI(QMainWindow):
     def update_status(self, message):
         self.status_label.setText(message)
 
+    # def add_result_row(self, result):
+    #     # Add each result as a row in the QTreeWidget
+    #     print(f"Adding result row: {result}")
+    #     task_data = result.get('task_completed')
+    #     if task_data:
+    #         sl_no = task_data.get("sl_no")
+    #         model_name = task_data.get("model")
+    #         rms_error = f"{task_data.get('rms_error_mv', 0):.4f}"
+    #         mae = f"{task_data.get('mae_mv', 0):.4f}"
+    #         mape = f"{task_data.get('mape', 0):.4f}"
+    #         r2 = f"{task_data.get('r2', 0):.4f}"
+
+    #         # Add row data to QTreeWidget
+    #         row = QTreeWidgetItem([str(sl_no), model_name, rms_error, mae, mape, r2])
+
+    #         # Set the column widths (adjust these numbers as needed)
+    #         self.tree.setColumnWidth(0, 50)
+    #         self.tree.setColumnWidth(1, 300)  # Set wider width for model name
+    #         self.tree.setColumnWidth(6, 60)  # Set smaller width for the plot button
+
+    #         # Create the "Plot" button with some styling
+    #         plot_button = QPushButton("Plot Result")
+    #         plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")  # Purple background
+    #         plot_button.clicked.connect(lambda _, name=model_name: self.plot_model_results(name))  # Pass model_name to plot
+    #         self.tree.addTopLevelItem(row)
+
+    #         # Set widget for the "Plot" column
+    #         self.tree.setItemWidget(row, 6, plot_button)
+
     def add_result_row(self, result):
         # Add each result as a row in the QTreeWidget
         print(f"Adding result row: {result}")
         task_data = result.get('task_completed')
         if task_data:
-            sl_no = task_data.get("sl_no")
             model_name = task_data.get("model")
             rms_error = f"{task_data.get('rms_error_mv', 0):.4f}"
             mae = f"{task_data.get('mae_mv', 0):.4f}"
             mape = f"{task_data.get('mape', 0):.4f}"
             r2 = f"{task_data.get('r2', 0):.4f}"
 
+            # Manually increment Sl.No counter
+            sl_no = self.sl_no_counter
+            self.sl_no_counter += 1
+
             # Add row data to QTreeWidget
             row = QTreeWidgetItem([str(sl_no), model_name, rms_error, mae, mape, r2])
 
             # Set the column widths (adjust these numbers as needed)
             self.tree.setColumnWidth(0, 50)
-            self.tree.setColumnWidth(1, 300)  # Set wider width for model name
-            self.tree.setColumnWidth(6, 60)  # Set smaller width for the plot button
+            self.tree.setColumnWidth(1, 310)  # Set wider width for model name
+            self.tree.setColumnWidth(6, 50)  # Set smaller width for the plot button
 
             # Create the "Plot" button with some styling
             plot_button = QPushButton("Plot Result")
@@ -220,6 +284,7 @@ class VEstimTestingGUI(QMainWindow):
 
             # Set widget for the "Plot" column
             self.tree.setItemWidget(row, 6, plot_button)
+
 
     def plot_model_results(self, model_name):
         """
@@ -307,7 +372,7 @@ class VEstimTestingGUI(QMainWindow):
         self.testing_thread = TestingThread(self.testing_manager, self.queue)
         self.testing_thread.update_status_signal.connect(self.update_status)
         self.testing_thread.result_signal.connect(self.add_result_row)
-        self.testing_thread.finished.connect(self.all_tests_completed)  # Connect to the newly added method
+        self.testing_thread.testing_complete_signal.connect(self.all_tests_completed)  # Connect to the completion signal
         self.testing_thread.start()
 
         # Start processing the queue after the thread starts
@@ -325,6 +390,8 @@ class VEstimTestingGUI(QMainWindow):
             # If the queue is empty, wait and try again
             QTimer.singleShot(100, self.process_queue)
             return  # Return early if there's nothing new to process
+        # Process all the events in the Qt event loop (force repaint of the UI)
+        QApplication.processEvents()
         
         # If new result is added, update the progress bar and status
         total_tasks = len(self.testing_manager.training_setup_manager.get_task_list())
@@ -356,8 +423,6 @@ class VEstimTestingGUI(QMainWindow):
 
     
     def all_tests_completed(self):
-        self.testing_thread.quit()  # Stop the thread
-        self.testing_thread.wait()  # Ensure it's cleaned up
         # Update the status label to indicate completion
         self.status_label.setText("All tests completed successfully.")
         
@@ -373,7 +438,10 @@ class VEstimTestingGUI(QMainWindow):
         # Optionally log or print a message
         print("All tests completed successfully.")
         self.update_status("All tests completed successfully.")
-
+        # Ensure the thread is properly cleaned up
+        if self.testing_thread.isRunning():
+            self.testing_thread.quit()
+            self.testing_thread.wait()  # Wait for the thread to finish
 
     def open_results_folder(self):
         results_folder = self.job_manager.get_test_results_folder()

@@ -44,7 +44,6 @@ class VEstimTestingManager:
 
             # Retrieve task list
             print("Retrieving task list from TrainingSetupManager...")
-            # Initialize task tracking
             task_list = self.training_setup_manager.get_task_list()
 
             if not task_list:
@@ -64,6 +63,7 @@ class VEstimTestingManager:
                     for idx, task in enumerate(task_list)
                 }
 
+                # Wait for tasks to complete
                 for future in as_completed(future_to_task):
                     task = future_to_task[future]
                     try:
@@ -72,9 +72,14 @@ class VEstimTestingManager:
                         print(f"Task {task} generated an exception: {exc}")
                         self.queue.put({'task_error': f'Task {task} generated an exception: {exc}'})
 
+            # Signal to the queue that all tasks are completed
+            print("All tasks completed. Sending signal to GUI...")
+            self.queue.put({'all_tasks_completed': True})
+
         except Exception as e:
             print(f"An error occurred during testing: {str(e)}")
             self.queue.put({'task_error': str(e)})
+
 
     def _test_single_model(self, task, idx, test_folder, save_dir):
         """Test a single model and save the result."""
@@ -128,11 +133,11 @@ class VEstimTestingManager:
         lookback = hyperparams.get('LOOKBACK', 'NA')
         repetitions = hyperparams.get('REPETITIONS', 'NA')
 
-        short_name = (f"Lr{layers}_H{hidden_units}_B{batch_size}_Lk{lookback}_"
-                      f"E{max_epochs}_LR{lr}_LDR{lr_drop_period}_ValP{valid_patience}_"
-                      f"ValFr{valid_frequency}_Rep{repetitions}")
+        short_name = (f"L{layers}_H{hidden_units}_B{batch_size}_Lk{lookback}_"
+                      f"E{max_epochs}_LR{lr}_LD{lr_drop_period}_VP{valid_patience}_"
+                      f"VF{valid_frequency}_R{repetitions}")
 
         param_string = f"{layers}_{hidden_units}_{batch_size}_{lookback}_{lr}_{valid_patience}_{max_epochs}"
-        short_hash = hashlib.md5(param_string.encode()).hexdigest()[:6]  # First 6 chars for uniqueness
+        short_hash = hashlib.md5(param_string.encode()).hexdigest()[:3]  # First 6 chars for uniqueness
         shorthand_name = f"{short_name}_{short_hash}"
         return shorthand_name
