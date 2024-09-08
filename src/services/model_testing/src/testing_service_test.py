@@ -57,6 +57,7 @@ class VEstimTestingService:
             mae = mean_absolute_error(y_test, y_pred) * 1000  # Convert to mV
             mape = self.calculate_mape(y_test, y_pred)
             r2 = r2_score(y_test, y_pred)
+            print(f"RMS Error: {rms_error}, MAE: {mae}, MAPE: {mape}, R²: {r2}")
 
             return {
                 'predictions': y_pred,
@@ -111,17 +112,9 @@ class VEstimTestingService:
         print(f"Results and metrics for model '{model_name}' saved to {model_dir}")
 
     def run_testing(self, task, model_path, X_test, y_test, save_dir):
-        print("Entered run_testing")
-        """
-        Orchestrates the testing process by loading the model, running tests, and saving the results.
-
-        :param task: Dictionary containing task metadata, including hyperparameters.
-        :param model_path: Path to the model .pth file.
-        :param X_test: Input sequences for testing.
-        :param y_test: True output values.
-        :param save_dir: Directory where the results will be saved.
-        :return: A dictionary containing predictions and evaluation metrics.
-        """
+        print(f"Entered run_testing for model at {model_path}")
+        print(f"Task hyperparameters: {task['model_metadata']}")
+        print(f"Test data shapes: X_test={X_test.shape}, y_test={y_test.shape}")
 
         # Extract hyperparameters from the task
         model_metadata = task["model_metadata"]
@@ -129,23 +122,39 @@ class VEstimTestingService:
         hidden_units = model_metadata["hidden_units"]
         num_layers = model_metadata["num_layers"]
 
-        # Instantiate the model with the extracted hyperparameters
+        print(f"Instantiating LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
+
+        # Instantiate the model
         model = LSTMModel(input_size=input_size,
                         hidden_units=hidden_units,
                         num_layers=num_layers,
                         device=self.device)
 
         # Load the model weights
-        model.load_state_dict(torch.load(model_path))
-        model.eval()  # Set the model to evaluation mode
+        try:
+            model.load_state_dict(torch.load(model_path))
+            model.eval()  # Set the model to evaluation mode
+            print("Model loaded and set to evaluation mode")
+        except Exception as e:
+            print(f"Error loading model from {model_path}: {str(e)}")
+            return
 
         # Run the testing process
-        results = self.test_model(model, X_test, y_test)
+        try:
+            results = self.test_model(model, X_test, y_test)
+            print("Model testing completed")
+        except Exception as e:
+            print(f"Error during model testing: {str(e)}")
+            return
 
         # Get the model name for saving results
         model_name = os.path.splitext(os.path.basename(model_path))[0]
 
         # Save the test results
-        self.save_test_results(results, model_name, save_dir)
+        try:
+            self.save_test_results(results, model_name, save_dir)
+            print(f"Test results saved for model: {model_name}")
+        except Exception as e:
+            print(f"Error saving test results: {str(e)}")
 
         return results

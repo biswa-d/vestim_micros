@@ -25,7 +25,7 @@ class TestingThread(QThread):
 
     def run(self):
         try:
-            self.testing_manager.start_testing()  # You don't need to pass `queue` or `emit` functions
+            self.testing_manager.start_testing(self.queue)  # Pass the queue to the manager
             while True:
                 try:
                     result = self.queue.get(timeout=1)  # Non-blocking queue retrieval
@@ -37,6 +37,7 @@ class TestingThread(QThread):
             self.update_status_signal.emit(f"Error: {str(e)}")
         finally:
             self.quit()  # Ensure the thread stops properly
+
 
 
 class VEstimTestingGUI(QMainWindow):
@@ -68,6 +69,7 @@ class VEstimTestingGUI(QMainWindow):
         self.testing_thread = None
         self.results_list = []  # List to store results
         self.hyper_params = {}  # Placeholder for hyperparameters
+
 
         self.initUI()
         self.start_testing()
@@ -205,9 +207,15 @@ class VEstimTestingGUI(QMainWindow):
             # Add row data to QTreeWidget
             row = QTreeWidgetItem([str(sl_no), model_name, rms_error, mae, mape, r2])
 
-            # Create the "Plot" button as the last column for this row
-            plot_button = QPushButton("Plot")
-            plot_button.clicked.connect(lambda: self.plot_model_results(model_name))
+            # Set the column widths (adjust these numbers as needed)
+            self.tree.setColumnWidth(0, 50)
+            self.tree.setColumnWidth(1, 300)  # Set wider width for model name
+            self.tree.setColumnWidth(6, 60)  # Set smaller width for the plot button
+
+            # Create the "Plot" button with some styling
+            plot_button = QPushButton("Plot Result")
+            plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")  # Purple background
+            plot_button.clicked.connect(lambda _, name=model_name: self.plot_model_results(name))  # Pass model_name to plot
             self.tree.addTopLevelItem(row)
 
             # Set widget for the "Plot" column
@@ -218,12 +226,14 @@ class VEstimTestingGUI(QMainWindow):
         Plot the test results for a specific model by reading from the saved CSV file.
         """
         try:
+            # Create a new dialog window for plotting
             plot_window = QDialog(self)
             plot_window.setWindowTitle(f"Testing Results for Model: {model_name}")
             plot_window.setGeometry(200, 100, 700, 500)
 
             # Locate the CSV file for this model
-            result_file = f"{model_name}_test_results.csv"  # Use actual file path logic
+            save_dir = self.job_manager.get_test_results_folder()  # Assuming this method returns the correct save directory
+            result_file = os.path.join(save_dir, model_name, f"{model_name}_test_results.csv")
 
             if not os.path.exists(result_file):
                 QMessageBox.critical(self, "Error", f"Test results file not found for model: {model_name}")
@@ -237,13 +247,20 @@ class VEstimTestingGUI(QMainWindow):
             # Create a matplotlib figure for plotting
             fig = Figure(figsize=(7, 4), dpi=100)
             ax = fig.add_subplot(111)
-            ax.plot(true_values, label='True Values (V)', color='blue')
-            ax.plot(predictions, label='Predictions (V)', color='green')
 
-            ax.set_xlabel('Index')
-            ax.set_ylabel('Voltage (V)')
-            ax.set_title(f"Testing Results for Model: {model_name}")
-            ax.legend()
+            # Plot the true values and predictions
+            ax.plot(true_values, label='True Values (V)', color='blue', marker='o', markersize=3, linestyle='-', linewidth=0.8)
+            ax.plot(predictions, label='Predictions (V)', color='green', marker='x', markersize=3, linestyle='--', linewidth=0.8)
+
+            # Customize the labels, title, and legend
+            ax.set_xlabel('Index', fontsize=12)
+            ax.set_ylabel('Voltage (V)', fontsize=12)
+            ax.set_title(f"Testing Results for Model: {model_name}", fontsize=14, fontweight='bold')
+            ax.legend(loc='upper right', fontsize=10)
+
+            # Fine-tune grid and ticks for better readability
+            ax.grid(True, linestyle='--', alpha=0.6)
+            ax.tick_params(axis='both', which='major', labelsize=10)
 
             # Embed the plot in the dialog window using FigureCanvas
             canvas = FigureCanvas(fig)
@@ -251,11 +268,33 @@ class VEstimTestingGUI(QMainWindow):
             layout.addWidget(canvas)
             plot_window.setLayout(layout)
 
+            # Add "Save Plot" button
+            save_button = QPushButton("Save Plot")
+            save_button.clicked.connect(lambda: self.save_plot(fig, model_name, save_dir))
+            layout.addWidget(save_button)
+
             # Show the plot window
             plot_window.exec_()
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while plotting results for model: {model_name}\n{str(e)}")
 
+
+    def save_plot(self, fig, model_name, save_dir):
+        """
+        Save the current plot as a PNG image.
+        
+        :param fig: The figure object of the plot.
+        :param model_name: The name of the model being plotted.
+        :param save_dir: The directory where the plot should be saved.
+        """
+        # Create the file path for the saved image
+        plot_file = os.path.join(save_dir, model_name, f"{model_name}_test_results_plot.png")
+
+        # Save the figure as a PNG image
+        fig.savefig(plot_file, format='png')
+        QMessageBox.information(self, "Saved", f"Plot saved as: {plot_file}")
+        print(f"Plot saved as: {plot_file}")
 
     def start_testing(self):
         print("Starting testing...")
@@ -277,27 +316,44 @@ class VEstimTestingGUI(QMainWindow):
 
     def process_queue(self):
         try:
+            # Try to get a result from the queue
             result = self.queue.get_nowait()
             print(f"Got result from queue: {result}")
-            self.add_result_row(result)
-            self.results_list.append(result)
+            self.add_result_row(result)  # Add the result to the GUI
+            self.results_list.append(result)  # Track the completed results
         except Empty:
-            QTimer.singleShot(1000, self.process_queue)
-
+            # If the queue is empty, wait and try again
+            QTimer.singleShot(100, self.process_queue)
+            return  # Return early if there's nothing new to process
+        
+        # If new result is added, update the progress bar and status
         total_tasks = len(self.testing_manager.training_setup_manager.get_task_list())
+        print(f"Total tasks: {total_tasks}")
         completed_tasks = len(self.results_list)
-        # Ensure the value passed to setValue is an integer
-        progress_value = int((completed_tasks / total_tasks) * 100)
-        self.progress.setValue(progress_value)
-        # self.progress.setValue((completed_tasks / total_tasks) * 100)
+        print(f"Completed tasks: {completed_tasks}")
+        
+        if total_tasks == 0:  # Avoid division by zero
+            self.update_status("No tasks to process.")
+            return
 
+        # Ensure progress is an integer between 0 and 100
+        progress_value = int((completed_tasks / total_tasks) * 100)
+        self.progress.setValue(progress_value)  # Update progress bar
+
+        # Update the status with the number of completed tasks
         self.update_status(f"Completed {completed_tasks}/{total_tasks} tasks")
 
+        # Check if all tasks are completed
         if completed_tasks >= total_tasks:
+            # If all tasks are complete, stop processing the queue and update UI
             self.timer_running = False
             self.update_status("All tests completed!")
-            self.progress.hide()
-            self.open_results_button.show()
+            self.progress.hide()  # Hide the progress bar when finished
+            self.open_results_button.show()  # Show the results button
+        else:
+            # Continue checking the queue if tasks are not yet complete
+            QTimer.singleShot(100, self.process_queue)
+
     
     def all_tests_completed(self):
         self.testing_thread.quit()  # Stop the thread

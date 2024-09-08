@@ -1,93 +1,104 @@
 import torch
 import os
 import json, hashlib
-from PyQt5.QtCore import QThread, pyqtSignal
+from threading import Thread
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.gateway.src.job_manager import JobManager
 from src.services.model_testing.src.testing_service import VEstimTestingService
-from src.services.model_testing.src.test_data_service_test import VEstimTestDataService
-from src.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from src.services.model_testing.src.test_data_service import VEstimTestDataService
+from src.gateway.src.training_setup_manager import VEstimTrainingSetupManager
 
-
-class VEstimTestingManager(QThread):
+class VEstimTestingManager:
     def __init__(self):
-        super().__init__()
-        self.job_manager = JobManager()
+        print("Initializing VEstimTestingManager...")
+        self.job_manager = JobManager()  # Singleton instance of JobManager
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.testing_service = VEstimTestingService()
         self.test_data_service = VEstimTestDataService()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.max_workers = 4  # Max number of threads
-        self.stop_flag = False
-        self.queue = Queue()
+        self.max_workers = 4  # Number of concurrent threads
+        self.queue = None  # Initialize the queue attribute
+        self.stop_flag = False  # Initialize the stop flag attribute
+        print("Initialization complete.")
 
-    def run(self):
-        """Main method that starts the testing process when the thread is started."""
-        self.start_testing()
+    def start_testing(self, queue):
+        """Start the testing process and store the queue for results."""
+        self.queue = queue  # Store the queue instance
+        self.stop_flag = False  # Reset stop flag when starting testing
+        print("Starting testing process...")
 
+        # Create the thread to handle testing
+        self.testing_thread = Thread(target=self._run_testing_tasks)
+        self.testing_thread.setDaemon(True)
+        self.testing_thread.start()
 
-    def start_testing(self):
-        self.stop_flag = False
-        test_folder = self.job_manager.get_test_folder()
-        save_dir = self.job_manager.get_test_results_folder()
+    def _run_testing_tasks(self):
+        """The main function that runs testing tasks."""
+        try:
+            print("Getting test folder and results save directory...")
+            test_folder = self.job_manager.get_test_folder()
+            save_dir = self.job_manager.get_test_results_folder()
+            print(f"Test folder: {test_folder}, Save directory: {save_dir}")
 
-        task_list = self.training_setup_manager.get_task_list()
-        print(f"Retrieved task list: {task_list}")
+            # Retrieve task list
+            print("Retrieving task list from TrainingSetupManager...")
+            # Initialize task tracking
+            task_list = self.training_setup_manager.get_task_list()
 
-        if not task_list:
-            task_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
-            if os.path.exists(task_summary_file):
-                with open(task_summary_file, 'r') as f:
-                    task_list = json.load(f)
+            if not task_list:
+                task_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
+                if os.path.exists(task_summary_file):
+                    with open(task_summary_file, 'r') as f:
+                        task_list = json.load(f)
+                else:
+                    raise ValueError("Task list is not available in memory or on disk.")
 
-        if not task_list:
-            self.update_status_signal.emit("Task list is not available in memory or on disk.")
-            return
+            print(f"Total tasks to run: {len(task_list)}")
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_task = {
-                executor.submit(self._test_single_model, task, idx, test_folder, save_dir): task
-                for idx, task in enumerate(task_list)
-            }
+            # Execute tasks in parallel using ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                future_to_task = {
+                    executor.submit(self._test_single_model, task, idx, test_folder, save_dir): task
+                    for idx, task in enumerate(task_list)
+                }
 
-            for future in as_completed(future_to_task):
-                task = future_to_task[future]
-                try:
-                    future.result()
-                except Exception as exc:
-                    self.queue.put({'task_error': f'Task {task} generated an exception: {exc}'})
+                for future in as_completed(future_to_task):
+                    task = future_to_task[future]
+                    try:
+                        future.result()  # Retrieve the result
+                    except Exception as exc:
+                        print(f"Task {task} generated an exception: {exc}")
+                        self.queue.put({'task_error': f'Task {task} generated an exception: {exc}'})
 
-        if not self.stop_flag:
-            self.update_status_signal.emit("Testing completed!")
+        except Exception as e:
+            print(f"An error occurred during testing: {str(e)}")
+            self.queue.put({'task_error': str(e)})
 
     def _test_single_model(self, task, idx, test_folder, save_dir):
-        print(f"Testing service instance: {self.testing_service}")
-        print(f"Has run_testing: {hasattr(self.testing_service, 'run_testing')}")
-
         """Test a single model and save the result."""
         try:
+            print(f"Preparing test data for Task {idx + 1}...")
+
+            # Extract lookback and model path from the task
             lookback = task['hyperparams']['LOOKBACK']
             model_path = task['model_path']
-            print(f"Testing model: {model_path}")
+            print(f"Testing model: {model_path} with lookback: {lookback}")
 
+            print("Loading and processing test data...")
             X_test, y_test = self.test_data_service.load_and_process_data(test_folder, lookback)
-            print(f"Loaded test data with shapes: {X_test.shape}, {y_test.shape}")
 
+            print("Generating shorthand name for model...")
             shorthand_name = self.generate_shorthand_name(task)
-            print(f"Generated shorthand name: {shorthand_name}")
 
-            # Notify the status signal
-            self.update_status_signal.emit(f'Testing model: {shorthand_name}')
-
-            print(f"Testing service: {self.testing_service}")
-            print(f"Has run_testing: {hasattr(self.testing_service, 'run_testing')}")
+            # Run the testing process
             results = self.testing_service.run_testing(task, model_path, X_test, y_test, save_dir)
             self.testing_service.save_test_results(results, shorthand_name, save_dir)
 
-            # Emit the task result to be processed by the GUI
-            self.result_signal.emit({
+            # Put the results in the queue for the GUI
+            print(f"Results for model {shorthand_name}: {results}")
+            self.queue.put({
                 'task_completed': {
                     'sl_no': idx + 1,
                     'model': shorthand_name,
@@ -99,7 +110,8 @@ class VEstimTestingManager(QThread):
             })
 
         except Exception as e:
-            self.result_signal.emit({'task_error': str(e)})
+            print(f"Error testing model {task['model_path']}: {str(e)}")
+            self.queue.put({'task_error': str(e)})
 
     @staticmethod
     def generate_shorthand_name(task):
@@ -123,10 +135,4 @@ class VEstimTestingManager(QThread):
         param_string = f"{layers}_{hidden_units}_{batch_size}_{lookback}_{lr}_{valid_patience}_{max_epochs}"
         short_hash = hashlib.md5(param_string.encode()).hexdigest()[:6]  # First 6 chars for uniqueness
         shorthand_name = f"{short_name}_{short_hash}"
-    
         return shorthand_name
-
-    def stop_testing(self):
-        """Stop the testing process."""
-        self.stop_flag = True  # Set the stop flag
-
