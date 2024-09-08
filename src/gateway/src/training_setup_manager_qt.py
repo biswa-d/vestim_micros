@@ -1,4 +1,4 @@
-import time
+
 import os
 import json
 from src.gateway.src.hyper_param_manager_test import VEstimHyperParamManager
@@ -13,58 +13,62 @@ class VEstimTrainingSetupManager:
             cls._instance = super(VEstimTrainingSetupManager, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, update_status_callback=None):
-        if not hasattr(self, 'initialized'):  # Check if already initialized
+    def __init__(self, progress_signal=None, job_manager=None):
+        if not hasattr(self, 'initialized'):  # Ensure initialization only happens once
             self.params = None
             self.current_hyper_params = None
-            self.hyper_param_manager = VEstimHyperParamManager()
-            self.lstm_model_service = LSTMModelService()
-            self.job_manager = JobManager()
-            self.start_time = None
-            self.models = []
-            self.training_tasks = []
-            self.update_status = update_status_callback or (lambda message: None)
-            self.load_cached_task_list()  # Load cached task list on initialization
+            self.hyper_param_manager = VEstimHyperParamManager()  # Initialize your hyperparameter manager here
+            self.lstm_model_service = LSTMModelService()  # Initialize your model service here
+            self.job_manager = job_manager  # JobManager should be passed in or initialized separately
+            self.models = []  # Store model information
+            self.training_tasks = []  # Store created tasks
+            self.progress_signal = progress_signal  # Signal to communicate progress with the GUI
             self.initialized = True  # Mark as initialized
 
-    def load_cached_task_list(self):
-        """Loads the cached task list from disk if available."""
-        tasks_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
-        if os.path.exists(tasks_summary_file):
-            with open(tasks_summary_file, 'r') as f:
-                self.training_tasks = json.load(f)
-            print(f"Loaded {len(self.training_tasks)} tasks from cache.")
-        else:
-            print("No cached tasks found.")
-
     def setup_training(self):
+        print("Setting up training by the manager...")
         """Set up the training process, including building models and creating training tasks."""
-        self.params = self.hyper_param_manager.get_current_params()
-        print(f"Params after loading: {self.params}")
+        try:
+            print("Fetching hyperparameters...")
+            self.params = self.hyper_param_manager.get_hyper_params()
+            self.current_hyper_params = self.params
+            print(f"Params after updating: {self.current_hyper_params}")
 
-        self.current_hyper_params = self.params
-        print(f"Params after updating: {self.current_hyper_params}")
+            # Emit progress signal to indicate model building is starting
+            if self.progress_signal:
+                self.progress_signal.emit("Building models...", "", 0)
 
-        # Update status to indicate model building is starting
-        self.update_status("Building models...")
-        # Build models
-        self.build_models()
+            # Build models
+            self.build_models()
 
-        # Update status to indicate training task creation is starting
-        self.update_status("Creating training tasks...")
-        # Create training tasks
-        self.create_training_tasks()
+            # Emit progress signal to indicate training task creation is starting
+            if self.progress_signal:
+                self.progress_signal.emit("Creating training tasks...", "", 0)
 
-        # Update status to indicate setup is complete
-        self.update_status(f"Setup complete! Task info saved in {self.job_manager.get_job_folder()}.")
+            # Create training tasks
+            self.create_training_tasks()
+
+            # Emit final progress signal after tasks are created
+            task_count = len(self.training_tasks)
+            if self.progress_signal:
+                self.progress_signal.emit(
+                    f"Setup complete! Task info saved in {self.job_manager.get_job_folder()}.",
+                    self.job_manager.get_job_folder(),
+                    task_count
+                )
+
+        except Exception as e:
+            # Handle any error during setup and pass it to the GUI
+            if self.progress_signal:
+                self.progress_signal.emit(f"Error during setup: {str(e)}", "", 0)
 
     def build_models(self):
+        """Build and store the LSTM models based on hyperparameters."""
         hidden_units_list = [int(h) for h in self.params['HIDDEN_UNITS'].split(',')]
-        layers = int(self.params['LAYERS'])
+        layers = int(self.params['LAYERS']) # can be done like the hidden unit as well, currently one value of layers is used
 
         for hidden_units in hidden_units_list:
             print(f"Creating model with hidden_units: {hidden_units}")
-
             model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', f'model_lstm_hu_{hidden_units}')
             os.makedirs(model_dir, exist_ok=True)
 
@@ -78,7 +82,8 @@ class VEstimTrainingSetupManager:
             }
 
             model = self.lstm_model_service.create_and_save_lstm_model(model_params, model_path)
-            # Store the model along with its directory and hyperparameters
+
+            # Store model information
             self.models.append({
                 'model': model,
                 'model_dir': model_dir,
@@ -106,7 +111,7 @@ class VEstimTrainingSetupManager:
         batch_sizes = [int(bs) for bs in self.current_hyper_params['BATCH_SIZE'].split(',')]
         max_epochs = int(self.current_hyper_params['MAX_EPOCHS'])  # Ensure MAX_EPOCHS is included
 
-        # Iterate through each model
+        # Iterate through each model and create tasks
         for model_task in self.models:
             model = model_task['model']
             model_metadata = {
@@ -133,7 +138,7 @@ class VEstimTrainingSetupManager:
 
                                         # Define task information
                                         task_info = {
-                                            'model': model,  # Ensure this model instance is correctly initialized
+                                            'model': model,
                                             'model_metadata': model_metadata,  # Use metadata instead of the full model
                                             'data_loader_params': {
                                                 'lookback': lookback,
@@ -172,8 +177,13 @@ class VEstimTrainingSetupManager:
         with open(tasks_summary_file, 'w') as f:
             json.dump([{k: v for k, v in task.items() if k != 'model'} for task in self.training_tasks], f, indent=4)
 
-        print(f"Created {len(self.training_tasks)} training tasks and saved to disk.")
+        # Emit progress signal to notify the GUI
+        task_count = len(self.training_tasks)
+        if self.progress_signal:
+            self.progress_signal.emit(f"Created {task_count} training tasks and saved to disk.", self.job_manager.get_job_folder(), task_count)
 
     def get_task_list(self):
         """Returns the list of training tasks."""
         return self.training_tasks
+
+

@@ -29,7 +29,7 @@ class VEstimHyperParamManager:
     def validate_and_normalize_params(self, params):
         """Validate the parameter values without altering them."""
         validated_params = {}
-
+        
         for key, value in params.items():
             if isinstance(value, str):
                 # Split the string into a list, allowing for comma or space separation

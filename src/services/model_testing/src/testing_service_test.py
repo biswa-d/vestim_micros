@@ -7,6 +7,7 @@ from src.services.model_training.src.LSTM_model_service_test import LSTMModel
 
 class VEstimTestingService:
     def __init__(self, device='cpu'):
+        print("Initializing VEstimTestingService...")
         """
         Initialize the TestingService with the specified device.
 
@@ -110,6 +111,7 @@ class VEstimTestingService:
         print(f"Results and metrics for model '{model_name}' saved to {model_dir}")
 
     def run_testing(self, task, model_path, X_test, y_test, save_dir):
+        print("Entered run_testing")
         """
         Orchestrates the testing process by loading the model, running tests, and saving the results.
 

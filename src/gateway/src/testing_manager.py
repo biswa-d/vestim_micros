@@ -144,7 +144,6 @@ class VEstimTestingManager:
             print(f"Error testing model {task['model_path']}: {str(e)}")
             queue.put({'task_error': str(e)})
     
-
     
     @staticmethod
     def generate_shorthand_name(task):

@@ -8,8 +8,8 @@ from PyQt5.QtCore import Qt, QPropertyAnimation
 from PyQt5.QtGui import QIcon
 
 from src.gateway.src.job_manager import JobManager
-from src.gateway.src.hyper_param_manager import VEstimHyperParamManager
-from src.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
+from src.gateway.src.hyper_param_manager_test import VEstimHyperParamManager
+from src.gui.src.training_setup_gui_qt_copy import VEstimTrainSetupGUI
 
 # Initialize the JobManager
 job_manager = JobManager()
@@ -27,7 +27,7 @@ class VEstimHyperParamGUI(QWidget):
 
     def setup_window(self):
         self.setWindowTitle("VEstim")
-        self.resize(700, 600)
+        self.setGeometry(100, 100, 900, 600)
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
         icon_path = os.path.join(resources_path, 'icon.ico')
         if os.path.exists(icon_path):
@@ -90,7 +90,7 @@ class VEstimHyperParamGUI(QWidget):
         # Create Training Tasks button centered and styled
         start_button = QPushButton("Create Training Tasks")
         start_button.setFixedWidth(200)  # 1/4th of the window width
-        start_button.setStyleSheet("background-color: blue; color: white; font-size: 12pt;")
+        start_button.setStyleSheet("background-color: #0b6337; color: white; font-size: 12pt;")
         start_button.clicked.connect(self.proceed_to_training)
         button_layout.addWidget(start_button, alignment=Qt.AlignCenter)
 
@@ -157,7 +157,9 @@ class VEstimHyperParamGUI(QWidget):
     def show_training_setup_gui(self):
         # Initialize the next GUI after fade-out is complete
         self.training_setup_gui = VEstimTrainSetupGUI(self.params)
-        self.training_setup_gui.setGeometry(100, 100, 500, 600)
+        current_geometry = self.geometry()
+        self.training_setup_gui.setGeometry(current_geometry)
+        # self.training_setup_gui.setGeometry(100, 100, 900, 600)
         self.training_setup_gui.show()
         self.close()  # Close the previous window
 

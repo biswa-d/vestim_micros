@@ -21,7 +21,7 @@ class DataImportGUI(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("VEstim Modelling Tool")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 900, 600)
 
         # Main layout
         self.central_widget = QWidget(self)
@@ -68,9 +68,9 @@ class DataImportGUI(QMainWindow):
             padding: 10px 20px;  /* Adds padding inside the button */
             color: white;  /* Set the text color to white */
         """)
-        # self.organize_button.setFixedSize(self.organize_button.sizeHint())  # Size to fit the text + some padding
-        self.organize_button.adjustSize()
-        self.organize_button.setEnabled(False)
+        self.organize_button.setFixedHeight(40)  # Ensure consistent height
+        self.organize_button.setMinimumWidth(150)  # Set minimum width to ensure consistency
+        self.organize_button.setMaximumWidth(300)  # Set a reasonable maximum width
         self.organize_button.clicked.connect(self.organize_files)
 
         # Center the button using a layout
@@ -118,11 +118,17 @@ class DataImportGUI(QMainWindow):
             self.organize_button.setEnabled(False)
 
     def organize_files(self):
-        # Update the button label to indicate the process has started
+        # Update the button label and color when the process starts
         self.organize_button.setText("Importing and Preprocessing Files")
-        self.organize_button.setStyleSheet("background-color: #3ecf86; font-weight: bold;")  # Light red to show it's disabled
-        self.organize_button.setEnabled(False)  # Optionally disable the button during processing
-        self.organize_button.adjustSize()
+        self.organize_button.setStyleSheet("""
+            background-color: #3ecf86;  /* Light green color */
+            font-weight: bold; 
+            padding: 10px 20px;  /* Same padding to maintain size */
+            color: white;
+        """)
+        self.organize_button.setEnabled(False)  # Disable the button during processing
+
+        
         # Show progress label and start the background thread
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)

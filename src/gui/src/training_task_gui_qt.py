@@ -12,7 +12,7 @@ from threading import Thread
 # Import your services
 from src.services.model_training.src.training_task_service_test import TrainingTaskService
 from src.gateway.src.training_task_manager_qt import TrainingTaskManager
-from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
+from src.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from src.gateway.src.job_manager import JobManager
 from src.gui.src.testing_gui_qt import VEstimTestingGUI
 
@@ -114,17 +114,35 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Stop button (centered and styled)
         self.stop_button = QPushButton("Stop Training")
         self.stop_button.setStyleSheet("background-color: red; color: white; font-size: 12pt; font-weight: bold;")
-        self.stop_button.setFixedWidth(150)  # Set a fixed width for the button to make it smaller
+        self.stop_button.setFixedWidth(150)  # Set a fixed width for the button
         self.stop_button.clicked.connect(self.stop_training)
 
-        # Add a layout to center the button
-        button_layout = QHBoxLayout()
-        button_layout.addStretch(1)  # Push the button to the center
-        button_layout.addWidget(self.stop_button)
-        button_layout.addStretch(1)  # Push the button to the center
+        # Layout for stop button
+        stop_button_layout = QHBoxLayout()
+        stop_button_layout.addStretch(1)  # Push the button to the center
+        stop_button_layout.addWidget(self.stop_button)
+        stop_button_layout.addStretch(1)  # Push the button to the center
+        self.main_layout.addLayout(stop_button_layout)  # Add this layout to the main layout
 
-        # Add the button layout to the main layout
-        self.main_layout.addLayout(button_layout)
+        # Initialize the Proceed to Testing button
+        self.proceed_button = QPushButton("Proceed to Testing")
+        self.proceed_button.setStyleSheet("""
+            background-color: #0b6337; 
+            color: white; 
+            font-size: 12pt; 
+            font-weight: bold; 
+            padding: 10px 20px;
+        """)
+        self.proceed_button.setVisible(False)  # Initially hidden
+        self.proceed_button.clicked.connect(self.transition_to_testing_gui)
+
+        # Layout for proceed button
+        proceed_button_layout = QHBoxLayout()
+        proceed_button_layout.addStretch(1)
+        proceed_button_layout.addWidget(self.proceed_button, alignment=Qt.AlignCenter)
+        proceed_button_layout.addStretch(1)
+        self.main_layout.addLayout(proceed_button_layout)  # Add this layout to the main layout
+
 
         # Progress Label (initially hidden)
         self.progress_label = QLabel("Processing...")
@@ -460,10 +478,11 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
         # Immediate GUI update to reflect the stopping state
         self.status_label.setText("Stopping Training...")
-        self.status_label.setStyleSheet("color: red; font-weight: bold;")
+        self.status_label.setStyleSheet("color: #e75480; font-size: 16pt; font-weight: bold;")  # Pinkish-red text
 
-        # Hide the stop button
-        self.stop_button.hide()
+        # Change stop button appearance and text during the process
+        self.stop_button.setText("Stopping...")  # Update button text
+        self.stop_button.setStyleSheet("background-color: #ffcccb; color: white; font-size: 12pt; font-weight: bold;")  # Lighter red
 
         # Set flag to prevent further tasks
         self.training_process_stopped = True
@@ -473,6 +492,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         QTimer.singleShot(100, self.check_if_stopped)
 
 
+
     def check_if_stopped(self):
         if self.training_thread and self.training_thread.isRunning():
             # Keep checking until the thread has stopped
@@ -480,9 +500,15 @@ class VEstimTrainingTaskGUI(QMainWindow):
         else:
             # Once the thread is confirmed to be stopped, proceed to task completion
             print("Training thread has stopped.")
-            # Update status to indicate training has stopped
-            self.status_label.setText("Training stopped.")
-            self.status_label.setStyleSheet("color: red; font-weight: bold;")
+            
+            # Update status to indicate training has stopped early (if it was stopped manually)
+            if getattr(self, 'training_process_stopped', False):
+                self.status_label.setText("Training stopped early.")
+                self.status_label.setStyleSheet("color: #b22222; font-size: 14pt; font-weight: bold;")  # Subtle red color and larger font
+            else:
+                # In case training completed naturally
+                self.status_label.setText("Training completed.")
+                self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
 
             # Show the "Proceed to Testing" button once the training has stopped
             if not self.task_completed_flag:
@@ -492,9 +518,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 print("task_completed() was already called, skipping.")
 
 
-
     def task_completed(self):
-        print("Entering task_completed() method.")
         if self.task_completed_flag:
             return  # Exit if this method has already been called for this task
         self.task_completed_flag = True  # Set the flag to True on the first call
@@ -502,52 +526,52 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.timer_running = False
 
         if self.isVisible():  # Check if the window still exists
+            total_training_time = time.time() - self.start_time
+            total_hours, total_remainder = divmod(total_training_time, 3600)
+            total_minutes, total_seconds = divmod(total_remainder, 60)
+            formatted_total_time = f"{int(total_hours):02}h:{int(total_minutes):02}m:{int(total_seconds):02}s"
+
+            # Update time label
+            self.static_text_label.setText("Total Training Time:")
+            self.static_text_label.setStyleSheet("color: blue; font-size: 12pt; font-weight: bold;")
+            self.time_value_label.setText(formatted_total_time)
+            self.time_value_label.setStyleSheet("color: purple; font-size: 12pt; font-weight: bold;")
+
+            # Check if the training process was stopped early
             if getattr(self, 'training_process_stopped', False):
-                print(f"Training process stopped flag: {self.training_process_stopped}")
-                print("Training process was stopped early.")
                 self.status_label.setText("Training stopped early. Saving model to task folder...")
-                self.status_label.setStyleSheet("color: red; font-weight: bold;")
-                # Calculate total training time
-                total_training_time = time.time() - self.start_time
-                total_hours, total_remainder = divmod(total_training_time, 3600)
-                total_minutes, total_seconds = divmod(total_remainder, 60)
-                formatted_total_time = f"{int(total_hours):02}h:{int(total_minutes):02}m:{int(total_seconds):02}s"
-
-                # Update the static_text_label to show "Total Training Time"
-                self.static_text_label.setText("Total Training Time:")
-                self.static_text_label.setStyleSheet("color: blue; font-size: 12pt; font-weight: bold;")  # Bigger and bold
-
-                # Update the time_value_label to show the total training time
-                self.time_value_label.setText(formatted_total_time)
-                self.time_value_label.setStyleSheet("color: purple; font-size: 12pt; font-weight: bold;")  # Adjust font size
-
-                # Hide the stop button and show the "Proceed to Testing" button in the same place
-                self.stop_button.hide()
-                self.show_proceed_to_testing_button()
-                return
-
-            # Check if there are more tasks to process
-            if self.current_task_index < len(self.task_list) - 1:
-                print(f"Completed task {self.current_task_index + 1}/{len(self.task_list)}.")
-                self.current_task_index += 1
-                self.task_completed_flag = False  # Reset the flag for the next task
-                self.build_gui(self.task_list[self.current_task_index])
-                self.start_task_processing()
+                self.status_label.setStyleSheet("color: #b22222; font-size: 14pt; font-weight: bold;")  # Reddish color
             else:
-                total_training_time = time.time() - self.start_time
-                total_hours, total_remainder = divmod(total_training_time, 3600)
-                total_minutes, total_seconds = divmod(total_remainder, 60)
-                formatted_total_time = f"{int(total_hours):02}h:{int(total_minutes):02}m:{int(total_seconds):02}s"
-
-                self.static_text_label.setText("Total Training Time:")
-                self.time_value_label.setText(f"{formatted_total_time}")
-
                 self.status_label.setText("All Training Tasks Completed!")
-                self.show_proceed_to_testing_button()
+                self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
+
+            # Ensure the "Proceed to Testing" button is displayed in both cases
+            self.stop_button.hide()
+            self.show_proceed_to_testing_button()
+
+        # Handle the case where the window has been destroyed
         else:
             print("Task completed method was called after the window was destroyed.")
 
+        # Check if there are more tasks to process
+        if self.current_task_index < len(self.task_list) - 1:
+            print(f"Completed task {self.current_task_index + 1}/{len(self.task_list)}.")
+            self.current_task_index += 1
+            self.task_completed_flag = False  # Reset the flag for the next task
+            self.build_gui(self.task_list[self.current_task_index])
+            self.start_task_processing()
+        else:
+            # Handle the case when all tasks are completed
+            total_training_time = time.time() - self.start_time
+            total_hours, total_remainder = divmod(total_training_time, 3600)
+            total_minutes, total_seconds = divmod(total_remainder, 60)
+            formatted_total_time = f"{int(total_hours):02}h:{int(total_minutes):02}m:{int(total_seconds):02}s"
 
+            self.static_text_label.setText("Total Training Time:")
+            self.time_value_label.setText(formatted_total_time)
+
+            self.status_label.setText("All Training Tasks Completed!")
+            self.show_proceed_to_testing_button()
 
     def wait_for_thread_to_stop(self):
         if self.worker and self.worker.isRunning():
@@ -565,32 +589,11 @@ class VEstimTrainingTaskGUI(QMainWindow):
             QTimer.singleShot(100, self.wait_for_thread_to_stop)
         else:
             self.close()  # Close the window
-
-
+    
     def show_proceed_to_testing_button(self):
-        if not hasattr(self, 'proceed_button'):  # Ensure it's not added multiple times
-            self.proceed_button = QPushButton("Proceed to Testing")
-            self.proceed_button.setStyleSheet("background-color: green; color: white; font-size: 12pt; font-weight: bold; padding: 10px;")
-            
-            # Set dynamic size based on content
-            self.proceed_button.setFixedWidth(self.proceed_button.sizeHint().width())  # Adjust width based on the content size
-            self.proceed_button.setFixedHeight(self.stop_button.height())  # Match the height of the stop button
-            
-            # Create a horizontal layout to center the button
-            button_layout = QHBoxLayout()
-            button_layout.addStretch(1)  # Add spacing to push button to the center
-            button_layout.addWidget(self.proceed_button)
-            button_layout.addStretch(1)  # Add spacing to keep the button centered
-
-            # Add the button layout to the main layout
-            self.main_layout.addLayout(button_layout)
-
-            # Connect the "Proceed to Testing" button to the testing GUI
-            self.proceed_button.clicked.connect(self.transition_to_testing_gui)
-
-        # Make sure the button is visible
+        # Ensure the button is shown
+        self.stop_button.hide()
         self.proceed_button.show()
-
 
     def transition_to_testing_gui(self):
         self.close()  # Close the current window

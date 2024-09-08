@@ -6,7 +6,7 @@ from queue import Queue, Empty
 from gateway.src.testing_manager import VEstimTestingManager
 from src.gateway.src.job_manager import JobManager
 from src.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
-from src.gateway.src.hyper_param_manager import VEstimHyperParamManager
+from src.gateway.src.hyper_param_manager_test import VEstimHyperParamManager
 
 class VEstimTestingGUI:
     def __init__(self, master):
