@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QPropertyAnimation
 from PyQt5.QtGui import QIcon
 
-from src.gateway.src.job_manager import JobManager
+from src.gateway.src.job_manager_qt import JobManager
 from src.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from src.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
 

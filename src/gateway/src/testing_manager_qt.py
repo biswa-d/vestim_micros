@@ -5,10 +5,10 @@ from threading import Thread
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from src.gateway.src.job_manager import JobManager
+from src.gateway.src.job_manager_qt import JobManager
 from src.services.model_testing.src.testing_service import VEstimTestingService
 from src.services.model_testing.src.test_data_service import VEstimTestDataService
-from src.gateway.src.training_setup_manager import VEstimTrainingSetupManager
+from src.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 
 class VEstimTestingManager:
     def __init__(self):

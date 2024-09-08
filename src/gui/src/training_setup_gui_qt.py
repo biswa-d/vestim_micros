@@ -6,7 +6,7 @@ import sys
 import time
 from src.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from src.gui.src.training_task_gui_qt import VEstimTrainingTaskGUI
-from src.gateway.src.job_manager import JobManager
+from src.gateway.src.job_manager_qt import JobManager
 
 class SetupWorker(QThread):
     progress_signal = pyqtSignal(str, str, int)  # Signal to update the status in the main GUI

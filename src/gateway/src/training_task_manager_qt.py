@@ -1,7 +1,7 @@
 import time
 import torch
 from PyQt5.QtCore import QThread, pyqtSignal
-from src.gateway.src.job_manager import JobManager
+from src.gateway.src.job_manager_qt import JobManager
 from src.services.model_training.src.data_loader_service import DataLoaderService
 from src.services.model_training.src.training_task_service import TrainingTaskService
 

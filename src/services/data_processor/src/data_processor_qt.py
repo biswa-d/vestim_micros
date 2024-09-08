@@ -3,7 +3,7 @@ import shutil
 import scipy.io
 import numpy as np
 import gc  # Explicit garbage collector
-from src.gateway.src.job_manager import JobManager
+from src.gateway.src.job_manager_qt import JobManager
 from tqdm import tqdm
 
 class DataProcessor:

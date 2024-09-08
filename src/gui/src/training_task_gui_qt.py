@@ -13,7 +13,7 @@ from threading import Thread
 from src.services.model_training.src.training_task_service import TrainingTaskService
 from src.gateway.src.training_task_manager_qt import TrainingTaskManager
 from src.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
-from src.gateway.src.job_manager import JobManager
+from src.gateway.src.job_manager_qt import JobManager
 from src.gui.src.testing_gui_qt import VEstimTestingGUI
 
 class TrainingThread(QThread):

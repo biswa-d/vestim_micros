@@ -1,6 +1,6 @@
 import os
 import json
-from src.gateway.src.job_manager import JobManager
+from src.gateway.src.job_manager_qt import JobManager
 
 class VEstimHyperParamManager:
     _instance = None
