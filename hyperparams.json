@@ -2,7 +2,7 @@
     "LAYERS": "1",
     "HIDDEN_UNITS": "10",
     "BATCH_SIZE": "100,200",
-    "MAX_EPOCHS": "2",
+    "MAX_EPOCHS": "4",
     "INITIAL_LR": "0.00001",
     "LR_DROP_FACTOR": "0.5",
     "LR_DROP_PERIOD": "1",

@@ -6,10 +6,11 @@ import logging
 
 class TrainingTaskService:
     def __init__(self):
+        self.logger = logging.getLogger(__name__)  # Initialize logger
         self.criterion = nn.MSELoss()  # Assuming you're using Mean Squared Error Loss for regression tasks
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
-        
+
     def train_epoch(self, model, train_loader, optimizer, h_s, h_c, epoch, device, stop_requested):
         """Train the model for a single epoch."""
         model.train()
@@ -39,8 +40,10 @@ class TrainingTaskService:
                 print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
             # Clear unused memory
             del X_batch, y_batch, y_pred  # Explicitly clear tensors
-
+        
+        self.logger.info(f"Completed epoch {epoch} | Avg Loss: {sum(total_train_loss) / len(total_train_loss)}")
         return sum(total_train_loss) / len(total_train_loss)
+        
 
     def validate_epoch(self, model, val_loader, h_s, h_c, epoch, device, stop_requested):
         """Validate the model for a single epoch."""
@@ -64,6 +67,7 @@ class TrainingTaskService:
 
                 # Log the validation progress for each batch
                 if batch_idx % 150 == 0:  # For example, every 150 batches
+                    self.logger.info(f"Epoch {epoch}, Batch {batch_idx} | Loss: {loss.item()}")
                     print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
                     print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
                 # Clear unused memory

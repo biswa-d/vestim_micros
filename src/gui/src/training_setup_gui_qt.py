@@ -7,6 +7,7 @@ import time
 from src.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from src.gui.src.training_task_gui_qt import VEstimTrainingTaskGUI
 from src.gateway.src.job_manager_qt import JobManager
+import logging
 
 class SetupWorker(QThread):
     progress_signal = pyqtSignal(str, str, int)  # Signal to update the status in the main GUI
@@ -14,16 +15,19 @@ class SetupWorker(QThread):
 
     def __init__(self, job_manager):
         super().__init__()
+        self.logger = logging.getLogger(__name__)  # Set up logger
         self.job_manager = job_manager
         # Directly use VEstimTrainingSetupManager(), __new__ ensures singleton
         self.training_setup_manager = VEstimTrainingSetupManager(progress_signal=self.progress_signal, job_manager=self.job_manager)
 
     def run(self):
+        self.logger.info("Starting training setup in a separate thread.")
         print("Starting training setup in a separate thread...")
         try:
             # Perform the training setup
             self.training_setup_manager.setup_training()
             print("Training setup started successfully!")
+            self.logger.info("Training setup started successfully.")
 
             # Get the number of training tasks created
             task_count = len(self.training_setup_manager.get_task_list())
@@ -40,12 +44,13 @@ class SetupWorker(QThread):
 
         except Exception as e:
             # Emit the error message via the progress signal
+            self.logger.error(f"Error occurred during setup: {str(e)}")
             self.progress_signal.emit(f"Error occurred: {str(e)}", "", 0)
 
 class VEstimTrainSetupGUI(QWidget):
     def __init__(self, params):
         super().__init__()
-
+        self.logger = logging.getLogger(__name__)  # Set up logger
         self.params = params
         self.job_manager = JobManager()  # Initialize the JobManager singleton instance directly
         self.timer_running = True  # Ensure this flag is initialized in __init__
@@ -64,6 +69,7 @@ class VEstimTrainSetupGUI(QWidget):
         }
 
         # Setup GUI
+        self.logger.info("Initializing VEstimTrainSetupGUI")
         self.build_gui()
         # Start the setup process
         self.start_setup()
@@ -133,6 +139,7 @@ class VEstimTrainSetupGUI(QWidget):
 
     def start_setup(self):
         print("Starting training setup...")
+        self.logger.info("Starting training setup...")
         self.start_time = time.time()
 
         # Ensure the window is fully built and ready
@@ -160,6 +167,7 @@ class VEstimTrainSetupGUI(QWidget):
         self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
 
     def show_proceed_button(self):
+        self.logger.info("Training setup complete, showing proceed button.")
         print("Training setup complete! Enabling proceed button...")
         # Stop the timer
         self.timer_running = False
@@ -216,6 +224,7 @@ class VEstimTrainSetupGUI(QWidget):
             self.training_gui.setGeometry(current_geometry) 
             self.training_gui.show()   
             # After the new window is successfully displayed, close the current one
+            self.logger.info("Transitioning to training task GUI.")
             self.close()
         except Exception as e:
             print(f"Error while transitioning to the task screen: {e}")

@@ -5,6 +5,11 @@ import os, sys
 from src.gui.src.hyper_param_gui_qt import VEstimHyperParamGUI  # Adjust this import based on your actual path
 from src.services.data_processor.src.data_processor_qt import DataProcessor
 
+from src.logger_config import setup_logger  # Assuming you have logger_config.py as shared earlier
+
+# Set up initial logging to a default log file
+logger = setup_logger(log_file='default.log')  # Log everything to 'default.log' initially
+
 class DataImportGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -18,92 +23,6 @@ class DataImportGUI(QMainWindow):
         self.organizer = None
 
         self.initUI()
-
-    # def initUI(self):
-    #     self.setWindowTitle("VEstim Modelling Tool")
-    #     self.setGeometry(100, 100, 900, 600)
-
-    #     # Main layout
-    #     self.central_widget = QWidget(self)
-    #     self.setCentralWidget(self.central_widget)
-    #     self.main_layout = QVBoxLayout(self.central_widget)
-
-    #     # Header
-    #     self.header_label = QLabel("Select data folders to train your LSTM Model", self)
-    #     self.header_label.setAlignment(Qt.AlignCenter)
-    #     self.header_label.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
-    #     self.main_layout.addWidget(self.header_label)
-
-    #     # Folder selection layout (now horizontal)
-    #     folder_layout = QHBoxLayout()
-
-    #     # Training folder section
-    #     train_layout = QVBoxLayout()
-    #     self.train_select_button = QPushButton("Select Training Folder", self)
-    #     self.train_select_button.setStyleSheet("""
-    #         background-color: #add8e6;  /* Light blue background */
-    #         font-weight: bold;
-    #         padding: 8px 15px;  /* Adds padding inside the button */
-    #         color: black;  /* Set the text color to black for contrast */
-    #     """)
-    #     self.train_select_button.clicked.connect(self.select_train_folder)
-    #     self.train_list_widget = QListWidget(self)
-    #     self.train_list_widget.setSelectionMode(QListWidget.MultiSelection)
-    #     train_layout.addWidget(self.train_select_button)
-    #     train_layout.addWidget(self.train_list_widget)
-
-    #     # Testing folder section
-    #     test_layout = QVBoxLayout()
-    #     self.test_select_button = QPushButton("Select Testing Folder", self)
-    #     self.test_select_button.setStyleSheet("""
-    #         background-color: #add8e6;  /* Light blue background */
-    #         font-weight: bold;
-    #         padding: 8px 15px;  /* Adds padding inside the button */
-    #         color: black;  /* Set the text color to black for contrast */
-    #     """)
-    #     self.test_select_button.clicked.connect(self.select_test_folder)
-    #     self.test_list_widget = QListWidget(self)
-    #     self.test_list_widget.setSelectionMode(QListWidget.MultiSelection)
-    #     test_layout.addWidget(self.test_select_button)
-    #     test_layout.addWidget(self.test_list_widget)
-
-    #     # Add training and testing layouts to the folder layout
-    #     folder_layout.addLayout(train_layout)
-    #     folder_layout.addLayout(test_layout)
-    #     self.main_layout.addLayout(folder_layout)
-
-    #     # Organize button
-    #     self.organize_button = QPushButton("Load and Prepare Files", self)
-    #     self.organize_button.setStyleSheet("""
-    #         background-color: #0b6337; 
-    #         font-weight: bold; 
-    #         padding: 10px 20px;  /* Adds padding inside the button */
-    #         color: white;  /* Set the text color to white */
-    #     """)
-    #     self.organize_button.setFixedHeight(40)  # Ensure consistent height
-    #     self.organize_button.setMinimumWidth(150)  # Set minimum width to ensure consistency
-    #     self.organize_button.setMaximumWidth(300)  # Set a reasonable maximum width
-    #     self.organize_button.clicked.connect(self.organize_files)
-
-    #     # Center the button using a layout
-    #     button_layout = QHBoxLayout()
-    #     button_layout.addStretch(1)  # Add stretchable space before the button
-    #     button_layout.addWidget(self.organize_button, alignment=Qt.AlignCenter)
-    #     button_layout.addStretch(1)  # Add stretchable space after the button
-
-    #     # Add padding around the button by setting the margins
-    #     button_layout.setContentsMargins(50, 20, 50, 20)  # Add margins (left, top, right, bottom)
-
-    #     # Add the button layout to the main layout
-    #     self.main_layout.addLayout(button_layout)
-
-
-    #     # Progress bar
-    #     self.progress_bar = QProgressBar(self)
-    #     self.progress_bar.setValue(0)
-    #     self.progress_bar.setVisible(False)  # Initially hidden
-    #     self.main_layout.addWidget(self.progress_bar)
-
 
     def initUI(self):
         self.setWindowTitle("VEstim Modelling Tool")
@@ -212,12 +131,14 @@ class DataImportGUI(QMainWindow):
         self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder")
         if self.train_folder_path:
             self.populate_file_list(self.train_folder_path, self.train_list_widget)
+            logger.info(f"Selected training folder: {self.train_folder_path}")
         self.check_folders_selected()
 
     def select_test_folder(self):
         self.test_folder_path = QFileDialog.getExistingDirectory(self, "Select Testing Folder")
         if self.test_folder_path:
             self.populate_file_list(self.test_folder_path, self.test_list_widget)
+            logger.info(f"Selected testing folder: {self.test_folder_path}")
         self.check_folders_selected()
 
     def populate_file_list(self, folder_path, list_widget):
@@ -249,6 +170,7 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
+        logger.info("Starting file organization process...")
         # Use selectedItems() to get the selected files
         train_files = [item.text() for item in self.train_list_widget.selectedItems()]
         test_files = [item.text() for item in self.test_list_widget.selectedItems()]
@@ -275,6 +197,7 @@ class DataImportGUI(QMainWindow):
 
     def on_files_processed(self, job_folder):
         # Handle when files are processed and job folder is created
+        logger.info(f"Files processed successfully. Job folder: {job_folder}")
         self.progress_bar.setVisible(False)
         
         # Change the button label to indicate next step and enable it
@@ -318,12 +241,12 @@ class FileOrganizer(QObject):
         try:
             # Call the backend method from DataProcessor to organize and convert files
             job_folder = self.data_processor.organize_and_convert_files(self.train_files, self.test_files, progress_callback=self.update_progress)
-            
+            logger.info(f"Job folder created: {job_folder}")
             # Emit success message with job folder details
             self.job_folder_signal.emit(job_folder)
         except Exception as e:
             self.progress.emit(0)  # Emit 0% if there is an error
-            print(f"Error occurred: {e}")
+            logger.error(f"Error occurred during file organization: {e}")
 
     def update_progress(self, progress_value):
         """Emit progress as a percentage."""

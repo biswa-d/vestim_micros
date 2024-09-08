@@ -4,6 +4,7 @@ import json
 from src.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from src.services.model_training.src.LSTM_model_service import LSTMModelService
 from src.gateway.src.job_manager_qt import JobManager
+import logging
 
 class VEstimTrainingSetupManager:
     _instance = None
@@ -15,6 +16,7 @@ class VEstimTrainingSetupManager:
 
     def __init__(self, progress_signal=None, job_manager=None):
         if not hasattr(self, 'initialized'):  # Ensure initialization only happens once
+            self.logger = logging.getLogger(__name__)  # Initialize logger
             self.params = None
             self.current_hyper_params = None
             self.hyper_param_manager = VEstimHyperParamManager()  # Initialize your hyperparameter manager here
@@ -27,12 +29,14 @@ class VEstimTrainingSetupManager:
 
     def setup_training(self):
         print("Setting up training by the manager...")
+        self.logger.info("Setting up training...")
+        self.logger.info("Fetching hyperparameters...")
         """Set up the training process, including building models and creating training tasks."""
         try:
             print("Fetching hyperparameters...")
             self.params = self.hyper_param_manager.get_hyper_params()
             self.current_hyper_params = self.params
-            print(f"Params after updating: {self.current_hyper_params}")
+            self.logger.info(f"Params after updating: {self.current_hyper_params}")
 
             # Emit progress signal to indicate model building is starting
             if self.progress_signal:
@@ -58,6 +62,7 @@ class VEstimTrainingSetupManager:
                 )
 
         except Exception as e:
+            self.logger.error(f"Error during setup: {str(e)}")
             # Handle any error during setup and pass it to the GUI
             if self.progress_signal:
                 self.progress_signal.emit(f"Error during setup: {str(e)}", "", 0)
@@ -65,40 +70,45 @@ class VEstimTrainingSetupManager:
     def build_models(self):
         """Build and store the LSTM models based on hyperparameters."""
         hidden_units_list = [int(h) for h in self.params['HIDDEN_UNITS'].split(',')]
-        layers = int(self.params['LAYERS']) # can be done like the hidden unit as well, currently one value of layers is used
+        layers_list = [int(l) for l in self.params['LAYERS'].split(',')]  # Allow multiple layers
 
         for hidden_units in hidden_units_list:
-            print(f"Creating model with hidden_units: {hidden_units}")
-            model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', f'model_lstm_hu_{hidden_units}')
-            os.makedirs(model_dir, exist_ok=True)
+            for layers in layers_list:  # Iterate through layers as well
+                self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
+                model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', f'model_lstm_hu_{hidden_units}_layers_{layers}')
+                os.makedirs(model_dir, exist_ok=True)
 
-            model_name = f"model_lstm_hu_{hidden_units}.pth"
-            model_path = os.path.join(model_dir, model_name)
+                model_name = f"model_lstm_hu_{hidden_units}_layers_{layers}.pth"
+                model_path = os.path.join(model_dir, model_name)
 
-            model_params = {
-                "INPUT_SIZE": 3,  # Modify as needed
-                "HIDDEN_UNITS": hidden_units,
-                "LAYERS": layers
-            }
-
-            model = self.lstm_model_service.create_and_save_lstm_model(model_params, model_path)
-
-            # Store model information
-            self.models.append({
-                'model': model,
-                'model_dir': model_dir,
-                'hyperparams': {
-                    'LAYERS': layers,
-                    'HIDDEN_UNITS': hidden_units,
-                    'model_path': model_path
+                model_params = {
+                    "INPUT_SIZE": 3,  # Modify as needed
+                    "HIDDEN_UNITS": hidden_units,
+                    "LAYERS": layers
                 }
-            })
+
+                model = self.lstm_model_service.create_and_save_lstm_model(model_params, model_path)
+
+                # Store model information
+                self.models.append({
+                    'model': model,
+                    'model_dir': model_dir,
+                    'hyperparams': {
+                        'LAYERS': layers,
+                        'HIDDEN_UNITS': hidden_units,
+                        'model_path': model_path
+                    }
+                })
+        
+        self.logger.info("Model building complete.")
+
 
     def create_training_tasks(self):
         """
         Create a list of training tasks by combining models and relevant training hyperparameters.
         This method will also save the task information to disk for future use.
         """
+        self.logger.info("Creating training tasks...")
         task_list = []  # Initialize a list to store tasks
 
         # Retrieve relevant hyperparameters for training
@@ -180,6 +190,7 @@ class VEstimTrainingSetupManager:
         # Emit progress signal to notify the GUI
         task_count = len(self.training_tasks)
         if self.progress_signal:
+            self.logger.info(f"Created {len(self.training_tasks)} training tasks.")
             self.progress_signal.emit(f"Created {task_count} training tasks and saved to disk.", self.job_manager.get_job_folder(), task_count)
 
     def get_task_list(self):

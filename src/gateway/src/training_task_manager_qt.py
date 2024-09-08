@@ -4,9 +4,11 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from src.gateway.src.job_manager_qt import JobManager
 from src.services.model_training.src.data_loader_service import DataLoaderService
 from src.services.model_training.src.training_task_service import TrainingTaskService
+import logging, wandb
 
 class TrainingTaskManager:
     def __init__(self):
+        self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
         self.data_loader_service = DataLoaderService()
         self.training_service = TrainingTaskService()
@@ -14,11 +16,32 @@ class TrainingTaskManager:
         self.stop_requested = False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.training_thread = None  # Initialize the training thread here for PyQt
-
+       
+        # WandB setup (optional)
+        self.use_wandb = False  # Set to False to disable WandB
+        self.wandb_enabled = False
+        if self.use_wandb:
+            try:
+                import wandb
+                wandb.init(project="VEstim", config={"task_name": "LSTM Model Training"})
+                self.wandb_enabled = True
+                self.logger.info("WandB initialized successfully.")
+            except Exception as e:
+                self.wandb_enabled = False
+                self.logger.error(f"Failed to initialize WandB: {e}")
 
     def process_task(self, task, update_progress_callback):
         """Process a single training task."""
         try:
+            self.logger.info(f"Starting task with hyperparams: {task['hyperparams']}")
+             # Log task hyperparameters to wandb if enabled
+            if self.wandb_enabled:
+                try:
+                    wandb.config.update(task['hyperparams'])
+                except Exception as e:
+                    self.logger.error(f"Failed to log hyperparams to WandB: {e}")
+
+            # Task initialization and logging
             self.current_task = task
             self.stop_requested = False
 
@@ -27,16 +50,19 @@ class TrainingTaskManager:
                 raise ValueError("Task does not contain a valid model instance.")
 
             # Configuring DataLoader (send progress update via signal)
+            self.logger.info("Configuring DataLoader")
             update_progress_callback.emit({'status': 'Configuring DataLoader...'})
 
             # Create data loaders for the task
             train_loader, val_loader = self.create_data_loaders(task)
+            self.logger.info(f"DataLoader configured for task: {task['hyperparams']}")
 
             update_progress_callback.emit({'status': f'Training LSTM model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
             # Call the training directly (this will be done within the QThread)
             self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
 
         except Exception as e:
+            self.logger.error(f"Error during task processing: {str(e)}")
             update_progress_callback.emit({'task_error': str(e)})
 
 
@@ -46,6 +72,7 @@ class TrainingTaskManager:
         batch_size = task['data_loader_params']['batch_size']
         num_workers = 4
 
+        self.logger.info("Creating data loaders")
         train_loader, val_loader = self.data_loader_service.create_data_loaders(
             folder_path=self.job_manager.get_train_folder(),  # Adjusted to use the correct folder
             lookback=lookback, 
@@ -58,6 +85,7 @@ class TrainingTaskManager:
     def run_training(self, task, update_progress_callback, train_loader, val_loader, device):
         """Run the training process for a single task."""
         try:
+            self.logger.info("Starting training loop")
             hyperparams = self.convert_hyperparams(task['hyperparams'])
             model = task['model'].to(device)
             max_epochs = hyperparams['MAX_EPOCHS']
@@ -75,6 +103,7 @@ class TrainingTaskManager:
 
             for epoch in range(1, max_epochs + 1):
                 if self.stop_requested:  # Ensure thread safety here
+                    self.logger.info("Training stopped by user")
                     print("Stopping training...")
                     break
 
@@ -86,6 +115,7 @@ class TrainingTaskManager:
                 train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested)
 
                 if self.stop_requested:
+                    self.logger.info("Training stopped by user")
                     print("Training stopped after training phase.")
                     break
 
@@ -95,7 +125,11 @@ class TrainingTaskManager:
                     h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
 
                     val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested)
+                    # wandb.log({"train_loss": train_loss, "val_loss": val_loss, "epoch": epoch})  # Log to wandb
+                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss}")
+
                     if self.stop_requested:
+                        self.logger.info("Training stopped by user")
                         print("Training stopped after validation phase.")
                         break
 
@@ -137,8 +171,10 @@ class TrainingTaskManager:
 
             # Emit task completion signal
             update_progress_callback.emit({'task_completed': True})
+            self.logger.info("Training task completed")
 
         except Exception as e:
+            self.logger.error(f"Error during training: {str(e)}")
             update_progress_callback.emit({'task_error': str(e)})
 
 
@@ -160,10 +196,12 @@ class TrainingTaskManager:
         """Save the trained model to disk."""
         model_path = task.get('model_path', None)
         if model_path is None:
+            self.logger.error("Model path not found in task.")
             raise ValueError("Model path not found in task.")
 
         model = task['model']
         if model is None:
+            self.logger.error("No model instance found in task.")
             raise ValueError("No model instance found in task.")
 
         # Save the model state dictionary
@@ -176,3 +214,4 @@ class TrainingTaskManager:
             self.training_thread.quit()  # Gracefully stop the thread
             self.training_thread.wait(7000)  # Wait for the thread to finish cleanly
             print("Training thread has finished. Proceeding to save the model.")
+            self.logger.info("Training thread has finished. Proceeding to save the model.")

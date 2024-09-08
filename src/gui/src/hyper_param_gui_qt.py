@@ -13,9 +13,11 @@ from src.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
 
 # Initialize the JobManager
 job_manager = JobManager()
-
+import logging
 class VEstimHyperParamGUI(QWidget):
     def __init__(self):
+        self.logger = logging.getLogger(__name__)  # Initialize the logger within the instance
+        self.logger.info("Initializing Hyperparameter GUI")
         super().__init__()
         self.params = {}  # Initialize an empty params dictionary
         self.job_manager = job_manager  # Use the shared JobManager instance
@@ -33,7 +35,7 @@ class VEstimHyperParamGUI(QWidget):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
         else:
-            print("Icon file not found. Make sure 'icon.ico' is in the correct directory.")
+            self.logger.warning("Icon file not found. Make sure 'icon.ico' is in the correct directory.")
 
     def build_gui(self):
         layout = QVBoxLayout()
@@ -141,10 +143,12 @@ class VEstimHyperParamGUI(QWidget):
         try:
             # Validate parameters and save them if valid
             new_params = {param: entry.text() for param, entry in self.param_entries.items()}
+            self.logger.info(f"Proceeding to training with params: {new_params}")
             self.update_params(new_params)
             if self.job_manager.get_job_folder():
                 self.hyper_param_manager.save_params()
             else:
+                self.logger.error("Job folder is not set.")
                 raise ValueError("Job folder is not set.")
 
             self.close()  # Close the current window immediately
@@ -170,14 +174,18 @@ class VEstimHyperParamGUI(QWidget):
             try:
                 # Load and validate parameters using the manager
                 self.params = self.hyper_param_manager.load_params(filepath)
+                self.logger.info(f"Loading params from JSON file: {filepath}") 
                 self.update_gui_with_loaded_params()
             except Exception as e:
+                self.logger.error(f"Failed to load parameters from {filepath}: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to load parameters: {str(e)}")
 
     def update_params(self, new_params):
         try:
+            self.logger.info(f"Updating parameters: {new_params}")
             self.hyper_param_manager.update_params(new_params)
         except ValueError as e:
+            self.logger.error(f"Invalid parameter input: {new_params} - Error: {e}")
             QMessageBox.critical(self, "Error", f"Invalid parameter input: {str(e)}")
         self.update_gui_with_loaded_params()
 
@@ -196,7 +204,7 @@ class VEstimHyperParamGUI(QWidget):
             except Exception as e:
                 print(f"Failed to open PDF: {e}")
         else:
-            print("PDF guide not found. Make sure 'hyper_param_guide.pdf' is in the correct directory.")
+            self.logger.warning("PDF guide not found. Make sure 'hyper_param_guide.pdf' is in the correct directory.")
 
 if __name__ == "__main__":
     app = QApplication([])

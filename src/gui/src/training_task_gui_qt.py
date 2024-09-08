@@ -8,8 +8,9 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from queue import Queue, Empty
 from threading import Thread
+import logging, wandb
 
-# Import your services
+# Import local services
 from src.services.model_training.src.training_task_service import TrainingTaskService
 from src.gateway.src.training_task_manager_qt import TrainingTaskManager
 from src.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
@@ -39,6 +40,21 @@ class TrainingThread(QThread):
 class VEstimTrainingTaskGUI(QMainWindow):
     def __init__(self, task_list, params):
         super().__init__()
+        
+        #Logger setup
+        self.logger = logging.getLogger(__name__)
+        # Initialize WandB flag
+        self.use_wandb = False  # Set to False if WandB should not be used
+        self.wandb_enabled = False
+        if self.use_wandb:
+            try:
+                import wandb
+                wandb.init(project="VEstim", config={"task_name": "LSTM Model Training"})
+                self.wandb_enabled = True
+            except Exception as e:
+                self.wandb_enabled = False
+                self.logger.error(f"Failed to initialize WandB in GUI: {e}")
+        
 
         self.training_task_manager = TrainingTaskManager()
         self.training_setup_manager = VEstimTrainingSetupManager()
@@ -433,6 +449,17 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 f"Time since last Val (ΔT): <b>{delta_t_valid:.2f}s</b>, "
                 f"LR: <b>{learning_rate:.1e}</b><br>"
             )
+           # WandB logging (only if enabled)
+            # if self.wandb_enabled:
+            #     try:
+            #         wandb.log({
+            #             'train_loss': progress_data['train_loss'],
+            #             'val_loss': progress_data['val_loss'],
+            #             'epoch': progress_data['epoch']
+            #         })
+            #     except Exception as e:
+            #         self.logger.error(f"Failed to log to WandB: {e}")
+            self.logger.info(f"Epoch {progress_data['epoch']} | Train Loss: {progress_data['train_loss']} | Val Loss: {progress_data['val_loss']}")
 
             # Append the log message to the log text widget using rich text format
             self.log_text.append(log_message)
