@@ -10,7 +10,7 @@ from queue import Queue, Empty
 from threading import Thread
 
 # Import your services
-from src.services.model_training.src.training_task_service_test import TrainingTaskService
+from src.services.model_training.src.training_task_service import TrainingTaskService
 from src.gateway.src.training_task_manager_qt import TrainingTaskManager
 from src.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from src.gateway.src.job_manager import JobManager

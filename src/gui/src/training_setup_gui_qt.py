@@ -2,7 +2,6 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-from threading import Thread
 import sys
 import time
 from src.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
@@ -13,37 +12,34 @@ class SetupWorker(QThread):
     progress_signal = pyqtSignal(str, str, int)  # Signal to update the status in the main GUI
     finished_signal = pyqtSignal()  # Signal when the setup is finished
 
-    def __init__(self, training_setup_manager, job_manager):
+    def __init__(self, job_manager):
         super().__init__()
-        self.training_setup_manager = training_setup_manager
         self.job_manager = job_manager
+        # Directly use VEstimTrainingSetupManager(), __new__ ensures singleton
+        self.training_setup_manager = VEstimTrainingSetupManager(progress_signal=self.progress_signal, job_manager=self.job_manager)
 
     def run(self):
-        # # Perform the training setup
-        # self.training_setup_manager.setup_training()
-
-        # # Get the number of training tasks created
-        # task_count = len(self.training_setup_manager.training_tasks)
-
-        # # Emit a signal to update the status
-        # self.progress_signal.emit(
-        #     "Task summary saved in the job folder",
-        #     self.job_manager.get_job_folder(),
-        #     task_count
-        # )
-
-        # # Emit a signal when finished
-        # self.finished_signal.emit()
+        print("Starting training setup in a separate thread...")
         try:
+            # Perform the training setup
             self.training_setup_manager.setup_training()
-            task_count = len(self.training_setup_manager.training_tasks)
+            print("Training setup started successfully!")
+
+            # Get the number of training tasks created
+            task_count = len(self.training_setup_manager.get_task_list())
+
+            # Emit a signal to update the status
             self.progress_signal.emit(
                 "Task summary saved in the job folder",
                 self.job_manager.get_job_folder(),
                 task_count
             )
+
+            # Emit a signal when finished
             self.finished_signal.emit()
+
         except Exception as e:
+            # Emit the error message via the progress signal
             self.progress_signal.emit(f"Error occurred: {str(e)}", "", 0)
 
 class VEstimTrainSetupGUI(QWidget):
@@ -66,19 +62,19 @@ class VEstimTrainSetupGUI(QWidget):
             "LOOKBACK": "Lookback Sequence Length",
             "REPETITIONS": "Repetitions"
         }
-        self.training_setup_manager = VEstimTrainingSetupManager(self.update_status)
 
         # Setup GUI
         self.build_gui()
+        # Start the setup process
+        self.start_setup()
 
     def build_gui(self):
         self.setWindowTitle("VEstim - Setting Up Training")
-        # self.setGeometry(100, 100, 900, 600)
-        # Set minimum and maximum sizes to control resizing behavior
         self.setMinimumSize(900, 600)
-        self.setMaximumSize(900, 600)  # This makes it appear "fixed," but avoids the crash
+        self.setMaximumSize(900, 600)  # This makes it appear "fixed"
+        
         # Main layout
-        self.main_layout = QVBoxLayout()  # Save as self.main_layout to add elements later
+        self.main_layout = QVBoxLayout()
 
         # Title label
         title_label = QLabel("Building LSTM Models and Training Tasks\nwith Hyperparameter Set")
@@ -86,50 +82,33 @@ class VEstimTrainSetupGUI(QWidget):
         title_label.setStyleSheet("font-size: 14pt; font-weight: bold; color: #3a3a3a;")
         self.main_layout.addWidget(title_label)
 
-        # Status label
-        self.status_label = QLabel("Setting up training...")
-        self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
-        self.status_label.setAlignment(Qt.AlignCenter)
-        self.main_layout.addWidget(self.status_label)
-
-        # Time tracking label (move it just below the title)
+        # Time tracking label
         time_layout = QHBoxLayout()
         self.static_text_label = QLabel("Time Since Setup Started:")
         self.static_text_label.setStyleSheet("color: blue; font-size: 10pt;")
         self.time_value_label = QLabel("00h:00m:00s")
         self.time_value_label.setStyleSheet("color: purple; font-size: 12pt; font-weight: bold;")
-        # Align both the label and the value in the same row, close to each other
-        time_layout.addStretch(1)  # Adds space to push both labels to the center
+        time_layout.addStretch(1)
         time_layout.addWidget(self.static_text_label)
         time_layout.addWidget(self.time_value_label)
-        time_layout.addStretch(1)  # Adds space after the labels to keep them centered
-        # Add the time layout to the main layout
+        time_layout.addStretch(1)
         self.main_layout.addLayout(time_layout)
-
 
         # Hyperparameter display area
         self.hyperparam_frame = QFrame()
         hyperparam_layout = QGridLayout()
         self.display_hyperparameters(hyperparam_layout)
-        if self.hyperparam_frame.layout() is None:
-            self.hyperparam_frame.setLayout(hyperparam_layout)
-        else:
-            # Clear and update the existing layout
-            while self.hyperparam_frame.layout().count():
-                item = self.hyperparam_frame.layout().takeAt(0)
-                widget = item.widget()
-                if widget:
-                    widget.deleteLater()
-            self.hyperparam_frame.layout().addLayout(hyperparam_layout)
-
+        self.hyperparam_frame.setLayout(hyperparam_layout)
         self.main_layout.addWidget(self.hyperparam_frame)
         
+        # Status label
+        self.status_label = QLabel("Setting up training...")
+        self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.main_layout.addWidget(self.status_label)
         # Set the main layout
         self.setLayout(self.main_layout)
 
-        # Start the setup process
-        self.start_setup()
-    
     def display_hyperparameters(self, layout):
         items = list(self.params.items())
 
@@ -138,7 +117,6 @@ class VEstimTrainSetupGUI(QWidget):
             row = i // 2
             col = (i % 2) * 2
 
-            # Use the param_labels dictionary to show user-friendly labels
             label_text = self.param_labels.get(param, param)
             value_str = str(value)
 
@@ -154,18 +132,20 @@ class VEstimTrainSetupGUI(QWidget):
             layout.addWidget(value_label, row, col + 1)
 
     def start_setup(self):
+        print("Starting training setup...")
         self.start_time = time.time()
 
         # Ensure the window is fully built and ready
         self.show()
 
         # Move the training setup to a separate thread
-        self.worker = SetupWorker(self.training_setup_manager, self.job_manager)
+        self.worker = SetupWorker(self.job_manager)
         self.worker.progress_signal.connect(self.update_status)
         self.worker.finished_signal.connect(self.show_proceed_button)
 
         # Start the worker thread
         self.worker.start()
+        print("Training setup started...")
 
         # Update elapsed time in the main thread
         self.update_elapsed_time()
@@ -175,10 +155,9 @@ class VEstimTrainSetupGUI(QWidget):
         # Format the status with the job folder and tasks count
         formatted_message = f"{task_message}{message}\n{path}" if path else f"{task_message}{message}"
 
-        # Place the task summary above the time
+        # Update the status label with the new message
         self.status_label.setText(formatted_message)
         self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
-        self.main_layout.addWidget(self.status_label)
 
     def show_proceed_button(self):
         print("Training setup complete! Enabling proceed button...")
@@ -186,8 +165,8 @@ class VEstimTrainSetupGUI(QWidget):
         self.timer_running = False
 
         # Cleanup the worker thread
-        self.worker.quit()  # Stop the thread's event loop
-        self.worker.wait()  # Block until the thread is completely finished
+        self.worker.quit()
+        self.worker.wait()
 
         # Calculate the total elapsed time
         elapsed_time = time.time() - self.start_time
@@ -195,10 +174,11 @@ class VEstimTrainSetupGUI(QWidget):
         minutes, seconds = divmod(remainder, 60)
         total_time_taken = f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s"
 
-        task_list = self.training_setup_manager.get_task_list() 
+        # Get task count and job folder path
+        task_list = self.worker.training_setup_manager.get_task_list() 
         task_count = len(task_list)
         job_folder = self.job_manager.get_job_folder()
-        print(f"Job Folder: {job_folder}, Task Count: {task_count}")
+
         # Final update: tasks created, job folder, and time taken
         formatted_message = f"""
         Setup Complete!<br><br>
@@ -206,8 +186,6 @@ class VEstimTrainSetupGUI(QWidget):
         <font color='#1a73e8' size='-1'><i>{job_folder}</i></font><br><br>
         Time taken for task setup: <b>{total_time_taken}</b>
         """
-
-
         self.status_label.setText(formatted_message)
 
         # Show the proceed button when training setup is done
@@ -215,7 +193,7 @@ class VEstimTrainSetupGUI(QWidget):
         proceed_button.setStyleSheet("""
             background-color: #0b6337; 
             font-weight: bold; 
-            padding: 10px 20px;  /* Adjust padding to control button size */
+            padding: 10px 20px; 
             color: white;
         """)
         proceed_button.adjustSize()  # Make sure the button size wraps text appropriately
@@ -230,8 +208,8 @@ class VEstimTrainSetupGUI(QWidget):
 
     def transition_to_training_gui(self):
         try:
-            # Initialize the task screen first
-            task_list = self.training_setup_manager.get_task_list()  # Get the task list
+            # Initialize the task screen
+            task_list = self.worker.training_setup_manager.get_task_list()  # Get the task list
             self.training_gui = VEstimTrainingTaskGUI(task_list, self.params)
             # Get the current window's geometry and set it for the new window
             current_geometry = self.geometry()
@@ -241,26 +219,6 @@ class VEstimTrainSetupGUI(QWidget):
             self.close()
         except Exception as e:
             print(f"Error while transitioning to the task screen: {e}")
-
-
-    def display_hyperparameters(self, layout):
-        items = list(self.params.items())
-
-        # Iterate through the rows and columns to display hyperparameters
-        for i, (param, value) in enumerate(items):
-            row = i // 2
-            col = (i % 2) * 2
-
-            label_text = param
-            value_str = str(value)
-
-            param_label = QLabel(f"{label_text}:")
-            param_label.setStyleSheet("font-size: 10pt; background-color: #f0f0f0; padding: 5px;")
-            layout.addWidget(param_label, row, col)
-
-            value_label = QLabel(value_str)
-            value_label.setStyleSheet("font-size: 10pt; color: #005878; font-weight: bold; background-color: #f0f0f6; padding: 5px;")
-            layout.addWidget(value_label, row, col + 1)
 
     def update_elapsed_time(self):
         if self.timer_running:

@@ -11,7 +11,7 @@ from queue import Queue, Empty
 from src.gateway.src.testing_manager_qt import VEstimTestingManager
 from src.gateway.src.job_manager import JobManager
 from src.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
-from src.gateway.src.hyper_param_manager_test import VEstimHyperParamManager
+from src.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 
 class TestingThread(QThread):
     # Define the signals at the class level

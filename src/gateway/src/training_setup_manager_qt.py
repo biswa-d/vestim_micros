@@ -1,8 +1,8 @@
 
 import os
 import json
-from src.gateway.src.hyper_param_manager_test import VEstimHyperParamManager
-from src.services.model_training.src.LSTM_model_service_test import LSTMModelService
+from src.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
+from src.services.model_training.src.LSTM_model_service import LSTMModelService
 from src.gateway.src.job_manager import JobManager
 
 class VEstimTrainingSetupManager:
