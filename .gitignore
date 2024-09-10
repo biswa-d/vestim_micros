@@ -107,7 +107,6 @@ venv/
 testenv/
 packenv/
 
-
 # Spyder project settings
 .spyderproject
 .spyproject
