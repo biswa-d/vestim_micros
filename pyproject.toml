@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vestim"
+version = "1.0.0"
+description = "Voltage Estimation Tool for Lithium-ion Batteries"
+authors = [{name = "Biswanath Dehury", email = "dehuryb@mcmaster.ca"}]
+dependencies = [
+    "matplotlib==3.9.2",
+    "numpy==1.26.4",
+    "pandas==2.2.2",
+    "PyQt5==5.15.11",
+    "PyQt5_sip==12.15.0",
+    "scikit-learn==1.5.1",
+    "scipy==1.14.1",
+    "torch==2.4.0",
+    "tqdm==4.66.5",
+    "wandb==0.17.9"
+]
+
+[tool.setuptools.packages]
+find = {where=["."], include=["vestim", "vestim.*"]}  # Discovery includes vestim and all subpackages
+
+[tool.setuptools.package-data]
+"vestim" = ["*"]  # Ensure all files under vestim are included
+
+[project.scripts]
+vestim = "vestim.gui.src.data_import_gui_qt:main"  # Entry point for launching via CLI
