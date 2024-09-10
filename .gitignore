@@ -104,9 +104,9 @@ celerybeat.pid
 .venv
 env/
 venv/
-ENV/
-env.bak/
-venv.bak/
+testenv/
+packenv/
+
 
 # Spyder project settings
 .spyderproject
@@ -148,3 +148,5 @@ data/
 datasets/
 sample_data/
 /output/
+build/
+dist/
