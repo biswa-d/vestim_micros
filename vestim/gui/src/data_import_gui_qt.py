@@ -252,8 +252,11 @@ class FileOrganizer(QObject):
         """Emit progress as a percentage."""
         self.progress.emit(progress_value)
 
-if __name__ == "__main__":
+def main():
     app = QApplication(sys.argv)
     gui = DataImportGUI()
     gui.show()
     sys.exit(app.exec_())
+
+if __name__ == "__main__":
+    main()
