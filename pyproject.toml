@@ -24,7 +24,8 @@ dependencies = [
 find = {where=["."], include=["vestim", "vestim.*"]}  # Discovery includes vestim and all subpackages
 
 [tool.setuptools.package-data]
-"vestim" = ["*"]  # Ensure all files under vestim are included
+"vestim" = ["**/*.pdf", "**/*.png", "**/*.ico", "**/*.txt", "**/*.json"]  # Specify the types of files to include
+
 
 [project.scripts]
 vestim = "vestim.gui.src.data_import_gui_qt:main"  # Entry point for launching via CLI
