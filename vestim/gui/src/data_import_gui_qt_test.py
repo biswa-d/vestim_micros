@@ -38,7 +38,7 @@ class DataImportGUI(QMainWindow):
         # Header
         self.header_label = QLabel("Select data folders to train your LSTM Model", self)
         self.header_label.setAlignment(Qt.AlignCenter)
-        self.header_label.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
+        self.header_label.setStyleSheet("font-size: 18px; font-weight: bold; color: green;")
         self.main_layout.addWidget(self.header_label)
 
         # Training folder section
@@ -113,7 +113,7 @@ class DataImportGUI(QMainWindow):
         # Data source selection with consistent height and styling
         self.data_source_combo = QComboBox(self)
         self.data_source_combo.addItems(["Digatron", "Tesla"])  # Add the data sources
-        self.data_source_combo.setFixedHeight(40)  # Set a specific height for the ComboBox
+        self.data_source_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
         self.data_source_combo.setFixedWidth(150)  # Set a specific width for the ComboBox
         self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")  # Bold text and larger font size
         combined_layout.addWidget(self.data_source_combo)
@@ -130,7 +130,7 @@ class DataImportGUI(QMainWindow):
             color: white;  
             font-size: 14px;  /* Increase font size */
         """)
-        self.organize_button.setFixedHeight(40)  # Ensure consistent height
+        self.organize_button.setFixedHeight(35)  # Ensure consistent height
         self.organize_button.setMinimumWidth(150)  # Set minimum width
         self.organize_button.setMaximumWidth(300)  # Set maximum width
         self.organize_button.clicked.connect(self.organize_files)
