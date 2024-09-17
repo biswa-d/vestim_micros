@@ -156,17 +156,6 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(False)  # Initially hidden
         self.main_layout.addWidget(self.progress_bar)
 
-    def update_file_display(self):
-        selected_source = self.data_source_combo.currentText()
-        if selected_source == "Digatron" or selected_source == "Tesla":
-            # Show only .mat files
-            self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".mat")
-            self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".mat")
-        elif selected_source == "Pouch":
-            # Show only .csv files
-            self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".csv")
-            self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".csv")
-
     def select_train_folder(self):
         self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder")
         if self.train_folder_path:
@@ -180,6 +169,17 @@ class DataImportGUI(QMainWindow):
             self.populate_file_list(self.test_folder_path, self.test_list_widget)
             logger.info(f"Selected testing folder: {self.test_folder_path}")
         self.check_folders_selected()
+    
+    def update_file_display(self):
+        selected_source = self.data_source_combo.currentText()
+        if selected_source == "Digatron" or selected_source == "Tesla":
+            # Show only .mat files for Digatron and Tesla
+            self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".mat")
+            self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".mat")
+        elif selected_source == "Pouch":
+            # Show only .csv files for Pouch
+            self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".csv")
+            self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".csv")
 
     def populate_file_list(self, folder_path, list_widget, file_extension=".mat"):
         """ Populate the list widget with specified file extension. """

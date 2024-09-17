@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 import logging
 from vestim.logger_config import setup_logger
-class DataProcessorDigatron:
+class DataProcessor:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
@@ -43,20 +43,20 @@ class DataProcessorDigatron:
         os.makedirs(test_processed_folder, exist_ok=True)
         self.logger.info(f"Created folders: {train_raw_folder}, {train_processed_folder}, {test_raw_folder}, {test_processed_folder}")
         # Reset processed files counter before processing starts
-        # Reset processed files counter
         self.processed_files = 0
 
-        # Count total files selected (train + test)
-        self.total_files = len(train_files) + len(test_files)
-
-        # Process copying files to raw data folder
+        # Process copying and converting files
         self._copy_files(train_files, train_raw_folder, progress_callback)
         self._copy_files(test_files, test_raw_folder, progress_callback)
 
-        # Log file conversion progress and handle CSV conversion to HDF5 for processed data folder
-        self.logger.info(f"Starting conversion for {self.total_files} CSV files to HDF5 format.")
-        self._convert_files_to_hdf5(train_raw_folder, train_processed_folder, progress_callback)
-        self._convert_files_to_hdf5(test_raw_folder, test_processed_folder, progress_callback)
+        # Increment total file count for .mat files for conversion
+        self.total_files += len([f for f in os.listdir(train_raw_folder) if f.endswith('.mat')])
+        self.total_files += len([f for f in os.listdir(test_raw_folder) if f.endswith('.mat')])
+
+        self.logger.info(f"Starting file conversion for {self.total_files} .mat files.")
+        # Process and convert files
+        self._convert_files(train_raw_folder, train_processed_folder, progress_callback)
+        self._convert_files(test_raw_folder, test_processed_folder, progress_callback)
 
         return job_folder
     
