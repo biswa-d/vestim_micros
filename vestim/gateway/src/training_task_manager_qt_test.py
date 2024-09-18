@@ -215,6 +215,13 @@ class TrainingTaskManager:
             optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'])
             scheduler = self.training_service.get_scheduler(optimizer, lr_drop_period)
 
+            # Log the training progress for each epoch
+            def format_time(seconds):
+                """Format time into mm:ss format."""
+                minutes = seconds // 60
+                seconds = seconds % 60
+                return f"{int(minutes)}:{int(seconds):02d}"
+
             # Training loop
             for epoch in range(1, max_epochs + 1):
                 if self.stop_requested:  # Ensure thread safety here
@@ -236,12 +243,7 @@ class TrainingTaskManager:
                 epoch_duration = epoch_end_time - epoch_start_time
                 formatted_epoch_time = format_time(epoch_duration)  # Convert epoch time to mm:ss format
                 
-                # Log the training progress for each epoch
-                def format_time(seconds):
-                    """Format time into mm:ss format."""
-                    minutes = seconds // 60
-                    seconds = seconds % 60
-                    return f"{int(minutes)}:{int(seconds):02d}"
+                
 
                 if self.stop_requested:
                     self.logger.info("Training stopped by user")
