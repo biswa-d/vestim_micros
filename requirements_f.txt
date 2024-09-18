@@ -1,0 +1,26 @@
+# Dependencies for data_import service
+requests==2.25.1
+numpy
+scipy
+pytest
+setuptools
+pandas
+scikit-learn
+matplotlib
+torch
+torchvision
+tqdm
+seaborn
+numpy
+
+
+# Dependencies for hyper_param service
+# Add any additional dependencies here
+
+# Dependencies for model_training service
+# Add any additional dependencies here
+
+# Dependencies for model_testing service
+# Add any additional dependencies here
+
+# Dependencies for GUI
