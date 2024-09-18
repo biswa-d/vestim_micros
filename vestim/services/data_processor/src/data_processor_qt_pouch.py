@@ -1,6 +1,7 @@
 import os
 import shutil
 import gc  # Explicit garbage collector
+import pandas as pd
 import h5py
 from vestim.gateway.src.job_manager_qt import JobManager
 import logging
@@ -76,7 +77,7 @@ class DataProcessorPouch:
             hdf.create_dataset('SOC', data=df['SOC'].values)
             hdf.create_dataset('Voltage', data=df['Voltage'].values)
             hdf.create_dataset('Current', data=df['Current'].values)
-            hdf.create_dataset('Temperature', data=df['Temp'].values)
+            hdf.create_dataset('Temp', data=df['Temp'].values)
 
         self.logger.info(f"Converted {csv_file} to HDF5 format at {hdf5_file}")
         self.processed_files += 1

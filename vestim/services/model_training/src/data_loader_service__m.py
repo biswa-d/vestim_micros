@@ -5,10 +5,11 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset, SubsetRandomSampler
 from datetime import datetime
 import gc  # For garbage collection
+import logging 
 
 class DataLoaderService:
     def __init__(self):
-        pass
+        self.logger = logging.getLogger(__name__)
 
     def load_and_process_data(self, folder_path, lookback):
         """

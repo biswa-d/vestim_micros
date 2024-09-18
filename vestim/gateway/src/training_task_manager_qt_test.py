@@ -1,4 +1,6 @@
-import time
+import time, os
+import csv
+import sqlite3
 import torch
 from PyQt5.QtCore import QThread, pyqtSignal
 from vestim.gateway.src.job_manager_qt import JobManager
@@ -30,16 +32,69 @@ class TrainingTaskManager:
                 self.wandb_enabled = False
                 self.logger.error(f"Failed to initialize WandB: {e}")
 
+
+    def setup_csv_and_sql_logging(self, task):
+        """Setup CSV and SQLite logging files for richer training logs."""
+        model_dir = task['model_dir']
+        
+        # CSV setup
+        csv_log_file = os.path.join(model_dir, "train_log.csv")
+        file_exists = os.path.isfile(csv_log_file)
+        self.csv_log_file = csv_log_file
+
+        with open(csv_log_file, 'a', newline='') as f:
+            fieldnames = ['Epoch', 'Train Loss', 'Val Loss', 'Elapsed Time', 'Learning Rate', 'Best Val Loss', 'Train Time Per Epoch']
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()  # Only write the header once
+
+        # SQLite setup
+        self.sqlite_db_file = os.path.join(model_dir, "train_log.db")
+        conn = sqlite3.connect(self.sqlite_db_file)
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS training_log 
+                            (epoch INTEGER, train_loss REAL, val_loss REAL, elapsed_time REAL, 
+                            learning_rate REAL, best_val_loss REAL, train_time_epoch REAL)''')
+        conn.commit()
+        conn.close()
+
+    def log_to_csv(self, epoch, train_loss, val_loss, elapsed_time, current_lr, best_val_loss, delta_t_epoch):
+        """ Log richer data to CSV file """
+        with open(self.csv_log_file, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['Epoch', 'Train Loss', 'Val Loss', 'Elapsed Time', 'Learning Rate', 'Best Val Loss', 'Train Time Per Epoch'])
+            writer.writerow({
+                'Epoch': epoch,
+                'Train Loss': train_loss,
+                'Val Loss': val_loss,
+                'Elapsed Time': elapsed_time,
+                'Learning Rate': current_lr,
+                'Best Val Loss': best_val_loss,
+                'Train Time Per Epoch': delta_t_epoch
+            })
+
+    def log_to_sqlite(self, epoch, train_loss, val_loss, elapsed_time, current_lr, best_val_loss, delta_t_epoch):
+        """ Log richer data to SQLite database """
+        conn = sqlite3.connect(self.sqlite_db_file)
+        cursor = conn.cursor()
+        cursor.execute('''INSERT INTO training_log (epoch, train_loss, val_loss, elapsed_time, learning_rate, best_val_loss, train_time_epoch) 
+                          VALUES (?, ?, ?, ?, ?, ?, ?)''', 
+                       (epoch, train_loss, val_loss, elapsed_time, current_lr, best_val_loss, delta_t_epoch))
+        conn.commit()
+        conn.close()
+
     def process_task(self, task, update_progress_callback):
-        """Process a single training task."""
+        """Process a single training task and set up logging."""
         try:
             self.logger.info(f"Starting task with hyperparams: {task['hyperparams']}")
-             # Log task hyperparameters to wandb if enabled
-            if self.wandb_enabled:
-                try:
-                    wandb.config.update(task['hyperparams'])
-                except Exception as e:
-                    self.logger.error(f"Failed to log hyperparams to WandB: {e}")
+            
+            # Generate a unique task ID for this task (e.g., based on time or task details)
+            task_id = f"task_{int(time.time())}"  # Example of task_id generation
+
+            # Set the task ID in the task dictionary for future reference
+            task['task_id'] = task_id
+
+            # Setup logging (SQL and CSV) for the job
+            self.setup_job_logging(task)
 
             # Task initialization and logging
             self.current_task = task
@@ -57,14 +112,76 @@ class TrainingTaskManager:
             train_loader, val_loader = self.create_data_loaders(task)
             self.logger.info(f"DataLoader configured for task: {task['hyperparams']}")
 
+            # Update progress for starting training
             update_progress_callback.emit({'status': f'Training LSTM model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
-            # Call the training directly (this will be done within the QThread)
+
+            # Call the training method and pass logging information (task_id, db path)
             self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
 
         except Exception as e:
             self.logger.error(f"Error during task processing: {str(e)}")
             update_progress_callback.emit({'task_error': str(e)})
 
+    def setup_job_logging(self, task):
+        """
+        Set up the database and logging environment for the job. This ensures
+        that logging is consistent across all tasks in this job.
+        """
+        job_id = self.job_manager.get_job_id  # Assuming the job_id is available
+        model_dir = task.get('model_dir')  # Path where task-related logs will be stored
+
+        # Define paths for CSV and SQLite logs
+        csv_log_file = os.path.join(model_dir, f"{job_id}_train_log.csv")
+        db_log_file = os.path.join(model_dir, f"{job_id}_train_log.db")
+        
+        # Store the log paths in the task dictionary for future reference
+        task['csv_log_file'] = csv_log_file
+        task['db_log_file'] = db_log_file
+
+        # Create SQLite tables if they do not exist
+        self.create_sql_tables(db_log_file)
+
+    def create_sql_tables(self, db_log_file):
+        """Create the necessary SQL tables for task-level and batch-level logging."""
+        conn = sqlite3.connect(db_log_file)
+        cursor = conn.cursor()
+
+        # Create table for high-level task logs (epoch-level)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_logs (
+                task_id TEXT,
+                epoch INTEGER,
+                train_loss REAL,
+                val_loss REAL,
+                elapsed_time REAL,
+                learning_rate REAL,
+                best_val_loss REAL,
+                num_learnable_params INTEGER,  -- Task metadata
+                batch_size INTEGER,             -- Task metadata
+                lookback INTEGER,               -- Task metadata
+                max_epochs INTEGER,             -- Task metadata
+                PRIMARY KEY(task_id, epoch)
+            )
+        ''')
+
+        # Create table for fine-grained batch logs
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS batch_logs (
+                task_id TEXT,
+                epoch INTEGER,
+                batch_idx INTEGER,
+                batch_train_loss REAL,
+                batch_time REAL,                -- Time per batch
+                learning_rate REAL,
+                num_learnable_params INTEGER,   -- Task metadata (repeated)
+                batch_size INTEGER,             -- Task metadata (repeated)
+                lookback INTEGER,               -- Task metadata (repeated)
+                FOREIGN KEY(task_id, epoch) REFERENCES task_logs(task_id, epoch)
+            )
+        ''')
+
+        conn.commit()
+        conn.close()
 
     def create_data_loaders(self, task):
         """Create data loaders for the current task."""
@@ -93,6 +210,14 @@ class TrainingTaskManager:
             valid_patience = hyperparams['VALID_PATIENCE']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
 
+            # Log paths
+            model_dir = task["model_dir"]
+            csv_log_file = os.path.join(model_dir, "train_log.csv")
+            sqlite_db_file = os.path.join(model_dir, "train_log.db")
+
+            # Setup CSV and SQLite logging (in a centralized manner for the entire task)
+            self.setup_csv_and_sql_logging(csv_log_file, sqlite_db_file)
+
             best_validation_loss = float('inf')
             patience_counter = 0
             start_time = time.time()
@@ -101,6 +226,10 @@ class TrainingTaskManager:
             optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'])
             scheduler = self.training_service.get_scheduler(optimizer, lr_drop_period)
 
+            # Setup CSV and SQLite logging
+            self.setup_csv_and_sql_logging(task)
+
+            # Training loop
             for epoch in range(1, max_epochs + 1):
                 if self.stop_requested:  # Ensure thread safety here
                     self.logger.info("Training stopped by user")
@@ -111,8 +240,22 @@ class TrainingTaskManager:
                 h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
                 h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
 
+                # Measure time for the training loop
+                epoch_start_time = time.time()
+
                 # Train the model for one epoch
-                train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested)
+                train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, csv_log_file, sqlite_db_file)
+
+                epoch_end_time = time.time()
+                epoch_duration = epoch_end_time - epoch_start_time
+                formatted_epoch_time = format_time(epoch_duration)  # Convert epoch time to mm:ss format
+                
+                # Log the training progress for each epoch
+                def format_time(seconds):
+                    """Format time into mm:ss format."""
+                    minutes = seconds // 60
+                    seconds = seconds % 60
+                    return f"{int(minutes)}:{int(seconds):02d}"
 
                 if self.stop_requested:
                     self.logger.info("Training stopped by user")
@@ -124,9 +267,8 @@ class TrainingTaskManager:
                     h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
                     h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
 
-                    val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested)
-                    # wandb.log({"train_loss": train_loss, "val_loss": val_loss, "epoch": epoch})  # Log to wandb
-                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss}")
+                    val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested, csv_log_file, sqlite_db_file)
+                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
 
                     if self.stop_requested:
                         self.logger.info("Training stopped by user")
@@ -134,7 +276,7 @@ class TrainingTaskManager:
                         break
 
                     current_time = time.time()
-                    delta_t_epoch = (current_time - last_validation_time)/valid_freq
+                    delta_t_epoch = (current_time - last_validation_time) / valid_freq
                     last_validation_time = current_time
 
                     current_lr = optimizer.param_groups[0]['lr']
@@ -144,11 +286,32 @@ class TrainingTaskManager:
                         'train_loss': train_loss,
                         'val_loss': val_loss,
                         'elapsed_time': current_time - start_time,
-                        'delta_t_epoch': delta_t_epoch,
+                        'delta_t_epoch': formatted_epoch_time,  # Use the formatted time here
                         'learning_rate': current_lr,
                         'best_val_loss': best_validation_loss,
                     }
 
+                    # Log richer data to CSV and SQLite
+                    # Save log data to CSV and SQLite
+                    self.log_to_csv(
+                        epoch=epoch,
+                        train_loss=train_loss,
+                        val_loss=val_loss,
+                        elapsed_time=progress_data['elapsed_time'],
+                        current_lr=current_lr,
+                        best_val_loss=best_validation_loss,
+                        delta_t_epoch=delta_t_epoch
+                    )
+
+                    self.log_to_sqlite(
+                        epoch=epoch,
+                        train_loss=train_loss,
+                        val_loss=val_loss,
+                        elapsed_time=progress_data['elapsed_time'],
+                        current_lr=current_lr,
+                        best_val_loss=best_validation_loss,
+                        delta_t_epoch=delta_t_epoch
+                    )
                     # Proper signal emission
                     update_progress_callback.emit(progress_data)
 
@@ -176,7 +339,6 @@ class TrainingTaskManager:
         except Exception as e:
             self.logger.error(f"Error during training: {str(e)}")
             update_progress_callback.emit({'task_error': str(e)})
-
 
     def convert_hyperparams(self, hyperparams):
         """Converts all relevant hyperparameters to the correct types."""

@@ -1,5 +1,5 @@
 
-import os
+import os, uuid
 import json
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
@@ -140,6 +140,9 @@ class VEstimTrainingSetupManager:
                             for lookback in lookbacks:
                                 for batch_size in batch_sizes:
                                     for rep in range(1, repetitions + 1):
+
+                                        #create an unique task_id
+                                        task_id = str(uuid.uuid4())
                                         # Create a unique directory for each task based on all parameters
                                         task_dir = os.path.join(
                                             model_task['model_dir'],
@@ -149,6 +152,7 @@ class VEstimTrainingSetupManager:
 
                                         # Define task information
                                         task_info = {
+                                            'task_id': task_id,
                                             'model': model,
                                             'model_metadata': model_metadata,  # Use metadata instead of the full model
                                             'data_loader_params': {
@@ -220,6 +224,16 @@ class VEstimTrainingSetupManager:
         learnable_params += hidden_units * output_size
 
         return learnable_params
+    
+    def update_task(self, task_id, db_log_file=None):
+        """Update a specific task in the manager."""
+        for task in self.training_tasks:
+            if task['task_id'] == task_id:
+                if db_log_file:
+                    task['db_log_file'] = db_log_file
+                # Additional fields can be updated similarly
+                break
+
 
     def get_task_list(self):
         """Returns the list of training tasks."""

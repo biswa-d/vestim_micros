@@ -1,14 +1,16 @@
 import os
 import numpy as np
-import pandas as pd
+import pandas as pd, h5py
 import torch
 from torch.utils.data import DataLoader, TensorDataset, SubsetRandomSampler
 from datetime import datetime
 from scipy.signal import savgol_filter  # Example filter (Savitzky-Golay for smoothing)
+import logging
+
 
 class DataLoaderService:
     def __init__(self):
-        pass
+        self.logger = logging.getLogger(__name__)
 
     def apply_filter(self, data):
         """
@@ -24,31 +26,51 @@ class DataLoaderService:
 
     def load_and_process_data(self, folder_path, lookback):
         """
-        Loads and processes CSV files into data sequences with padding and filtering.
+        Loads and processes HDF5 files into data sequences with padding and filtering.
 
-        :param folder_path: Path to the folder containing the CSV files.
+        :param folder_path: Path to the folder containing the HDF5 files.
         :param lookback: The lookback window for creating sequences.
         :return: Arrays of input sequences and corresponding output values.
         """
-        csv_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith('.csv')]
+        hdf5_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith('.h5')]
+        if len(hdf5_files) == 0:
+            raise ValueError(f"No HDF5 files found in folder: {folder_path}")
+        
         data_sequences = []
         target_sequences = []
 
-        for file in csv_files:
-            df = pd.read_csv(file)
+        for file in hdf5_files:
+            try:
+                with h5py.File(file, 'r') as hdf5_file:
+                    # Load the datasets from the HDF5 file
+                    SOC = hdf5_file['SOC'][:]
+                    Current = hdf5_file['Current'][:]
+                    Temp = hdf5_file['Temp'][:]
+                    Voltage = hdf5_file['Voltage'][:]
+                    
+                    # Combine the input features and apply filtering
+                    X_data = np.column_stack((SOC, Current, Temp))
+                    X_data = self.apply_filter(X_data)  # Apply filtering
+                    
+                    # Filter the output (Voltage) as well
+                    Y_data = self.apply_filter(Voltage)
+                    
+                    # Create input-output sequences
+                    X, y = self.create_data_sequence(X_data, Y_data, lookback)
+                    if len(X) > 0 and len(y) > 0:
+                        data_sequences.append(X)
+                        target_sequences.append(y)
+                    else:
+                        self.logger.warning(f"No data sequences generated for file: {file}")
             
-            # Select relevant features and apply filtering to smooth data
-            X_data = df[['SOC', 'Current', 'Temp']].values
-            X_data = self.apply_filter(X_data)  # Apply filtering to the input features
-            
-            Y_data = df['Voltage'].values
-            Y_data = self.apply_filter(Y_data)  # Apply filtering to the voltage data
+            except Exception as e:
+                self.logger.error(f"Error processing file {file}: {str(e)}")
+                continue
 
-            # Create sequences with padding for initial data points
-            X, y = self.create_data_sequence(X_data, Y_data, lookback)
-            data_sequences.append(X)
-            target_sequences.append(y)
+        if len(data_sequences) == 0 or len(target_sequences) == 0:
+            raise ValueError("No valid data sequences were generated from the HDF5 files.")
 
+        # Combine all sequences from different files
         X_combined = np.concatenate(data_sequences, axis=0)
         y_combined = np.concatenate(target_sequences, axis=0)
 

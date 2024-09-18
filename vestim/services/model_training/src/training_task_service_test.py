@@ -1,24 +1,61 @@
 import torch, numpy as np
 import torch.nn as nn
 import torch.optim as optim
-import json
-import logging
+import json, csv, sqlite3, os
+import time
 
 class TrainingTaskService:
     def __init__(self):
         self.criterion = nn.MSELoss()  # Assuming you're using Mean Squared Error Loss for regression tasks
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
+    
+    def log_to_csv(self, epoch, batch_idx, batch_time, phase, csv_log_file):
+        """ Log batch timing data to a CSV file. """
+        # Ensure CSV file exists and append the data
+        fieldnames = ['Epoch', 'Batch', 'Batch Time', 'Phase']
+        file_exists = os.path.isfile(csv_log_file)
+
+        with open(csv_log_file, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()  # Write header only once
+            writer.writerow({
+                'Epoch': epoch,
+                'Batch': batch_idx,
+                'Batch Time': batch_time,
+                'Phase': phase
+            })
+
+    def log_to_sqlite(self, epoch, batch_idx, batch_time, phase, sqlite_db_file):
+        """ Log batch timing data to a SQLite database. """
+        conn = sqlite3.connect(sqlite_db_file)
+        cursor = conn.cursor()
         
-    def train_epoch(self, model, train_loader, optimizer, h_s, h_c, epoch, device, stop_requested):
+        # Create the table if it doesn't exist
+        cursor.execute('''CREATE TABLE IF NOT EXISTS batch_log 
+                        (epoch INTEGER, batch INTEGER, batch_time REAL, phase TEXT)''')
+        
+        # Insert the data
+        cursor.execute('''INSERT INTO batch_log (epoch, batch, batch_time, phase) 
+                        VALUES (?, ?, ?, ?)''', (epoch, batch_idx, batch_time, phase))
+        
+        conn.commit()
+        conn.close()
+        
+    def train_epoch(self, model, train_loader, optimizer, h_s, h_c, epoch, device, stop_requested, csv_log_file, sqlite_db_file):
         """Train the model for a single epoch."""
         model.train()
         total_train_loss = []
+        batch_times = []  # Store time per batch
 
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
             if stop_requested:  # Check if a stop has been requested
                 print("Stop requested during training")
                 break  # Exit the loop if stop is requested
+            
+            
+            start_batch_time = time.time()  # Start timing for this batch
 
             h_s, h_c = torch.zeros_like(h_s), torch.zeros_like(h_c)
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
@@ -32,6 +69,14 @@ class TrainingTaskService:
             optimizer.step()
 
             total_train_loss.append(loss.item())
+            
+            end_batch_time = time.time()  # End timing for this batch
+            batch_time = end_batch_time - start_batch_time
+            batch_times.append(batch_time)
+
+            # Log batch timing for validation
+            self.log_to_csv(epoch, batch_idx, batch_time, phase='validate', log_csv_file=csv_log_file)
+            self.log_to_sqlite(epoch, batch_idx, batch_time, phase='validate', sqlite_db_file=sqlite_db_file)
 
             # Log the training progress for each batch
             if batch_idx % 150 == 0:  # For example, every 150 batches
@@ -42,11 +87,12 @@ class TrainingTaskService:
 
         return sum(total_train_loss) / len(total_train_loss)
 
-    def validate_epoch(self, model, val_loader, h_s, h_c, epoch, device, stop_requested):
+    def validate_epoch(self, model, val_loader, h_s, h_c, epoch, device, stop_requested, csv_log_file, sqlite_db_file):
         """Validate the model for a single epoch."""
         model.eval()
         total_loss = 0
         total_samples = 0
+        batch_times = []  # Track validation time for each batch
 
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
@@ -54,6 +100,8 @@ class TrainingTaskService:
                     print("Stop requested during validation")
                     break  # Exit the loop if stop is requested
 
+
+                start_batch_time = time.time()  # Start timing for this batch
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                 y_pred = y_pred.squeeze(-1)
@@ -62,6 +110,13 @@ class TrainingTaskService:
                 total_loss += loss.item() * X_batch.size(0)
                 total_samples += X_batch.size(0)
 
+                end_batch_time = time.time()  # End timing for this batch
+                batch_time = end_batch_time - start_batch_time
+                batch_times.append(batch_time)
+
+                # Log batch timing for validation
+                self.log_to_csv(epoch, batch_idx, batch_time, phase='validate', log_csv_file=csv_log_file)
+                self.log_to_sqlite(epoch, batch_idx, batch_time, phase='validate', sqlite_db_file=sqlite_db_file)
                 # Log the validation progress for each batch
                 if batch_idx % 150 == 0:  # For example, every 150 batches
                     print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
