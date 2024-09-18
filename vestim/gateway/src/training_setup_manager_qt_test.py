@@ -149,6 +149,10 @@ class VEstimTrainingSetupManager:
                                             f'lr_{lr}_drop_{drop_period}_factor_{drop_factor}_patience_{patience}_rep_{rep}_lookback_{lookback}_batch_{batch_size}'
                                         )
                                         os.makedirs(task_dir, exist_ok=True)
+                                        
+                                        # Create the log files at this stage
+                                        csv_log_file = os.path.join(task_dir, f"{task_id}_train_log.csv")
+                                        db_log_file = os.path.join(task_dir, f"{task_id}_train_log.db")
 
                                         # Define task information
                                         task_info = {
@@ -174,7 +178,9 @@ class VEstimTrainingSetupManager:
                                                 'REPETITIONS': rep,
                                                 'MAX_EPOCHS': max_epochs,  # Include MAX_EPOCHS here
                                                 'NUM_LEARNABLE_PARAMS': num_learnable_params,
-                                            }
+                                            },
+                                            'csv_log_file': csv_log_file,
+                                            'db_log_file': db_log_file  # Set log files here
                                         }
 
                                         # Append the task to the task list
@@ -225,14 +231,17 @@ class VEstimTrainingSetupManager:
 
         return learnable_params
     
-    def update_task(self, task_id, db_log_file=None):
+    def update_task(self, task_id, db_log_file=None, csv_log_file=None):
         """Update a specific task in the manager."""
         for task in self.training_tasks:
             if task['task_id'] == task_id:
                 if db_log_file:
                     task['db_log_file'] = db_log_file
+                if csv_log_file:
+                    task['csv_log_file'] = csv_log_file
                 # Additional fields can be updated similarly
                 break
+
 
 
     def get_task_list(self):

@@ -1,14 +1,14 @@
 import torch
 import os
-import json, hashlib
+import json, hashlib, sqlite3, csv
 from threading import Thread
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.services.model_testing.src.testing_service import VEstimTestingService
-from vestim.services.model_testing.src.test_data_service import VEstimTestDataService
-from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.services.model_testing.src.testing_service_test import VEstimTestingService
+from vestim.services.model_testing.src.test_data_service_test_pouch import VEstimTestDataService
+from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 
 class VEstimTestingManager:
     def __init__(self):
@@ -97,8 +97,16 @@ class VEstimTestingManager:
             print("Generating shorthand name for model...")
             shorthand_name = self.generate_shorthand_name(task)
 
-            # Run the testing process
+            # Run the testing process and get results
             results = self.testing_service.run_testing(task, model_path, X_test, y_test, save_dir)
+
+            # Log the test results to CSV and SQLite
+            csv_log_file = task['csv_log_file']
+            db_log_file = task['db_log_file']
+
+            self.log_test_to_csv(task, idx, results, csv_log_file)
+            self.log_test_to_sqlite(task, idx, results, db_log_file)
+
             self.testing_service.save_test_results(results, shorthand_name, save_dir)
 
             # Put the results in the queue for the GUI
@@ -117,6 +125,7 @@ class VEstimTestingManager:
         except Exception as e:
             print(f"Error testing model {task['model_path']}: {str(e)}")
             self.queue.put({'task_error': str(e)})
+
 
     @staticmethod
     def generate_shorthand_name(task):
@@ -141,3 +150,50 @@ class VEstimTestingManager:
         short_hash = hashlib.md5(param_string.encode()).hexdigest()[:3]  # First 6 chars for uniqueness
         shorthand_name = f"{short_name}_{short_hash}"
         return shorthand_name
+    
+    def log_test_to_sqlite(self, task, idx, results, db_log_file):
+        """Log test results to SQLite database."""
+        conn = sqlite3.connect(db_log_file)
+        cursor = conn.cursor()
+
+        # Create the test_logs table if it doesn't exist
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS test_logs (
+                task_id INTEGER,
+                model TEXT,
+                rms_error_mv REAL,
+                mae_mv REAL,
+                mape REAL,
+                r2 REAL,
+                PRIMARY KEY(task_id)
+            )
+        ''')
+
+        # Insert test results
+        cursor.execute('''
+            INSERT OR REPLACE INTO test_logs (task_id, model, rms_error_mv, mae_mv, mape, r2)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (idx + 1, task['model_path'], results['rms_error_mv'], results['mae_mv'], results['mape'], results['r2']))
+
+        conn.commit()
+        conn.close()
+
+    def log_test_to_csv(self, task, idx, results, csv_log_file):
+        """Log test results to CSV file."""
+        fieldnames = ['Task ID', 'Model', 'RMS Error (mV)', 'MAE (mV)', 'MAPE', 'R2']
+        file_exists = os.path.isfile(csv_log_file)
+
+        with open(csv_log_file, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()  # Write header only once
+            writer.writerow({
+                'Task ID': idx + 1,
+                'Model': task['model_path'],
+                'RMS Error (mV)': results['rms_error_mv'],
+                'MAE (mV)': results['mae_mv'],
+                'MAPE': results['mape'],
+                'R2': results['r2']
+            })
+
+
