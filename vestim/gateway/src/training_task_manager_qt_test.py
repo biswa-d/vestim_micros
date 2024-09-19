@@ -1,4 +1,4 @@
-import time, os
+import time, os, sys
 import csv
 import sqlite3
 import torch
@@ -49,18 +49,19 @@ class TrainingTaskManager:
                 'Train Time Per Epoch': delta_t_epoch
             })
 
-    def log_to_sqlite(self, task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_val_loss, delta_t_epoch):
-        """Log richer data to SQLite database."""
-        sqlite_db_file = task['db_log_file']  # Fetch the sqlite db file path from the task
+    def log_to_sqlite(self, task, epoch, train_loss, val_loss, best_val_loss, elapsed_time, avg_batch_time, early_stopping, model_memory_usage):
+        """Log epoch-level data to a SQLite database."""
+        sqlite_db_file = task['db_log_file']
         conn = sqlite3.connect(sqlite_db_file)
         cursor = conn.cursor()
 
-        # Insert into task_logs (epoch-level logging)
-        cursor.execute('''INSERT INTO task_logs (task_id, epoch, train_loss, val_loss, elapsed_time, learning_rate, best_val_loss, batch_size, lookback, num_learnable_params, max_epochs)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                    (task['task_id'], epoch, train_loss, val_loss, elapsed_time, current_lr, best_val_loss, 
-                        task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'], task['hyperparams']['NUM_LEARNABLE_PARAMS'], 
-                        task['hyperparams']['MAX_EPOCHS']))
+        cursor.execute('''INSERT INTO task_logs (task_id, epoch, train_loss, val_loss, elapsed_time, avg_batch_time, learning_rate, 
+                        best_val_loss, num_learnable_params, batch_size, lookback, early_stopping, model_memory_usage)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (task['task_id'], epoch, train_loss, val_loss, elapsed_time, avg_batch_time, task['hyperparams']['INITIAL_LR'], best_val_loss,
+                        task['hyperparams']['NUM_LEARNABLE_PARAMS'], task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'],
+                        early_stopping, model_memory_usage))
+
         conn.commit()
         conn.close()
 
@@ -147,12 +148,15 @@ class TrainingTaskManager:
                     train_loss REAL,
                     val_loss REAL,
                     elapsed_time REAL,
+                    avg_batch_time REAL,  -- New column for average batch time
                     learning_rate REAL,
                     best_val_loss REAL,
                     num_learnable_params INTEGER,
                     batch_size INTEGER,
                     lookback INTEGER,
                     max_epochs INTEGER,
+                    early_stopping INTEGER,  -- New column for early stopping flag (1 if stopped early, 0 otherwise)
+                    model_memory_usage REAL,  -- New column for memory usage (optional)
                     PRIMARY KEY(task_id, epoch)
                 )
             ''')
@@ -178,7 +182,6 @@ class TrainingTaskManager:
         except sqlite3.Error as e:
             self.logger.error(f"SQLite error: {e}")
             raise e
-
 
     def create_data_loaders(self, task):
         """Create data loaders for the current task."""
@@ -211,6 +214,7 @@ class TrainingTaskManager:
             patience_counter = 0
             start_time = time.time()
             last_validation_time = start_time
+            early_stopping = False  # Initialize early stopping flag
 
             optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'])
             scheduler = self.training_service.get_scheduler(optimizer, lr_drop_period)
@@ -237,31 +241,24 @@ class TrainingTaskManager:
                 epoch_start_time = time.time()
 
                 # Train the model for one epoch
-                train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task)
+                avg_batch_time, train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task)
 
                 epoch_end_time = time.time()
                 epoch_duration = epoch_end_time - epoch_start_time
                 formatted_epoch_time = format_time(epoch_duration)  # Convert epoch time to mm:ss format
-                
-                
 
                 if self.stop_requested:
                     self.logger.info("Training stopped by user")
                     print("Training stopped after training phase.")
                     break
 
-                # Validate the model at the specified frequency
+                # Only validate at specified frequency
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
                     h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
                     h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
 
                     val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested, task)
                     self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
-
-                    if self.stop_requested:
-                        self.logger.info("Training stopped by user")
-                        print("Training stopped after validation phase.")
-                        break
 
                     current_time = time.time()
                     elapsed_time = current_time - start_time
@@ -275,18 +272,12 @@ class TrainingTaskManager:
                         'train_loss': train_loss,
                         'val_loss': val_loss,
                         'elapsed_time': elapsed_time,
-                        'delta_t_epoch': formatted_epoch_time,  # Use the formatted time here
+                        'delta_t_epoch': formatted_epoch_time,
                         'learning_rate': current_lr,
                         'best_val_loss': best_validation_loss,
                     }
 
-                    # Log richer data to CSV and SQLite
-                    print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
-                    # Save log data to CSV and SQLite
-                    self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
-                    self.log_to_sqlite(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
-
-                    # Proper signal emission
+                    # Emit progress after validation
                     update_progress_callback.emit(progress_data)
 
                     if val_loss < best_validation_loss:
@@ -297,8 +288,27 @@ class TrainingTaskManager:
                         patience_counter += 1
 
                     if patience_counter > valid_patience:
+                        early_stopping = True
                         print(f"Early stopping at epoch {epoch} due to no improvement.")
                         break
+
+                # Log data to CSV and SQLite after each epoch (whether validated or not)
+                print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
+
+                # Save log data to CSV and SQLite
+                self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
+                model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
+                self.log_to_sqlite(
+                    task=task,
+                    epoch=epoch,
+                    train_loss=train_loss,
+                    val_loss=val_loss,
+                    best_val_loss=best_validation_loss,
+                    elapsed_time=elapsed_time,
+                    avg_batch_time=avg_batch_time,
+                    early_stopping=early_stopping,
+                    model_memory_usage=model_memory_usage,
+                )
 
                 scheduler.step()
 
@@ -306,13 +316,13 @@ class TrainingTaskManager:
                 print("Training was stopped early. Saving Model...")
                 self.save_model(task)
 
-            # Emit task completion signal
             update_progress_callback.emit({'task_completed': True})
             self.logger.info("Training task completed")
 
         except Exception as e:
             self.logger.error(f"Error during training: {str(e)}")
             update_progress_callback.emit({'task_error': str(e)})
+
 
     def convert_hyperparams(self, hyperparams):
         """Converts all relevant hyperparameters to the correct types."""
