@@ -17,15 +17,13 @@ dependencies = [
     "scipy==1.14.1",
     "torch==2.4.0",
     "tqdm==4.66.5",
-    "wandb==0.17.9"
 ]
 
 [tool.setuptools.packages]
 find = {where=["."], include=["vestim", "vestim.*"]}  # Discovery includes vestim and all subpackages
 
 [tool.setuptools.package-data]
-"vestim" = ["**/*.pdf", "**/*.png", "**/*.ico", "**/*.txt", "**/*.json"]  # Specify the types of files to include
-
+"vestim" = ["*"]  # Ensure all files under vestim are included
 
 [project.scripts]
 vestim = "vestim.gui.src.data_import_gui_qt:main"  # Entry point for launching via CLI

@@ -9,7 +9,7 @@ from PyQt5.QtGui import QIcon
 
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
-from vestim.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
+from vestim.gui.src.training_setup_gui_qt_test import VEstimTrainSetupGUI
 
 # Initialize the JobManager
 job_manager = JobManager()
