@@ -296,7 +296,7 @@ class TrainingTaskManager:
                 print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
 
                 # Save log data to CSV and SQLite
-                # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
+                self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                 self.log_to_sqlite(
                     task=task,

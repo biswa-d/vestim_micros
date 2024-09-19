@@ -107,7 +107,6 @@ venv/
 testenv/
 packenv/
 new_env/
-cubic-01/
 
 # Spyder project settings
 .spyderproject
