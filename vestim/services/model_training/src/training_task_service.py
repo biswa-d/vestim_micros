@@ -49,12 +49,13 @@ class TrainingTaskService:
         model.train()
         total_train_loss = []
         batch_times = []  # Store time per batch
+        log_freq = 100  # Define how often to log batches
 
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
             if stop_requested:  # Check if a stop has been requested
                 print("Stop requested during training")
                 break  # Exit the loop if stop is requested
-            
+
             start_batch_time = time.time()  # Start timing for this batch
 
             h_s, h_c = torch.zeros_like(h_s), torch.zeros_like(h_c)
@@ -74,18 +75,23 @@ class TrainingTaskService:
             batch_time = end_batch_time - start_batch_time
             batch_times.append(batch_time)
 
-            # Log batch-level data to CSV and SQLite
-            self.log_to_csv(task, epoch, batch_idx, batch_time, phase='train')
-            self.log_to_sqlite(task, epoch, batch_idx, batch_time, phase='train')
+            # Log less frequently
+            if batch_idx % log_freq == 0:
+                batch_freq_time = sum(batch_times) / len(batch_times)
+                self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='train')
+                self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train')
 
-            # Log the training progress for each batch
-            if batch_idx % 100 == 0:  # For example, every 150 batches
+            # Log progress every 150 batches
+            if batch_idx % log_freq == 0:
                 print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
                 print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
+            
             # Clear unused memory
             del X_batch, y_batch, y_pred  # Explicitly clear tensors
 
-        return sum(total_train_loss) / len(total_train_loss)
+        avg_batch_time = sum(batch_times) / len(batch_times)  # Average batch time
+        return avg_batch_time, sum(total_train_loss) / len(total_train_loss)
+
 
     def validate_epoch(self, model, val_loader, h_s, h_c, epoch, device, stop_requested, task):
         """Validate the model for a single epoch."""
@@ -93,6 +99,7 @@ class TrainingTaskService:
         total_loss = 0
         total_samples = 0
         batch_times = []  # Track validation time for each batch
+        log_freq = 100  # Define how often to log batches
 
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
@@ -113,19 +120,21 @@ class TrainingTaskService:
                 batch_time = end_batch_time - start_batch_time
                 batch_times.append(batch_time)
 
-                # Log batch-level data to CSV and SQLite
-                self.log_to_csv(task, epoch, batch_idx, batch_time, phase='validate')
-                self.log_to_sqlite(task, epoch, batch_idx, batch_time, phase='validate')
+                # Log less frequently
+                if batch_idx % log_freq == 0:
+                    batch_freq_time = sum(batch_times) / len(batch_times)
+                    self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='validate')
+                    self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='validate')
 
-                # Log the validation progress for each batch
-                if batch_idx % 150 == 0:  # For example, every 150 batches
+                # Log progress every 150 batches
+                if batch_idx % log_freq == 0:
                     print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
                     print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
+                
                 # Clear unused memory
                 del X_batch, y_batch, y_pred  # Explicitly clear tensors
 
-        return total_loss / total_samples
-
+        return  total_loss / total_samples
 
     def save_model(self, model, model_path):
         """Save the model to disk."""

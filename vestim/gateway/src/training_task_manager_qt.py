@@ -1,12 +1,12 @@
-import time, os
+import time, os, sys
 import csv
 import sqlite3
 import torch
 from PyQt5.QtCore import QThread, pyqtSignal
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
+from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from vestim.services.model_training.src.data_loader_service_padfil import DataLoaderService
-from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
+from vestim.services.model_training.src.training_task_service import TrainingTaskService
 import logging, wandb
 
 class TrainingTaskManager:
