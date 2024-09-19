@@ -75,7 +75,7 @@ class TrainingTaskService:
             batch_times.append(batch_time)
 
             # Log batch-level data to CSV and SQLite
-            self.log_to_csv(task, epoch, batch_idx, batch_time, phase='train')
+            # self.log_to_csv(task, epoch, batch_idx, batch_time, phase='train')
             self.log_to_sqlite(task, epoch, batch_idx, batch_time, phase='train')
 
             # Log the training progress for each batch
@@ -114,7 +114,7 @@ class TrainingTaskService:
                 batch_times.append(batch_time)
 
                 # Log batch-level data to CSV and SQLite
-                self.log_to_csv(task, epoch, batch_idx, batch_time, phase='validate')
+                # self.log_to_csv(task, epoch, batch_idx, batch_time, phase='validate')
                 self.log_to_sqlite(task, epoch, batch_idx, batch_time, phase='validate')
 
                 # Log the validation progress for each batch
