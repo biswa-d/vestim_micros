@@ -1,25 +1,61 @@
 import torch, numpy as np
 import torch.nn as nn
 import torch.optim as optim
-import json
-import logging
+import json, csv, sqlite3, os
+import time
 
 class TrainingTaskService:
     def __init__(self):
-        self.logger = logging.getLogger(__name__)  # Initialize logger
         self.criterion = nn.MSELoss()  # Assuming you're using Mean Squared Error Loss for regression tasks
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
+    
+    def log_to_csv(self, task, epoch, batch_idx, batch_time, phase):
+        """Log batch timing data to a CSV file."""
+        csv_log_file = task['csv_log_file']  # Fetch the CSV log file path from the task
+        fieldnames = ['Epoch', 'Batch', 'Batch Time', 'Phase']
+        file_exists = os.path.isfile(csv_log_file)
 
-    def train_epoch(self, model, train_loader, optimizer, h_s, h_c, epoch, device, stop_requested):
+        with open(csv_log_file, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()  # Write header only once
+            writer.writerow({
+                'Epoch': epoch,
+                'Batch': batch_idx,
+                'Batch Time': batch_time,
+                'Phase': phase
+            })
+
+    def log_to_sqlite(self, task, epoch, batch_idx, batch_time, phase):
+        """Log batch timing data to a SQLite database."""
+        sqlite_db_file = task['db_log_file']  # Fetch the SQLite DB file path from the task
+        conn = sqlite3.connect(sqlite_db_file)
+        cursor = conn.cursor()
+
+        # Insert batch-level data into batch_logs table
+        cursor.execute('''INSERT INTO batch_logs (task_id, epoch, batch_idx, batch_time, phase, learning_rate, num_learnable_params, batch_size, lookback)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    (task['task_id'], epoch, batch_idx, batch_time, phase, 
+                        task['hyperparams']['INITIAL_LR'], task['hyperparams']['NUM_LEARNABLE_PARAMS'],
+                        task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK']))
+
+        conn.commit()
+        conn.close()
+
+        
+    def train_epoch(self, model, train_loader, optimizer, h_s, h_c, epoch, device, stop_requested, task):
         """Train the model for a single epoch."""
         model.train()
         total_train_loss = []
+        batch_times = []  # Store time per batch
 
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
             if stop_requested:  # Check if a stop has been requested
                 print("Stop requested during training")
                 break  # Exit the loop if stop is requested
+            
+            start_batch_time = time.time()  # Start timing for this batch
 
             h_s, h_c = torch.zeros_like(h_s), torch.zeros_like(h_c)
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
@@ -33,23 +69,30 @@ class TrainingTaskService:
             optimizer.step()
 
             total_train_loss.append(loss.item())
+            
+            end_batch_time = time.time()  # End timing for this batch
+            batch_time = end_batch_time - start_batch_time
+            batch_times.append(batch_time)
+
+            # Log batch-level data to CSV and SQLite
+            self.log_to_csv(task, epoch, batch_idx, batch_time, phase='train')
+            self.log_to_sqlite(task, epoch, batch_idx, batch_time, phase='train')
 
             # Log the training progress for each batch
-            if batch_idx % 150 == 0:  # For example, every 150 batches
+            if batch_idx % 100 == 0:  # For example, every 150 batches
                 print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
                 print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
             # Clear unused memory
             del X_batch, y_batch, y_pred  # Explicitly clear tensors
-        
-        self.logger.info(f"Completed epoch {epoch} | Avg Loss: {sum(total_train_loss) / len(total_train_loss)}")
-        return sum(total_train_loss) / len(total_train_loss)
-        
 
-    def validate_epoch(self, model, val_loader, h_s, h_c, epoch, device, stop_requested):
+        return sum(total_train_loss) / len(total_train_loss)
+
+    def validate_epoch(self, model, val_loader, h_s, h_c, epoch, device, stop_requested, task):
         """Validate the model for a single epoch."""
         model.eval()
         total_loss = 0
         total_samples = 0
+        batch_times = []  # Track validation time for each batch
 
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
@@ -57,6 +100,7 @@ class TrainingTaskService:
                     print("Stop requested during validation")
                     break  # Exit the loop if stop is requested
 
+                start_batch_time = time.time()  # Start timing for this batch
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                 y_pred = y_pred.squeeze(-1)
@@ -65,15 +109,23 @@ class TrainingTaskService:
                 total_loss += loss.item() * X_batch.size(0)
                 total_samples += X_batch.size(0)
 
+                end_batch_time = time.time()  # End timing for this batch
+                batch_time = end_batch_time - start_batch_time
+                batch_times.append(batch_time)
+
+                # Log batch-level data to CSV and SQLite
+                self.log_to_csv(task, epoch, batch_idx, batch_time, phase='validate')
+                self.log_to_sqlite(task, epoch, batch_idx, batch_time, phase='validate')
+
                 # Log the validation progress for each batch
                 if batch_idx % 150 == 0:  # For example, every 150 batches
-                    self.logger.info(f"Epoch {epoch}, Batch {batch_idx} | Loss: {loss.item()}")
                     print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
                     print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
                 # Clear unused memory
                 del X_batch, y_batch, y_pred  # Explicitly clear tensors
 
         return total_loss / total_samples
+
 
     def save_model(self, model, model_path):
         """Save the model to disk."""
@@ -91,38 +143,3 @@ class TrainingTaskService:
         """Initialize the learning rate scheduler."""
         # Create a learning rate scheduler that reduces the LR by 10% every lr_drop_period epochs
         return optim.lr_scheduler.StepLR(optimizer, step_size=lr_drop_period, gamma=0.1)
-
-
-    #Refactored codes
-    
-    # def train_epoch(self, model, train_loader, optimizer):
-    #     """Train the model for a single epoch."""
-    #     model.train()  # Set the model to training mode
-    #     running_loss = 0.0
-
-    #     for inputs, targets in train_loader:
-    #         optimizer.zero_grad()  # Clear previous gradients
-
-    #         outputs, _ = model(inputs)  # Forward pass
-    #         loss = self.criterion(outputs, targets)  # Calculate loss
-    #         loss.backward()  # Backward pass
-    #         optimizer.step()  # Update weights
-
-    #         running_loss += loss.item() * inputs.size(0)  # Accumulate loss
-
-    #     epoch_loss = running_loss / len(train_loader.dataset)  # Average loss per sample
-    #     return epoch_loss
-
-    # def validate_epoch(self, model, val_loader):
-    #     """Validate the model for a single epoch."""
-    #     model.eval()  # Set the model to evaluation mode
-    #     running_loss = 0.0
-
-    #     with torch.no_grad():  # Disable gradient calculation
-    #         for inputs, targets in val_loader:
-    #             outputs, _ = model(inputs)  # Forward pass
-    #             loss = self.criterion(outputs, targets)  # Calculate loss
-    #             running_loss += loss.item() * inputs.size(0)  # Accumulate loss
-
-    #     epoch_loss = running_loss / len(val_loader.dataset)  # Average loss per sample
-    #     return epoch_loss
