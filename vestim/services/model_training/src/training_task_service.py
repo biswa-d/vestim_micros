@@ -124,7 +124,8 @@ class TrainingTaskService:
                 # Clear unused memory
                 del X_batch, y_batch, y_pred  # Explicitly clear tensors
 
-        return total_loss / total_samples
+        avg_batch_time = sum(batch_times) / len(batch_times)
+        return avg_batch_time, total_loss / total_samples
 
 
     def save_model(self, model, model_path):
