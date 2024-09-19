@@ -1,14 +1,14 @@
 import torch
 import os
-import json
+import json, hashlib
 from threading import Thread
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from vestim.gateway.src.job_manager import JobManager
-from vestim.services.model_testing.src.testing_service_test import VEstimTestingService
-from vestim.services.model_testing.src.test_data_service_test import VEstimTestDataService
-from vestim.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
+from vestim.services.model_testing.src.testing_service import VEstimTestingService
+from vestim.services.model_testing.src.test_data_service import VEstimTestDataService
+from vestim.gateway.src.training_setup_manager import VEstimTrainingSetupManager
 
 class VEstimTestingManager:
     def __init__(self):
@@ -66,8 +66,8 @@ class VEstimTestingManager:
             def status_updater():
                 while True:
                     status_message = status_queue.get()
-                    if status_message is None or self.stop_flag:
-                        break  # Exit loop if None is received or stop flag is set
+                    if status_message is None:
+                        break  # Exit loop if None is received
                     print(f"Status Update: {status_message}")
                     update_progress_callback({'status': status_message})
                     status_queue.task_done()
@@ -85,9 +85,6 @@ class VEstimTestingManager:
                 }
 
                 for future in as_completed(future_to_task):
-                    if self.stop_flag:
-                        print("Stop flag detected. Exiting testing loop.")
-                        break
                     task = future_to_task[future]
                     try:
                         future.result()  # Retrieve the result, raises exception if occurred in thread
@@ -107,20 +104,11 @@ class VEstimTestingManager:
             print(f"An error occurred during testing: {str(e)}")
             queue.put({'task_error': str(e)})
 
-
     def _test_single_model(self, task, idx, test_folder, save_dir, queue, status_queue):
         try:
-            if self.stop_flag:
-                print("Stop flag is set. Exiting test early.")
-                return  # Exit early if stop is requested
             print(f"Preparing test data for Task {idx + 1}...")
-
             status_queue.put(f'Preparing test data for Task {idx + 1}...')
 
-            if self.stop_flag:
-                print("Stop flag is set. Exiting test early after data preparation.")
-                return  # Exit early if stop is requested
-            
             # Extract lookback and model path from the task
             lookback = task['hyperparams']['LOOKBACK']
             model_path = task['model_path']
@@ -130,19 +118,14 @@ class VEstimTestingManager:
             X_test, y_test = self.test_data_service.load_and_process_data(test_folder, lookback)
 
             print("Generating shorthand name for model...")
-            shorthand_name = self.generate_shorthand_name(model_path)
+            shorthand_name = self.generate_shorthand_name(task)
 
             print(f"Running testing on model: {shorthand_name}...")
             status_queue.put(f'Testing model: {shorthand_name}')
-            
+
             # Run testing and save results
             results = self.testing_service.run_testing(task, model_path, X_test, y_test, save_dir)
             self.testing_service.save_test_results(results, shorthand_name, save_dir)
-
-            # Continue to check stop_flag during long-running operations
-            if self.stop_flag:
-                print("Stop flag is set. Exiting test early after running the test.")
-                return  # Exit early if stop is requested
 
             # Update the queue with the test results for the current task
             print(f"Results for model {shorthand_name}: {results}")
@@ -160,23 +143,56 @@ class VEstimTestingManager:
         except Exception as e:
             print(f"Error testing model {task['model_path']}: {str(e)}")
             queue.put({'task_error': str(e)})
+    
+    
+    @staticmethod
+    def generate_shorthand_name(task):
+        """
+        Generate a shorthand name for the task based on key hyperparameters.
+        
+        :param task: Dictionary containing task information.
+        :return: A unique shorthand name.
+        """
+        # Extract relevant hyperparameters from the task's 'hyperparams' field
+        hyperparams = task['hyperparams']
+        
+        # Extract key hyperparameters
+        layers = hyperparams.get('LAYERS', 'NA')
+        hidden_units = hyperparams.get('HIDDEN_UNITS', 'NA')
+        batch_size = hyperparams.get('BATCH_SIZE', 'NA')
+        max_epochs = hyperparams.get('MAX_EPOCHS', 'NA')
+        lr = hyperparams.get('INITIAL_LR', 'NA')
+        lr_drop_period = hyperparams.get('LR_DROP_PERIOD', 'NA')
+        valid_patience = hyperparams.get('VALID_PATIENCE', 'NA')
+        valid_frequency = hyperparams.get('ValidFrequency', 'NA')
+        lookback = hyperparams.get('LOOKBACK', 'NA')
+        repetitions = hyperparams.get('REPETITIONS', 'NA')
 
-
-    def generate_shorthand_name(self, model_path):
-        # Split the model path into components
-        path_parts = model_path.split(os.sep)
-
-        # Extract relevant directory names
-        model_dir = path_parts[-2]  # Directory containing model.pth
-        parent_dir = path_parts[-3]  # Parent directory of model_dir
-
-        # Parse key parameters from the directory names
-        params = model_dir.split('_')
-        shorthand_name = f"{params[1]}_hu_{params[2]}..look_{params[-2]}..bat_{params[-1]}"
-
-        print(f"Generated shorthand name: {shorthand_name}")
+        # Create a shorthand string from key hyperparameters
+        short_name = (f"Lr{layers}_H{hidden_units}_B{batch_size}_Lk{lookback}_"
+                    f"E{max_epochs}_LR{lr}_LDR{lr_drop_period}_ValP{valid_patience}_"
+                    f"ValFr{valid_frequency}_Rep{repetitions}")
+        
+        # Create a unique identifier based on all relevant hyperparameters
+        param_string = f"{layers}_{hidden_units}_{batch_size}_{lookback}_{lr}_{valid_patience}_{max_epochs}"
+        
+        # Generate a short hash for uniqueness
+        short_hash = hashlib.md5(param_string.encode()).hexdigest()[:6]  # First 6 chars
+        
+        # Combine short name with the hash for uniqueness
+        shorthand_name = f"{short_name}_{short_hash}"
+    
         return shorthand_name
+    
+    def stop_testing(self):
+        self.stop_flag = True  # Set the stop flag
+        if self.testing_thread is not None and self.testing_thread.is_alive():
+            print("Stopping testing thread...")
+            self.testing_thread.join(timeout=5)  # Wait for a maximum of 5 seconds for the thread to finish
+            if self.testing_thread.is_alive():
+                print("Testing thread did not finish in time. Forcing exit.")
 
+        # Clean up any other resources if necessary
 
 
 if __name__ == "__main__":

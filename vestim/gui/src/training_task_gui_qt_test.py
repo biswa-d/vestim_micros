@@ -11,7 +11,7 @@ from threading import Thread
 import logging, wandb
 
 # Import local services
-from vestim.services.model_training.src.training_task_service import TrainingTaskService
+from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
 from vestim.gateway.src.training_task_manager_qt_test import TrainingTaskManager
 from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 from vestim.gateway.src.job_manager_qt import JobManager

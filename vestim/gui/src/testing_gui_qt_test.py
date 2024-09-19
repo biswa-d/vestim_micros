@@ -1,6 +1,6 @@
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QDialog, QFileDialog, QMessageBox, QGridLayout
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QDialog, QMessageBox, QGridLayout
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
+from PyQt5.QtGui import QFont, QDesktopServices
 import os, sys, time
 import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -446,7 +446,7 @@ class VEstimTestingGUI(QMainWindow):
     def open_results_folder(self):
         results_folder = self.job_manager.get_test_results_folder()
         if os.path.exists(results_folder):
-            QFileDialog.getExistingDirectory(self, "Open Results Folder", results_folder)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(results_folder))
         else:
             QMessageBox.critical(self, "Error", f"Results folder not found: {results_folder}")
 
