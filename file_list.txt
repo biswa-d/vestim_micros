@@ -1,7 +1,6 @@
 .gitignore
 README.md
 __init__.py
-current_files.txt
 hyperparams.json
 pyproject.toml
 requirements.txt
