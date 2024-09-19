@@ -10,7 +10,7 @@ from queue import Queue, Empty
 # Import your services
 from vestim.gateway.src.testing_manager_qt_test import VEstimTestingManager
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 
 class TestingThread(QThread):
