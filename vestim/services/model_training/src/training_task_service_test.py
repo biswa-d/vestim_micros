@@ -79,7 +79,7 @@ class TrainingTaskService:
             self.log_to_sqlite(task, epoch, batch_idx, batch_time, phase='train')
 
             # Log the training progress for each batch
-            if batch_idx % 150 == 0:  # For example, every 150 batches
+            if batch_idx % 100 == 0:  # For example, every 150 batches
                 print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
                 print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
             # Clear unused memory

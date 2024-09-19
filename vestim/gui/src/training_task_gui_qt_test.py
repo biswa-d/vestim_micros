@@ -448,7 +448,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 f"Train Loss: <b>{train_loss:.4f}</b>, "
                 f"Val Loss: <b>{val_loss:.4f}</b>, "
                 f"Best Val Loss: <b>{best_val_loss:.4f}</b>, "
-                f"Time Per Epoch (ΔT): <b>{delta_t_epoch:.2f}s</b>, "
+                f"Time Per Epoch (ΔT): <b>{delta_t_epoch}s</b>, "
                 f"LR: <b>{learning_rate:.1e}</b><br>"
             )
            # WandB logging (only if enabled)

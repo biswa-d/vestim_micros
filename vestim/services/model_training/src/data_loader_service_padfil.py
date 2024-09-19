@@ -122,6 +122,7 @@ class DataLoaderService:
 
         # Load and process data
         X, y = self.load_and_process_data(folder_path, lookback)
+        print(f"Loaded data with shape: {X.shape}, Target shape: {y.shape}")
 
         # Convert to PyTorch tensors
         X_tensor = torch.tensor(X, dtype=torch.float32)
@@ -140,13 +141,18 @@ class DataLoaderService:
         np.random.shuffle(indices)
 
         train_indices, valid_indices = indices[:train_size], indices[train_size:]
+        print(f"Train indices: {len(train_indices)}, Validation indices: {len(valid_indices)}")
 
         train_sampler = SubsetRandomSampler(train_indices)
         valid_sampler = SubsetRandomSampler(valid_indices)
+        print(f"Total training samples: {len(train_sampler)}")
+        print(f"Total validation samples: {len(valid_sampler)}")
 
         # Create DataLoaders with num_workers included
         train_loader = DataLoader(dataset, batch_size=batch_size, sampler=train_sampler, drop_last=True, num_workers=num_workers)
         val_loader = DataLoader(dataset, batch_size=batch_size, sampler=valid_sampler, drop_last=True, num_workers=num_workers)
+        print(f"Total number of batches in train_loader: {len(train_loader)}")
+        print(f"Total number of batches in val_loader: {len(val_loader)}")
 
         # Clean up cache variables after DataLoaders are created
         del X_tensor, y_tensor, indices, train_indices, valid_indices

@@ -214,6 +214,8 @@ class DataImportGUI(QMainWindow):
         # Use selectedItems() to get the selected files
         train_files = [item.text() for item in self.train_list_widget.selectedItems()]
         test_files = [item.text() for item in self.test_list_widget.selectedItems()]
+        print(f"Train files: {train_files}")
+        print(f"Test files: {test_files}")
 
         if not train_files or not test_files:
             self.show_error("No files selected for either training or testing.")

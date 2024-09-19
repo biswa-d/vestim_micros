@@ -14,20 +14,14 @@ class DataProcessorPouch:
         self.processed_files = 0  # Keep track of total processed files
 
     def organize_and_convert_files(self, train_files, test_files, progress_callback=None):
-        """
-        Organize, copy, and process the CSV files into the respective train/test folders.
-        
-        :param train_files: List containing the path to the training CSV file.
-        :param test_files: List containing the path to the testing CSV file.
-        :param progress_callback: Callback for updating progress (optional).
-        :return: The job folder where the files were copied.
-        """
         # Ensure valid CSV files are provided
-        if not (train_files[0].endswith('.csv') and test_files[0].endswith('.csv')):
+        if not all(f.endswith('.csv') for f in train_files + test_files):
             self.logger.error("Invalid file types. Only CSV files are accepted.")
             raise ValueError("Invalid file types. Only CSV files are accepted.")
 
         self.logger.info("Starting file organization and copy.")
+        print(f"number of train files: {len(train_files)}")
+        print(f"number of test files: {len(test_files)}")   
         
         job_id, job_folder = self.job_manager.create_new_job()
         self.logger.info(f"Job created with ID: {job_id}, Folder: {job_folder}")
@@ -42,6 +36,12 @@ class DataProcessorPouch:
         test_raw_folder = os.path.join(job_folder, 'test', 'raw_data')
         test_processed_folder = os.path.join(job_folder, 'test', 'processed_data')
 
+        # Clear the processed data folders before proceeding
+        if os.path.exists(train_processed_folder):
+            shutil.rmtree(train_processed_folder)
+        if os.path.exists(test_processed_folder):
+            shutil.rmtree(test_processed_folder)
+        
         os.makedirs(train_raw_folder, exist_ok=True)
         os.makedirs(train_processed_folder, exist_ok=True)
         os.makedirs(test_raw_folder, exist_ok=True)
@@ -50,17 +50,22 @@ class DataProcessorPouch:
         
         # Reset processed files counter
         self.processed_files = 0
-        self.total_files = 2  # Two files (train and test)
+        self.total_files = len(train_files) + len(test_files)  # Dynamically set based on actual file count
 
         # Copy files to the raw data directories
-        self._copy_file(train_files[0], train_raw_folder, progress_callback)
-        self._copy_file(test_files[0], test_raw_folder, progress_callback)
+        for file in train_files:
+            self._copy_file(file, train_raw_folder, progress_callback)
+        for file in test_files:
+            self._copy_file(file, test_raw_folder, progress_callback)
 
         # Convert the copied CSV files to HDF5 and store in the processed data folder
-        self._convert_to_hdf5(train_files[0], train_processed_folder, progress_callback)
-        self._convert_to_hdf5(test_files[0], test_processed_folder, progress_callback)
+        for file in train_files:
+            self._convert_to_hdf5(file, train_processed_folder, progress_callback)
+        for file in test_files:
+            self._convert_to_hdf5(file, test_processed_folder, progress_callback)
 
         return job_folder
+
 
     def _convert_to_hdf5(self, csv_file, output_folder, progress_callback=None):
         """Convert a CSV file to HDF5 and save in the processed folder."""

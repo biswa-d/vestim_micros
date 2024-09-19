@@ -104,8 +104,8 @@ class VEstimTestingManager:
             csv_log_file = task['csv_log_file']
             db_log_file = task['db_log_file']
 
-            self.log_test_to_csv(task, idx, results, csv_log_file)
-            self.log_test_to_sqlite(task, idx, results, db_log_file)
+            self.log_test_to_csv(task, results, csv_log_file)
+            self.log_test_to_sqlite(task, results, db_log_file)
 
             self.testing_service.save_test_results(results, shorthand_name, save_dir)
 
@@ -151,7 +151,7 @@ class VEstimTestingManager:
         shorthand_name = f"{short_name}_{short_hash}"
         return shorthand_name
     
-    def log_test_to_sqlite(self, task, idx, results, db_log_file):
+    def log_test_to_sqlite(self, task, results, db_log_file):
         """Log test results to SQLite database."""
         conn = sqlite3.connect(db_log_file)
         cursor = conn.cursor()
@@ -159,7 +159,7 @@ class VEstimTestingManager:
         # Create the test_logs table if it doesn't exist
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS test_logs (
-                task_id INTEGER,
+                task_id TEXT,
                 model TEXT,
                 rms_error_mv REAL,
                 mae_mv REAL,
@@ -173,12 +173,12 @@ class VEstimTestingManager:
         cursor.execute('''
             INSERT OR REPLACE INTO test_logs (task_id, model, rms_error_mv, mae_mv, mape, r2)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (idx + 1, task['model_path'], results['rms_error_mv'], results['mae_mv'], results['mape'], results['r2']))
+        ''', (task['task_id'], task['model_path'], results['rms_error_mv'], results['mae_mv'], results['mape'], results['r2']))
 
         conn.commit()
         conn.close()
 
-    def log_test_to_csv(self, task, idx, results, csv_log_file):
+    def log_test_to_csv(self, task, results, csv_log_file):
         """Log test results to CSV file."""
         fieldnames = ['Task ID', 'Model', 'RMS Error (mV)', 'MAE (mV)', 'MAPE', 'R2']
         file_exists = os.path.isfile(csv_log_file)
@@ -188,7 +188,7 @@ class VEstimTestingManager:
             if not file_exists:
                 writer.writeheader()  # Write header only once
             writer.writerow({
-                'Task ID': idx + 1,
+                'Task ID': task['task_id'],
                 'Model': task['model_path'],
                 'RMS Error (mV)': results['rms_error_mv'],
                 'MAE (mV)': results['mae_mv'],
