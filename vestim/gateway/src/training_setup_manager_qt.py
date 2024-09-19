@@ -1,5 +1,5 @@
 
-import os
+import os, uuid
 import json
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
@@ -130,6 +130,7 @@ class VEstimTrainingSetupManager:
                 'hidden_units': model.hidden_units,
                 'num_layers': model.num_layers,
             }
+            num_learnable_params = self.calculate_learnable_parameters(model.num_layers, model.input_size, model.hidden_units)
 
             # Iterate through hyperparameters
             for lr in learning_rates:
@@ -139,15 +140,23 @@ class VEstimTrainingSetupManager:
                             for lookback in lookbacks:
                                 for batch_size in batch_sizes:
                                     for rep in range(1, repetitions + 1):
+
+                                        #create an unique task_id
+                                        task_id = str(uuid.uuid4())
                                         # Create a unique directory for each task based on all parameters
                                         task_dir = os.path.join(
                                             model_task['model_dir'],
                                             f'lr_{lr}_drop_{drop_period}_factor_{drop_factor}_patience_{patience}_rep_{rep}_lookback_{lookback}_batch_{batch_size}'
                                         )
                                         os.makedirs(task_dir, exist_ok=True)
+                                        
+                                        # Create the log files at this stage
+                                        csv_log_file = os.path.join(task_dir, f"{task_id}_train_log.csv")
+                                        db_log_file = os.path.join(task_dir, f"{task_id}_train_log.db")
 
                                         # Define task information
                                         task_info = {
+                                            'task_id': task_id,
                                             'model': model,
                                             'model_metadata': model_metadata,  # Use metadata instead of the full model
                                             'data_loader_params': {
@@ -168,7 +177,10 @@ class VEstimTrainingSetupManager:
                                                 'ValidFrequency': self.current_hyper_params['ValidFrequency'],
                                                 'REPETITIONS': rep,
                                                 'MAX_EPOCHS': max_epochs,  # Include MAX_EPOCHS here
-                                            }
+                                                'NUM_LEARNABLE_PARAMS': num_learnable_params,
+                                            },
+                                            'csv_log_file': csv_log_file,
+                                            'db_log_file': db_log_file  # Set log files here
                                         }
 
                                         # Append the task to the task list
@@ -192,6 +204,45 @@ class VEstimTrainingSetupManager:
         if self.progress_signal:
             self.logger.info(f"Created {len(self.training_tasks)} training tasks.")
             self.progress_signal.emit(f"Created {task_count} training tasks and saved to disk.", self.job_manager.get_job_folder(), task_count)
+
+    def calculate_learnable_parameters(self, layers, input_size, hidden_units):
+        """
+        Calculate the number of learnable parameters for an LSTM model.
+
+        :param layers: Number of layers (an integer representing the number of LSTM layers)
+        :param input_size: The size of the input features (e.g., 3 for [SOC, Current, Temp])
+        :param hidden_units: An integer representing the number of hidden units in each layer
+        :return: Total number of learnable parameters
+        """
+
+        # Initialize the number of parameters
+        learnable_params = 0
+
+        # Input to the first hidden layer (input_size + 1 for bias)
+        learnable_params += 4 * (input_size + 1) * hidden_units  # 4 comes from LSTM's gates
+
+        # Hidden layers (recurrent part: previous hidden layer to the next hidden layer)
+        for i in range(1, layers):
+            learnable_params += 4 * (hidden_units + 1) * hidden_units  # No need to index, it's a single value
+
+        # Last hidden layer to output (assuming 1 output)
+        output_size = 1
+        learnable_params += hidden_units * output_size
+
+        return learnable_params
+    
+    def update_task(self, task_id, db_log_file=None, csv_log_file=None):
+        """Update a specific task in the manager."""
+        for task in self.training_tasks:
+            if task['task_id'] == task_id:
+                if db_log_file:
+                    task['db_log_file'] = db_log_file
+                if csv_log_file:
+                    task['csv_log_file'] = csv_log_file
+                # Additional fields can be updated similarly
+                break
+
+
 
     def get_task_list(self):
         """Returns the list of training tasks."""

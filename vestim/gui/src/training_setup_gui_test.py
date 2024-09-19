@@ -3,7 +3,7 @@ from threading import Thread
 import time
 
 from vestim.gateway.src.training_setup_manager_test import VEstimTrainingSetupManager
-from vestim.gui.src.training_task_gui_2_test import VEstimTrainingTaskGUI
+from vestim.gui.src.training_task_gui_test import VEstimTrainingTaskGUI
 from vestim.gateway.src.job_manager import JobManager
 
 class VEstimTrainSetupGUI:

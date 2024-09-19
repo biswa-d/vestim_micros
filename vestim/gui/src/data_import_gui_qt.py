@@ -1,9 +1,11 @@
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QFileDialog, QProgressBar, QWidget, QMessageBox
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QFileDialog, QProgressBar, QWidget, QMessageBox, QComboBox
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 
 import os, sys
-from vestim.gui.src.hyper_param_gui_qt import VEstimHyperParamGUI  # Adjust this import based on your actual path
-from vestim.services.data_processor.src.data_processor_qt import DataProcessor
+from vestim.gui.src.hyper_param_gui_qt_test import VEstimHyperParamGUI  # Adjust this import based on your actual path
+from vestim.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
+from vestim.services.data_processor.src.data_processor_qt_tesla import DataProcessorTesla
+from vestim.services.data_processor.src.data_processor_qt_pouch import DataProcessorPouch
 
 from vestim.logger_config import setup_logger  # Assuming you have logger_config.py as shared earlier
 
@@ -17,7 +19,9 @@ class DataImportGUI(QMainWindow):
         self.test_folder_path = ""
         self.selected_train_files = []
         self.selected_test_files = []
-        self.data_processor = DataProcessor()  # Initialize DataProcessor
+        self.data_processor_digatron = DataProcessorDigatron()  # Initialize DataProcessor
+        self.data_processor_tesla = DataProcessorTesla()  # Initialize DataProcessor
+        self.data_processor_pouch = DataProcessorPouch()
 
         self.organizer_thread = None
         self.organizer = None
@@ -36,7 +40,7 @@ class DataImportGUI(QMainWindow):
         # Header
         self.header_label = QLabel("Select data folders to train your LSTM Model", self)
         self.header_label.setAlignment(Qt.AlignCenter)
-        self.header_label.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
+        self.header_label.setStyleSheet("font-size: 18px; font-weight: bold; color: green;")
         self.main_layout.addWidget(self.header_label)
 
         # Training folder section
@@ -99,33 +103,69 @@ class DataImportGUI(QMainWindow):
         # Add the testing section to the main layout
         self.main_layout.addLayout(test_layout)
 
-        # Organize button
+        #Adding the option to select the data processor (Version 2.0 VEstim)
+        # Main layout for data source selection and organize button
+        combined_layout = QHBoxLayout()
+
+        # Data source label with color change, bold text, and padding
+        data_source_label = QLabel("Select Data Source:")
+        data_source_label.setStyleSheet("color: purple; font-weight: bold; font-size: 14px; padding-right: 10px;")  # Set text color to purple, bold, and larger size
+        combined_layout.addWidget(data_source_label)
+
+        # Data source selection with consistent height and styling
+        self.data_source_combo = QComboBox(self)
+        self.data_source_combo.addItems(["Digatron", "Tesla", "Pouch"])  # Add the data sources
+        self.data_source_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
+        self.data_source_combo.setFixedWidth(150)  # Set a specific width for the ComboBox
+        self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")  # Bold text and larger font size
+        combined_layout.addWidget(self.data_source_combo)
+        self.data_source_combo.currentIndexChanged.connect(self.update_file_display)
+
+        # Add stretchable space between the dropdown and the button
+        combined_layout.addStretch(1)  # Push the button to the right
+
+        # Organize button with consistent height and padding
         self.organize_button = QPushButton("Load and Prepare Files", self)
         self.organize_button.setStyleSheet("""
             background-color: #0b6337; 
             font-weight: bold; 
-            padding: 10px 20px;  /* Adds padding inside the button */
-            color: white;  /* Set the text color to white */
+            padding: 10px 20px;  /* Adjust padding for visual appeal */
+            color: white;  
+            font-size: 14px;  /* Increase font size */
         """)
-        self.organize_button.setFixedHeight(40)  # Ensure consistent height
-        self.organize_button.setMinimumWidth(150)  # Set minimum width to ensure consistency
-        self.organize_button.setMaximumWidth(300)  # Set a reasonable maximum width
+        self.organize_button.setFixedHeight(35)  # Ensure consistent height
+        self.organize_button.setMinimumWidth(150)  # Set minimum width
+        self.organize_button.setMaximumWidth(300)  # Set maximum width
         self.organize_button.clicked.connect(self.organize_files)
 
-        # Center the organize button using a layout
-        organize_button_layout = QHBoxLayout()
-        organize_button_layout.addStretch(1)  # Add stretchable space before the button
-        organize_button_layout.addWidget(self.organize_button, alignment=Qt.AlignCenter)
-        organize_button_layout.addStretch(1)  # Add stretchable space after the button
+        # Add stretchable space to center the button and provide border spacing
+        combined_layout.addStretch(2)  # Adds extra space for centering
 
-        # Add the button layout to the main layout
-        self.main_layout.addLayout(organize_button_layout)
+        # Add the organize button to the combined layout
+        combined_layout.addWidget(self.organize_button)
+
+        # Add the combined layout to the main layout
+        self.main_layout.addLayout(combined_layout)
+
+        # Add margins to the main layout for border spacing
+        self.main_layout.setContentsMargins(30, 10, 30, 10)  # Increase left, right margins for more centering
 
         # Progress bar
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)  # Initially hidden
         self.main_layout.addWidget(self.progress_bar)
+
+    def update_file_display(self):
+        selected_source = self.data_source_combo.currentText()
+        if selected_source == "Digatron" or selected_source == "Tesla":
+            # Show only .mat files
+            self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".mat")
+            self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".mat")
+        elif selected_source == "Pouch":
+            # Show only .csv files
+            self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".csv")
+            self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".csv")
 
     def select_train_folder(self):
         self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder")
@@ -141,11 +181,12 @@ class DataImportGUI(QMainWindow):
             logger.info(f"Selected testing folder: {self.test_folder_path}")
         self.check_folders_selected()
 
-    def populate_file_list(self, folder_path, list_widget):
+    def populate_file_list(self, folder_path, list_widget, file_extension=".mat"):
+        """ Populate the list widget with specified file extension. """
         list_widget.clear()
         for root, _, files in os.walk(folder_path):
             for file in files:
-                if file.endswith(".mat"):
+                if file.endswith(file_extension):  # Filter files by the selected extension
                     list_widget.addItem(os.path.join(root, file))
 
     def check_folders_selected(self):
@@ -165,7 +206,6 @@ class DataImportGUI(QMainWindow):
         """)
         self.organize_button.setEnabled(False)  # Disable the button during processing
 
-        
         # Show progress label and start the background thread
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -174,13 +214,27 @@ class DataImportGUI(QMainWindow):
         # Use selectedItems() to get the selected files
         train_files = [item.text() for item in self.train_list_widget.selectedItems()]
         test_files = [item.text() for item in self.test_list_widget.selectedItems()]
+        print(f"Train files: {train_files}")
+        print(f"Test files: {test_files}")
 
         if not train_files or not test_files:
             self.show_error("No files selected for either training or testing.")
             return
 
-        # Create and start the file organizer thread
-        self.organizer = FileOrganizer(train_files, test_files, self.data_processor)
+        # Determine which data processor to use based on the selected data source
+        selected_source = self.data_source_combo.currentText()
+        if selected_source == "Digatron":
+            data_processor = self.data_processor_digatron
+        elif selected_source == "Tesla":
+            data_processor = self.data_processor_tesla
+        elif selected_source == "Pouch":
+            data_processor = self.data_processor_pouch
+        else:
+            self.show_error("Invalid data source selected.")
+            return
+
+        # Create and start the file organizer thread with the selected data processor
+        self.organizer = FileOrganizer(train_files, test_files, data_processor)
         self.organizer_thread = QThread()
 
         # Connect signals and slots
@@ -190,6 +244,7 @@ class DataImportGUI(QMainWindow):
         self.organizer.moveToThread(self.organizer_thread)
         self.organizer_thread.started.connect(self.organizer.run)
         self.organizer_thread.start()
+
 
     def handle_progress_update(self, progress_value):
         # Update the progress bar with the percentage
@@ -206,6 +261,9 @@ class DataImportGUI(QMainWindow):
             background-color: #1f8b4c; 
             font-weight: bold;
             padding: 10px 20px;
+            color: white;
+            font-size: 14px;
+                                           
         """)
         self.organize_button.setEnabled(True)
         

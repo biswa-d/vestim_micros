@@ -11,11 +11,11 @@ from threading import Thread
 import logging, wandb
 
 # Import local services
-from vestim.services.model_training.src.training_task_service import TrainingTaskService
-from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
-from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
+from vestim.gateway.src.training_task_manager_qt_test import TrainingTaskManager
+from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gui.src.testing_gui_qt import VEstimTestingGUI
+from vestim.gui.src.testing_gui_qt_test import VEstimTestingGUI
 
 class TrainingThread(QThread):
     # Custom signals to emit data back to the main GUI
@@ -86,7 +86,9 @@ class VEstimTrainingTaskGUI(QMainWindow):
             "VALID_PATIENCE": "Validation Patience",
             "ValidFrequency": "Validation Frequency",
             "LOOKBACK": "Lookback Sequence Length",
-            "REPETITIONS": "Repetitions"
+            "REPETITIONS": "Repetitions",
+            "NUM_LEARNABLE_PARAMS": "Number of Learnable Parameters",
+
         }
 
         self.initUI()
@@ -436,7 +438,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             epoch = progress_data['epoch']
             train_loss = progress_data['train_loss']
             val_loss = progress_data['val_loss']
-            delta_t_valid = progress_data['delta_t_valid']
+            delta_t_epoch = progress_data['delta_t_epoch']
             learning_rate = progress_data.get('learning_rate', None)
             best_val_loss = progress_data.get('best_val_loss', None)
 
@@ -446,7 +448,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 f"Train Loss: <b>{train_loss:.4f}</b>, "
                 f"Val Loss: <b>{val_loss:.4f}</b>, "
                 f"Best Val Loss: <b>{best_val_loss:.4f}</b>, "
-                f"Time since last Val (ΔT): <b>{delta_t_valid:.2f}s</b>, "
+                f"Time Per Epoch (ΔT): <b>{delta_t_epoch}s</b>, "
                 f"LR: <b>{learning_rate:.1e}</b><br>"
             )
            # WandB logging (only if enabled)
