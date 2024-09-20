@@ -56,10 +56,10 @@ class TrainingTaskManager:
         cursor = conn.cursor()
 
         cursor.execute('''INSERT INTO task_logs (task_id, epoch, train_loss, val_loss, elapsed_time, avg_batch_time, learning_rate, 
-                        best_val_loss, num_learnable_params, batch_size, lookback, early_stopping, model_memory_usage)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                        best_val_loss, num_learnable_params, batch_size, lookback, max_epochs, early_stopping, model_memory_usage)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                     (task['task_id'], epoch, train_loss, val_loss, elapsed_time, avg_batch_time, task['hyperparams']['INITIAL_LR'], best_val_loss,
-                        task['hyperparams']['NUM_LEARNABLE_PARAMS'], task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'],
+                        task['hyperparams']['NUM_LEARNABLE_PARAMS'], task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'], task['hyperparams']['MAX_EPOCHS'],
                         early_stopping, model_memory_usage))
 
         conn.commit()
