@@ -60,7 +60,7 @@ class TrainingTaskManager:
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                     (task['task_id'], epoch, train_loss, val_loss, elapsed_time, avg_batch_time, task['hyperparams']['INITIAL_LR'], best_val_loss,
                         task['hyperparams']['NUM_LEARNABLE_PARAMS'], task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'],
-                        early_stopping, model_memory_usage))
+                        early_stopping, model_memory_usage, self.device.type))
 
         conn.commit()
         conn.close()
@@ -157,6 +157,7 @@ class TrainingTaskManager:
                     max_epochs INTEGER,
                     early_stopping INTEGER,  -- New column for early stopping flag (1 if stopped early, 0 otherwise)
                     model_memory_usage REAL,  -- New column for memory usage (optional)
+                    device TEXT,  -- Add this new column for the device
                     PRIMARY KEY(task_id, epoch)
                 )
             ''')
@@ -173,6 +174,7 @@ class TrainingTaskManager:
                     num_learnable_params INTEGER,
                     batch_size INTEGER,
                     lookback INTEGER,
+                    device TEXT,  -- Add the device column here
                     FOREIGN KEY(task_id, epoch) REFERENCES task_logs(task_id, epoch)
                 )
             ''')

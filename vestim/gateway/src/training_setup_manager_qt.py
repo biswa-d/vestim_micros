@@ -166,7 +166,7 @@ class VEstimTrainingSetupManager:
                                             'model_dir': task_dir,
                                             'model_path': os.path.join(task_dir, 'model.pth'),
                                             'hyperparams': {
-                                                'LAYERS': self.current_hyper_params['LAYERS'],
+                                                'LAYERS': model_metadata['num_layers'],
                                                 'HIDDEN_UNITS': model_metadata['hidden_units'],
                                                 'BATCH_SIZE': batch_size,
                                                 'LOOKBACK': lookback,

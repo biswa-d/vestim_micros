@@ -27,18 +27,18 @@ class TrainingTaskService:
                 'Phase': phase
             })
 
-    def log_to_sqlite(self, task, epoch, batch_idx, batch_time, phase):
+    def log_to_sqlite(self, task, epoch, batch_idx, batch_time, phase, device):
         """Log batch timing data to a SQLite database."""
         sqlite_db_file = task['db_log_file']  # Fetch the SQLite DB file path from the task
         conn = sqlite3.connect(sqlite_db_file)
         cursor = conn.cursor()
 
         # Insert batch-level data into batch_logs table
-        cursor.execute('''INSERT INTO batch_logs (task_id, epoch, batch_idx, batch_time, phase, learning_rate, num_learnable_params, batch_size, lookback)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        cursor.execute('''INSERT INTO batch_logs (task_id, epoch, batch_idx, batch_time, phase, learning_rate, num_learnable_params, batch_size, lookback, device)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?,?,?)''',
                     (task['task_id'], epoch, batch_idx, batch_time, phase, 
                         task['hyperparams']['INITIAL_LR'], task['hyperparams']['NUM_LEARNABLE_PARAMS'],
-                        task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK']))
+                        task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'], device))
 
         conn.commit()
         conn.close()
@@ -50,6 +50,7 @@ class TrainingTaskService:
         total_train_loss = []
         batch_times = []  # Store time per batch
         log_freq = 100  # Define how often to log batches
+        device_str = str(device)  # Convert torch.device to string
 
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
             if stop_requested:  # Check if a stop has been requested
@@ -78,8 +79,8 @@ class TrainingTaskService:
             # Log less frequently
             if batch_idx % log_freq == 0:
                 batch_freq_time = sum(batch_times) / len(batch_times)
-                self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='train')
-                self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train')
+                # self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='train', device=device)
+                self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train', device=device_str)
 
             # Log progress every 150 batches
             if batch_idx % log_freq == 0:
@@ -100,6 +101,8 @@ class TrainingTaskService:
         total_samples = 0
         batch_times = []  # Track validation time for each batch
         log_freq = 100  # Define how often to log batches
+        device_str = str(device)  # Convert torch.device to string
+
 
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
@@ -123,8 +126,8 @@ class TrainingTaskService:
                 # Log less frequently
                 if batch_idx % log_freq == 0:
                     batch_freq_time = sum(batch_times) / len(batch_times)
-                    self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='validate')
-                    self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='validate')
+                    # self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='validate')
+                    self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='validate', device=device_str)
 
                 # Log progress every 150 batches
                 if batch_idx % log_freq == 0:

@@ -27,18 +27,18 @@ class TrainingTaskService:
                 'Phase': phase
             })
 
-    def log_to_sqlite(self, task, epoch, batch_idx, batch_time, phase):
+    def log_to_sqlite(self, task, epoch, batch_idx, batch_time, phase, device):
         """Log batch timing data to a SQLite database."""
         sqlite_db_file = task['db_log_file']  # Fetch the SQLite DB file path from the task
         conn = sqlite3.connect(sqlite_db_file)
         cursor = conn.cursor()
 
         # Insert batch-level data into batch_logs table
-        cursor.execute('''INSERT INTO batch_logs (task_id, epoch, batch_idx, batch_time, phase, learning_rate, num_learnable_params, batch_size, lookback)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        cursor.execute('''INSERT INTO batch_logs (task_id, epoch, batch_idx, batch_time, phase, learning_rate, num_learnable_params, batch_size, lookback, device)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?,?,?)''',
                     (task['task_id'], epoch, batch_idx, batch_time, phase, 
                         task['hyperparams']['INITIAL_LR'], task['hyperparams']['NUM_LEARNABLE_PARAMS'],
-                        task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK']))
+                        task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'], device))
 
         conn.commit()
         conn.close()
@@ -78,8 +78,8 @@ class TrainingTaskService:
             # Log less frequently
             if batch_idx % log_freq == 0:
                 batch_freq_time = sum(batch_times) / len(batch_times)
-                self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='train')
-                self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train')
+                self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='train', device=device)
+                self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train', device=device)
 
             # Log progress every 150 batches
             if batch_idx % log_freq == 0:
