@@ -388,50 +388,6 @@ class VEstimTestingGUI(QMainWindow):
         if self.timer_running:
             QTimer.singleShot(100, self.process_queue)
 
-    # Working code being modified for progress bar and timer update, to be reverted back/deleted depending on the result from the modified code above
-    # def process_queue(self):
-    #     try:
-    #         # Try to get a result from the queue
-    #         result = self.queue.get_nowait()
-    #         print(f"Got result from queue: {result}")
-    #         self.add_result_row(result)  # Add the result to the GUI
-    #         self.results_list.append(result)  # Track the completed results
-    #     except Empty:
-    #         # If the queue is empty, wait and try again
-    #         # QTimer.singleShot(100, self.process_queue) # thi is being taken outside the block for testing
-    #         return  # Return early if there's nothing new to process
-    #     # Process all the events in the Qt event loop (force repaint of the UI)
-    #     QTimer.singleShot(100, self.process_queue)
-    #     QApplication.processEvents()
-        
-    #     # If new result is added, update the progress bar and status
-    #     total_tasks = len(self.testing_manager.training_setup_manager.get_task_list())
-    #     print(f"Total tasks: {total_tasks}")
-    #     completed_tasks = len(self.results_list)
-    #     print(f"Completed tasks: {completed_tasks}")
-        
-    #     if total_tasks == 0:  # Avoid division by zero
-    #         self.update_status("No tasks to process.")
-    #         return
-
-    #     # Ensure progress is an integer between 0 and 100
-    #     progress_value = int((completed_tasks / total_tasks) * 100)
-    #     self.progress.setValue(progress_value)  # Update progress bar
-
-    #     # Update the status with the number of completed tasks
-    #     self.update_status(f"Completed {completed_tasks}/{total_tasks} tasks")
-
-    #     # Check if all tasks are completed
-    #     if completed_tasks >= total_tasks:
-    #         # If all tasks are complete, stop processing the queue and update UI
-    #         self.timer_running = False
-    #         self.update_status("All tests completed!")
-    #         self.progress.hide()  # Hide the progress bar when finished
-    #         self.open_results_button.show()  # Show the results button
-    #     else:
-    #         # Continue checking the queue if tasks are not yet complete
-    #         QTimer.singleShot(100, self.process_queue)
-
     def update_elapsed_time(self):
         if self.timer_running:
             elapsed_time = time.time() - self.start_time
