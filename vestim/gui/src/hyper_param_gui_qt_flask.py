@@ -129,6 +129,14 @@ class VEstimHyperParamGUI(QWidget):
             # Make an API call to save the parameters
             response = requests.post(f"{FLASK_SERVER_URL}/update_params", json={"params": new_params})
             if response.status_code == 200:
+                # Update tool state to move to the training setup screen
+                tool_state = {
+                    "current_state": "training_setup",
+                    "current_screen": "VEstimTrainSetupGUI"
+                }
+                with open("vestim/tool_state.json", "w") as f:
+                    json.dump(tool_state, f)
+
                 # Open the training setup GUI
                 self.logger.info("Parameters updated successfully. Proceeding to training.")
                 self.close()
@@ -136,6 +144,7 @@ class VEstimHyperParamGUI(QWidget):
                 self.training_setup_gui.show()
             else:
                 raise ValueError(f"Error updating parameters: {response.json().get('error')}")
+
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to proceed to training: {str(e)}")

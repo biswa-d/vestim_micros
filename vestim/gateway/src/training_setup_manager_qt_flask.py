@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, requests, request
 import os, uuid, json
 from vestim.gateway.src.hyper_param_manager_qt_flask import VEstimHyperParamManager
 from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
@@ -7,6 +7,7 @@ import logging
 
 # Create a Flask Blueprint
 training_setup_blueprint = Blueprint('training_setup', __name__)
+logger = logging.getLogger(__name__)
 
 class VEstimTrainingSetupManager:
     _instance = None
@@ -18,7 +19,7 @@ class VEstimTrainingSetupManager:
 
     def __init__(self, job_manager=None):
         if not hasattr(self, 'initialized'):  # Ensure initialization only happens once
-            self.logger = logging.getLogger(__name__)  # Initialize logger
+            self.logger = logger
             self.params = None
             self.current_hyper_params = None
             self.hyper_param_manager = VEstimHyperParamManager()  # Initialize hyperparameter manager
@@ -27,20 +28,48 @@ class VEstimTrainingSetupManager:
             self.models = []  # Store model information
             self.training_tasks = []  # Store created tasks
             self.initialized = True  # Mark as initialized
+            #Get parameters from other managers through API calls
+
+    # Get required objects from the relevant singleton manaers
+    def fetch_job_folder(self):
+        """Fetches and stores the job folder from the Job Manager API."""
+        if self.job_folder is None:
+            try:
+                response_job = requests.get("http://localhost:5000/job_manager/get_job_folder")
+                if response_job.status_code == 200:
+                    self.job_folder = response_job.json()['job_folder']
+                else:
+                    raise Exception("Failed to fetch job folder")
+            except Exception as e:
+                self.logger.error(f"Error fetching job folder: {str(e)}")
+                raise e
+
+    def fetch_hyper_params(self):
+        """Fetches and stores the hyperparameters from the Hyper Param Manager API."""
+        if self.params is None:
+            try:
+                response_params = requests.get("http://localhost:5000/hyper_param_manager/get_params")
+                if response_params.status_code == 200:
+                    self.params = response_params.json()
+                    self.current_hyper_params = self.params
+                else:
+                    raise Exception("Failed to fetch hyperparameters")
+            except Exception as e:
+                self.logger.error(f"Error fetching hyperparameters: {str(e)}")
+                raise e
 
     def setup_training(self):
         """Set up training by fetching hyperparameters, building models, and creating training tasks."""
         self.logger.info("Setting up training...")
         try:
-            self.params = self.hyper_param_manager.get_hyper_params()
-            self.current_hyper_params = self.params
             self.build_models()
             self.create_training_tasks()
 
             task_count = len(self.training_tasks)
             return {
                 "message": f"Setup complete! {task_count} tasks created.",
-                "job_folder": self.job_manager.get_job_folder(),
+                "job_folder": self.job_folder,
+                "task_list": self.training_tasks,  # Add task list here
                 "task_count": task_count
             }, 200
 
@@ -50,13 +79,21 @@ class VEstimTrainingSetupManager:
 
     def build_models(self):
         """Build and store the LSTM models based on hyperparameters."""
+        logger.info("Building models...")
+
+        logger.info("Fetching hyperparameters...")
+        self.fetch_hyper_params()
+        print(f"Hyperparameters: {self.params}")
+        logger.info("Hyperparameters fetched.")
+        self.fetch_job_folder()
+        print(f"Job folder: {self.job_folder}")
         hidden_units_list = [int(h) for h in self.params['HIDDEN_UNITS'].split(',')]
         layers_list = [int(l) for l in self.params['LAYERS'].split(',')]
 
         for hidden_units in hidden_units_list:
             for layers in layers_list:
                 self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
-                model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', f'model_lstm_hu_{hidden_units}_layers_{layers}')
+                model_dir = os.path.join(self.job_folder, 'models', f'model_lstm_hu_{hidden_units}_layers_{layers}')
                 os.makedirs(model_dir, exist_ok=True)
 
                 model_name = f"model_lstm_hu_{hidden_units}_layers_{layers}.pth"

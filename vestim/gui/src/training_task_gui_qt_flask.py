@@ -1,17 +1,15 @@
 import requests
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QPushButton, QFrame, QTextEdit, QHBoxLayout, QWidget
-from PyQt5.QtCore import QTimer
-import time
+from PyQt5.QtCore import QTimer, Qt
+import time, json, os
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import logging
+from vestim.gui.src.testing_gui_qt_test import VEstimTestingGUI
 
 class VEstimTrainingTaskGUI(QMainWindow):
-    def __init__(self, task_list, params):
+    def __init__(self):
         super().__init__()
-
-        # Initialize attributes
-        self.task_list = task_list
         self.params = params
         self.task_id = None  # Store the task ID returned from the Flask server
         self.timer = QTimer(self)  # Polling timer for task status updates
@@ -25,6 +23,31 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.timer_running = True
         self.training_process_stopped = False
         self.current_task_index = 0
+        
+        # Get the task list from the setup manager with an api call
+        # Make an API call to the setup manager to get the task list
+        try:
+            response_task_list = requests.get("http://localhost:5000/training_setup/get_tasks")
+            if response_task_list.status_code == 200:
+                task_list = response_task_list.json()
+                self.task_list = task_list
+            else:
+                raise Exception("Failed to fetch task list")
+        except Exception as e:
+            self.logger.error(f"Error fetching task list: {str(e)}")
+            raise e
+        
+        # Make an API call to get hyperparameters and store them
+        try:
+            response_params = requests.get("http://localhost:5000/hyper_param_manager/get_params")
+            if response_params.status_code == 200:
+                self.params = response_params.json()
+                self.current_hyper_params = self.params
+            else:
+                raise Exception("Failed to fetch hyperparameters")
+        except Exception as e:
+            self.logger.error(f"Error fetching hyperparameters: {str(e)}")
+            raise e
 
         # Initialize UI and first task display
         self.param_labels = {
@@ -107,6 +130,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         """)
         self.proceed_button.setVisible(False)
         self.main_layout.addWidget(self.proceed_button)
+        self.proceed_button.clicked.connect(self.transition_to_testing_gui)
 
         # Attach layout to container
         container.setLayout(self.main_layout)
@@ -191,13 +215,19 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Extract task progress data from the response
         progress_data = task_status.get('progress_data', None)
         current_task_index = task_status.get('current_task_index', 0)
-        current_task = self.task_list[current_task_index]
+        
+        if self.task_list:
+            current_task = self.task_list[current_task_index]
 
-        # Display task-specific information in the GUI (like hyperparameters)
-        self.display_hyperparameters(current_task['hyperparams'])
+            # Display task-specific information in the GUI (like hyperparameters)
+            self.display_hyperparameters(current_task['hyperparams'])
 
-        # Update the GUI's status label with the current task and status
-        task_info = f"Task {current_task_index + 1}/{len(self.task_list)}"
+            # Update the GUI's status label with the current task and status
+            task_info = f"Task {current_task_index + 1}/{len(self.task_list)}"
+        else:
+            task_info = "No tasks available"
+
+        # Status can be 'running', 'stopped', 'completed', etc.
         status = task_status.get('status', 'running')
         self.status_label.setText(f"{task_info} - {status}")
 
@@ -228,7 +258,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.update_plot()
 
             # Update elapsed time
-            elapsed_time = progress_data.get('elapsed_time', "00h:00m:00s")
+            elapsed_time = task_status.get('elapsed_time', "00h:00m:00s")
             self.time_value_label.setText(elapsed_time)
 
     def update_plot(self):
@@ -239,25 +269,88 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.ax.autoscale_view()
         self.canvas.draw_idle()
 
-    def stop_training(self):
-        """Send a request to stop the training process."""
-        response = requests.post(f"http://localhost:5000/stop_task/{self.current_task_index}")
-        if response.status_code == 200:
-            self.status_label.setText("Stopping training...")
-        else:
-            self.status_label.setText("Error stopping training")
 
-    def handle_task_completed(self):
-        """Handle task completion and show the 'Proceed to Testing' button."""
-        self.status_label.setText("Training completed!")
-        self.stop_button.hide()
+    def stop_training(self):
+        """Send a request to stop the training process via Flask API."""
+        try:
+            response = requests.post(f"http://localhost:5000/training_task/stop_task")
+            if response.status_code == 200:
+                self.status_label.setText("Stopping training...")
+                self.stop_button.setText("Stopping...")
+                self.stop_button.setStyleSheet("background-color: #ffcccb; color: white; font-size: 12pt; font-weight: bold;")
+                self.training_process_stopped = True
+            else:
+                self.status_label.setText("Error stopping training.")
+        except Exception as e:
+            self.status_label.setText(f"Error stopping training: {e}")
+
+    def check_if_stopped(self):
+        """Check the training status by calling the Flask API for task status."""
+        try:
+            response = requests.get(f"http://localhost:5000/training_task/task_status")
+            if response.status_code == 200:
+                task_status = response.json()
+                status = task_status.get('status')
+
+                # Update the status in the GUI
+                if status == 'stopped':
+                    self.status_label.setText("Training stopped early.")
+                    self.status_label.setStyleSheet("color: #b22222; font-size: 14pt; font-weight: bold;")
+                    self.task_completed()  # Trigger task completion logic
+                elif status == 'completed':
+                    self.status_label.setText("Training completed.")
+                    self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
+                    self.task_completed()  # Trigger task completion logic
+                else:
+                    QTimer.singleShot(100, self.check_if_stopped)  # Keep checking if still running
+            else:
+                self.status_label.setText("Error fetching task status.")
+        except Exception as e:
+            self.status_label.setText(f"Error fetching task status: {e}")
+
+    def task_completed(self):
+        """Handle task completion and update the UI accordingly."""
+        if self.task_completed_flag:
+            return
+        self.task_completed_flag = True
+        self.timer_running = False
+
+        if self.isVisible():
+            # Assume total training time is stored in the task manager and fetched via the API
+            response = requests.get(f"http://localhost:5000/training_task/task_status")
+            if response.status_code == 200:
+                task_status = response.json()
+                total_training_time = task_status.get('progress_data', {}).get('elapsed_time', "00h:00m:00s")
+                self.time_value_label.setText(total_training_time)
+
+            self.stop_button.hide()
+            self.show_proceed_to_testing_button()
+
+    def show_proceed_to_testing_button(self):
+        """Ensure the 'Proceed to Testing' button is displayed once training is complete."""
         self.proceed_button.show()
+
+    def transition_to_testing_gui(self):
+        """Transition to the testing GUI once training is completed and update tool state."""
+        # Update the tool state to reflect the transition to the testing phase
+        tool_state = {
+            "current_phase": "testing",
+            "current_screen": "VEstimTestingGUI"
+        }
+        
+        with open("vestim/tool_state.json", "w") as f:
+                json.dump(tool_state, f)
+        
+        # Transition to the testing GUI
+        self.close()  # Close the current window
+        self.testing_gui = VEstimTestingGUI()  # Initialize the testing GUI
+        self.testing_gui.show()  # Show the testing GUI
 
 if __name__ == "__main__":
     import sys
     app = QApplication(sys.argv)
     task_list = []  # Replace with actual task list
     params = {}  # Replace with actual parameters
-    gui = VEstimTrainingTaskGUI(task_list, params)
+    gui = VEstimTrainingTaskGUI()
     gui.show()
     sys.exit(app.exec_())

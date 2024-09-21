@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-import sys
+import sys, json, os
 import time
 from vestim.gui.src.training_task_gui_qt_flask import VEstimTrainingTaskGUI
 import logging
@@ -16,34 +16,42 @@ class SetupWorker(QThread):
         super().__init__()
         self.logger = logging.getLogger(__name__)  # Set up logger
         self.job_manager = job_manager
+        self.task_list = []
 
     def run(self):
         self.logger.info("Starting training setup in a separate thread.")
         print("Starting training setup in a separate thread...")
         try:
             # Flask call for training setup
-            response = requests.post("http://localhost:5000/training_setup/setup_training")
+            response = requests.post(f"http://localhost:5000/training_setup/setup_training")  # Adjust for Flask server URL
             if response.status_code == 200:
                 print("Training setup started successfully!")
                 self.logger.info("Training setup started successfully.")
 
-                task_count = len(response.json().get('task_list', []))
-                job_folder = response.json().get('job_folder', '')
+                # Parse response for task_list, task_count, and job_folder
+                response_data = response.json()
+                self.task_list = response_data.get('task_list', [])
+                task_count = response_data.get('task_count', 0)
+                job_folder = response_data.get('job_folder', '')
 
-                # Emit signal to update the status
+                # Emit signal to update the status in the main GUI
                 self.progress_signal.emit(
                     "Task summary saved in the job folder",
                     job_folder,
                     task_count
                 )
 
-                # Emit a signal when finished
+                # Emit signal to indicate the setup is finished
                 self.finished_signal.emit()
             else:
-                raise Exception(f"Error in training setup: {response.json().get('error', 'Unknown error')}")
-        except Exception as e:
-            self.logger.error(f"Error occurred during setup: {str(e)}")
+                error_message = response.json().get('error', 'Unknown error occurred during setup')
+                self.logger.error(f"Error in training setup: {error_message}")
+                self.progress_signal.emit(f"Error in training setup: {error_message}", "", 0)
+
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Error occurred while communicating with the server: {str(e)}")
             self.progress_signal.emit(f"Error occurred: {str(e)}", "", 0)
+
 
 class VEstimTrainSetupGUI(QWidget):
     def __init__(self, params):
@@ -199,8 +207,16 @@ class VEstimTrainSetupGUI(QWidget):
 
     def transition_to_training_gui(self):
         try:
-            task_list = self.worker.training_setup_manager.get_task_list()
-            self.training_gui = VEstimTrainingTaskGUI(task_list, self.params)
+            # Update tool state to reflect the transition to the training task GUI
+            tool_state = {
+                "current_state": "training",
+                "current_screen": "VEstimTrainingTaskGUI"
+            }
+            with open("vestim/tool_state.json", "w") as f:
+                json.dump(tool_state, f)
+
+            # Transition to the training task GUI
+            self.training_gui = VEstimTrainingTaskGUI()
             current_geometry = self.geometry()
             self.training_gui.setGeometry(current_geometry)
             self.training_gui.show()
@@ -208,6 +224,7 @@ class VEstimTrainSetupGUI(QWidget):
             self.close()
         except Exception as e:
             print(f"Error while transitioning to the task screen: {e}")
+
 
     def update_elapsed_time(self):
         if self.timer_running:

@@ -1,7 +1,7 @@
 import requests
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QFileDialog, QProgressBar, QWidget, QMessageBox, QComboBox, QSizePolicy
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
-import os, sys
+import os, sys, json
 from vestim.gui.src.hyper_param_gui_qt_test import VEstimHyperParamGUI  # Adjust this import based on your actual path
 from vestim.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
 from vestim.services.data_processor.src.data_processor_qt_tesla import DataProcessorTesla
@@ -273,11 +273,22 @@ class DataImportGUI(QMainWindow):
         self.organize_button.clicked.disconnect()
         self.organize_button.clicked.connect(lambda: self.move_to_next_screen(job_folder))
 
-    def move_to_next_screen(self, job_folder):
+    def move_to_next_screen(self):
+        # Update tool state to move to the hyperparameter screen
+        tool_state = {
+            "current_state": "hyperparameter_selection",
+            "current_screen": "VEstimHyperParamGUI"
+        }
+        
+        # Write the updated state to tool_state.json
+        with open("vestim/tool_state.json", "w") as f:
+            json.dump(tool_state, f)
+
+        # Close the current screen and open the next
         self.close()
         self.hyper_param_gui = VEstimHyperParamGUI()
         self.hyper_param_gui.show()
-
+    
     def show_error(self, message):
         # Display error message
         QMessageBox.critical(self, "Error", message)

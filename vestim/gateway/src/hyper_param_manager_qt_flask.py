@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, Blueprint
+from flask import Flask, jsonify, request, Blueprint, requests
 import os
 import json
 from vestim.gateway.src.job_manager_qt_flask import JobManager  # Assuming job_manager_flask has the job_manager instance
@@ -6,6 +6,7 @@ import logging
 
 hyper_param_manager_blueprint = Blueprint('hyper_param_manager', __name__)
 logger = logging.getLogger(__name__)
+
 
 class VEstimHyperParamManager:
     _instance = None
@@ -18,11 +19,25 @@ class VEstimHyperParamManager:
     def __init__(self):
         if not hasattr(self, 'initialized'):
             self.logger = logger
-            self.job_manager = JobManager()  # Use the job_manager instance
             self.current_params = {}  # Initialize current_params
             self.initialized = True
+            self.job_folder = None
             self.logger.info("VEstimHyperParamManager initialized.")
-
+    
+    # Get required objects from the relevant singleton manaers
+    def fetch_job_folder(self):
+        """Fetches and stores the job folder from the Job Manager API."""
+        if self.job_folder is None:
+            try:
+                response_job = requests.get("http://localhost:5000/job_manager/get_job_folder")
+                if response_job.status_code == 200:
+                    self.job_folder = response_job.json()['job_folder']
+                else:
+                    raise Exception("Failed to fetch job folder")
+            except Exception as e:
+                self.logger.error(f"Error fetching job folder: {str(e)}")
+                raise e
+            
     def load_params(self, filepath):
         """Load and validate parameters from a JSON file."""
         self.logger.info(f"Loading parameters from {filepath}")
@@ -65,7 +80,8 @@ class VEstimHyperParamManager:
 
     def save_params(self):
         """Save the current parameters to the job folder."""
-        job_folder = self.job_manager.get_job_folder()
+        self.fetch_job_folder()
+        job_folder = self.job_folder
         if job_folder and self.current_params:
             params_file = os.path.join(job_folder, 'hyperparams.json')
             with open(params_file, 'w') as file:
@@ -83,7 +99,7 @@ class VEstimHyperParamManager:
 
     def get_current_params(self):
         """Load the parameters from the saved JSON file in the job folder."""
-        job_folder = self.job_manager.get_job_folder()
+        job_folder = self.job_folder
         params_file = os.path.join(job_folder, 'hyperparams.json')
         
         if os.path.exists(params_file):
