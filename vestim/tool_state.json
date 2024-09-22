@@ -1,1 +1,4 @@
-{"current_state": "hyperparameter_selection", "current_screen": "VEstimHyperParamGUI"}
+{
+    "current_state": "data_import",
+    "current_screen": "DataImportGUI"
+}
