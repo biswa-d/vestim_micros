@@ -1,5 +1,5 @@
-from flask import Flask, jsonify, request, Blueprint, requests
-import os
+from flask import Flask, jsonify, request, Blueprint
+import os, requests
 import json
 from vestim.gateway.src.job_manager_qt_flask import JobManager  # Assuming job_manager_flask has the job_manager instance
 import logging

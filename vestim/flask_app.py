@@ -1,9 +1,13 @@
+import os, sys 
+
 from flask import Flask
 from vestim.gateway.src.job_manager_qt_flask import job_manager_blueprint
 from vestim.gateway.src.hyper_param_manager_qt_flask import hyper_param_manager_blueprint
 from vestim.gateway.src.training_setup_manager_qt_flask import training_setup_blueprint
 from vestim.gateway.src.training_task_manager_qt_flask import training_task_blueprint
 from vestim.gateway.src.testing_manager_qt_flask import testing_manager_blueprint
+
+# sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 # Initialize Flask app
 app = Flask(__name__)

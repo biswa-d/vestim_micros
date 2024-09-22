@@ -123,8 +123,8 @@ class VEstimTestingGUI(QMainWindow):
 
         # TreeWidget to display results
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(7)
-        self.tree.setHeaderLabels(["Sl.No", "Model", "RMS Error (mV)", "MAE (mV)", "MAPE (%)", "R²", "Plot"])
+        self.tree.setColumnCount(8)
+        self.tree.setHeaderLabels(["Sl.No", "Model","#W&Bs", "RMS Error (mV)", "MAE (mV)", "MAPE (%)", "R²", "Plot"])
         self.main_layout.addWidget(self.tree)
 
         # Status Label (below the tree view)
@@ -259,6 +259,7 @@ class VEstimTestingGUI(QMainWindow):
         task_data = result.get('task_completed')
         if task_data:
             model_name = task_data.get("model")
+            num_learnable_params = str(task_data.get("#params"))  # Convert to string
             rms_error = f"{task_data.get('rms_error_mv', 0):.4f}"
             mae = f"{task_data.get('mae_mv', 0):.4f}"
             mape = f"{task_data.get('mape', 0):.4f}"
@@ -269,12 +270,15 @@ class VEstimTestingGUI(QMainWindow):
             self.sl_no_counter += 1
 
             # Add row data to QTreeWidget
-            row = QTreeWidgetItem([str(sl_no), model_name, rms_error, mae, mape, r2])
+            row = QTreeWidgetItem([str(sl_no), model_name, num_learnable_params, rms_error, mae, mape, r2])
 
             # Set the column widths (adjust these numbers as needed)
             self.tree.setColumnWidth(0, 50)
-            self.tree.setColumnWidth(1, 310)  # Set wider width for model name
-            self.tree.setColumnWidth(6, 50)  # Set smaller width for the plot button
+            self.tree.setColumnWidth(1, 300)  # Set wider width for model name
+            self.tree.setColumnWidth(2, 50)
+            self.tree.setColumnWidth(3, 70)
+            self.tree.setColumnWidth(3, 40)
+            self.tree.setColumnWidth(7, 40)  # Set smaller width for the plot button
 
             # Create the "Plot" button with some styling
             plot_button = QPushButton("Plot Result")
@@ -283,7 +287,7 @@ class VEstimTestingGUI(QMainWindow):
             self.tree.addTopLevelItem(row)
 
             # Set widget for the "Plot" column
-            self.tree.setItemWidget(row, 6, plot_button)
+            self.tree.setItemWidget(row, 7, plot_button)
 
 
     def plot_model_results(self, model_name):
@@ -377,7 +381,6 @@ class VEstimTestingGUI(QMainWindow):
 
         # Start processing the queue after the thread starts
         self.process_queue()
-
 
     def process_queue(self):
         try:

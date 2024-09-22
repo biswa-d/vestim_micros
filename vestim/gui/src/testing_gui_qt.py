@@ -378,7 +378,6 @@ class VEstimTestingGUI(QMainWindow):
         # Start processing the queue after the thread starts
         self.process_queue()
 
-
     def process_queue(self):
         try:
             # Try to get a result from the queue

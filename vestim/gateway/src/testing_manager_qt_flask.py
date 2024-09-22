@@ -1,5 +1,5 @@
-from flask import Flask, jsonify, Blueprint, request, requests
-import torch
+from flask import Flask, jsonify, Blueprint, request
+import torch, requests
 import os, json, hashlib, time
 from threading import Thread
 from queue import Queue

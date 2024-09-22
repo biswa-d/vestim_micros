@@ -1,5 +1,5 @@
-from flask import Blueprint, requests, jsonify
-import logging, sqlite3, os, csv, time, sys
+from flask import Blueprint, jsonify
+import logging, sqlite3, os, csv, time, sys, requests
 import torch
 import threading
 # from vestim.gateway.src.job_manager_qt import JobManager

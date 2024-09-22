@@ -1,5 +1,5 @@
-from flask import Blueprint, jsonify, requests, request
-import os, uuid, json
+from flask import Blueprint, jsonify, request
+import os, uuid, json, requests
 from vestim.gateway.src.hyper_param_manager_qt_flask import VEstimHyperParamManager
 from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
 from vestim.gateway.src.job_manager_qt_flask import JobManager

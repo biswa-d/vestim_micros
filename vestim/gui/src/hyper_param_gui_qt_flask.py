@@ -12,7 +12,7 @@ from vestim.gui.src.training_setup_gui_qt_test import VEstimTrainSetupGUI
 import logging
 
 # Flask server URL where the Flask hyperparam manager is hosted
-FLASK_SERVER_URL = "http://localhost:5001"
+FLASK_SERVER_URL = "http://localhost:5000"
 
 class VEstimHyperParamGUI(QWidget):
     def __init__(self):

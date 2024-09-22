@@ -1,11 +1,8 @@
 import requests
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QFileDialog, QProgressBar, QWidget, QMessageBox, QComboBox, QSizePolicy
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, QTimer
 import os, sys, json
 from vestim.gui.src.hyper_param_gui_qt_test import VEstimHyperParamGUI  # Adjust this import based on your actual path
-from vestim.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
-from vestim.services.data_processor.src.data_processor_qt_tesla import DataProcessorTesla
-from vestim.services.data_processor.src.data_processor_qt_pouch import DataProcessorPouch
 from vestim.logger_config import setup_logger  # Assuming you have logger_config.py as shared earlier
 
 # Set up initial logging to a default log file
@@ -21,10 +18,6 @@ class DataImportGUI(QMainWindow):
         self.test_folder_path = ""
         self.selected_train_files = []
         self.selected_test_files = []
-        self.data_processor_digatron = DataProcessorDigatron()  # Initialize DataProcessor
-        self.data_processor_tesla = DataProcessorTesla()  # Initialize DataProcessor
-        self.data_processor_pouch = DataProcessorPouch()
-
         self.organizer_thread = None
         self.organizer = None
 
@@ -120,6 +113,7 @@ class DataImportGUI(QMainWindow):
         self.data_source_combo.setFixedWidth(150)
         self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
         combined_layout.addWidget(self.data_source_combo)
+        self.data_source_combo.currentIndexChanged.connect(self.update_file_display)
 
         # Add stretchable space between the dropdown and the button
         combined_layout.addStretch(1)
@@ -215,48 +209,81 @@ class DataImportGUI(QMainWindow):
         # Determine which data processor to use based on the selected data source
         selected_source = self.data_source_combo.currentText()
         if selected_source == "Digatron":
-            data_processor = self.data_processor_digatron
+            data_processor = "Digatron"
         elif selected_source == "Tesla":
-            data_processor = self.data_processor_tesla
+            data_processor = "Tesla"
         elif selected_source == "Pouch":
-            data_processor = self.data_processor_pouch
+            data_processor = "Pouch"
         else:
             self.show_error("Invalid data source selected.")
             return
 
-        # Create a new job via Flask API
+        # Step 1: Create a new job via Flask API
         try:
-            response = requests.post(f"{FLASK_SERVER_URL}/create_job")
+            response = requests.post(f"{FLASK_SERVER_URL}/job_manager/create_job")
             if response.status_code == 200:
                 job_data = response.json()
-                job_id = job_data.get('job_id')
                 job_folder = job_data.get('job_folder')
-                logger.info(f"New job created with ID: {job_id}, folder: {job_folder}")
+                logger.info(f"New job created with folder: {job_folder}")
 
-                # Start the FileOrganizer thread with the data processor and job folder
-                self.organizer = FileOrganizer(train_files, test_files, data_processor, job_folder)
-                self.organizer_thread = QThread()
+                # Step 2: Make an API call to organize files on the backend
+                response = requests.post(f"{FLASK_SERVER_URL}/job_manager/organize_files", json={
+                    "train_files": train_files,
+                    "test_files": test_files,
+                    "data_processor": data_processor,
+                    "job_folder": job_folder
+                })
 
-                # Connect signals and slots for progress updates and job folder completion
-                self.organizer.progress.connect(self.handle_progress_update)
-                self.organizer.job_folder_signal.connect(self.on_files_processed)
-
-                self.organizer.moveToThread(self.organizer_thread)
-                self.organizer_thread.started.connect(self.organizer.run)
-                self.organizer_thread.start()
-
+                if response.status_code == 200:
+                    self.update_status("File processing started.")
+                    self.check_processing_status()  # Call a method to keep checking the status of the processing
+                else:
+                    raise Exception("Error during file processing.")
             else:
-                self.show_error("Error creating a new job. Please try again.")
-                logger.error(f"Failed to create a job: {response.status_code}")
+                raise Exception(f"Error creating a new job: {response.json().get('error')}")
 
         except requests.exceptions.RequestException as e:
             self.show_error(f"Failed to communicate with the server: {e}")
             logger.error(f"Exception occurred while communicating with Flask server: {e}")
+    
+    def update_status(self, message):
+        """Updates the status label with the provided message."""
+        if hasattr(self, 'status_label'):
+            self.status_label.setText(message)
+        else:
+            # If no status label is defined, print the message (useful for debugging)
+            print(message)
 
-    def on_files_processed(self, job_folder):
-        # Handle when files are processed and job folder is created
-        logger.info(f"Files processed successfully. Job folder: {job_folder}")
-        self.progress_bar.setVisible(False)
+    def check_processing_status(self):
+        """Method to periodically check the status of file processing."""
+        try:
+            # Make an API call to get the processing status
+            response = requests.get(f"{FLASK_SERVER_URL}/job_manager/processing_status")
+            if response.status_code == 200:
+                status_data = response.json()
+                progress = status_data.get('progress', 0)
+                status_message = status_data.get('status_message', 'Processing...')
+                
+                # Update the progress bar and status label
+                self.progress_bar.setValue(progress)
+                self.update_status(status_message)
+
+                # If processing is not complete, keep polling
+                if progress < 100:
+                    QTimer.singleShot(1000, self.check_processing_status)  # Poll every 1 second
+                else:
+                    self.on_processing_complete()
+            else:
+                raise Exception("Error fetching processing status.")
+        except Exception as e:
+            self.update_status(f"Error checking processing status: {str(e)}")
+            logger.error(f"Error checking processing status: {str(e)}")
+
+    def on_processing_complete(self):
+        """Called when the file processing is complete."""
+        self.update_status("File processing complete!")
+        self.progress_bar.setValue(100)
+        self.progress_bar.hide()
 
         # Change the button label to indicate next step
         self.organize_button.setText("Proceed to Hyperparameter Selection")
@@ -271,7 +298,7 @@ class DataImportGUI(QMainWindow):
 
         # Update the button action to move to the next screen
         self.organize_button.clicked.disconnect()
-        self.organize_button.clicked.connect(lambda: self.move_to_next_screen(job_folder))
+        self.organize_button.clicked.connect(self.move_to_next_screen)
 
     def move_to_next_screen(self):
         # Update tool state to move to the hyperparameter screen
@@ -292,38 +319,6 @@ class DataImportGUI(QMainWindow):
     def show_error(self, message):
         # Display error message
         QMessageBox.critical(self, "Error", message)
-
-class FileOrganizer(QObject):
-    progress = pyqtSignal(int)  # Emit progress percentage
-    job_folder_signal = pyqtSignal(str)  # To communicate when the job folder is created
-
-    def __init__(self, train_files, test_files, data_processor, job_folder):
-        super().__init__()
-        self.train_files = train_files
-        self.test_files = test_files
-        self.data_processor = data_processor
-        self.job_folder = job_folder
-
-    def run(self):
-        if not self.train_files or not self.test_files:
-            self.progress.emit(0)  # Emit 0% if no files selected
-            return
-
-        try:
-            # Call the DataProcessor to organize and convert files into the job folder
-            logger.info(f"Starting file conversion using {self.data_processor} in job folder: {self.job_folder}")
-            self.data_processor.organize_and_convert_files(self.train_files, self.test_files, self.job_folder, progress_callback=self.update_progress)
-            logger.info(f"Files processed successfully. Job folder: {self.job_folder}")
-            # Emit success signal with the job folder path
-            self.job_folder_signal.emit(self.job_folder)
-
-        except Exception as e:
-            self.progress.emit(0)  # Emit 0% if there is an error
-            logger.error(f"Error occurred during file organization: {e}")
-
-    def update_progress(self, progress_value):
-        """Emit progress as a percentage."""
-        self.progress.emit(progress_value)
 
 def main():
     app = QApplication(sys.argv)
