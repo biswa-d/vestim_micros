@@ -292,14 +292,31 @@ class TrainingTaskManager:
                     if patience_counter > valid_patience:
                         early_stopping = True
                         print(f"Early stopping at epoch {epoch} due to no improvement.")
+                        
+                        # Ensure that we log the final epoch before breaking out
+                        model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
+                        model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
+                        # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
+                        self.log_to_sqlite(
+                            task=task,
+                            epoch=epoch,
+                            train_loss=train_loss,
+                            val_loss=val_loss,
+                            best_val_loss=best_validation_loss,
+                            elapsed_time=elapsed_time,
+                            avg_batch_time=avg_batch_time,
+                            early_stopping=early_stopping,  # Mark the early stopping in the log
+                            model_memory_usage=round(model_memory_usage_mb, 2),  # Memory in MB, rounded to 2 decimal places
+                        )
                         break
 
                 # Log data to CSV and SQLite after each epoch (whether validated or not)
                 print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
 
                 # Save log data to CSV and SQLite
-                self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
+                # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
+                model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
                 self.log_to_sqlite(
                     task=task,
                     epoch=epoch,
@@ -309,7 +326,7 @@ class TrainingTaskManager:
                     elapsed_time=elapsed_time,
                     avg_batch_time=avg_batch_time,
                     early_stopping=early_stopping,
-                    model_memory_usage=model_memory_usage,
+                    model_memory_usage=round(model_memory_usage_mb, 2),  # Memory in MB, rounded to 2 decimal places
                 )
 
                 scheduler.step()
