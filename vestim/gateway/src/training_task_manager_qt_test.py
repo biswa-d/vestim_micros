@@ -306,7 +306,7 @@ class TrainingTaskManager:
                             elapsed_time=elapsed_time,
                             avg_batch_time=avg_batch_time,
                             early_stopping=early_stopping,  # Mark the early stopping in the log
-                            model_memory_usage=round(model_memory_usage_mb, 2),  # Memory in MB, rounded to 2 decimal places
+                            model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB, rounded to 2 decimal places
                         )
                         break
 
@@ -326,7 +326,7 @@ class TrainingTaskManager:
                     elapsed_time=elapsed_time,
                     avg_batch_time=avg_batch_time,
                     early_stopping=early_stopping,
-                    model_memory_usage=round(model_memory_usage_mb, 2),  # Memory in MB, rounded to 2 decimal places
+                    model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB, rounded to 2 decimal places
                 )
 
                 scheduler.step()
