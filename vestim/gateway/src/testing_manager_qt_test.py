@@ -86,9 +86,10 @@ class VEstimTestingManager:
         try:
             print(f"Preparing test data for Task {idx + 1}...")
 
-            # Extract lookback and model path from the task
+            # Extract lookback, learnable params and model path from the task
             lookback = task['hyperparams']['LOOKBACK']
             model_path = task['model_path']
+            num_learnable_params = task['hyperparams']['NUM_LEARNABLE_PARAMS']
             print(f"Testing model: {model_path} with lookback: {lookback}")
 
             print("Loading and processing test data...")
@@ -115,6 +116,7 @@ class VEstimTestingManager:
                 'task_completed': {
                     'sl_no': idx + 1,
                     'model': shorthand_name,
+                    '#params': num_learnable_params,
                     'rms_error_mv': results['rms_error_mv'],
                     'mae_mv': results['mae_mv'],
                     'mape': results['mape'],
