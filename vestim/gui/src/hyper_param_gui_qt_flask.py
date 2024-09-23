@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon
 
-from vestim.gui.src.training_setup_gui_qt_test import VEstimTrainSetupGUI
+from vestim.gui.src.training_setup_gui_qt_flask_1 import VEstimTrainSetupGUI
 import logging
 
 # Flask server URL where the Flask hyperparam manager is hosted
@@ -126,28 +126,33 @@ class VEstimHyperParamGUI(QWidget):
             new_params = {param: entry.text() for param, entry in self.param_entries.items()}
             self.logger.info(f"Proceeding to training with params: {new_params}")
 
-            # Make an API call to save the parameters
-            response = requests.post(f"{FLASK_SERVER_URL}/update_params", json={"params": new_params})
+            # Make an API call to update the parameters
+            response = requests.post(f"{FLASK_SERVER_URL}/hyper_param_manager/update_params", json={"params": new_params})
             if response.status_code == 200:
-                # Update tool state to move to the training setup screen
-                tool_state = {
-                    "current_state": "training_setup",
-                    "current_screen": "VEstimTrainSetupGUI"
-                }
-                with open("vestim/tool_state.json", "w") as f:
-                    json.dump(tool_state, f)
+                # Save the parameters to the job folder via the save_params endpoint
+                save_response = requests.post(f"{FLASK_SERVER_URL}/hyper_param_manager/save_params")
+                if save_response.status_code == 200:
+                    # Update tool state to move to the training setup screen
+                    tool_state = {
+                        "current_state": "training_setup",
+                        "current_screen": "VEstimTrainSetupGUI"
+                    }
+                    with open("vestim/tool_state.json", "w") as f:
+                        json.dump(tool_state, f)
 
-                # Open the training setup GUI
-                self.logger.info("Parameters updated successfully. Proceeding to training.")
-                self.close()
-                self.training_setup_gui = VEstimTrainSetupGUI(new_params)
-                self.training_setup_gui.show()
+                    # Open the training setup GUI
+                    self.logger.info("Parameters saved and updated successfully. Proceeding to training.")
+                    self.close()
+                    self.training_setup_gui = VEstimTrainSetupGUI()
+                    self.training_setup_gui.show()
+                else:
+                    raise ValueError(f"Error saving parameters: {save_response.json().get('error')}")
             else:
                 raise ValueError(f"Error updating parameters: {response.json().get('error')}")
-
-
+            
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to proceed to training: {str(e)}")
+
 
     def load_params_from_json(self):
         filepath, _ = QFileDialog.getOpenFileName(self, "Load Params", "", "JSON Files (*.json);;All Files (*)")

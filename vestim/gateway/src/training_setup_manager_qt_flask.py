@@ -22,12 +22,11 @@ class VEstimTrainingSetupManager:
             self.logger = logger
             self.params = None
             self.current_hyper_params = None
-            self.hyper_param_manager = VEstimHyperParamManager()  # Initialize hyperparameter manager
-            self.lstm_model_service = LSTMModelService()  # Initialize model service
-            self.job_manager = job_manager or JobManager()  # JobManager should be passed in or initialized separately
+            self.job_folder = None
             self.models = []  # Store model information
             self.training_tasks = []  # Store created tasks
             self.initialized = True  # Mark as initialized
+            self.lstm_model_service = LSTMModelService()
             #Get parameters from other managers through API calls
 
     # Get required objects from the relevant singleton manaers
@@ -66,12 +65,19 @@ class VEstimTrainingSetupManager:
             self.create_training_tasks()
 
             task_count = len(self.training_tasks)
-            return {
+
+            # Do not return the actual LSTMModel objects in the response.
+            # Return only the metadata for tasks and models, excluding the LSTMModel instances.
+            result = {
                 "message": f"Setup complete! {task_count} tasks created.",
                 "job_folder": self.job_folder,
-                "task_list": self.training_tasks,  # Add task list here
+                "task_list": [
+                    {key: value for key, value in task.items() if key != 'model'} 
+                    for task in self.training_tasks
+                ],  # Only include metadata, not the model itself
                 "task_count": task_count
-            }, 200
+            }
+            return result, 200
 
         except Exception as e:
             self.logger.error(f"Error during setup: {str(e)}")
@@ -157,11 +163,10 @@ class VEstimTrainingSetupManager:
                                         os.makedirs(task_dir, exist_ok=True)
                                         task_info = {
                                             'task_id': task_id,
-                                            'model': model,
-                                            'model_metadata': model_metadata,
+                                            'model_path': os.path.join(task_dir, 'model.pth'),  # Keep only the model path
+                                            'model_metadata': model_metadata,  # You can keep the metadata, which is serializable
                                             'data_loader_params': {'lookback': lookback, 'batch_size': batch_size},
-                                            'model_dir': task_dir,
-                                            'model_path': os.path.join(task_dir, 'model.pth'),
+                                            'model_dir': task_dir,  # Directory where the model and task files are saved
                                             'hyperparams': {
                                                 'LAYERS': model_metadata['num_layers'],
                                                 'HIDDEN_UNITS': model_metadata['hidden_units'],
@@ -183,6 +188,10 @@ class VEstimTrainingSetupManager:
 
         self.training_tasks = task_list
         self.logger.info(f"Created {len(self.training_tasks)} training tasks.")
+        # Optionally, save the entire task list for future reference at the root level
+        tasks_summary_file = os.path.join(self.job_folder, 'training_tasks_summary.json')
+        with open(tasks_summary_file, 'w') as f:
+            json.dump([{k: v for k, v in task.items() if k != 'model'} for task in self.training_tasks], f, indent=4)
 
     def calculate_learnable_parameters(self, layers, input_size, hidden_units):
         """Calculate the number of learnable parameters for an LSTM model."""
@@ -209,7 +218,17 @@ def setup_training():
 @training_setup_blueprint.route('/get_tasks', methods=['GET'])
 def get_tasks():
     """Endpoint to get the list of created training tasks."""
-    return jsonify(training_setup_manager.get_task_list()), 200
+    task_list = training_setup_manager.get_task_list()
+
+    # Ensure that the task list only contains JSON-serializable data
+    serialized_tasks = []
+    for task in task_list:
+        # Remove the actual model object and anything else that's not serializable
+        serialized_task = {k: v for k, v in task.items() if k != 'model'}
+        serialized_tasks.append(serialized_task)
+
+    return jsonify(serialized_tasks), 200
+
 
 @training_setup_blueprint.route('/update_task', methods=['POST'])
 def update_task():

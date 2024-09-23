@@ -5,7 +5,7 @@ import time, json, os
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import logging
-from vestim.gui.src.testing_gui_qt_test import VEstimTestingGUI
+from vestim.gui.src.testing_gui_qt_flask import VEstimTestingGUI
 
 class VEstimTrainingTaskGUI(QMainWindow):
     def __init__(self):

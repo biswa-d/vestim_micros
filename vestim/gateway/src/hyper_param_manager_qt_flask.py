@@ -26,17 +26,18 @@ class VEstimHyperParamManager:
     
     # Get required objects from the relevant singleton manaers
     def fetch_job_folder(self):
-        """Fetches and stores the job folder from the Job Manager API."""
         if self.job_folder is None:
             try:
                 response_job = requests.get("http://localhost:5000/job_manager/get_job_folder")
                 if response_job.status_code == 200:
-                    self.job_folder = response_job.json()['job_folder']
+                    self.job_folder = response_job.json().get('job_folder', None)
+                    print(f"Fetched job folder: {self.job_folder}")
                 else:
                     raise Exception("Failed to fetch job folder")
             except Exception as e:
                 self.logger.error(f"Error fetching job folder: {str(e)}")
                 raise e
+
             
     def load_params(self, filepath):
         """Load and validate parameters from a JSON file."""
@@ -53,8 +54,10 @@ class VEstimHyperParamManager:
         validated_params = {}
         
         for key, value in params.items():
+            print(f"Validating {key}: {value}")  # Debug print
             if isinstance(value, str):
                 value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
+                print(f"Value list for {key}: {value_list}")  # Debug print
                 if key in ['LAYERS', 'HIDDEN_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD', 'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS']:
                     if not all(v.isdigit() for v in value_list):
                         self.logger.error(f"Invalid value for {key}: {value_list} (expected integers)")
@@ -80,16 +83,21 @@ class VEstimHyperParamManager:
 
     def save_params(self):
         """Save the current parameters to the job folder."""
+        print(f"Fetching job folder...")  # Debug print
         self.fetch_job_folder()
         job_folder = self.job_folder
+        print(f"Job folder: {job_folder}")  # Debug print
+        
         if job_folder and self.current_params:
             params_file = os.path.join(job_folder, 'hyperparams.json')
+            print(f"Saving parameters to {params_file}")  # Debug print
             with open(params_file, 'w') as file:
                 json.dump(self.current_params, file, indent=4)
                 self.logger.info("Parameters successfully saved.")
         else:
             self.logger.error("Failed to save parameters: Job folder or current parameters are not set.")
             raise ValueError("Job folder is not set or current parameters are not available.")
+
 
     def update_params(self, new_params):
         """Update the current parameters with new values."""
@@ -139,24 +147,34 @@ def load_params():
 @hyper_param_manager_blueprint.route('/save_params', methods=['POST'])
 def save_params():
     try:
+        print("Saving params...")  # Debug print
         hyper_param_manager.save_params()
+        print("Params saved successfully")  # Debug print
         return jsonify({'message': 'Parameters saved successfully'}), 200
     except Exception as e:
+        print(f"Error saving parameters: {str(e)}")  # Debug print
         logger.error(f"Error saving parameters: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 @hyper_param_manager_blueprint.route('/update_params', methods=['POST'])
 def update_params():
     new_params = request.json.get('params')
+    print(f"Received params: {new_params}")  # Debug print
+    
     if not new_params:
+        print("Params are missing")  # Debug print
         return jsonify({'error': 'Params are required'}), 400
     
     try:
         hyper_param_manager.update_params(new_params)
+        print("Params updated successfully")  # Debug print
         return jsonify({'message': 'Parameters updated successfully'}), 200
     except Exception as e:
+        print(f"Error updating parameters: {str(e)}")  # Debug print
         logger.error(f"Error updating parameters: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 @hyper_param_manager_blueprint.route('/get_params', methods=['GET'])
 def get_params():

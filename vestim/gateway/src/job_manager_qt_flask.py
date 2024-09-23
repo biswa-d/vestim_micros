@@ -7,7 +7,7 @@ from queue import Queue
 from vestim.config import OUTPUT_DIR
 from vestim.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
 from vestim.services.data_processor.src.data_processor_qt_tesla import DataProcessorTesla
-from vestim.services.data_processor.src.data_processor_qt_pouch import DataProcessorPouch
+from vestim.services.data_processor.src.data_processor_qt_pouch_flask import DataProcessorPouch
 
 job_manager_blueprint = Blueprint('job_manager', __name__)
 
@@ -23,6 +23,7 @@ class JobManager:
         if not hasattr(self, 'job_id'):  # Ensure the attributes are initialized once
             self.job_id = None
         self.processing_status = {"status": "Not Started", "progress": 0}  # Status tracker
+        self.job_folder = None
         # self.data_processor_digatron = DataProcessorDigatron()  # Initialize DataProcessor
         # self.data_processor_tesla = DataProcessorTesla()  # Initialize DataProcessor
         # self.data_processor_pouch = DataProcessorPouch()
@@ -30,9 +31,9 @@ class JobManager:
     def create_new_job(self):
         """Generates a new job ID based on the current timestamp and initializes job directories."""
         self.job_id = f"job_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        job_folder = os.path.join(OUTPUT_DIR, self.job_id)
-        os.makedirs(job_folder, exist_ok=True)
-        return self.job_id, job_folder
+        self.job_folder = os.path.join(OUTPUT_DIR, self.job_id)
+        os.makedirs(self.job_folder, exist_ok=True)
+        return self.job_id, self.job_folder
 
     def get_job_id(self):
         """Returns the current job ID."""
@@ -40,8 +41,8 @@ class JobManager:
 
     def get_job_folder(self):
         """Returns the path to the current job folder."""
-        if self.job_id:
-            return os.path.join(OUTPUT_DIR, self.job_id)
+        if self.job_folder:
+            return self.job_folder
         return None
     
     def get_train_folder(self):
@@ -64,12 +65,16 @@ class JobManager:
             return results_folder
         return None
 
-    def organize_files(self, train_files, test_files, data_processor, job_folder):
+    def organize_files(self, train_files, test_files, data_processor):
         """Organizes and converts files into the job folder."""
         print(f"Starting file organization using {data_processor}...")
-        self.processing_status = {"status_message": "Processing...", "progress": 0}  # Reset the status
+        self.processing_status = {"status_message": "Processing...", "progress": 0}
 
-        # Implement threading to process files asynchronously
+        def update_progress(progress_value):
+            # This is passed as the callback to the processor to update progress
+            self.processing_status["progress"] = progress_value
+            print(f"Progress: {self.processing_status['progress']}%")
+
         def process_files():
             try:
                 if data_processor == "Digatron":
@@ -81,17 +86,8 @@ class JobManager:
                 else:
                     raise ValueError(f"Invalid data processor: {data_processor}")
 
-                total_files = len(train_files) + len(test_files)
-                processed_files = 0
-
-                def update_progress():
-                    nonlocal processed_files
-                    processed_files += 1
-                    self.processing_status["progress"] = int((processed_files / total_files) * 100)
-                    print(f"Progress: {self.processing_status['progress']}%")
-
-                # Call organize and convert method of the processor
-                processor.organize_and_convert_files(train_files, test_files, job_folder, update_progress)
+                # Pass the update_progress callback to the processor
+                processor.organize_and_convert_files(train_files, test_files, update_progress)
                 self.processing_status["status_message"] = "Completed"
                 self.processing_status["progress"] = 100
                 print("Files processed successfully.")
@@ -103,6 +99,10 @@ class JobManager:
         # Start a new thread for processing files
         self.processing_thread = Thread(target=process_files)
         self.processing_thread.start()
+
+    def check_processing_status(self):
+        """Check the current status of the file processing."""
+        return self.processing_status
 
 
 # Create the JobManager instance
@@ -164,14 +164,13 @@ def organize_files():
         train_files = data.get('train_files', [])
         test_files = data.get('test_files', [])
         data_processor = data.get('data_processor', '')
-        job_folder = data.get('job_folder', '')
 
         # Validate input
-        if not train_files or not test_files or not data_processor or not job_folder:
+        if not train_files or not test_files or not data_processor:
             return jsonify({"error": "Invalid input data"}), 400
 
         # Call the organize files method of the JobManager
-        job_manager.organize_files(train_files, test_files, data_processor, job_folder)
+        job_manager.organize_files(train_files, test_files, data_processor)
 
         return jsonify({"message": "File processing started"}), 200
     except Exception as e:

@@ -2,7 +2,7 @@ import requests
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QFileDialog, QProgressBar, QWidget, QMessageBox, QComboBox, QSizePolicy
 from PyQt5.QtCore import Qt, QTimer
 import os, sys, json
-from vestim.gui.src.hyper_param_gui_qt_test import VEstimHyperParamGUI  # Adjust this import based on your actual path
+from vestim.gui.src.hyper_param_gui_qt_flask import VEstimHyperParamGUI  # Adjust this import based on your actual path
 from vestim.logger_config import setup_logger  # Assuming you have logger_config.py as shared earlier
 
 # Set up initial logging to a default log file
@@ -224,6 +224,7 @@ class DataImportGUI(QMainWindow):
             if response.status_code == 200:
                 job_data = response.json()
                 job_folder = job_data.get('job_folder')
+                job_id = job_data.get('job_id')
                 logger.info(f"New job created with folder: {job_folder}")
 
                 # Step 2: Make an API call to organize files on the backend
@@ -231,7 +232,6 @@ class DataImportGUI(QMainWindow):
                     "train_files": train_files,
                     "test_files": test_files,
                     "data_processor": data_processor,
-                    "job_folder": job_folder
                 })
 
                 if response.status_code == 200:

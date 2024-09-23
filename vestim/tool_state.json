@@ -1,4 +1,1 @@
-{
-    "current_state": "data_import",
-    "current_screen": "DataImportGUI"
-}
+{"current_state": "training", "current_screen": "VEstimTrainingTaskGUI"}

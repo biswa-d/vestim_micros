@@ -8,6 +8,7 @@ import signal
 from PyQt5.QtWidgets import QApplication
 from vestim.gui.src.data_import_gui_qt_flask import DataImportGUI
 from vestim.gui.src.hyper_param_gui_qt_flask import VEstimHyperParamGUI
+from vestim.gui.src.training_setup_gui_qt_flask_1 import VEstimTrainSetupGUI
 from vestim.gui.src.training_task_gui_qt_flask import VEstimTrainingTaskGUI
 from vestim.gui.src.testing_gui_qt_flask import VEstimTestingGUI
 
@@ -67,6 +68,8 @@ def launch_gui(app, current_screen):
         gui = DataImportGUI()
     elif current_screen == "VEstimHyperParamGUI":
         gui = VEstimHyperParamGUI()
+    elif current_screen == "VEstimTrainSetupGUI":
+        gui = VEstimTrainSetupGUI()
     elif current_screen == "VEstimTrainingTaskGUI":
         gui = VEstimTrainingTaskGUI()
     elif current_screen == "VEstimTestingGUI":

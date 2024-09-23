@@ -57,12 +57,13 @@ class TrainingTaskManager:
             try:
                 response_id = requests.get("http://localhost:5000/job_manager/get_job_id")
                 if response_id.status_code == 200:
-                    self.job_folder = response_id.json()['job_folder']
+                    self.job_id = response_id.json()['job_id']
                 else:
-                    raise Exception("Failed to fetch job folder")
+                    raise Exception("Failed to fetch job ID")
             except Exception as e:
                 self.logger.error(f"Error fetching job id: {str(e)}")
                 raise e
+
 
     def fetch_hyper_params(self):
         """Fetches and stores the hyperparameters from the Hyper Param Manager API."""

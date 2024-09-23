@@ -1,4 +1,4 @@
-import os
+import os, requests
 import shutil
 import gc  # Explicit garbage collector
 import pandas as pd
@@ -9,12 +9,43 @@ import logging
 class DataProcessorPouch:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.job_manager = JobManager()
+        self.job_folder = None
+        self.job_id = None
         self.total_files = 0  # Total number of files to process (copy)
         self.processed_files = 0  # Keep track of total processed files
+        # Get required objects from the relevant singleton manaers
+    
+    def fetch_job_folder(self):
+        """Fetches and stores the job folder from the Job Manager API."""
+        if self.job_folder is None:
+            try:
+                response_job = requests.get("http://localhost:5000/job_manager/get_job_folder")
+                if response_job.status_code == 200:
+                    self.job_folder = response_job.json()['job_folder']
+                else:
+                    raise Exception("Failed to fetch job folder")
+            except Exception as e:
+                self.logger.error(f"Error fetching job folder: {str(e)}")
+                raise e
+    
+    def fetch_job_id(self):
+        """Fetches and stores the job folder from the Job Manager API."""
+        if self.job_id is None:
+            try:
+                response_id = requests.get("http://localhost:5000/job_manager/get_job_id")
+                if response_id.status_code == 200:
+                    self.job_id = response_id.json()['job_id']
+                else:
+                    raise Exception("Failed to fetch job ID")
+            except Exception as e:
+                self.logger.error(f"Error fetching job id: {str(e)}")
+                raise e
+
 
     def organize_and_convert_files(self, train_files, test_files, progress_callback=None):
-        # Ensure valid CSV files are provided
+        """Organizes and converts files, with progress updates."""
+        
+        print("Entering organize_and_convert_files")
         if not all(f.endswith('.csv') for f in train_files + test_files):
             self.logger.error("Invalid file types. Only CSV files are accepted.")
             raise ValueError("Invalid file types. Only CSV files are accepted.")
@@ -23,18 +54,19 @@ class DataProcessorPouch:
         print(f"number of train files: {len(train_files)}")
         print(f"number of test files: {len(test_files)}")   
         
-        job_id, job_folder = self.job_manager.create_new_job()
-        self.logger.info(f"Job created with ID: {job_id}, Folder: {job_folder}")
+        self.fetch_job_folder()
+        self.fetch_job_id()
+        self.logger.info(f"Job created with ID: {self.job_id}, Folder: {self.job_folder}")
 
         # Switch logger to job-specific log file
-        job_log_file = os.path.join(job_folder, 'job.log')
+        job_log_file = os.path.join(self.job_folder, 'job.log')
         self.switch_log_file(job_log_file)
 
         # Create directories for raw and processed data
-        train_raw_folder = os.path.join(job_folder, 'train', 'raw_data')
-        train_processed_folder = os.path.join(job_folder, 'train', 'processed_data')
-        test_raw_folder = os.path.join(job_folder, 'test', 'raw_data')
-        test_processed_folder = os.path.join(job_folder, 'test', 'processed_data')
+        train_raw_folder = os.path.join(self.job_folder, 'train', 'raw_data')
+        train_processed_folder = os.path.join(self.job_folder, 'train', 'processed_data')
+        test_raw_folder = os.path.join(self.job_folder, 'test', 'raw_data')
+        test_processed_folder = os.path.join(self.job_folder, 'test', 'processed_data')
 
         # Clear the processed data folders before proceeding
         if os.path.exists(train_processed_folder):
@@ -64,8 +96,6 @@ class DataProcessorPouch:
         for file in test_files:
             self._convert_to_hdf5(file, test_processed_folder, progress_callback)
 
-        return job_folder
-
 
     def _convert_to_hdf5(self, csv_file, output_folder, progress_callback=None):
         """Convert a CSV file to HDF5 and save in the processed folder."""
@@ -86,7 +116,21 @@ class DataProcessorPouch:
 
         self.logger.info(f"Converted {csv_file} to HDF5 format at {hdf5_file}")
         self.processed_files += 1
-        self._update_progress(progress_callback)
+        
+        # Call the progress callback
+        if progress_callback:
+            self._update_progress(progress_callback)
+
+    def _copy_file(self, file, destination_folder, progress_callback=None):
+        """Copies a file and updates progress."""
+        dest_path = os.path.join(destination_folder, os.path.basename(file))
+        shutil.copy(file, dest_path)
+        self.logger.info(f"Copied {file} to {dest_path}")
+        self.processed_files += 1
+        
+        # Call the progress callback
+        if progress_callback:
+            self._update_progress(progress_callback)
 
     def switch_log_file(self, job_log_file):
         """Switch logger to a job-specific log file by removing the previous handlers."""
@@ -113,13 +157,6 @@ class DataProcessorPouch:
         # Log a message to confirm the switch
         logger.info(f"Switched logging to {job_log_file}")
 
-    def _copy_file(self, file_path, destination_folder, progress_callback=None):
-        """ Copy a single file to the destination folder and update progress. """
-        dest_path = os.path.join(destination_folder, os.path.basename(file_path))
-        shutil.copy(file_path, dest_path)
-        self.logger.info(f"Copied {file_path} to {dest_path}")
-        self.processed_files += 1
-        self._update_progress(progress_callback)
 
     def _update_progress(self, progress_callback):
         """ Update progress based on the number of files processed. """

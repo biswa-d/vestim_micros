@@ -6,58 +6,13 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 import sys, json, os
 import time
 from vestim.gui.src.training_task_gui_qt_flask import VEstimTrainingTaskGUI
-
 import logging
 
-class SetupWorker(QThread):
-    progress_signal = pyqtSignal(str, str, int)  # Signal to update the status in the main GUI
-    finished_signal = pyqtSignal()  # Signal when the setup is finished
-
-    def __init__(self, job_manager):
-        super().__init__()
-        self.logger = logging.getLogger(__name__)  # Set up logger
-        self.job_manager = job_manager
-        self.task_list = []
-
-    def run(self):
-        self.logger.info("Starting training setup in a separate thread.")
-        print("Starting training setup in a separate thread...")
-        try:
-            # Flask call for training setup
-            response = requests.post(f"http://localhost:5000/training_setup/setup_training")  # Adjust for Flask server URL
-            if response.status_code == 200:
-                print("Training setup started successfully!")
-                self.logger.info("Training setup started successfully.")
-
-                # Parse response for task_list, task_count, and job_folder
-                response_data = response.json()
-                self.task_list = response_data.get('task_list', [])
-                task_count = response_data.get('task_count', 0)
-                job_folder = response_data.get('job_folder', '')
-
-                # Emit signal to update the status in the main GUI
-                self.progress_signal.emit(
-                    "Task summary saved in the job folder",
-                    job_folder,
-                    task_count
-                )
-                # Emit signal to indicate the setup is finished
-                self.finished_signal.emit()
-            else:
-                error_message = response.json().get('error', 'Unknown error occurred during setup')
-                self.logger.error(f"Error in training setup: {error_message}")
-                self.progress_signal.emit(f"Error in training setup: {error_message}", "", 0)
-
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"Error occurred while communicating with the server: {str(e)}")
-            self.progress_signal.emit(f"Error occurred: {str(e)}", "", 0)
-
-
 class VEstimTrainSetupGUI(QWidget):
-    def __init__(self, params):
+    def __init__(self):
         super().__init__()
         self.logger = logging.getLogger(__name__)  # Set up logger
-        self.params = params
+        self.params = None  # Initialize params to None
         self.timer_running = True  # Ensure this flag is initialized in __init__
         self.param_labels = {
             "LAYERS": "Layers",
@@ -78,6 +33,19 @@ class VEstimTrainSetupGUI(QWidget):
         self.build_gui()
         # Start the setup process
         self.start_setup()
+
+    def fetch_hyper_params(self):
+            """Fetches and stores the hyperparameters from the Hyper Param Manager API."""
+            if self.params is None:
+                try:
+                    response_params = requests.get("http://localhost:5000/hyper_param_manager/get_params")
+                    if response_params.status_code == 200:
+                        self.params = response_params.json()
+                    else:
+                        raise Exception("Failed to fetch hyperparameters")
+                except Exception as e:
+                    self.logger.error(f"Error fetching hyperparameters: {str(e)}")
+                    raise e
 
     def build_gui(self):
         self.setWindowTitle("VEstim - Setting Up Training")
@@ -115,6 +83,7 @@ class VEstimTrainSetupGUI(QWidget):
         self.setLayout(self.main_layout)
 
     def display_hyperparameters(self, layout):
+        self.fetch_hyper_params()
         items = list(self.params.items())
         for i, (param, value) in enumerate(items):
             row = i // 2
@@ -139,13 +108,32 @@ class VEstimTrainSetupGUI(QWidget):
 
         self.show()
 
-        self.worker = SetupWorker(self.job_manager)
-        self.worker.progress_signal.connect(self.update_status)
-        self.worker.finished_signal.connect(self.show_proceed_button)
+        # Directly make the Flask API call to set up training
+        try:
+            response = requests.post("http://localhost:5000/training_setup/setup_training")
+            if response.status_code == 200:
+                data = response.json()
+                task_count = data.get("task_count", 0)
+                job_folder = data.get("job_folder", "")
 
-        self.worker.start()
+                self.update_status(
+                    "Task summary saved in the job folder",
+                    job_folder,
+                    task_count
+                )
+
+                self.show_proceed_button()
+
+            else:
+                error_message = response.json().get('error', 'Unknown error occurred during setup')
+                self.update_status(f"Error in training setup: {error_message}", "", 0)
+
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Error occurred while communicating with the server: {str(e)}")
+            self.update_status(f"Error occurred: {str(e)}", "", 0)
 
         self.update_elapsed_time()
+
 
     def update_status(self, message, path="", task_count=None):
         task_message = f"{task_count} training tasks created,\n" if task_count else ""
@@ -158,14 +146,13 @@ class VEstimTrainSetupGUI(QWidget):
         print("Training setup complete! Enabling proceed button...")
         self.timer_running = False
 
-        # self.worker.quit()
-        # self.worker.wait()
 
         elapsed_time = time.time() - self.start_time
         hours, remainder = divmod(elapsed_time, 3600)
         minutes, seconds = divmod(remainder, 60)
         total_time_taken = f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s"
 
+        # Fetch tasks and job folder from Flask API instead of job_manager
         response = requests.get("http://localhost:5000/training_setup/get_tasks")
         if response.status_code == 200:
             task_list = response.json()
@@ -205,6 +192,7 @@ class VEstimTrainSetupGUI(QWidget):
         button_layout.addStretch(1)
         self.main_layout.addLayout(button_layout)
 
+
     def transition_to_training_gui(self):
         try:
             # Update tool state to reflect the transition to the training task GUI
@@ -224,7 +212,6 @@ class VEstimTrainSetupGUI(QWidget):
             self.close()
         except Exception as e:
             print(f"Error while transitioning to the task screen: {e}")
-
 
     def update_elapsed_time(self):
         if self.timer_running:
