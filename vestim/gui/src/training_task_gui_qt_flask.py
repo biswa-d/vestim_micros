@@ -1,5 +1,5 @@
 import requests
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QPushButton, QFrame, QTextEdit, QHBoxLayout, QWidget
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QPushButton, QFrame, QTextEdit, QHBoxLayout, QWidget, QGridLayout
 from PyQt5.QtCore import QTimer, Qt
 import time, json, os
 from matplotlib.figure import Figure
@@ -10,7 +10,7 @@ from vestim.gui.src.testing_gui_qt_flask import VEstimTestingGUI
 class VEstimTrainingTaskGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.params = params
+        self.params = None
         self.task_id = None  # Store the task ID returned from the Flask server
         self.timer = QTimer(self)  # Polling timer for task status updates
         self.logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.timer_running = True
         self.training_process_stopped = False
         self.current_task_index = 0
-        
+    
         # Get the task list from the setup manager with an api call
         # Make an API call to the setup manager to get the task list
         try:
@@ -65,6 +65,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             "NUM_LEARNABLE_PARAMS": "Number of Learnable Parameters",
         }
 
+
         self.initUI()
         self.build_gui(self.task_list[0])  # Initialize with task_list[0]
 
@@ -76,67 +77,60 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.setWindowTitle(f"VEstim - Training Task {self.current_task_index + 1}")
         self.setGeometry(100, 100, 900, 600)
 
-    def build_gui(self, task=None):
-        """Build the initial GUI with empty placeholders or the first task information."""
+    def build_gui(self):
+        """Build the initial GUI with placeholders until the task is fetched."""
         container = QWidget()
         self.setCentralWidget(container)
+
+        # Create a main layout
         self.main_layout = QVBoxLayout()
 
-        # Title label
+        # Title Label
         title_label = QLabel("Training LSTM Model with Hyperparameters")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
         self.main_layout.addWidget(title_label)
 
-        # Display hyperparameters (with empty placeholders initially)
+        # Display hyperparameters frame (will be filled with data later)
         self.hyperparam_frame = QFrame(self)
         self.hyperparam_frame.setLayout(QVBoxLayout())
         self.main_layout.addWidget(self.hyperparam_frame)
 
-        # Initialize the hyperparameters with placeholders if no task is provided
-        hyperparams = task['hyperparams'] if task else {key: "N/A" for key in self.param_labels.keys()}
-        self.display_hyperparameters(hyperparams)
+        # Fetch the task and update the GUI
+        task = self.fetch_task_from_flask()
+        if task:
+            self.display_hyperparameters(task['hyperparams'])
+            self.setup_time_and_plot(task)
+            self.setup_log_window(task)
+        else:
+            self.display_hyperparameters({key: "N/A" for key in self.param_labels.keys()})
 
-        # Status label (empty placeholder initially)
+        # Status Label
         self.status_label = QLabel("Waiting for task status...")
         self.status_label.setAlignment(Qt.AlignCenter)
         self.main_layout.addWidget(self.status_label)
 
-        # Time and plot setup (with placeholders initially)
-        self.setup_time_and_plot(task)
-
-        # Log window setup (empty initially)
-        self.setup_log_window(task)
-
-        # Stop button (enabled, but doesn't perform any function yet)
+        # Stop button (styled)
         self.stop_button = QPushButton("Stop Training")
         self.stop_button.setStyleSheet("background-color: red; color: white; font-size: 12pt; font-weight: bold;")
         self.stop_button.setFixedWidth(150)
-        self.stop_button.clicked.connect(self.stop_training)
-        stop_button_layout = QHBoxLayout()
-        stop_button_layout.addStretch(1)
-        stop_button_layout.addWidget(self.stop_button)
-        stop_button_layout.addStretch(1)
-        self.main_layout.addLayout(stop_button_layout)
+        self.main_layout.addWidget(self.stop_button)
 
-        # Proceed button (initially hidden)
+        # Proceed button (hidden initially)
         self.proceed_button = QPushButton("Proceed to Testing")
         self.proceed_button.setStyleSheet("""
             background-color: #0b6337; 
             color: white; 
             font-size: 12pt; 
-            font-weight: bold; 
-            padding: 10px 20px;
+            font-weight: bold;
         """)
         self.proceed_button.setVisible(False)
         self.main_layout.addWidget(self.proceed_button)
-        self.proceed_button.clicked.connect(self.transition_to_testing_gui)
 
-        # Attach layout to container
         container.setLayout(self.main_layout)
 
     def display_hyperparameters(self, params):
-        """Display the task hyperparameters, with placeholders if no params are provided."""
+        """Display the task hyperparameters."""
         layout = self.hyperparam_frame.layout()
         while layout.count():
             item = layout.takeAt(0)
@@ -144,28 +138,46 @@ class VEstimTrainingTaskGUI(QMainWindow):
             if widget:
                 widget.deleteLater()
 
-        hyperparam_layout = QVBoxLayout()
-        for param, value in params.items():
-            param_label = QLabel(f"{self.param_labels.get(param, param)}: {value}")
-            param_label.setStyleSheet("font-size: 10pt; font-weight: bold;")
-            hyperparam_layout.addWidget(param_label)
+        # Create a new grid layout for hyperparameters
+        hyperparam_layout = QGridLayout()
+
+        param_items = [(self.param_labels.get(param, param), value) for param, value in params.items()]
+        columns = [param_items[i::5] for i in range(5)]  # Split into five columns
+
+        for col_num, column in enumerate(columns):
+            for row_num, (param, value) in enumerate(column):
+                value_str = str(value)
+                if "," in value_str:
+                    values = value_str.split(",")
+                    display_value = f"{values[0]},{values[1]},..." if len(values) > 2 else value_str
+                else:
+                    display_value = value_str
+
+                # Param label
+                param_label = QLabel(f"{param}:")
+                value_label = QLabel(f"{display_value}")
+                param_label.setStyleSheet("font-size: 10pt;")
+                value_label.setStyleSheet("font-size: 10pt; font-weight: bold;")
+
+                hyperparam_layout.addWidget(param_label, row_num, col_num * 2)
+                hyperparam_layout.addWidget(value_label, row_num, col_num * 2 + 1)
 
         layout.addLayout(hyperparam_layout)
 
-    def setup_time_and_plot(self, task=None):
-        """Setup the plot for training and validation loss, with placeholders if task is None."""
+    def setup_time_and_plot(self, task):
+        """Setup time label and plot."""
         time_layout = QHBoxLayout()
-
-        # Time tracking label (initially 00h:00m:00s until updated)
-        self.time_value_label = QLabel("00h:00m:00s" if task is None else task.get('elapsed_time', "00h:00m:00s"))
+        self.static_text_label = QLabel("Time Since Setup Started:")
+        self.static_text_label.setStyleSheet("color: blue; font-size: 10pt;")
+        self.time_value_label = QLabel("00h:00m:00s")
         self.time_value_label.setStyleSheet("color: purple; font-size: 11pt; font-weight: bold;")
         time_layout.addStretch(1)
+        time_layout.addWidget(self.static_text_label)
         time_layout.addWidget(self.time_value_label)
         time_layout.addStretch(1)
         self.main_layout.addLayout(time_layout)
 
-        # Plot setup (empty initially)
-        max_epochs = int(task['hyperparams']['MAX_EPOCHS']) if task else 100
+        max_epochs = int(task['hyperparams']['MAX_EPOCHS'])
         fig = Figure(figsize=(6, 2.5), dpi=100)
         self.ax = fig.add_subplot(111)
         self.ax.set_xlabel("Epoch")
@@ -173,18 +185,17 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.ax.set_xlim(1, max_epochs)
         self.ax.set_title("Training and Validation Loss", fontsize=12)
 
-        # Plot placeholders (empty until updated)
         self.train_line, = self.ax.plot([], [], label='Train Loss')
         self.valid_line, = self.ax.plot([], [], label='Validation Loss')
         self.ax.legend()
+
         self.canvas = FigureCanvas(fig)
         self.main_layout.addWidget(self.canvas)
 
-    def setup_log_window(self, task=None):
-        """Setup the log window, initially empty."""
+    def setup_log_window(self, task):
+        """Setup the log window."""
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setLineWrapMode(QTextEdit.WidgetWidth)
         self.log_text.setStyleSheet("""
             QTextEdit {
                 font-size: 10pt;

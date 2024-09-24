@@ -1,4 +1,4 @@
-import os
+import os, time
 import subprocess
 import json
 import sys
@@ -45,8 +45,20 @@ def start_flask_server():
         print("Flask server is not running. Starting a new instance.")
     
     # Start the Flask server fresh
-    subprocess.Popen([sys.executable, 'vestim/flask_app.py'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen([sys.executable, 'vestim/flask_app.py'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     print("Flask server started fresh.")
+
+    # Wait for the Flask server to be ready by polling it
+    for _ in range(10):  # Retry for up to 10 seconds
+        try:
+            response = requests.get(f"{FLASK_SERVER_URL}/")
+            if response.status_code == 200:
+                print("Flask server is now ready.")
+                break
+        except requests.ConnectionError:
+            time.sleep(1)
+    else:
+        print("Flask server failed to start within the expected time.")
 
 def load_tool_state():
     """Load the tool state from the tool_state.json file."""
