@@ -69,12 +69,6 @@ class TrainingTaskManager:
         """Process a single training task and set up logging."""
         try:
             self.logger.info(f"Starting task with hyperparams: {task['hyperparams']}")
-            
-            # Generate a unique task ID for this task (e.g., based on time or task details)
-            task_id = f"task_{int(time.time())}"  # Example of task_id generation
-
-            # Set the task ID in the task dictionary for future reference
-            task['task_id'] = task_id
 
             # Setup logging (SQL and CSV) for the job
             self.setup_job_logging(task)

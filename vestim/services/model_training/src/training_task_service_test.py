@@ -103,7 +103,6 @@ class TrainingTaskService:
         log_freq = 100  # Define how often to log batches
         device_str = str(device)  # Convert torch.device to string
 
-
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
                 if stop_requested:  # Check if a stop has been requested
@@ -122,7 +121,7 @@ class TrainingTaskService:
                 end_batch_time = time.time()  # End timing for this batch
                 batch_time = end_batch_time - start_batch_time
                 batch_times.append(batch_time)
-
+                
                 # Log less frequently
                 if batch_idx % log_freq == 0:
                     batch_freq_time = sum(batch_times) / len(batch_times)

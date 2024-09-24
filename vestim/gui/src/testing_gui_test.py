@@ -181,6 +181,7 @@ class VEstimTestingGUI:
             self.time_label.config(text=f"Testing Time: {int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
             self.master.after(1000, self.update_timer)
 
+
     def run_testing(self):
         # Debugging to check if we enter the testing function
         print("Starting the testing process...")

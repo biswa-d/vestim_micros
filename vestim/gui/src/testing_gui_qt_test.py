@@ -379,8 +379,22 @@ class VEstimTestingGUI(QMainWindow):
         self.testing_thread.testing_complete_signal.connect(self.all_tests_completed)  # Connect to the completion signal
         self.testing_thread.start()
 
+        # Start the timer for updating elapsed time
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_elapsed_time)  # Call the update method every second
+        self.timer.start(1000)  # 1000 milliseconds = 1 second
+
         # Start processing the queue after the thread starts
         self.process_queue()
+    
+    def update_elapsed_time(self):
+        """Update the elapsed time label."""
+        if self.timer_running:
+            elapsed_time = time.time() - self.start_time
+            hours, remainder = divmod(elapsed_time, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            self.time_label.setText(f"Testing Time: {int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
+
 
     def process_queue(self):
         try:
@@ -437,6 +451,7 @@ class VEstimTestingGUI(QMainWindow):
         
         # Stop the timer
         self.timer_running = False
+        self.timer.stop()  # Stop the QTimer
         
         # Optionally log or print a message
         print("All tests completed successfully.")

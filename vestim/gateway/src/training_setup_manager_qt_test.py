@@ -1,5 +1,4 @@
-
-import os, uuid
+import os, uuid, time
 import json
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
@@ -121,6 +120,9 @@ class VEstimTrainingSetupManager:
         batch_sizes = [int(bs) for bs in self.current_hyper_params['BATCH_SIZE'].split(',')]
         max_epochs = int(self.current_hyper_params['MAX_EPOCHS'])  # Ensure MAX_EPOCHS is included
 
+        #set the logic for task_id
+        timestamp = time.strftime("%Y%m%d%H%M%S")  # Format timestamp as YYYYMMDDHHMMSS
+        task_counter = 1
         # Iterate through each model and create tasks
         for model_task in self.models:
             model = model_task['model']
@@ -142,7 +144,9 @@ class VEstimTrainingSetupManager:
                                     for rep in range(1, repetitions + 1):
 
                                         #create an unique task_id
-                                        task_id = str(uuid.uuid4())
+                                        task_id = f"task_{timestamp}_{task_counter}"
+                                        task_counter += 1  # Increment for each subsequent task
+                                        
                                         # Create a unique directory for each task based on all parameters
                                         task_dir = os.path.join(
                                             model_task['model_dir'],
