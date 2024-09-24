@@ -105,7 +105,6 @@ class VEstimTestingGUI(QMainWindow):
         self.display_hyperparameters(self.hyper_params)
         print(f"Displayed hyperparameters: {self.hyper_params}")
         
-
         # Timer Label
         self.time_label = QLabel("Testing Time: 00h:00m:00s")
         # Set the font
@@ -125,6 +124,15 @@ class VEstimTestingGUI(QMainWindow):
         self.tree = QTreeWidget()
         self.tree.setColumnCount(8)
         self.tree.setHeaderLabels(["Sl.No", "Model","#W&Bs", "RMS Error (mV)", "MAE (mV)", "MAPE (%)", "R²", "Plot"])
+        # Set the column widths once in initUI to make them persistent
+        self.tree.setColumnWidth(0, 50)   # Sl.No column
+        self.tree.setColumnWidth(1, 300)  # Model name column
+        self.tree.setColumnWidth(2, 50)   # Number of learnable parameters
+        self.tree.setColumnWidth(3, 90)   # RMS Error column
+        self.tree.setColumnWidth(4, 70)   # MAE column
+        self.tree.setColumnWidth(5, 70)   # MAPE column
+        self.tree.setColumnWidth(6, 70)   # R² column
+        self.tree.setColumnWidth(7, 20)   # Plot button column
         self.main_layout.addWidget(self.tree)
 
         # Status Label (below the tree view)
@@ -224,35 +232,6 @@ class VEstimTestingGUI(QMainWindow):
     def update_status(self, message):
         self.status_label.setText(message)
 
-    # def add_result_row(self, result):
-    #     # Add each result as a row in the QTreeWidget
-    #     print(f"Adding result row: {result}")
-    #     task_data = result.get('task_completed')
-    #     if task_data:
-    #         sl_no = task_data.get("sl_no")
-    #         model_name = task_data.get("model")
-    #         rms_error = f"{task_data.get('rms_error_mv', 0):.4f}"
-    #         mae = f"{task_data.get('mae_mv', 0):.4f}"
-    #         mape = f"{task_data.get('mape', 0):.4f}"
-    #         r2 = f"{task_data.get('r2', 0):.4f}"
-
-    #         # Add row data to QTreeWidget
-    #         row = QTreeWidgetItem([str(sl_no), model_name, rms_error, mae, mape, r2])
-
-    #         # Set the column widths (adjust these numbers as needed)
-    #         self.tree.setColumnWidth(0, 50)
-    #         self.tree.setColumnWidth(1, 300)  # Set wider width for model name
-    #         self.tree.setColumnWidth(6, 60)  # Set smaller width for the plot button
-
-    #         # Create the "Plot" button with some styling
-    #         plot_button = QPushButton("Plot Result")
-    #         plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")  # Purple background
-    #         plot_button.clicked.connect(lambda _, name=model_name: self.plot_model_results(name))  # Pass model_name to plot
-    #         self.tree.addTopLevelItem(row)
-
-    #         # Set widget for the "Plot" column
-    #         self.tree.setItemWidget(row, 6, plot_button)
-
     def add_result_row(self, result):
         # Add each result as a row in the QTreeWidget
         print(f"Adding result row: {result}")
@@ -271,14 +250,6 @@ class VEstimTestingGUI(QMainWindow):
 
             # Add row data to QTreeWidget
             row = QTreeWidgetItem([str(sl_no), model_name, num_learnable_params, rms_error, mae, mape, r2])
-
-            # Set the column widths (adjust these numbers as needed)
-            self.tree.setColumnWidth(0, 50)
-            self.tree.setColumnWidth(1, 300)  # Set wider width for model name
-            self.tree.setColumnWidth(2, 50)
-            self.tree.setColumnWidth(3, 70)
-            self.tree.setColumnWidth(3, 40)
-            self.tree.setColumnWidth(7, 40)  # Set smaller width for the plot button
 
             # Create the "Plot" button with some styling
             plot_button = QPushButton("Plot Result")
