@@ -84,8 +84,8 @@ class TrainingTaskService:
 
             # Log progress every 150 batches
             if batch_idx % log_freq == 0:
-                print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
-                print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
+                print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
+                print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
             
             # Clear unused memory
             del X_batch, y_batch, y_pred  # Explicitly clear tensors
@@ -131,8 +131,8 @@ class TrainingTaskService:
 
                 # Log progress every 150 batches
                 if batch_idx % log_freq == 0:
-                    print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
-                    print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
+                    print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
+                    print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
                 
                 # Clear unused memory
                 del X_batch, y_batch, y_pred  # Explicitly clear tensors
