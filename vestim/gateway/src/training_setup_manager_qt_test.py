@@ -222,19 +222,29 @@ class VEstimTrainingSetupManager:
         # Initialize the number of parameters
         learnable_params = 0
 
-        # Input to the first hidden layer (input_size + 1 for bias)
-        learnable_params += 4 * (input_size + 1) * hidden_units  # 4 comes from LSTM's gates
+        # Input-to-hidden weights for the first layer (4 * hidden_units * (input_size + hidden_units))
+        # We account for 4 gates (input, forget, output, and candidate gates)
+        input_layer_params = 4 * (input_size + hidden_units) * hidden_units
 
-        # Hidden layers (recurrent part: previous hidden layer to the next hidden layer)
+        # Add bias terms for each gate in the first layer
+        input_layer_bias = 4 * hidden_units
+
+        learnable_params += input_layer_params + input_layer_bias
+
+        # For each additional LSTM layer, it's hidden_units -> hidden_units
         for i in range(1, layers):
-            learnable_params += 4 * (hidden_units + 1) * hidden_units  # No need to index, it's a single value
+            hidden_layer_params = 4 * (hidden_units + hidden_units) * hidden_units
+            hidden_layer_bias = 4 * hidden_units
+            learnable_params += hidden_layer_params + hidden_layer_bias
 
-        # Last hidden layer to output (assuming 1 output)
+        # Output layer (assuming 1 output)
         output_size = 1
-        learnable_params += hidden_units * output_size
+        output_layer_params = hidden_units * output_size
+        output_layer_bias = output_size  # 1 bias for the output layer
+        learnable_params += output_layer_params + output_layer_bias
 
         return learnable_params
-    
+
     def update_task(self, task_id, db_log_file=None, csv_log_file=None):
         """Update a specific task in the manager."""
         for task in self.training_tasks:
