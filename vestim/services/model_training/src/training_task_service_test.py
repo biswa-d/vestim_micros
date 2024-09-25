@@ -150,7 +150,7 @@ class TrainingTaskService:
         """Initialize the optimizer for the model."""
         return optim.Adam(model.parameters(), lr=lr)
 
-    def get_scheduler(self, optimizer, lr_drop_period):
-        """Initialize the learning rate scheduler."""
-        # Create a learning rate scheduler that reduces the LR by 10% every lr_drop_period epochs
-        return optim.lr_scheduler.StepLR(optimizer, step_size=lr_drop_period, gamma=0.1)
+    def get_scheduler(self, optimizer, step_size, gamma=0.1):
+        """Initialize the learning rate scheduler with step size and gamma."""
+        return torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+

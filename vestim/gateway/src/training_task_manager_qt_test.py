@@ -205,6 +205,7 @@ class TrainingTaskManager:
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
+            lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
 
             best_validation_loss = float('inf')
             patience_counter = 0
@@ -213,7 +214,7 @@ class TrainingTaskManager:
             early_stopping = False  # Initialize early stopping flag
 
             optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'])
-            scheduler = self.training_service.get_scheduler(optimizer, lr_drop_period)
+            scheduler = self.training_service.get_scheduler(optimizer, step_size = lr_drop_period, gamma=lr_drop_factor)
 
             # Log the training progress for each epoch
             def format_time(seconds):
@@ -345,6 +346,7 @@ class TrainingTaskManager:
         hyperparams['MAX_EPOCHS'] = int(hyperparams['MAX_EPOCHS'])
         hyperparams['INITIAL_LR'] = float(hyperparams['INITIAL_LR'])
         hyperparams['LR_DROP_PERIOD'] = int(hyperparams['LR_DROP_PERIOD'])
+        hyperparams['LR_DROP_FACTOR'] = float(hyperparams['LR_DROP_FACTOR'])
         hyperparams['VALID_PATIENCE'] = int(hyperparams['VALID_PATIENCE'])
         hyperparams['ValidFrequency'] = int(hyperparams['ValidFrequency'])
         hyperparams['LOOKBACK'] = int(hyperparams['LOOKBACK'])
