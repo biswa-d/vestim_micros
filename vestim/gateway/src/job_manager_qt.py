@@ -34,13 +34,13 @@ class JobManager:
     def get_train_folder(self):
         """Returns the path to the train processed data folder."""
         if self.job_id:
-            return os.path.join(self.get_job_folder(), 'train', 'processed_data')
+            return os.path.join(self.get_job_folder(), 'train_data', 'processed_data')
         return None
 
     def get_test_folder(self):
         """Returns the path to the test processed data folder."""
         if self.job_id:
-            return os.path.join(self.get_job_folder(), 'test', 'processed_data')
+            return os.path.join(self.get_job_folder(), 'test_data', 'processed_data')
         return None
     
     #Folder where test data will be stored
