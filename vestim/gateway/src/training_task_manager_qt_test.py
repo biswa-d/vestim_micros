@@ -21,8 +21,8 @@ class TrainingTaskManager:
         self.current_task = None
         self.stop_requested = False
         # Set the selected GPU as the device
-        selected_gpu = self.get_least_loaded_gpu()
-        self.device = torch.device(f"cuda:{selected_gpu}" if torch.cuda.is_available() else "cpu")
+        # selected_gpu = self.get_least_loaded_gpu()
+        self.device = torch.device(f"cuda:1" if torch.cuda.is_available() else "cpu")
         self.training_thread = None  # Initialize the training thread here for PyQt
        
         # WandB setup (optional)
