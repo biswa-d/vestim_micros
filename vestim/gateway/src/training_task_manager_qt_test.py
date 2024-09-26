@@ -5,7 +5,7 @@ import torch
 from PyQt5.QtCore import QThread, pyqtSignal
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
-from vestim.services.model_training.src.data_loader_service_padfil import DataLoaderService
+from vestim.services.model_training.src.data_loader_service_padfil_val import DataLoaderService
 from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
 import logging, wandb
 
@@ -86,14 +86,14 @@ class TrainingTaskManager:
             update_progress_callback.emit({'status': 'Configuring DataLoader...'})
 
             # Create data loaders for the task
-            train_loader, val_loader = self.create_data_loaders(task)
+            train_loader, val_loader, padding_size = self.create_data_loaders(task)
             self.logger.info(f"DataLoader configured for task: {task['hyperparams']}")
 
             # Update progress for starting training
             update_progress_callback.emit({'status': f'Training LSTM model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
 
             # Call the training method and pass logging information (task_id, db path)
-            self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
+            self.run_training(task, update_progress_callback, train_loader, val_loader, padding_size, self.device)
 
         except Exception as e:
             self.logger.error(f"Error during task processing: {str(e)}")
@@ -186,21 +186,27 @@ class TrainingTaskManager:
         num_workers = 4
 
         self.logger.info("Creating data loaders")
-        train_loader, val_loader = self.data_loader_service.create_data_loaders(
+        train_loader, val_loader, padding_size = self.data_loader_service.create_data_loaders(
             folder_path=self.job_manager.get_train_folder(),  # Adjusted to use the correct folder
             lookback=lookback, 
             batch_size=batch_size, 
             num_workers=num_workers
         )
 
-        return train_loader, val_loader
+        return train_loader, val_loader, padding_size
 
-    def run_training(self, task, update_progress_callback, train_loader, val_loader, device):
+    def run_training(self, task, update_progress_callback, train_loader, val_loader, padding_size, device):
         """Run the training process for a single task."""
         try:
             self.logger.info("Starting training loop")
             hyperparams = self.convert_hyperparams(task['hyperparams'])
-            model = task['model'].to(device)
+            model = task['model']
+            # Wrap model in DataParallel if multiple GPUs are available
+            if torch.cuda.device_count() > 1:
+                model = torch.nn.DataParallel(model)
+            # Move model to the device
+            model = model.to(device)
+
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
@@ -214,11 +220,10 @@ class TrainingTaskManager:
             early_stopping = False  # Initialize early stopping flag
 
             optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'])
-            scheduler = self.training_service.get_scheduler(optimizer, step_size = lr_drop_period, gamma=lr_drop_factor)
+            scheduler = self.training_service.get_scheduler(optimizer, step_size=lr_drop_period, gamma=lr_drop_factor)
 
             # Log the training progress for each epoch
             def format_time(seconds):
-                """Format time into mm:ss format."""
                 minutes = seconds // 60
                 seconds = seconds % 60
                 return f"{int(minutes)}:{int(seconds):02d}"
@@ -230,15 +235,13 @@ class TrainingTaskManager:
                     print("Stopping training...")
                     break
 
-                # Initialize hidden states for training phase
-                h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
-                h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
+                # No need to initialize hidden states here
 
                 # Measure time for the training loop
                 epoch_start_time = time.time()
 
                 # Train the model for one epoch
-                avg_batch_time, train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task)
+                avg_batch_time, train_loss = self.training_service.train_epoch(model, train_loader, optimizer, epoch, device, self.stop_requested, task)
 
                 epoch_end_time = time.time()
                 epoch_duration = epoch_end_time - epoch_start_time
@@ -251,10 +254,7 @@ class TrainingTaskManager:
 
                 # Only validate at specified frequency
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
-                    h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
-                    h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
-
-                    val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested, task)
+                    val_loss = self.training_service.validate_epoch(model, val_loader, padding_size, epoch, device, self.stop_requested, task)
                     self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
 
                     current_time = time.time()
@@ -287,11 +287,10 @@ class TrainingTaskManager:
                     if patience_counter > valid_patience:
                         early_stopping = True
                         print(f"Early stopping at epoch {epoch} due to no improvement.")
-                        
+
                         # Ensure that we log the final epoch before breaking out
                         model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                         model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
-                        # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
                         self.log_to_sqlite(
                             task=task,
                             epoch=epoch,
@@ -305,11 +304,7 @@ class TrainingTaskManager:
                         )
                         break
 
-                # Log data to CSV and SQLite after each epoch (whether validated or not)
-                print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
-
-                # Save log data to CSV and SQLite
-                # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
+                # Save log data after each epoch (whether validated or not)
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                 model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
                 self.log_to_sqlite(
@@ -336,7 +331,6 @@ class TrainingTaskManager:
         except Exception as e:
             self.logger.error(f"Error during training: {str(e)}")
             update_progress_callback.emit({'task_error': str(e)})
-
 
     def convert_hyperparams(self, hyperparams):
         """Converts all relevant hyperparameters to the correct types."""
