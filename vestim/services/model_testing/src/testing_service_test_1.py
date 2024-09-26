@@ -88,7 +88,7 @@ class VEstimTestingService:
         avg_mae = total_mae / total_samples
 
         # Convert to flat arrays for saving predictions and true values
-        y_pred_final = np.concatenate(all_predictions, axis=0)
+        y_pred_final = np.concatenate(all_predictions, axis=0).flatten()
         y_true_final = np.concatenate(all_true_values, axis=0)
 
         print(f"y_pred_final shape before removing padding: {y_pred_final.shape}")
