@@ -48,8 +48,8 @@ class VEstimTestingManager:
         try:
             print("Getting test folder and results save directory...")
             test_folder = self.job_manager.get_test_folder()
-            save_dir = self.job_manager.get_test_results_folder()
-            print(f"Test folder: {test_folder}, Save directory: {save_dir}")
+            # save_dir = self.job_manager.get_test_results_folder()
+            # print(f"Test folder: {test_folder}, Save directory: {save_dir}")
 
             # Retrieve task list
             print("Retrieving task list from TrainingSetupManager...")
@@ -68,7 +68,7 @@ class VEstimTestingManager:
             # Execute tasks in parallel using ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 future_to_task = {
-                    executor.submit(self._test_single_model, task, idx, test_folder, save_dir): task
+                    executor.submit(self._test_single_model, task, idx, test_folder): task
                     for idx, task in enumerate(task_list)
                 }
 
@@ -90,7 +90,7 @@ class VEstimTestingManager:
             self.queue.put({'task_error': str(e)})
 
 
-    def _test_single_model(self, task, idx, test_folder, save_dir):
+    def _test_single_model(self, task, idx, test_folder):
         """Test a single model and save the result."""
         try:
             print(f"Preparing test data for Task {idx + 1}...")
@@ -98,6 +98,7 @@ class VEstimTestingManager:
             # Extract lookback, learnable params and model path from the task
             lookback = task['hyperparams']['LOOKBACK']
             model_path = task['model_path']
+            save_dir = task['task_dir']
             num_learnable_params = task['hyperparams']['NUM_LEARNABLE_PARAMS']
             print(f"Testing model: {model_path} with lookback: {lookback}")
 

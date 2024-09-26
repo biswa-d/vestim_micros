@@ -148,7 +148,7 @@ class VEstimTestingGUI(QMainWindow):
         self.main_layout.addWidget(self.progress)
 
         # Button to open results folder
-        self.open_results_button = QPushButton("Open Results Folder", self)
+        self.open_results_button = QPushButton("Open Job Folder", self)
         self.open_results_button.setStyleSheet("""
             background-color: #0b6337;  /* Matches the green color */
             font-weight: bold; 
@@ -158,8 +158,7 @@ class VEstimTestingGUI(QMainWindow):
         self.open_results_button.setFixedHeight(40)  # Ensure consistent height
         self.open_results_button.setMinimumWidth(150)  # Set minimum width to ensure consistency
         self.open_results_button.setMaximumWidth(300)  # Set a reasonable maximum width
-        self.open_results_button.clicked.connect(self.open_results_folder)
-
+        self.open_results_button.clicked.connect(self.open_job_folder)
         # Center the button using a layout
         open_button_layout = QHBoxLayout()
         open_button_layout.addStretch(1)  # Add stretchable space before the button
@@ -432,12 +431,12 @@ class VEstimTestingGUI(QMainWindow):
             self.testing_thread.quit()
             self.testing_thread.wait()  # Wait for the thread to finish
 
-    def open_results_folder(self):
-        results_folder = self.job_manager.get_test_results_folder()
-        if os.path.exists(results_folder):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(results_folder))
+    def open_job_folder(self):
+        job_folder = self.job_manager.get_job_folder()
+        if os.path.exists(job_folder):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(job_folder))
         else:
-            QMessageBox.critical(self, "Error", f"Results folder not found: {results_folder}")
+            QMessageBox.critical(self, "Error", f"Results folder not found: {job_folder}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

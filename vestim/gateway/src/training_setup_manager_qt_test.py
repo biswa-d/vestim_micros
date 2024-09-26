@@ -161,6 +161,7 @@ class VEstimTrainingSetupManager:
                                         # Define task information
                                         task_info = {
                                             'task_id': task_id,
+                                            "task_dir": task_dir,
                                             'model': model,
                                             'model_metadata': model_metadata,  # Use metadata instead of the full model
                                             'data_loader_params': {

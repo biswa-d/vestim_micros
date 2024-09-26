@@ -166,7 +166,7 @@ class VEstimTestingService:
         :param save_dir: Directory where the results will be saved.
         """
         # Create a model-specific subdirectory within save_dir
-        model_dir = os.path.join(save_dir, model_name)
+        model_dir = os.path.join(save_dir, "test_results")
         os.makedirs(model_dir, exist_ok=True)  # Create the directory if it doesn't exist
 
         # Flatten the arrays to ensure they are 1-dimensional
