@@ -211,6 +211,7 @@ class TrainingTaskManager:
         try:
             self.logger.info("Starting training loop")
             hyperparams = self.convert_hyperparams(task['hyperparams'])
+            task_id = task['task_id']
             model = task['model']
             self.world_size = torch.cuda.device_count()  # Get number of GPUs
             self.rank = dist.get_rank() if dist.is_initialized() else 0  # Get rank for DDP
@@ -269,7 +270,7 @@ class TrainingTaskManager:
                 # Only validate at specified frequency
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
                     val_loss = self.training_service.validate_epoch(model, val_loader, epoch, device, self.stop_requested, task)
-                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
+                    self.logger.info(f"Task ID: {task_id} | Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
 
                     current_time = time.time()
                     elapsed_time = current_time - start_time
@@ -301,6 +302,7 @@ class TrainingTaskManager:
                     if patience_counter > valid_patience:
                         early_stopping = True
                         print(f"Early stopping at epoch {epoch} due to no improvement.")
+                        self.logger.info(f"Early stopping at epoch {epoch} due to no improvement.")
 
                         # Ensure that we log the final epoch before breaking out
                         model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
@@ -337,6 +339,7 @@ class TrainingTaskManager:
 
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
+                self.logger.info("Training was stopped early. Saving Model...")
                 self.save_model(task)
 
             update_progress_callback.emit({'task_completed': True})
