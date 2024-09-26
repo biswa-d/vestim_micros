@@ -47,8 +47,9 @@ class VEstimTestingService:
 
                 # Reshape X_batch to [batch_size, seq_len, input_size]
                 X_batch = X_batch.unsqueeze(1)  # Adds a sequence length of 1
-
                 # Initialize hidden and cell states based on batch size
+                # Before processing the batch, check memory usage
+                print(f"Memory allocated before batch: {torch.cuda.memory_allocated()} bytes")
                 h_s = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
                 h_c = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
                 print(f"X_batch shape after unsqueeze: {X_batch.shape}, batch_size: {batch_size}")
@@ -61,6 +62,7 @@ class VEstimTestingService:
                 all_predictions.append(y_pred_tensor.cpu().numpy())
                 all_true_values.append(y_batch.cpu().numpy())
 
+
         # Convert to flat arrays for evaluation
         y_pred = np.concatenate(all_predictions, axis=0)
         y_true = np.concatenate(all_true_values, axis=0)
@@ -72,6 +74,8 @@ class VEstimTestingService:
         if padding_size > 0:
             y_pred = y_pred[:-padding_size]
             y_true = y_true[:-padding_size]
+        print(f"y_pred shape after removing padding: {y_pred.shape}")
+        print(f"y_true shape after removing padding: {y_true.shape}")
 
         # Compute evaluation metrics and convert to millivolts (mV)
         rms_error = np.sqrt(mean_squared_error(y_true, y_pred)) * 1000  # Convert to mV
