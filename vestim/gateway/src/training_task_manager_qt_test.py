@@ -8,6 +8,8 @@ from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetu
 from vestim.services.model_training.src.data_loader_service_padfil_val import DataLoaderService
 from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
 import logging, wandb
+import pynvml
+
 
 class TrainingTaskManager:
     def __init__(self):
@@ -18,7 +20,9 @@ class TrainingTaskManager:
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.current_task = None
         self.stop_requested = False
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Set the selected GPU as the device
+        selected_gpu = self.get_least_loaded_gpu()
+        self.device = torch.device(f"cuda:{selected_gpu}" if torch.cuda.is_available() else "cpu")
         self.training_thread = None  # Initialize the training thread here for PyQt
        
         # WandB setup (optional)
@@ -34,6 +38,36 @@ class TrainingTaskManager:
                 self.wandb_enabled = False
                 self.logger.error(f"Failed to initialize WandB: {e}")
 
+    def get_least_loaded_gpu(threshold=90):
+        """
+        Returns the GPU with the least memory usage if the usage is below the threshold.
+        Otherwise, returns the GPU with the least memory usage.
+        """
+        pynvml.nvmlInit()
+        device_count = pynvml.nvmlDeviceGetCount()
+        min_utilization = 100
+        selected_gpu = 0
+
+        for i in range(device_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+
+            # Calculate memory utilization percentage
+            utilization = (mem_info.used / mem_info.total) * 100
+            
+            print(f"GPU {i}: {utilization:.2f}% memory utilization")
+            
+            if utilization < threshold:
+                selected_gpu = i
+                break
+            
+            if utilization < min_utilization:
+                min_utilization = utilization
+                selected_gpu = i
+
+        pynvml.nvmlShutdown()
+        
+        return selected_gpu
     def log_to_csv(self, task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_val_loss, delta_t_epoch):
         """Log richer data to CSV file."""
         csv_log_file = task['csv_log_file']  # Fetch the csv log file path from the task
