@@ -51,17 +51,18 @@ class VEstimTestingService:
 
                 # Reshape X_batch to [batch_size, seq_len, input_size]
                 X_batch = X_batch.unsqueeze(1)  # Adds a sequence length of 1
-                print(f"Batch {batch_idx + 1}: X_batch shape after unsqueeze: {X_batch.shape}, batch_size: {batch_size}")
+                # print(f"Batch {batch_idx + 1}: X_batch shape after unsqueeze: {X_batch.shape}, batch_size: {batch_size}")
                 
                 # Initialize hidden and cell states based on batch size
                 h_s = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
                 h_c = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
-                print(f"Batch {batch_idx + 1}: h_s shape: {h_s.shape}, h_c shape: {h_c.shape}")
+                # print(f"Batch {batch_idx + 1}: h_s shape: {h_s.shape}, h_c shape: {h_c.shape}")
                 
                 # Forward pass
                 y_pred_tensor, _ = model(X_batch.to(self.device), h_s, h_c)
-                print(f"Batch {batch_idx + 1}: y_pred_tensor shape: {y_pred_tensor.shape}")
+                # print(f"Batch {batch_idx + 1}: y_pred_tensor shape: {y_pred_tensor.shape}")
                 
+
                 # Collect predictions and true values
                 all_predictions.append(y_pred_tensor.cpu().numpy())
                 all_true_values.append(y_batch.cpu().numpy())
@@ -81,7 +82,7 @@ class VEstimTestingService:
                 # Free up GPU memory
                 del h_s, h_c, X_batch, y_batch, y_pred_tensor
                 torch.cuda.empty_cache()
-                print(f"Batch {batch_idx + 1}: Freed GPU memory.")
+                print(f"Batch {batch_idx + 1}: Freed memory.")
 
         # Final average metrics
         avg_rmse = total_rmse / total_samples
