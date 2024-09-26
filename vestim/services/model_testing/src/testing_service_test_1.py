@@ -38,57 +38,81 @@ class VEstimTestingService:
 
     def test_model(self, model, test_loader, padding_size=0):
         model.eval()  # Ensure the model is in evaluation mode
+        
+        total_rmse = 0
+        total_mae = 0
+        total_samples = 0
         all_predictions = []
         all_true_values = []
 
         with torch.no_grad():
-            for X_batch, y_batch in test_loader:
+            for batch_idx, (X_batch, y_batch) in enumerate(test_loader):
                 batch_size = X_batch.size(0)
 
                 # Reshape X_batch to [batch_size, seq_len, input_size]
                 X_batch = X_batch.unsqueeze(1)  # Adds a sequence length of 1
+                print(f"Batch {batch_idx + 1}: X_batch shape after unsqueeze: {X_batch.shape}, batch_size: {batch_size}")
+                
                 # Initialize hidden and cell states based on batch size
-                # Before processing the batch, check memory usage
-                print(f"Memory allocated before batch: {torch.cuda.memory_allocated()} bytes")
                 h_s = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
                 h_c = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
-                print(f"X_batch shape after unsqueeze: {X_batch.shape}, batch_size: {batch_size}")
-                print(f"h_s shape: {h_s.shape}, h_c shape: {h_c.shape}")
-
+                print(f"Batch {batch_idx + 1}: h_s shape: {h_s.shape}, h_c shape: {h_c.shape}")
+                
                 # Forward pass
                 y_pred_tensor, _ = model(X_batch.to(self.device), h_s, h_c)
-
+                print(f"Batch {batch_idx + 1}: y_pred_tensor shape: {y_pred_tensor.shape}")
+                
                 # Collect predictions and true values
                 all_predictions.append(y_pred_tensor.cpu().numpy())
                 all_true_values.append(y_batch.cpu().numpy())
 
+                # Compute errors for each batch and accumulate
+                y_pred = y_pred_tensor.cpu().numpy()
+                y_true = y_batch.cpu().numpy()
 
-        # Convert to flat arrays for evaluation
-        y_pred = np.concatenate(all_predictions, axis=0)
-        y_true = np.concatenate(all_true_values, axis=0)
+                batch_rmse = np.sqrt(mean_squared_error(y_true, y_pred)) * 1000  # Convert to mV
+                batch_mae = mean_absolute_error(y_true, y_pred) * 1000  # Convert to mV
+                total_rmse += batch_rmse * batch_size
+                total_mae += batch_mae * batch_size
+                total_samples += batch_size
 
-        print(f"y_pred shape before removing padding: {y_pred.shape}")
-        print(f"y_true shape before removing padding: {y_true.shape}")
+                print(f"Batch {batch_idx + 1}: RMSE: {batch_rmse} mV, MAE: {batch_mae} mV")
+                
+                # Free up GPU memory
+                del h_s, h_c, X_batch, y_batch, y_pred_tensor
+                torch.cuda.empty_cache()
+                print(f"Batch {batch_idx + 1}: Freed GPU memory.")
+
+        # Final average metrics
+        avg_rmse = total_rmse / total_samples
+        avg_mae = total_mae / total_samples
+
+        # Convert to flat arrays for saving predictions and true values
+        y_pred_final = np.concatenate(all_predictions, axis=0)
+        y_true_final = np.concatenate(all_true_values, axis=0)
+
+        print(f"y_pred_final shape before removing padding: {y_pred_final.shape}")
+        print(f"y_true_final shape before removing padding: {y_true_final.shape}")
 
         # Remove the padded data from the results if padding was applied
         if padding_size > 0:
-            y_pred = y_pred[:-padding_size]
-            y_true = y_true[:-padding_size]
-        print(f"y_pred shape after removing padding: {y_pred.shape}")
-        print(f"y_true shape after removing padding: {y_true.shape}")
+            y_pred_final = y_pred_final[:-padding_size]
+            y_true_final = y_true_final[:-padding_size]
 
-        # Compute evaluation metrics and convert to millivolts (mV)
-        rms_error = np.sqrt(mean_squared_error(y_true, y_pred)) * 1000  # Convert to mV
-        mae = mean_absolute_error(y_true, y_pred) * 1000  # Convert to mV
-        mape = self.calculate_mape(y_true, y_pred)
-        r2 = r2_score(y_true, y_pred)
-        print(f"RMS Error: {rms_error}, MAE: {mae}, MAPE: {mape}, R²: {r2}")
+        print(f"y_pred_final shape after removing padding: {y_pred_final.shape}")
+        print(f"y_true_final shape after removing padding: {y_true_final.shape}")
+
+        # MAPE and R2 calculation
+        mape = self.calculate_mape(y_true_final, y_pred_final)
+        r2 = r2_score(y_true_final, y_pred_final)
+
+        print(f"Final Metrics - RMS Error: {avg_rmse} mV, MAE: {avg_mae} mV, MAPE: {mape}%, R²: {r2}")
 
         return {
-            'predictions': y_pred,
-            'true_values': y_true,
-            'rms_error_mv': rms_error,  # Error in mV
-            'mae_mv': mae,  # Error in mV
+            'predictions': y_pred_final,
+            'true_values': y_true_final,
+            'rms_error_mv': avg_rmse,  # Error in mV
+            'mae_mv': avg_mae,  # Error in mV
             'mape': mape,  # MAPE remains a percentage
             'r2': r2
         }
