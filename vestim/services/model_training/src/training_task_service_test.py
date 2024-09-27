@@ -57,7 +57,7 @@ class TrainingTaskService:
             if stop_requested:  # Check if a stop has been requested
                 print("Stop requested during training")
                 break  # Exit the loop if stop is requested
-
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             start_batch_time = time.time()  # Start timing for this batch
             print(f"Model on device: {next(model.parameters()).device}")
 
@@ -69,7 +69,6 @@ class TrainingTaskService:
                 h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                 h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
 
-            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             # Debugging: check if X_batch and hidden states are on the correct device
             print(f"X_batch on device: {X_batch.device}")
             print(f"h_s on device: {h_s.device}")
@@ -125,6 +124,7 @@ class TrainingTaskService:
                     break  # Exit the loop if stop is requested
 
                 start_batch_time = time.time()  # Start timing for this batch
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
 
                 batch_size = X_batch.size(0)
                 X_batch = X_batch.unsqueeze(1)  # Adds a sequence length of 1, as in testing logic
@@ -136,8 +136,6 @@ class TrainingTaskService:
                 else:
                     h_s = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(device)
                     h_c = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(device)
-
-                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
 
                 # Forward pass
                 y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
