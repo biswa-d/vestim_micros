@@ -19,7 +19,7 @@ class TrainingSetupService:
         :param model_dir: Directory to save the trained model.
         """
         self.start_time = time.time()
-        device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+        device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 
         if torch.cuda.device_count() > 1:
             model = nn.DataParallel(model)
