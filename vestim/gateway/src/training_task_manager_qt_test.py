@@ -239,7 +239,7 @@ class TrainingTaskManager:
 
         return train_loader, val_loader
 
-    def run_training(self, task, update_progress_callback, train_loader, val_loader, padding_size, device):
+    def run_training(self, task, update_progress_callback, train_loader, val_loader, device):
         """Run the training process for a single task."""
         try:
             self.logger.info("Starting training loop")
@@ -298,7 +298,7 @@ class TrainingTaskManager:
 
                 # Only validate at specified frequency
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
-                    val_loss = self.training_service.validate_epoch(model, val_loader, padding_size, epoch, device, self.stop_requested, task)
+                    val_loss = self.training_service.validate_epoch(model, val_loader, epoch, device, self.stop_requested, task)
                     self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
 
                     current_time = time.time()
