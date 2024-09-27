@@ -5,7 +5,7 @@ import torch
 from PyQt5.QtCore import QThread, pyqtSignal
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
-from vestim.services.model_training.src.data_loader_service_padfil_val import DataLoaderService
+from vestim.services.model_training.src.data_loader_service_padfil import DataLoaderService
 from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
 import logging, wandb
 import pynvml
@@ -22,7 +22,7 @@ class TrainingTaskManager:
         self.stop_requested = False
         # Set the selected GPU as the device
         # selected_gpu = self.get_least_loaded_gpu()
-        self.device = torch.device(f"cuda:2" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(f"cuda:3" if torch.cuda.is_available() else "cpu")
         self.training_thread = None  # Initialize the training thread here for PyQt
        
         # WandB setup (optional)
@@ -103,6 +103,12 @@ class TrainingTaskManager:
         """Process a single training task and set up logging."""
         try:
             self.logger.info(f"Starting task with hyperparams: {task['hyperparams']}")
+            
+            # Generate a unique task ID for this task (e.g., based on time or task details)
+            task_id = f"task_{int(time.time())}"  # Example of task_id generation
+
+            # Set the task ID in the task dictionary for future reference
+            task['task_id'] = task_id
 
             # Setup logging (SQL and CSV) for the job
             self.setup_job_logging(task)
@@ -120,14 +126,18 @@ class TrainingTaskManager:
             update_progress_callback.emit({'status': 'Configuring DataLoader...'})
 
             # Create data loaders for the task
-            train_loader, val_loader, padding_size = self.create_data_loaders(task)
+            train_loader, val_loader = self.create_data_loaders(task)
             self.logger.info(f"DataLoader configured for task: {task['hyperparams']}")
 
             # Update progress for starting training
             update_progress_callback.emit({'status': f'Training LSTM model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
 
             # Call the training method and pass logging information (task_id, db path)
-            self.run_training(task, update_progress_callback, train_loader, val_loader, padding_size, self.device)
+            self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
+
+        except Exception as e:
+            self.logger.error(f"Error during task processing: {str(e)}")
+            update_progress_callback.emit({'task_error': str(e)})
 
         except Exception as e:
             self.logger.error(f"Error during task processing: {str(e)}")
