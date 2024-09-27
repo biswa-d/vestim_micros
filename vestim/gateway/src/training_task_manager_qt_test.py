@@ -234,12 +234,12 @@ class TrainingTaskManager:
         try:
             self.logger.info("Starting training loop")
             hyperparams = self.convert_hyperparams(task['hyperparams'])
-            model = task['model']
+            model = task['model'].to(device)
             # Wrap model in DataParallel if multiple GPUs are available
-            if torch.cuda.device_count() > 1:
-                model = torch.nn.DataParallel(model)
-            # Move model to the device
-            model = model.to(device)
+            # if torch.cuda.device_count() > 1:
+            #     model = torch.nn.DataParallel(model)
+            # # Move model to the device
+            # model = model.to(device)
 
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
