@@ -230,14 +230,14 @@ class TrainingTaskManager:
         num_workers = 4
 
         self.logger.info("Creating data loaders")
-        train_loader, val_loader, padding_size = self.data_loader_service.create_data_loaders(
+        train_loader, val_loader = self.data_loader_service.create_data_loaders(
             folder_path=self.job_manager.get_train_folder(),  # Adjusted to use the correct folder
             lookback=lookback, 
             batch_size=batch_size, 
             num_workers=num_workers
         )
 
-        return train_loader, val_loader, padding_size
+        return train_loader, val_loader
 
     def run_training(self, task, update_progress_callback, train_loader, val_loader, padding_size, device):
         """Run the training process for a single task."""
