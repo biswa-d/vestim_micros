@@ -236,6 +236,7 @@ class VEstimTestingGUI(QMainWindow):
         print(f"Adding result row: {result}")
         task_data = result.get('task_completed')
         if task_data:
+            save_dir = task_data.get("saved_dir")
             model_name = task_data.get("model")
             num_learnable_params = str(task_data.get("#params"))  # Convert to string
             rms_error = f"{task_data.get('rms_error_mv', 0):.4f}"
@@ -253,14 +254,14 @@ class VEstimTestingGUI(QMainWindow):
             # Create the "Plot" button with some styling
             plot_button = QPushButton("Plot Result")
             plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")  # Purple background
-            plot_button.clicked.connect(lambda _, name=model_name: self.plot_model_results(name))  # Pass model_name to plot
+            plot_button.clicked.connect(lambda _, name=model_name: self.plot_model_results(model_name,save_dir))  # Pass model_name to plot
             self.tree.addTopLevelItem(row)
 
             # Set widget for the "Plot" column
             self.tree.setItemWidget(row, 7, plot_button)
 
 
-    def plot_model_results(self, model_name):
+    def plot_model_results(self, model_name, save_dir):
         """
         Plot the test results for a specific model by reading from the saved CSV file.
         """
@@ -271,8 +272,7 @@ class VEstimTestingGUI(QMainWindow):
             plot_window.setGeometry(200, 100, 700, 500)
 
             # Locate the CSV file for this model
-            save_dir = self.job_manager.get_test_results_folder()  # Assuming this method returns the correct save directory
-            result_file = os.path.join(save_dir, model_name, f"{model_name}_test_results.csv")
+            result_file = os.path.join(save_dir, "test_results", f"{model_name}_test_results.csv")
 
             if not os.path.exists(result_file):
                 QMessageBox.critical(self, "Error", f"Test results file not found for model: {model_name}")

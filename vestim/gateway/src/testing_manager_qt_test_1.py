@@ -124,6 +124,7 @@ class VEstimTestingManager:
             print(f"Results for model {shorthand_name}: {results}")
             self.queue.put({
                 'task_completed': {
+                    'saved_dir': save_dir,
                     'sl_no': idx + 1,
                     'model': shorthand_name,
                     '#params': num_learnable_params,
