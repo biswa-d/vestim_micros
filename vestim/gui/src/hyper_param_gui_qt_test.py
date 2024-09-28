@@ -8,7 +8,7 @@ from PyQt5.QtCore import Qt, QPropertyAnimation
 from PyQt5.QtGui import QIcon
 
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
+from vestim.gateway.src.hyper_param_manager_qt_test import VEstimHyperParamManager
 from vestim.gui.src.training_setup_gui_qt_test import VEstimTrainSetupGUI
 
 # Initialize the JobManager
@@ -115,8 +115,9 @@ class VEstimHyperParamGUI(QWidget):
             {"label": "Validation Freq:", "default": self.params.get("ValidFrequency", "3"), "tooltip": "How often (in epochs) to perform validation", "param": "ValidFrequency"},
             {"label": "Lookback:", "default": self.params.get("LOOKBACK", "400"), "tooltip": "Number of previous time steps to consider for each timestep", "param": "LOOKBACK"},
             {"label": "Repetitions:", "default": self.params.get("REPETITIONS", "1"), "tooltip": "Number of times to repeat the entire training process with randomized initial parameters", "param": "REPETITIONS"},
-            # Add Dropout Probability widget
-            {"label": "Dropout Probability:", "default": self.params.get("DROPOUT_PROB", "0.5"), "tooltip": "Probability of dropout used in LSTM layers to prevent overfitting", "param": "DROPOUT_PROB"}
+            # Add Dropout Probability and weight decay widget
+            {"label": "Dropout Probability:", "default": self.params.get("DROPOUT_PROB", "0.5"), "tooltip": "Probability of dropout used in LSTM layers to prevent overfitting", "param": "DROPOUT_PROB"},
+            {"label": "Weight Decay:", "default": self.params.get("WEIGHT_DECAY", "0.0"), "tooltip": "Weight decay (L2 penalty) applied to the optimizer", "param": "WEIGHT_DECAY"},
         ]
 
         # Set bigger sizes for labels and entry boxes
