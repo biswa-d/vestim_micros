@@ -228,6 +228,7 @@ class VEstimTrainingSetupManager:
         task_count = len(self.training_tasks)
         if self.progress_signal:
             self.logger.info(f"Created {len(self.training_tasks)} training tasks.")
+            print(f"Created {len(self.training_tasks)} training tasks.")
             self.progress_signal.emit(f"Created {task_count} training tasks and saved to disk.", self.job_manager.get_job_folder(), task_count)
 
     def calculate_learnable_parameters(self, layers, input_size, hidden_units):

@@ -12,7 +12,7 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel
+from vestim.services.model_training.src.LSTM_model_service import LSTMModel
 
 class VEstimTestingService:
     def __init__(self, device='cpu'):
@@ -214,25 +214,26 @@ class VEstimTestingService:
 
         # Load the model weights and remove pruning if needed
         try:
-            model_state_dict = torch.load(model_path)
+            # Load the saved state dict
+            model_state_dict = torch.load(model_path, map_location=self.device)
 
-            # Remove pruning-related parameters from the state dict
+            # Adjust the state_dict to handle pruning-related keys
             new_state_dict = {}
             for key, value in model_state_dict.items():
                 if "_orig" in key:
+                    # If the original weights exist, remove "_orig" and use the clean key
                     new_key = key.replace("_orig", "")
                     new_state_dict[new_key] = value
                 elif "_mask" not in key:
+                    # If it's not a mask, include it in the new state_dict
                     new_state_dict[key] = value
 
-            # Load the modified state dict
+            # Load the adjusted state dict into the model
             model.load_state_dict(new_state_dict)
 
-            # Remove pruning reparametrization
-            model.remove_pruning()  # Finalize the model by removing pruning masks
-
-            model.eval()  # Set the model to evaluation mode
-            print("Model loaded, pruning removed, and set to evaluation mode")
+            # Set the model to evaluation mode
+            model.eval()
+            print("Model loaded, pruning keys handled, and set to evaluation mode")
         except Exception as e:
             print(f"Error loading model from {model_path}: {str(e)}")
             return

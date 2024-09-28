@@ -31,7 +31,7 @@ class LSTMModel(nn.Module):
         self.fc = nn.Linear(hidden_units, 1).to(self.device)  # Assuming regression
 
         # Apply pruning to the LSTM and fully connected layers
-        self.apply_pruning()
+        # self.apply_pruning()
 
     def forward(self, x, h_s=None, h_c=None):
         # Ensure the input is on the correct device
@@ -116,7 +116,7 @@ class LSTMModelService:
         :param model_path: The file path where the model will be saved.
         """
         # Remove pruning reparameterizations before saving
-        model.remove_pruning()
+        # model.remove_pruning()
         # Save the model's state dictionary
         torch.save(model.state_dict(), model_path)
         print(f"Model saved to {model_path}")
