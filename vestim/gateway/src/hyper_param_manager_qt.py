@@ -34,12 +34,13 @@ class VEstimHyperParamManager:
     def validate_and_normalize_params(self, params):
         """Validate the parameter values without altering them."""
         validated_params = {}
-        
+
         for key, value in params.items():
             if isinstance(value, str):
                 # Split the string into a list, allowing for comma or space separation
                 value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
-                # Check data types without converting
+                
+                # Ensure values are integers for specific keys
                 if key in ['LAYERS', 'HIDDEN_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD', 'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS']:
                     # Ensure values are integers
                     if not all(v.isdigit() for v in value_list):
@@ -47,7 +48,8 @@ class VEstimHyperParamManager:
                         raise ValueError(f"Invalid value for {key}: Expected integers, got {value_list}")
                     validated_params[key] = value  # Keep the original string
 
-                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR']:
+                # Ensure values are floats for specific keys
+                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB']:  # Added DROPOUT_PROB
                     # Ensure values are floats
                     try:
                         [float(v) for v in value_list]
@@ -64,9 +66,9 @@ class VEstimHyperParamManager:
                 validated_params[key] = value
             else:
                 validated_params[key] = value
+
         self.logger.info("Parameter validation complete.")
         return validated_params
-
 
     def save_params(self):
         """Save the current parameters to the job folder."""

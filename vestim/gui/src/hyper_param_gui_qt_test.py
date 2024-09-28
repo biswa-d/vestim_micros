@@ -115,6 +115,8 @@ class VEstimHyperParamGUI(QWidget):
             {"label": "Validation Freq:", "default": self.params.get("ValidFrequency", "3"), "tooltip": "How often (in epochs) to perform validation", "param": "ValidFrequency"},
             {"label": "Lookback:", "default": self.params.get("LOOKBACK", "400"), "tooltip": "Number of previous time steps to consider for each timestep", "param": "LOOKBACK"},
             {"label": "Repetitions:", "default": self.params.get("REPETITIONS", "1"), "tooltip": "Number of times to repeat the entire training process with randomized initial parameters", "param": "REPETITIONS"},
+            # Add Dropout Probability widget
+            {"label": "Dropout Probability:", "default": self.params.get("DROPOUT_PROB", "0.5"), "tooltip": "Probability of dropout used in LSTM layers to prevent overfitting", "param": "DROPOUT_PROB"}
         ]
 
         # Set bigger sizes for labels and entry boxes
@@ -137,6 +139,7 @@ class VEstimHyperParamGUI(QWidget):
             layout.addWidget(entry, idx // 2, (idx % 2) * 2 + 1)
 
             self.param_entries[param_name] = entry
+
 
 
     def proceed_to_training(self):

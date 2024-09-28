@@ -1,43 +1,77 @@
 import torch
 import torch.nn as nn
+import torch.nn.utils.prune as prune
 
 class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_units, num_layers, device):
+    def __init__(self, input_size, hidden_units, num_layers, device, dropout_prob=0.5):
         super(LSTMModel, self).__init__()
         self.input_size = input_size
         self.hidden_units = hidden_units
         self.num_layers = num_layers
         self.device = device  # Store the device in the model
-        self.lstm = nn.LSTM(input_size, hidden_units, num_layers, batch_first=True).to(self.device)
-        self.fc = nn.Linear(hidden_units, 1).to(self.device)  # Assuming regression, adjust if needed
+
+        # Define the LSTM layer with dropout between layers
+        self.lstm = nn.LSTM(
+            input_size,
+            hidden_units,
+            num_layers,
+            batch_first=True,
+            dropout=dropout_prob if num_layers > 1 else 0  # Dropout only applied if num_layers > 1
+        ).to(self.device)
+
+        # Define a dropout layer for the outputs
+        self.dropout = nn.Dropout(p=dropout_prob)
+
+        # Define the fully connected layer
+        self.fc = nn.Linear(hidden_units, 1).to(self.device)  # Assuming regression
+
+        # Apply pruning to the LSTM and fully connected layers
+        self.apply_pruning()
 
     def forward(self, x, h_s=None, h_c=None):
         # Ensure the input is on the correct device
         x = x.to(self.device)
-        
-        # Debugging: Print input shape
-        # print(f"Input shape: {x.shape}")
-        
+
         # Initialize hidden and cell states if not provided
         if h_s is None or h_c is None:
-            h_s = torch.zeros(self.lstm.num_layers, x.size(0), self.hidden_units).to(self.device)
-            h_c = torch.zeros(self.lstm.num_layers, x.size(0), self.hidden_units).to(self.device)
-        
+            h_s = torch.zeros(self.num_layers, x.size(0), self.hidden_units).to(self.device)
+            h_c = torch.zeros(self.num_layers, x.size(0), self.hidden_units).to(self.device)
+
         # Pass input through LSTM
         out, (h_s, h_c) = self.lstm(x, (h_s, h_c))
-        
-        # Debugging: Print output shape after LSTM
-        # print(f"Output shape after LSTM: {out.shape}")
-        
-        # Check if output shape is as expected before slicing
-        if len(out.shape) == 3:
-            out = out[:, -1, :]  # Get the last time step's output
-        else:
-            raise ValueError(f"Unexpected output shape from LSTM: {out.shape}")
-        
-        # Pass the LSTM output through the fully connected layer
+
+        # Apply dropout to the outputs of the LSTM
+        out = self.dropout(out)
+
+        # Get the output from the last time step
+        out = out[:, -1, :]  # Shape: (batch_size, hidden_units)
+
+        # Pass the output through the fully connected layer
         out = self.fc(out)
+
         return out, (h_s, h_c)
+
+    def apply_pruning(self):
+        # Apply pruning to the LSTM weights
+        for name, module in self.named_modules():
+            if isinstance(module, nn.LSTM):
+                # Prune input-hidden and hidden-hidden weights
+                for ln in range(self.num_layers):
+                    prune.l1_unstructured(module, name=f'weight_ih_l{ln}', amount=0.2)
+                    prune.l1_unstructured(module, name=f'weight_hh_l{ln}', amount=0.2)
+            elif isinstance(module, nn.Linear):
+                # Prune weights of the fully connected layer
+                prune.l1_unstructured(module, name='weight', amount=0.2)
+
+    def remove_pruning(self):
+        # Remove pruning reparameterization to finalize the model
+        for name, module in self.named_modules():
+            if isinstance(module, nn.LSTM):
+                for ln in range(self.num_layers):
+                    prune.remove(module, f'weight_ih_l{ln}')
+                    prune.remove(module, f'weight_hh_l{ln}')
+            elif isinstance(module, nn.Linear):
+                prune.remove(module, 'weight')
 
 
 class LSTMModelService:
@@ -47,31 +81,46 @@ class LSTMModelService:
     def build_lstm_model(self, params):
         """
         Build the LSTM model using the provided parameters.
-        
+
         :param params: Dictionary containing model parameters.
         :return: An instance of LSTMModel.
         """
         input_size = params.get("INPUT_SIZE", 3)  # Default input size set to 3, change if needed
         hidden_units = int(params["HIDDEN_UNITS"])  # Ensure hidden_units is an integer
         num_layers = int(params["LAYERS"])
-        
-        print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
-        return LSTMModel(input_size, hidden_units, num_layers, self.device)
+        dropout_prob = params.get("DROPOUT_PROB", 0.5)  # Default dropout probability
+
+        print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, "
+              f"num_layers={num_layers}, dropout_prob={dropout_prob}")
+
+        # Create an instance of the refactored LSTMModel
+        model = LSTMModel(
+            input_size=input_size,
+            hidden_units=hidden_units,
+            num_layers=num_layers,
+            device=self.device,
+            dropout_prob=dropout_prob
+        )
+
+        return model
 
     def save_model(self, model, model_path):
         """
-        Save the model to the specified path.
-        
+        Save the model to the specified path after removing pruning reparameterizations.
+
         :param model: The PyTorch model to save.
         :param model_path: The file path where the model will be saved.
         """
+        # Remove pruning reparameterizations before saving
+        model.remove_pruning()
+        # Save the model's state dictionary
         torch.save(model.state_dict(), model_path)
         print(f"Model saved to {model_path}")
 
     def create_and_save_lstm_model(self, params, model_path):
         """
         Build and save an LSTM model using the provided parameters.
-        
+
         :param params: Dictionary containing model parameters.
         :param model_path: The file path where the model will be saved.
         :return: The built LSTM model.

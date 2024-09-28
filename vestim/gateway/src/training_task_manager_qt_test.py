@@ -201,11 +201,16 @@ class TrainingTaskManager:
             self.logger.info("Starting training loop")
             hyperparams = self.convert_hyperparams(task['hyperparams'])
             model = task['model'].to(device)
+            # If pruning has been applied, ensure it's active
+            if hasattr(model, 'apply_pruning'):
+                model.apply_pruning()
+            
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
+            weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
 
             best_validation_loss = float('inf')
             patience_counter = 0
@@ -213,7 +218,7 @@ class TrainingTaskManager:
             last_validation_time = start_time
             early_stopping = False  # Initialize early stopping flag
 
-            optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'])
+            optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'], weight_decay=weight_decay)
             scheduler = self.training_service.get_scheduler(optimizer, step_size = lr_drop_period, gamma=lr_drop_factor)
 
             # Log the training progress for each epoch
@@ -342,6 +347,8 @@ class TrainingTaskManager:
         """Converts all relevant hyperparameters to the correct types."""
         hyperparams['LAYERS'] = int(hyperparams['LAYERS'])
         hyperparams['HIDDEN_UNITS'] = int(hyperparams['HIDDEN_UNITS'])
+        hyperparams['DROPOUT_PROB'] = float(hyperparams['DROPOUT_PROB'])
+        hyperparams['WEIGHT_DECAY'] = float(hyperparams['WEIGHT_DECAY'])
         hyperparams['BATCH_SIZE'] = int(hyperparams['BATCH_SIZE'])
         hyperparams['MAX_EPOCHS'] = int(hyperparams['MAX_EPOCHS'])
         hyperparams['INITIAL_LR'] = float(hyperparams['INITIAL_LR'])
