@@ -9,6 +9,7 @@ class LSTMModel(nn.Module):
         self.hidden_units = hidden_units
         self.num_layers = num_layers
         self.device = device  # Store the device in the model
+        self.dropout_prob = dropout_prob
 
         # Define the LSTM layer with dropout between layers
         self.lstm = nn.LSTM(

@@ -147,7 +147,7 @@ class VEstimTrainingSetupManager:
                 'input_size': model.input_size,
                 'hidden_units': model.hidden_units,
                 'num_layers': model.num_layers,
-                'dropout_prob': model.dropout
+                'dropout_prob': model.dropout_prob
             }
             num_learnable_params = self.calculate_learnable_parameters(model.num_layers, model.input_size, model.hidden_units)
 
