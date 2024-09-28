@@ -146,9 +146,10 @@ class TrainingTaskService:
         with open(model_path + '_hyperparams.json', 'w') as f:
             json.dump(model.hyperparams, f, indent=4)
 
-    def get_optimizer(self, model, lr):
+    def get_optimizer(self, model, lr, weight_decay=0):
+
         """Initialize the optimizer for the model."""
-        return optim.Adam(model.parameters(), lr=lr)
+        return optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     def get_scheduler(self, optimizer, step_size, gamma=0.1):
         """Initialize the learning rate scheduler with step size and gamma."""
