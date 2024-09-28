@@ -201,10 +201,10 @@ class TrainingTaskManager:
             self.logger.info("Starting training loop")
             hyperparams = self.convert_hyperparams(task['hyperparams'])
             model = task['model'].to(device)
-            # If pruning has been applied, ensure it's active
-            if hasattr(model, 'apply_pruning'):
-                model.apply_pruning()
-                print("Pruning applied to the model.")
+            # # If pruning has been applied, ensure it's active
+            # if hasattr(model, 'apply_pruning'):
+            #     model.apply_pruning()
+            #     print("Pruning applied to the model.")
             
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
@@ -373,10 +373,10 @@ class TrainingTaskManager:
             self.logger.error("No model instance found in task.")
             raise ValueError("No model instance found in task.")
 
-        # If pruning has been applied, remove it before saving the model
-        if hasattr(model, 'remove_pruning'):
-            model.remove_pruning()
-        # Save the model's state dictionary without pruning
+        # # If pruning has been applied, remove it before saving the model
+        # if hasattr(model, 'remove_pruning'):
+        #     model.remove_pruning()
+        # # Save the model's state dictionary without pruning
         torch.save(model.state_dict(), model_path)
         print(f"Model saved to {model_path}")
 
