@@ -4,7 +4,6 @@ import pandas as pd, h5py
 import torch
 from torch.utils.data import DataLoader, TensorDataset, SubsetRandomSampler
 from datetime import datetime
-from scipy.signal import savgol_filter  # Example filter (Savitzky-Golay for smoothing)
 import logging
 
 
@@ -12,21 +11,9 @@ class DataLoaderService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-    def apply_filter(self, data):
-        """
-        Apply filtering to the data to smooth it and reduce noise.
-        
-        :param data: Input data (numpy array) to be filtered.
-        :return: Filtered data (numpy array).
-        """
-        # Apply Savitzky-Golay filter to smooth the data (you can use other filters like a moving average, etc.)
-        # Adjust the window length and polyorder to match your needs.
-        filtered_data = savgol_filter(data, window_length=11, polyorder=2, axis=0)  # Change window_length and polyorder as per your requirement
-        return filtered_data
-
     def load_and_process_data(self, folder_path, lookback):
         """
-        Loads and processes HDF5 files into data sequences with padding and filtering.
+        Loads and processes HDF5 files into data sequences without padding or filtering.
 
         :param folder_path: Path to the folder containing the HDF5 files.
         :param lookback: The lookback window for creating sequences.
@@ -48,14 +35,11 @@ class DataLoaderService:
                     Temp = hdf5_file['Temp'][:]
                     Voltage = hdf5_file['Voltage'][:]
                     
-                    # Combine the input features and apply filtering
+                    # Combine the input features without filtering
                     X_data = np.column_stack((SOC, Current, Temp))
-                    X_data = self.apply_filter(X_data)  # Apply filtering
+                    Y_data = Voltage
                     
-                    # Filter the output (Voltage) as well
-                    Y_data = self.apply_filter(Voltage)
-                    
-                    # Create input-output sequences
+                    # Create input-output sequences without padding
                     X, y = self.create_data_sequence(X_data, Y_data, lookback)
                     if len(X) > 0 and len(y) > 0:
                         data_sequences.append(X)
@@ -74,14 +58,11 @@ class DataLoaderService:
         X_combined = np.concatenate(data_sequences, axis=0)
         y_combined = np.concatenate(target_sequences, axis=0)
 
-        # Clean up cache after processing
-        del data_sequences, target_sequences
-
         return X_combined, y_combined
 
     def create_data_sequence(self, X_data, Y_data, lookback):
         """
-        Creates input-output sequences from raw data arrays based on the lookback period with padding.
+        Creates input-output sequences from raw data arrays based on the lookback period without padding.
 
         :param X_data: Array of input data (features).
         :param Y_data: Array of output data (targets).
@@ -89,24 +70,15 @@ class DataLoaderService:
         :return: Sequences of inputs and outputs.
         """
         X_sequences, y_sequences = [], []
-
-        # Create sequences with padding at the beginning where necessary
         for i in range(lookback, len(X_data)):
-            # Pad the sequences at the start if necessary
-            if i - lookback < 0:
-                pad_length = lookback - i
-                X_padded = np.vstack([np.zeros((pad_length, X_data.shape[1])), X_data[0:i]])  # Zero-pad the sequence
-            else:
-                X_padded = X_data[i - lookback:i]  # Take the lookback window as the sequence
-
-            X_sequences.append(X_padded)
+            X_sequences.append(X_data[i - lookback:i])
             y_sequences.append(Y_data[i])
 
         return np.array(X_sequences), np.array(y_sequences)
 
     def create_data_loaders(self, folder_path, lookback, batch_size, num_workers, train_split=0.7, seed=None):
         """
-        Creates DataLoaders for training and validation data with filtering and padding.
+        Creates DataLoaders for training and validation data.
 
         :param folder_path: Path to the folder containing the data files.
         :param lookback: The lookback window for creating sequences.
@@ -141,20 +113,12 @@ class DataLoaderService:
         np.random.shuffle(indices)
 
         train_indices, valid_indices = indices[:train_size], indices[train_size:]
-        print(f"Train indices: {len(train_indices)}, Validation indices: {len(valid_indices)}")
 
         train_sampler = SubsetRandomSampler(train_indices)
         valid_sampler = SubsetRandomSampler(valid_indices)
-        print(f"Total training samples: {len(train_sampler)}")
-        print(f"Total validation samples: {len(valid_sampler)}")
 
         # Create DataLoaders with num_workers included
         train_loader = DataLoader(dataset, batch_size=batch_size, sampler=train_sampler, drop_last=True, num_workers=num_workers)
         val_loader = DataLoader(dataset, batch_size=batch_size, sampler=valid_sampler, drop_last=True, num_workers=num_workers)
-        print(f"Total number of batches in train_loader: {len(train_loader)}")
-        print(f"Total number of batches in val_loader: {len(val_loader)}")
-
-        # Clean up cache variables after DataLoaders are created
-        del X_tensor, y_tensor, indices, train_indices, valid_indices
 
         return train_loader, val_loader
