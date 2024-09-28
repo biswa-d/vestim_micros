@@ -24,21 +24,9 @@ class VEstimTestingService:
         """
         self.device = torch.device(device)
 
-    def load_model(self, model_path):
-        """
-        Loads a model from the specified .pth file.
-
-        :param model_path: Path to the model .pth file.
-        :return: The loaded model.
-        """
-        model = torch.load(model_path)
-        model.to(self.device)
-        model.eval()  # Set the model to evaluation mode
-        return model
 
     def test_model(self, model, test_loader, padding_size=0):
         model.eval()  # Ensure the model is in evaluation mode
-        
         total_rmse = 0
         total_mae = 0
         total_samples = 0
@@ -197,6 +185,15 @@ class VEstimTestingService:
 
 
     def run_testing(self, task, model_path, X_test, y_test, save_dir):
+        """
+        Runs the testing process for a given task and model, and saves the results.
+
+        :param task: Task containing model metadata and hyperparameters.
+        :param model_path: Path to the model .pth file.
+        :param X_test: Test input data (features).
+        :param y_test: Test output data (targets).
+        :param save_dir: Directory to save the test results.
+        """
         print(f"Entered run_testing for model at {model_path}")
         print(f"Task hyperparameters: {task['model_metadata']}")
         print(f"Test data shapes: X_test={X_test.shape}, y_test={y_test.shape}")
@@ -215,18 +212,34 @@ class VEstimTestingService:
                         num_layers=num_layers,
                         device=self.device)
 
-        # Load the model weights
+        # Load the model weights and remove pruning if needed
         try:
-            model.load_state_dict(torch.load(model_path))
+            model_state_dict = torch.load(model_path)
+
+            # Remove pruning-related parameters from the state dict
+            new_state_dict = {}
+            for key, value in model_state_dict.items():
+                if "_orig" in key:
+                    new_key = key.replace("_orig", "")
+                    new_state_dict[new_key] = value
+                elif "_mask" not in key:
+                    new_state_dict[key] = value
+
+            # Load the modified state dict
+            model.load_state_dict(new_state_dict)
+
+            # Remove pruning reparametrization
+            model.remove_pruning()  # Finalize the model by removing pruning masks
+
             model.eval()  # Set the model to evaluation mode
-            print("Model loaded and set to evaluation mode")
+            print("Model loaded, pruning removed, and set to evaluation mode")
         except Exception as e:
             print(f"Error loading model from {model_path}: {str(e)}")
             return
 
-        # Pad the test data to ensure the last batch matches the batch size
+        # Optionally pad the test data to ensure the last batch matches the batch size
         X_test_padded, y_test_padded, padding_size = self.pad_data(X_test, y_test, 100)
-        print(f" X_padded shape: {X_test_padded.shape}, y_padded shape: {y_test_padded.shape}, padding_size: {padding_size}")
+        print(f"X_padded shape: {X_test_padded.shape}, y_padded shape: {y_test_padded.shape}, padding_size: {padding_size}")
 
         # Create a DataLoader for testing
         test_dataset = TensorDataset(torch.tensor(X_test_padded, dtype=torch.float32), torch.tensor(y_test_padded, dtype=torch.float32))

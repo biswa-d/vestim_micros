@@ -333,6 +333,8 @@ class TrainingTaskManager:
 
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
+                if hasattr(model, 'remove_pruning'):
+                    model.remove_pruning()  # Remove pruning reparameterizations before saving
                 self.save_model(task)
 
             update_progress_callback.emit({'task_completed': True})

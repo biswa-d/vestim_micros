@@ -18,15 +18,40 @@ class VEstimTestingService:
 
     def load_model(self, model_path):
         """
-        Loads a model from the specified .pth file.
-
+        Loads a pruned model from the specified .pth file and removes pruning masks.
+        
         :param model_path: Path to the model .pth file.
-        :return: The loaded model.
+        :return: The loaded model with pruning removed.
         """
-        model = torch.load(model_path)
+        model_state_dict = torch.load(model_path)
+        
+        # Remove pruning-related parameters from the state dict
+        new_state_dict = {}
+        for key, value in model_state_dict.items():
+            if "_orig" in key:
+                new_key = key.replace("_orig", "")
+                new_state_dict[new_key] = value
+            elif "_mask" not in key:
+                new_state_dict[key] = value
+        
+        # Instantiate the model based on task hyperparameters
+        model_metadata = task["model_metadata"]
+        input_size = model_metadata["input_size"]
+        hidden_units = model_metadata["hidden_units"]
+        num_layers = model_metadata["num_layers"]
+        
+        # Instantiate the model
+        model = LSTMModel(input_size=input_size,
+                        hidden_units=hidden_units,
+                        num_layers=num_layers,
+                        device=self.device)
+        
+        # Load the new state dict into the model
+        model.load_state_dict(new_state_dict)
         model.to(self.device)
         model.eval()  # Set the model to evaluation mode
         return model
+
 
     def test_model(self, model, test_loader):
         """
@@ -121,28 +146,8 @@ class VEstimTestingService:
         print(f"Task hyperparameters: {task['model_metadata']}")
         print(f"Test data shapes: X_test={X_test.shape}, y_test={y_test.shape}")
 
-        # Extract hyperparameters from the task
-        model_metadata = task["model_metadata"]
-        input_size = model_metadata["input_size"]
-        hidden_units = model_metadata["hidden_units"]
-        num_layers = model_metadata["num_layers"]
-
-        print(f"Instantiating LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
-
-        # Instantiate the model
-        model = LSTMModel(input_size=input_size,
-                        hidden_units=hidden_units,
-                        num_layers=num_layers,
-                        device=self.device)
-
-        # Load the model weights
-        try:
-            model.load_state_dict(torch.load(model_path))
-            model.eval()  # Set the model to evaluation mode
-            print("Model loaded and set to evaluation mode")
-        except Exception as e:
-            print(f"Error loading model from {model_path}: {str(e)}")
-            return
+        # Load the model with pruning handled
+        model = self.load_model(model_path)
 
         # Create a DataLoader for testing
         test_dataset = TensorDataset(torch.tensor(X_test, dtype=torch.float32), torch.tensor(y_test, dtype=torch.float32))
@@ -167,4 +172,3 @@ class VEstimTestingService:
             print(f"Error saving test results: {str(e)}")
 
         return results
-

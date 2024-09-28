@@ -2,6 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.utils.prune as prune
 
+import torch
+import torch.nn as nn
+import torch.nn.utils.prune as prune
+
 class LSTMModel(nn.Module):
     def __init__(self, input_size, hidden_units, num_layers, device, dropout_prob=0.5):
         super(LSTMModel, self).__init__()
@@ -53,7 +57,7 @@ class LSTMModel(nn.Module):
         return out, (h_s, h_c)
 
     def apply_pruning(self):
-        # Apply pruning to the LSTM weights
+        """Apply pruning to the LSTM weights"""
         for name, module in self.named_modules():
             if isinstance(module, nn.LSTM):
                 # Prune input-hidden and hidden-hidden weights
@@ -65,7 +69,7 @@ class LSTMModel(nn.Module):
                 prune.l1_unstructured(module, name='weight', amount=0.2)
 
     def remove_pruning(self):
-        # Remove pruning reparameterization to finalize the model
+        """Remove pruning reparameterization to finalize the model"""
         for name, module in self.named_modules():
             if isinstance(module, nn.LSTM):
                 for ln in range(self.num_layers):
@@ -73,7 +77,6 @@ class LSTMModel(nn.Module):
                     prune.remove(module, f'weight_hh_l{ln}')
             elif isinstance(module, nn.Linear):
                 prune.remove(module, 'weight')
-
 
 class LSTMModelService:
     def __init__(self):
