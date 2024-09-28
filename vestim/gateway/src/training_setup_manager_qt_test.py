@@ -1,6 +1,6 @@
 import os, uuid, time
 import json
-from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
+from vestim.gateway.src.hyper_param_manager_qt_test import VEstimHyperParamManager
 from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
 from vestim.gateway.src.job_manager_qt import JobManager
 import logging
