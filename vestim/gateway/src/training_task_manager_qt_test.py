@@ -18,7 +18,7 @@ class TrainingTaskManager:
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.current_task = None
         self.stop_requested = False
-        self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.training_thread = None  # Initialize the training thread here for PyQt
        
         # WandB setup (optional)

@@ -42,7 +42,7 @@ class LSTMModel(nn.Module):
 
 class LSTMModelService:
     def __init__(self):
-        self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def build_lstm_model(self, params):
         """
