@@ -151,7 +151,7 @@ class VEstimTrainingSetupManager:
                 'hidden_units': model.hidden_units,
                 'hidden_gate_units': model.hidden_gate_units,  # Add hidden_gate_units
                 'num_layers': model.num_layers,
-                'dropout_prob': model['hyperparams']['DROPOUT_PROB']    
+                'dropout_prob': model_task['hyperparams']['DROPOUT_PROB']    
             }
             num_learnable_params = self.calculate_learnable_parameters(
                 model.num_layers, 
