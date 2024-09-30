@@ -286,7 +286,7 @@ class TrainingTaskManager:
                     if val_loss < best_validation_loss:
                         best_validation_loss = val_loss
                         patience_counter = 0
-                        self.save_model(task)
+                        # self.save_model(task)
                     else:
                         patience_counter += 1
 
