@@ -118,6 +118,7 @@ class VEstimHyperParamGUI(QWidget):
             # Add Dropout Probability and weight decay widget
             {"label": "Dropout Probability:", "default": self.params.get("DROPOUT_PROB", "0.1"), "tooltip": "Probability of dropout used in LSTM layers to prevent overfitting", "param": "DROPOUT_PROB"},
             {"label": "Weight Decay:", "default": self.params.get("WEIGHT_DECAY", "0.00001"), "tooltip": "Weight decay (L2 penalty) applied to the optimizer", "param": "WEIGHT_DECAY"},
+            {"label": "Hidden Gate Units:", "default": self.params.get("HIDDEN_GATE_UNITS", "10"), "tooltip": "Number of neurons in the hidden layers of the LSTM's internal gates (input gate, forget gate, and output gate)", "param": "HIDDEN_UNITS"},
         ]
 
         # Set bigger sizes for labels and entry boxes

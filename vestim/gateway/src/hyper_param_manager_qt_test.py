@@ -41,7 +41,7 @@ class VEstimHyperParamManager:
                 value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
                 
                 # Ensure values are integers for specific keys
-                if key in ['LAYERS', 'HIDDEN_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD', 'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS']:
+                if key in ['LAYERS', 'HIDDEN_UNITS', 'HIDDEN_GATE_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD', 'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS']:
                     # Ensure values are integers
                     if not all(v.isdigit() for v in value_list):
                         self.logger.error(f"Invalid value for {key}: {value_list} (expected integers)")

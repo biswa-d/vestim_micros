@@ -1,7 +1,7 @@
 import os, uuid, time
 import json
 from vestim.gateway.src.hyper_param_manager_qt_test import VEstimHyperParamManager
-from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
+from vestim.services.model_training.src.HLSTM_model_service import HLSTMModelService
 from vestim.gateway.src.job_manager_qt import JobManager
 import logging
 
@@ -19,7 +19,7 @@ class VEstimTrainingSetupManager:
             self.params = None
             self.current_hyper_params = None
             self.hyper_param_manager = VEstimHyperParamManager()  # Initialize your hyperparameter manager here
-            self.lstm_model_service = LSTMModelService()  # Initialize your model service here
+            self.lstm_model_service = HLSTMModelService()  # Initialize your model service here
             self.job_manager = job_manager  # JobManager should be passed in or initialized separately
             self.models = []  # Store model information
             self.training_tasks = []  # Store created tasks
@@ -67,55 +67,58 @@ class VEstimTrainingSetupManager:
                 self.progress_signal.emit(f"Error during setup: {str(e)}", "", 0)
 
     def build_models(self):
-        """Build and store the LSTM models based on hyperparameters."""
-        # Parse comma-separated values for hidden_units, layers, and dropout_prob
+        """Build and store the HLSTM models based on hyperparameters."""
+        # Parse comma-separated values for hidden_units, hidden_gate_units, layers, and dropout_prob
         hidden_units_list = [int(h) for h in self.params['HIDDEN_UNITS'].split(',')]
+        hidden_gate_units_list = [int(hg) for hg in self.params.get('HIDDEN_GATE_UNITS', '32').split(',')]
         layers_list = [int(l) for l in self.params['LAYERS'].split(',')]  # Allow multiple layers
         dropout_prob_list = [float(d) for d in self.params.get('DROPOUT_PROB', '0.5').split(',')]  # Parse multiple dropout values
 
-        # Iterate over all combinations of hidden_units, layers, and dropout_prob
+        # Iterate over all combinations of hidden_units, hidden_gate_units, layers, and dropout_prob
         for hidden_units in hidden_units_list:
-            for layers in layers_list:
-                for dropout_prob in dropout_prob_list:  # Iterate through dropout probabilities as well
-                    self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}, dropout_prob: {dropout_prob}")
-                    
-                    # Create model directory based on hidden_units, layers, and dropout_prob
-                    model_dir = os.path.join(
-                        self.job_manager.get_job_folder(), 
-                        'models', 
-                        f'model_lstm_hu_{hidden_units}_layers_{layers}_dropout_{dropout_prob}'
-                    )
-                    os.makedirs(model_dir, exist_ok=True)
+            for hidden_gate_units in hidden_gate_units_list:
+                for layers in layers_list:
+                    for dropout_prob in dropout_prob_list:  # Iterate through dropout probabilities as well
+                        self.logger.info(f"Creating model with hidden_units: {hidden_units}, hidden_gate_units: {hidden_gate_units}, "
+                                        f"layers: {layers}, dropout_prob: {dropout_prob}")
+                        
+                        # Create model directory based on hidden_units, hidden_gate_units, layers, and dropout_prob
+                        model_dir = os.path.join(
+                            self.job_manager.get_job_folder(), 
+                            'models', 
+                            f'model_hlstm_hu_{hidden_units}_hgu_{hidden_gate_units}_layers_{layers}_dropout_{dropout_prob}'
+                        )
+                        os.makedirs(model_dir, exist_ok=True)
 
-                    model_name = f"model_lstm_hu_{hidden_units}_layers_{layers}_dropout_{dropout_prob}.pth"
-                    model_path = os.path.join(model_dir, model_name)
+                        model_name = f"model_hlstm_hu_{hidden_units}_hgu_{hidden_gate_units}_layers_{layers}_dropout_{dropout_prob}.pth"
+                        model_path = os.path.join(model_dir, model_name)
 
-                    # Model parameters
-                    model_params = {
-                        "INPUT_SIZE": 3,  # Modify as needed
-                        "HIDDEN_UNITS": hidden_units,
-                        "LAYERS": layers,
-                        "DROPOUT_PROB": dropout_prob  # Pass the dropout probability to the model
-                    }
-
-                    # Create and save the LSTM model
-                    model = self.lstm_model_service.create_and_save_lstm_model(model_params, model_path)
-
-                    # Store model information
-                    self.models.append({
-                        'model': model,
-                        'model_dir': model_dir,
-                        'hyperparams': {
-                            'LAYERS': layers,
-                            'HIDDEN_UNITS': hidden_units,
-                            'DROPOUT_PROB': dropout_prob,
-                            'model_path': model_path
+                        # Model parameters
+                        model_params = {
+                            "INPUT_SIZE": 3,  # Modify as needed
+                            "HIDDEN_UNITS": hidden_units,
+                            "HIDDEN_GATE_UNITS": hidden_gate_units,
+                            "LAYERS": layers,
+                            "DROPOUT_PROB": dropout_prob  # Pass the dropout probability to the model
                         }
-                    })
-            
+
+                        # Create and save the HLSTM model
+                        model = self.lstm_model_service.create_and_save_hlstm_model(model_params, model_path)
+
+                        # Store model information
+                        self.models.append({
+                            'model': model,
+                            'model_dir': model_dir,
+                            'hyperparams': {
+                                'LAYERS': layers,
+                                'HIDDEN_UNITS': hidden_units,
+                                'HIDDEN_GATE_UNITS': hidden_gate_units,
+                                'DROPOUT_PROB': dropout_prob,
+                                'model_path': model_path
+                            }
+                        })
+        
         self.logger.info("Model building complete.")
-
-
 
     def create_training_tasks(self):
         """
@@ -143,13 +146,19 @@ class VEstimTrainingSetupManager:
         for model_task in self.models:
             model = model_task['model']
             model_metadata = {
-                'model_type': 'LSTMModel',
+                'model_type': 'HLSTMModel',
                 'input_size': model.input_size,
                 'hidden_units': model.hidden_units,
+                'hidden_gate_units': model.hidden_gate_units,  # Add hidden_gate_units
                 'num_layers': model.num_layers,
-                'dropout_prob': model.dropout_prob
+                'dropout_prob': model['hyperparams']['DROPOUT_PROB']    
             }
-            num_learnable_params = self.calculate_learnable_parameters(model.num_layers, model.input_size, model.hidden_units)
+            num_learnable_params = self.calculate_learnable_parameters(
+                model.num_layers, 
+                model.input_size, 
+                model.hidden_units, 
+                model.hidden_gate_units  # Add hidden_gate_units in calculation
+            )
 
             # Iterate through hyperparameters
             for lr in learning_rates:
@@ -191,6 +200,7 @@ class VEstimTrainingSetupManager:
                                                 'hyperparams': {
                                                     'LAYERS': model_metadata['num_layers'],
                                                     'HIDDEN_UNITS': model_metadata['hidden_units'],
+                                                    'HIDDEN_GATE_UNITS': model_metadata['hidden_gate_units'],
                                                     'DROPOUT_PROB': model_metadata['dropout_prob'],
                                                     'WEIGHT_DECAY': weight_decay,
                                                     'BATCH_SIZE': batch_size,
@@ -231,38 +241,35 @@ class VEstimTrainingSetupManager:
             print(f"Created {len(self.training_tasks)} training tasks.")
             self.progress_signal.emit(f"Created {task_count} training tasks and saved to disk.", self.job_manager.get_job_folder(), task_count)
 
-    def calculate_learnable_parameters(self, layers, input_size, hidden_units):
+    def calculate_learnable_parameters(self, layers, input_size, hidden_units, hidden_gate_units):
         """
-        Calculate the number of learnable parameters for an LSTM model.
+        Calculate the number of learnable parameters for an HLSTM model.
 
-        :param layers: Number of layers (an integer representing the number of LSTM layers)
+        :param layers: Number of layers (an integer representing the number of HLSTM layers)
         :param input_size: The size of the input features (e.g., 3 for [SOC, Current, Temp])
         :param hidden_units: An integer representing the number of hidden units in each layer
+        :param hidden_gate_units: An integer representing the number of hidden gate units in each LSTM gate
         :return: Total number of learnable parameters
         """
-
-        # Initialize the number of parameters
         learnable_params = 0
 
-        # Input-to-hidden weights for the first layer (4 * hidden_units * (input_size + hidden_units))
-        # We account for 4 gates (input, forget, output, and candidate gates)
-        input_layer_params = 4 * (input_size + hidden_units) * hidden_units
+        # Input-to-hidden and gate layers (using hidden gate units)
+        input_layer_params = (input_size + hidden_units) * hidden_gate_units * 4  # 4 gates with hidden layers
+        input_gate_params = hidden_gate_units * hidden_units * 4  # Gate layer to hidden units (4 gates)
+        input_layer_bias = 4 * hidden_units  # Bias for 4 gates
+        learnable_params += input_layer_params + input_gate_params + input_layer_bias
 
-        # Add bias terms for each gate in the first layer
-        input_layer_bias = 4 * hidden_units
-
-        learnable_params += input_layer_params + input_layer_bias
-
-        # For each additional LSTM layer, it's hidden_units -> hidden_units
+        # Hidden-to-hidden layers for subsequent layers
         for i in range(1, layers):
-            hidden_layer_params = 4 * (hidden_units + hidden_units) * hidden_units
-            hidden_layer_bias = 4 * hidden_units
-            learnable_params += hidden_layer_params + hidden_layer_bias
+            hidden_layer_params = (hidden_units + hidden_units) * hidden_gate_units * 4
+            hidden_gate_params = hidden_gate_units * hidden_units * 4
+            hidden_layer_bias = 4 * hidden_units  # Bias for 4 gates
+            learnable_params += hidden_layer_params + hidden_gate_params + hidden_layer_bias
 
-        # Output layer (assuming 1 output)
+        # Output layer (1 output)
         output_size = 1
         output_layer_params = hidden_units * output_size
-        output_layer_bias = output_size  # 1 bias for the output layer
+        output_layer_bias = output_size  # Bias for output
         learnable_params += output_layer_params + output_layer_bias
 
         return learnable_params

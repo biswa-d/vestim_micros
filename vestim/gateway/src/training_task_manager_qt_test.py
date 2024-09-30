@@ -7,6 +7,7 @@ from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 from vestim.services.model_training.src.data_loader_service_test_h5 import DataLoaderService
 from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
+from vestim.services.model_training.src.HLSTM_model_service import HLSTMModelService
 import logging, wandb
 
 class TrainingTaskManager:
@@ -203,7 +204,8 @@ class TrainingTaskManager:
             model = task['model'].to(device)
             # If pruning has been applied, ensure it's active
             if hasattr(model, 'apply_pruning'):
-                model.apply_pruning()
+                dropout_prob = hyperparams.get('DROPOUT_PROB', 0.2)
+                model.apply_pruning(drop_out=dropout_prob)
                 print("Pruning applied to the model.")
             
             max_epochs = hyperparams['MAX_EPOCHS']
@@ -350,6 +352,7 @@ class TrainingTaskManager:
         """Converts all relevant hyperparameters to the correct types."""
         hyperparams['LAYERS'] = int(hyperparams['LAYERS'])
         hyperparams['HIDDEN_UNITS'] = int(hyperparams['HIDDEN_UNITS'])
+        hyperparams['HIDDEN_GATE_UNITS'] = int(hyperparams['HIDDEN_GATE_UNITS'])
         hyperparams['DROPOUT_PROB'] = float(hyperparams['DROPOUT_PROB'])
         hyperparams['WEIGHT_DECAY'] = float(hyperparams['WEIGHT_DECAY'])
         hyperparams['BATCH_SIZE'] = int(hyperparams['BATCH_SIZE'])

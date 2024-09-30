@@ -12,7 +12,7 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from vestim.services.model_training.src.LSTM_model_service import LSTMModel
+from vestim.services.model_training.src.HLSTM_model_service import HLSTMModel
 
 class VEstimTestingService:
     def __init__(self, device='cpu'):
@@ -203,14 +203,19 @@ class VEstimTestingService:
         input_size = model_metadata["input_size"]
         hidden_units = model_metadata["hidden_units"]
         num_layers = model_metadata["num_layers"]
+        hidden_gate_units = model_metadata["hidden_gate_units"]  # Include hidden_gate_units
 
-        print(f"Instantiating LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
+        print(f"Instantiating HLSTM model with input_size={input_size}, hidden_units={hidden_units}, "
+            f"hidden_gate_units={hidden_gate_units}, num_layers={num_layers}")
 
-        # Instantiate the model
-        model = LSTMModel(input_size=input_size,
-                        hidden_units=hidden_units,
-                        num_layers=num_layers,
-                        device=self.device)
+        # Instantiate the HLSTM model
+        model = HLSTMModel(
+            input_size=input_size,
+            hidden_units=hidden_units,
+            num_layers=num_layers,
+            hidden_gate_units=hidden_gate_units,
+            device=self.device
+        )
 
         # Load the model weights and remove pruning if needed
         try:
@@ -244,24 +249,3 @@ class VEstimTestingService:
 
         # Create a DataLoader for testing
         test_dataset = TensorDataset(torch.tensor(X_test_padded, dtype=torch.float32), torch.tensor(y_test_padded, dtype=torch.float32))
-        test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False)
-
-        # Run the testing process
-        try:
-            results = self.test_model(model, test_loader, padding_size)
-            print("Model testing completed")
-        except Exception as e:
-            print(f"Error during model testing: {str(e)}")
-            return
-
-        # Get the model name for saving results
-        model_name = os.path.splitext(os.path.basename(model_path))[0]
-
-        # Save the test results
-        try:
-            self.save_test_results(results, model_name, save_dir)
-            print(f"Test results saved for model: {model_name}")
-        except Exception as e:
-            print(f"Error saving test results: {str(e)}")
-
-        return results
