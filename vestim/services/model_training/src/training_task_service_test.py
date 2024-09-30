@@ -46,6 +46,7 @@ class TrainingTaskService:
         
     def train_epoch(self, model, train_loader, optimizer, h_s, h_c, epoch, device, stop_requested, task):
         """Train the model for a single epoch."""
+        print("Entering train_epoch")
         model.train()
         total_train_loss = []
         batch_times = []  # Store time per batch
@@ -63,7 +64,7 @@ class TrainingTaskService:
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
 
             optimizer.zero_grad()
-            y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
+            y_pred, h_s, h_c = model(X_batch, h_s, h_c)
             y_pred = y_pred.squeeze(-1)
 
             loss = self.criterion(y_pred, y_batch)
@@ -89,6 +90,7 @@ class TrainingTaskService:
             
             # Clear unused memory
             del X_batch, y_batch, y_pred  # Explicitly clear tensors
+            torch.cuda.empty_cache()
 
         avg_batch_time = sum(batch_times) / len(batch_times)  # Average batch time
         return avg_batch_time, sum(total_train_loss) / len(total_train_loss)
@@ -111,7 +113,7 @@ class TrainingTaskService:
 
                 start_batch_time = time.time()  # Start timing for this batch
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-                y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
+                y_pred, h_s, h_c = model(X_batch, h_s, h_c)
                 y_pred = y_pred.squeeze(-1)
 
                 loss = self.criterion(y_pred, y_batch)
@@ -135,6 +137,7 @@ class TrainingTaskService:
                 
                 # Clear unused memory
                 del X_batch, y_batch, y_pred  # Explicitly clear tensors
+                torch.cuda.empty_cache()
 
         return  total_loss / total_samples
 

@@ -199,6 +199,8 @@ class TrainingTaskManager:
     def run_training(self, task, update_progress_callback, train_loader, val_loader, device):
         """Run the training process for a single task."""
         try:
+            # Enable anomaly detection to trace the specific issue
+            torch.autograd.set_detect_anomaly(True)
             self.logger.info("Starting training loop")
             hyperparams = self.convert_hyperparams(task['hyperparams'])
             model = task['model'].to(device)
@@ -233,6 +235,7 @@ class TrainingTaskManager:
 
             # Training loop
             for epoch in range(1, max_epochs + 1):
+                print(f"Starting epoch {epoch}...")
                 if self.stop_requested:  # Ensure thread safety here
                     self.logger.info("Training stopped by user")
                     print("Stopping training...")
@@ -241,16 +244,19 @@ class TrainingTaskManager:
                 # Initialize hidden states for training phase
                 h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
                 h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
+                print("hidden states initialized")
 
                 # Measure time for the training loop
                 epoch_start_time = time.time()
 
                 # Train the model for one epoch
+                print("Calling train epoch...")
                 avg_batch_time, train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task)
 
                 epoch_end_time = time.time()
                 epoch_duration = epoch_end_time - epoch_start_time
                 formatted_epoch_time = format_time(epoch_duration)  # Convert epoch time to mm:ss format
+                print(f"Epoch {epoch} completed in {formatted_epoch_time}")
 
                 if self.stop_requested:
                     self.logger.info("Training stopped by user")
@@ -262,6 +268,7 @@ class TrainingTaskManager:
                     h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
                     h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
 
+                    print("Entering validation phase...")
                     val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested, task)
                     self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
 

@@ -47,7 +47,7 @@ class VEstimTestingService:
                 # print(f"Batch {batch_idx + 1}: h_s shape: {h_s.shape}, h_c shape: {h_c.shape}")
                 
                 # Forward pass
-                y_pred_tensor, _ = model(X_batch.to(self.device), h_s, h_c)
+                y_pred_tensor, h_s, h_c = model(X_batch.to(self.device), h_s, h_c)
                 # print(f"Batch {batch_idx + 1}: y_pred_tensor shape: {y_pred_tensor.shape}")
                 
 
@@ -246,6 +246,26 @@ class VEstimTestingService:
         # Optionally pad the test data to ensure the last batch matches the batch size
         X_test_padded, y_test_padded, padding_size = self.pad_data(X_test, y_test, 100)
         print(f"X_padded shape: {X_test_padded.shape}, y_padded shape: {y_test_padded.shape}, padding_size: {padding_size}")
-
-        # Create a DataLoader for testing
+        
         test_dataset = TensorDataset(torch.tensor(X_test_padded, dtype=torch.float32), torch.tensor(y_test_padded, dtype=torch.float32))
+        test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False)
+
+        # Run the testing process
+        try:
+            results = self.test_model(model, test_loader, padding_size)
+            print("Model testing completed")
+        except Exception as e:
+            print(f"Error during model testing: {str(e)}")
+            return
+
+        # Get the model name for saving results
+        model_name = os.path.splitext(os.path.basename(model_path))[0]
+
+        # Save the test results
+        try:
+            self.save_test_results(results, model_name, save_dir)
+            print(f"Test results saved for model: {model_name}")
+        except Exception as e:
+            print(f"Error saving test results: {str(e)}")
+
+        return results

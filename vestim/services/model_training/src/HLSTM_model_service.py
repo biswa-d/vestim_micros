@@ -36,7 +36,7 @@ class HLSTMCell(nn.Module):
 
         # Compute the cell state update
         cell_state = torch.tanh(self.cell_state_fc2(torch.relu(self.cell_state_fc1(combined))))
-        c_next = forget_gate * c + input_gate * cell_state
+        c_next = forget_gate * c.clone() + input_gate * cell_state
 
         # Compute the hidden state output
         h_next = output_gate * torch.tanh(c_next)
@@ -73,7 +73,10 @@ class HLSTMModel(nn.Module):
         for t in range(seq_len):
             x_t = x[:, t, :]
             for layer in range(self.num_layers):
-                h_s[layer], c_s[layer] = self.cells[layer](x_t, h_s[layer], c_s[layer])
+                # Create new tensors for h_next and c_next
+                h_next, c_next = self.cells[layer](x_t, h_s[layer], c_s[layer])
+                h_s[layer] = h_next  # Assign new tensor to avoid in-place operation
+                c_s[layer] = c_next
                 x_t = h_s[layer]
 
         # Use the hidden state of the last layer as output
