@@ -37,10 +37,10 @@ class LSTMModel(nn.Module):
         # Ensure the input is on the correct device
         x = x.to(self.device)
 
-        # Initialize hidden and cell states if not provided
-        if h_s is None or h_c is None:
-            h_s = torch.zeros(self.num_layers, x.size(0), self.hidden_units).to(self.device)
-            h_c = torch.zeros(self.num_layers, x.size(0), self.hidden_units).to(self.device)
+        # # Initialize hidden and cell states if not provided
+        # if h_s is None or h_c is None:
+        #     h_s = torch.zeros(self.num_layers, x.size(0), self.hidden_units).to(self.device)
+        #     h_c = torch.zeros(self.num_layers, x.size(0), self.hidden_units).to(self.device)
 
         # Pass input through LSTM
         out, (h_s, h_c) = self.lstm(x, (h_s, h_c))

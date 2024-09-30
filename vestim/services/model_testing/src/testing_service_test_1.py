@@ -54,7 +54,7 @@ class VEstimTestingService:
                 all_true_values.append(y_batch.cpu().numpy())
 
                 # Compute errors for each batch and accumulate
-                y_pred = y_pred_tensor.cpu().numpy()
+                y_pred = y_pred_tensor.cpu().numpy().flatten()
                 y_true = y_batch.cpu().numpy()
 
                 batch_rmse = np.sqrt(mean_squared_error(y_true, y_pred)) * 1000  # Convert to mV
