@@ -337,7 +337,9 @@ class TrainingTaskManager:
                 self.save_model(task)
 
             update_progress_callback.emit({'task_completed': True})
-            self.logger.info("Training task completed")
+            self.save_model(task)
+            self.logger.info("Training task completed. Trained model saved to : {task['model_path']}")
+            self.logger.info("Training task completed. Trained model saved to : {task['model_path']}")
 
         except Exception as e:
             self.logger.error(f"Error during training: {str(e)}")
