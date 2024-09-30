@@ -203,7 +203,8 @@ class TrainingTaskManager:
             model = task['model'].to(device)
             # If pruning has been applied, ensure it's active
             if hasattr(model, 'apply_pruning'):
-                model.apply_pruning()
+                dropout = hyperparams.get('DROPOUT_PROB', 0.2)
+                model.apply_pruning(dropout=dropout)
                 print("Pruning applied to the model.")
             
             max_epochs = hyperparams['MAX_EPOCHS']

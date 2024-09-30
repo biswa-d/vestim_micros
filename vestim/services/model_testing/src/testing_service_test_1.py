@@ -42,11 +42,11 @@ class VEstimTestingService:
                 # Initialize hidden and cell states based on batch size
                 h_s = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
                 h_c = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
-                print(f"Batch {batch_idx + 1}: h_s shape: {h_s.shape}, h_c shape: {h_c.shape}")
+                # print(f"Batch {batch_idx + 1}: h_s shape: {h_s.shape}, h_c shape: {h_c.shape}")
                 
                 # Forward pass
                 y_pred_tensor, _ = model(X_batch.to(self.device), h_s, h_c)
-                print(f"Batch {batch_idx + 1}: y_pred_tensor shape: {y_pred_tensor.shape}")
+                # print(f"Batch {batch_idx + 1}: y_pred_tensor shape: {y_pred_tensor.shape}")
                 
 
                 # Collect predictions and true values
