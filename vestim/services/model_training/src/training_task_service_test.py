@@ -64,9 +64,9 @@ class TrainingTaskService:
 
             optimizer.zero_grad()
             y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
-            y_pred = y_pred.squeeze(-1)
+            # y_pred = y_pred.squeeze(-1)
 
-            loss = self.criterion(y_pred, y_batch)
+            loss = self.criterion(y_pred[:, -1, :], y_batch)
             loss.backward()
             optimizer.step()
 
@@ -112,9 +112,10 @@ class TrainingTaskService:
                 start_batch_time = time.time()  # Start timing for this batch
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
-                y_pred = y_pred.squeeze(-1)
+                # y_pred = y_pred.squeeze(-1)
 
-                loss = self.criterion(y_pred, y_batch)
+                # loss = self.criterion(y_pred, y_batch)
+                loss = self.criterion(y_pred[:, -1, :], y_batch)
                 total_loss += loss.item() * X_batch.size(0)
                 total_samples += X_batch.size(0)
 

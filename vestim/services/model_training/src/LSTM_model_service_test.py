@@ -29,11 +29,11 @@ class LSTMModel(nn.Module):
         # Debugging: Print output shape after LSTM
         # print(f"Output shape after LSTM: {out.shape}")
         
-        # Check if output shape is as expected before slicing
-        if len(out.shape) == 3:
-            out = out[:, -1, :]  # Get the last time step's output
-        else:
-            raise ValueError(f"Unexpected output shape from LSTM: {out.shape}")
+        # # Check if output shape is as expected before slicing
+        # if len(out.shape) == 3:
+        #     out = out[:, -1, :]  # Get the last time step's output
+        # else:
+        #     raise ValueError(f"Unexpected output shape from LSTM: {out.shape}")
         
         # Pass the LSTM output through the fully connected layer
         out = self.fc(out)

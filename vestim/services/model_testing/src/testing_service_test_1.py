@@ -36,19 +36,17 @@ class VEstimTestingService:
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(test_loader):
                 batch_size = X_batch.size(0)
-
-                # Reshape X_batch to [batch_size, seq_len, input_size]
-                X_batch = X_batch.unsqueeze(1)  # Adds a sequence length of 1
-                # print(f"Batch {batch_idx + 1}: X_batch shape after unsqueeze: {X_batch.shape}, batch_size: {batch_size}")
+                X_batch = X_batch.unsqueeze(1)  # Add a sequence length of 1
+                print(f"Batch {batch_idx + 1}: X_batch shape: {X_batch.shape}, y_batch shape: {y_batch.shape}")
                 
                 # Initialize hidden and cell states based on batch size
                 h_s = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
                 h_c = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
-                # print(f"Batch {batch_idx + 1}: h_s shape: {h_s.shape}, h_c shape: {h_c.shape}")
+                print(f"Batch {batch_idx + 1}: h_s shape: {h_s.shape}, h_c shape: {h_c.shape}")
                 
                 # Forward pass
                 y_pred_tensor, _ = model(X_batch.to(self.device), h_s, h_c)
-                # print(f"Batch {batch_idx + 1}: y_pred_tensor shape: {y_pred_tensor.shape}")
+                print(f"Batch {batch_idx + 1}: y_pred_tensor shape: {y_pred_tensor.shape}")
                 
 
                 # Collect predictions and true values
@@ -203,6 +201,7 @@ class VEstimTestingService:
         input_size = model_metadata["input_size"]
         hidden_units = model_metadata["hidden_units"]
         num_layers = model_metadata["num_layers"]
+        batch_size = task['hyperparams']['BATCH_SIZE']
 
         print(f"Instantiating LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
 
@@ -244,7 +243,7 @@ class VEstimTestingService:
 
         # Create a DataLoader for testing
         test_dataset = TensorDataset(torch.tensor(X_test_padded, dtype=torch.float32), torch.tensor(y_test_padded, dtype=torch.float32))
-        test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
         # Run the testing process
         try:
