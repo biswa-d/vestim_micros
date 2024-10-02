@@ -335,7 +335,9 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.status_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: #004d99;")
 
         # Start processing tasks sequentially
-        self.start_time = time.time()
+        # Set the start time only once when the first task starts
+        if self.start_time is None:
+            self.start_time = time.time()
         self.clear_plot()
 
         # Start the training task in a background thread
