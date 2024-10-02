@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.utils.prune as prune
 
 class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_units, num_layers, device, dropout_prob=0.5):
+    def __init__(self, input_size, hidden_units, num_layers, device, dropout_prob=0.0):
         super(LSTMModel, self).__init__()
         self.input_size = input_size
         self.hidden_units = hidden_units
@@ -28,28 +28,17 @@ class LSTMModel(nn.Module):
         self.dropout = nn.Dropout(p=dropout_prob)
 
         # Define the fully connected layer
-        self.fc = nn.Linear(hidden_units, 1).to(self.device)  # Assuming regression
-
-        # Apply pruning to the LSTM and fully connected layers
-        # self.apply_pruning()
+        self.fc = nn.Linear(hidden_units, 1).to(self.device)  
 
     def forward(self, x, h_s=None, h_c=None):
         # Ensure the input is on the correct device
         x = x.to(self.device)
-
-        # # Initialize hidden and cell states if not provided
-        # if h_s is None or h_c is None:
-        #     h_s = torch.zeros(self.num_layers, x.size(0), self.hidden_units).to(self.device)
-        #     h_c = torch.zeros(self.num_layers, x.size(0), self.hidden_units).to(self.device)
 
         # Pass input through LSTM
         out, (h_s, h_c) = self.lstm(x, (h_s, h_c))
 
         # Apply dropout to the outputs of the LSTM
         out = self.dropout(out)
-
-        # Get the output from the last time step
-        # out = out[:, -1, :]  # Shape: (batch_size, hidden_units)
 
         # Pass the output through the fully connected layer
         out = self.fc(out)
