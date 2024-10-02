@@ -19,7 +19,7 @@ class VEstimTestingManager:
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.testing_service = VEstimTestingService()
         self.test_data_service = VEstimTestDataService()
-        self.device = 'cuda:2' if torch.cuda.is_available() else 'cpu'
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.max_workers = 4  # Number of concurrent threads
         self.queue = None  # Initialize the queue attribute
         self.stop_flag = False  # Initialize the stop flag attribute
