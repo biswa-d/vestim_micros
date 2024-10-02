@@ -9,15 +9,17 @@ from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.services.model_testing.src.testing_service_test import VEstimTestingService
 from vestim.services.model_testing.src.test_data_service_test_pouch import VEstimTestDataService
 from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
+import logging
 
 class VEstimTestingManager:
     def __init__(self):
         print("Initializing VEstimTestingManager...")
+        self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()  # Singleton instance of JobManager
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.testing_service = VEstimTestingService()
         self.test_data_service = VEstimTestDataService()
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = 'cuda:2' if torch.cuda.is_available() else 'cpu'
         self.max_workers = 4  # Number of concurrent threads
         self.queue = None  # Initialize the queue attribute
         self.stop_flag = False  # Initialize the stop flag attribute
@@ -39,8 +41,8 @@ class VEstimTestingManager:
         try:
             print("Getting test folder and results save directory...")
             test_folder = self.job_manager.get_test_folder()
-            save_dir = self.job_manager.get_test_results_folder()
-            print(f"Test folder: {test_folder}, Save directory: {save_dir}")
+            # save_dir = self.job_manager.get_test_results_folder()
+            # print(f"Test folder: {test_folder}, Save directory: {save_dir}")
 
             # Retrieve task list
             print("Retrieving task list from TrainingSetupManager...")
@@ -59,7 +61,7 @@ class VEstimTestingManager:
             # Execute tasks in parallel using ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 future_to_task = {
-                    executor.submit(self._test_single_model, task, idx, test_folder, save_dir): task
+                    executor.submit(self._test_single_model, task, idx, test_folder): task
                     for idx, task in enumerate(task_list)
                 }
 
@@ -80,7 +82,8 @@ class VEstimTestingManager:
             print(f"An error occurred during testing: {str(e)}")
             self.queue.put({'task_error': str(e)})
 
-    def _test_single_model(self, task, idx, test_folder, save_dir):
+
+    def _test_single_model(self, task, idx, test_folder):
         """Test a single model and save the result."""
         try:
             print(f"Preparing test data for Task {idx + 1}...")
@@ -88,17 +91,20 @@ class VEstimTestingManager:
             # Extract lookback, learnable params and model path from the task
             lookback = task['hyperparams']['LOOKBACK']
             model_path = task['model_path']
+            save_dir = task['task_dir']
             num_learnable_params = task['hyperparams']['NUM_LEARNABLE_PARAMS']
             print(f"Testing model: {model_path} with lookback: {lookback}")
 
             print("Loading and processing test data...")
+            self.logger.info(f"Loading and processing test data")
             X_test, y_test = self.test_data_service.load_and_process_data(test_folder, lookback)
+        
 
             print("Generating shorthand name for model...")
             shorthand_name = self.generate_shorthand_name(task)
 
             # Run the testing process and get results
-            results = self.testing_service.run_testing(task, model_path, X_test, y_test, save_dir)
+            results = self.testing_service.run_testing(task, model_path, X_test, y_test, save_dir, self.device)
 
             # Log the test results to CSV and SQLite
             csv_log_file = task['csv_log_file']
@@ -113,6 +119,7 @@ class VEstimTestingManager:
             print(f"Results for model {shorthand_name}: {results}")
             self.queue.put({
                 'task_completed': {
+                    'saved_dir': save_dir,
                     'sl_no': idx + 1,
                     'model': shorthand_name,
                     '#params': num_learnable_params,
@@ -196,5 +203,3 @@ class VEstimTestingManager:
                 'MAPE': results['mape'],
                 'R2': results['r2']
             })
-
-

@@ -237,7 +237,7 @@ class VEstimTestingService:
             print(f"Error loading model from {model_path}: {str(e)}")
             return
 
-        # Optionally pad the test data to ensure the last batch matches the batch size
+        # Pad the test data to ensure the last batch matches the batch size
         X_test_padded, y_test_padded, padding_size = self.pad_data(X_test, y_test, 100)
         print(f"X_padded shape: {X_test_padded.shape}, y_padded shape: {y_test_padded.shape}, padding_size: {padding_size}")
 

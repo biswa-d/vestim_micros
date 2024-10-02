@@ -45,7 +45,8 @@ class VEstimTestDataService:
             print(f"Extracted features with shape: {X_data.shape} and target with shape: {Y_data.shape}.")
             
             # Create sequences using the lookback window
-            X, y = self.create_data_sequence(X_data, Y_data, lookback)
+            lookback = 1  # Set lookback to 1 for testing
+            X, y = self.create_data_sequence(X_data, Y_data, lookback) # lookback=1 for single time step during testing
             print(f"Created input sequences with shape: {X.shape} and output sequences with shape: {y.shape}.")
             
             # Store the sequences

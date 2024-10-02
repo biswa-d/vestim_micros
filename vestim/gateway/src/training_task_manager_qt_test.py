@@ -253,6 +253,7 @@ class TrainingTaskManager:
                 if self.stop_requested:
                     self.logger.info("Training stopped by user")
                     print("Training stopped after training phase.")
+                    self.logger.info("Training stopped after training phase.")
                     break
 
                 # Only validate at specified frequency
@@ -293,6 +294,7 @@ class TrainingTaskManager:
                     if patience_counter > valid_patience:
                         early_stopping = True
                         print(f"Early stopping at epoch {epoch} due to no improvement.")
+                        self.logger.info(f"Early stopping at epoch {epoch} due to no improvement.")
                         
                         # Ensure that we log the final epoch before breaking out
                         model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
@@ -334,6 +336,7 @@ class TrainingTaskManager:
 
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
+                self.logger.info("Training was stopped early. Saving Model...")
                 self.save_model(task)
 
             update_progress_callback.emit({'task_completed': True})
@@ -373,10 +376,6 @@ class TrainingTaskManager:
             self.logger.error("No model instance found in task.")
             raise ValueError("No model instance found in task.")
 
-        # # If pruning has been applied, remove it before saving the model
-        # if hasattr(model, 'remove_pruning'):
-        #     model.remove_pruning()
-        # # Save the model's state dictionary without pruning
         torch.save(model.state_dict(), model_path)
         print(f"Model saved to {model_path}")
 
