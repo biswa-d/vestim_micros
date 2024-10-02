@@ -6,9 +6,10 @@ import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from queue import Queue, Empty
+import logging  
 
 # Import your services
-from vestim.gateway.src.testing_manager_qt_test_1 import VEstimTestingManager
+from vestim.gateway.src.testing_manager_qt_test import VEstimTestingManager
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 from vestim.gateway.src.hyper_param_manager_qt_test import VEstimHyperParamManager
@@ -21,6 +22,7 @@ class TestingThread(QThread):
 
     def __init__(self, testing_manager, queue):
         super().__init__()
+        self.logger = logging.getLogger(__name__)
         self.testing_manager = testing_manager
         self.queue = queue
         self.stop_flag = False
@@ -51,7 +53,7 @@ class TestingThread(QThread):
 class VEstimTestingGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-
+        self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
         self.testing_manager = VEstimTestingManager()
         self.hyper_param_manager = VEstimHyperParamManager()
@@ -236,6 +238,7 @@ class VEstimTestingGUI(QMainWindow):
     def add_result_row(self, result):
         # Add each result as a row in the QTreeWidget
         print(f"Adding result row: {result}")
+        self.logger.info(f"Adding result row: {result}")
         task_data = result.get('task_completed')
         if task_data:
             save_dir = task_data.get("saved_dir")
