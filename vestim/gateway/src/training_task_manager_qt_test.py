@@ -294,6 +294,7 @@ class TrainingTaskManager:
                     if patience_counter > valid_patience:
                         early_stopping = True
                         print(f"Early stopping at epoch {epoch} due to no improvement.")
+                        self.logger.info(f"Early stopping at epoch {epoch} due to no improvement.")
                         
                         # Ensure that we log the final epoch before breaking out
                         model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
@@ -335,12 +336,11 @@ class TrainingTaskManager:
 
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
+                self.logger.info("Training was stopped early. Saving Model...")
                 self.save_model(task)
 
             update_progress_callback.emit({'task_completed': True})
             self.save_model(task)
-            self.logger.info("Training task completed. Trained model saved to : {task['model_path']}")
-            self.logger.info("Training task completed. Trained model saved to : {task['model_path']}")
 
         except Exception as e:
             self.logger.error(f"Error during training: {str(e)}")
