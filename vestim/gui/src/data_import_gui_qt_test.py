@@ -1,8 +1,8 @@
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QFileDialog, QProgressBar, QWidget, QMessageBox, QComboBox
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QFileDialog, QProgressBar, QWidget, QMessageBox, QComboBox, QSizePolicy
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 
 import os, sys
-from vestim.gui.src.hyper_param_gui_qt import VEstimHyperParamGUI  # Adjust this import based on your actual path
+from vestim.gui.src.hyper_param_gui_qt_test import VEstimHyperParamGUI  # Adjust this import based on your actual path
 from vestim.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
 from vestim.services.data_processor.src.data_processor_qt_tesla import DataProcessorTesla
 from vestim.services.data_processor.src.data_processor_qt_pouch import DataProcessorPouch
@@ -265,6 +265,7 @@ class DataImportGUI(QMainWindow):
             font-size: 14px;
                                            
         """)
+        self.organize_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # Allow the button to expand horizontally
         self.organize_button.setEnabled(True)
         
         # Update the button action to move to the next screen

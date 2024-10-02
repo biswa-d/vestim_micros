@@ -11,11 +11,11 @@ from threading import Thread
 import logging, wandb
 
 # Import local services
-from vestim.services.model_training.src.training_task_service import TrainingTaskService
-from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
-from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
+from vestim.gateway.src.training_task_manager_qt_test import TrainingTaskManager
+from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gui.src.testing_gui_qt import VEstimTestingGUI
+from vestim.gui.src.testing_gui_qt_test import VEstimTestingGUI
 
 class TrainingThread(QThread):
     # Custom signals to emit data back to the main GUI
@@ -78,6 +78,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.param_labels = {
             "LAYERS": "Layers",
             "HIDDEN_UNITS": "Hidden Units",
+            "DROPOUT_PROB": "Dropout Probability",
             "BATCH_SIZE": "Batch Size",
             "MAX_EPOCHS": "Max Epochs",
             "INITIAL_LR": "Initial Learning Rate",

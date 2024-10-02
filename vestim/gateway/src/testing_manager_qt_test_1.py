@@ -1,3 +1,12 @@
+#----------------------------------------------------------------------------------------
+#Descrition: This file _1 is to implement the testing service without sequential data preparationfor testing the LSTM model
+#
+# Created On: Tue Sep 24 2024 16:51:14
+# Author: Biswanath Dehury
+# Company: Dr. Phil Kollmeyer's Battery Lab at McMaster University
+# Copyright (c) 2024 Biswanath Dehury, Dr. Phil Kollmeyer's Battery Lab at McMaster University
+#----------------------------------------------------------------------------------------
+
 import torch
 import os
 import json, hashlib, sqlite3, csv
@@ -6,8 +15,8 @@ from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.services.model_testing.src.testing_service_test import VEstimTestingService
-from vestim.services.model_testing.src.test_data_service_test_pouch import VEstimTestDataService
+from vestim.services.model_testing.src.testing_service_test_1 import VEstimTestingService
+from vestim.services.model_testing.src.test_data_service_test_pouch_1 import VEstimTestDataService
 from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 
 class VEstimTestingManager:
@@ -39,8 +48,8 @@ class VEstimTestingManager:
         try:
             print("Getting test folder and results save directory...")
             test_folder = self.job_manager.get_test_folder()
-            save_dir = self.job_manager.get_test_results_folder()
-            print(f"Test folder: {test_folder}, Save directory: {save_dir}")
+            # save_dir = self.job_manager.get_test_results_folder()
+            # print(f"Test folder: {test_folder}, Save directory: {save_dir}")
 
             # Retrieve task list
             print("Retrieving task list from TrainingSetupManager...")
@@ -59,7 +68,7 @@ class VEstimTestingManager:
             # Execute tasks in parallel using ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 future_to_task = {
-                    executor.submit(self._test_single_model, task, idx, test_folder, save_dir): task
+                    executor.submit(self._test_single_model, task, idx, test_folder): task
                     for idx, task in enumerate(task_list)
                 }
 
@@ -81,18 +90,20 @@ class VEstimTestingManager:
             self.queue.put({'task_error': str(e)})
 
 
-    def _test_single_model(self, task, idx, test_folder, save_dir):
+    def _test_single_model(self, task, idx, test_folder):
         """Test a single model and save the result."""
         try:
             print(f"Preparing test data for Task {idx + 1}...")
 
-            # Extract lookback and model path from the task
+            # Extract lookback, learnable params and model path from the task
             lookback = task['hyperparams']['LOOKBACK']
             model_path = task['model_path']
+            save_dir = task['task_dir']
+            num_learnable_params = task['hyperparams']['NUM_LEARNABLE_PARAMS']
             print(f"Testing model: {model_path} with lookback: {lookback}")
 
             print("Loading and processing test data...")
-            X_test, y_test = self.test_data_service.load_and_process_data(test_folder, lookback)
+            X_test, y_test = self.test_data_service.load_and_process_data(test_folder)
 
             print("Generating shorthand name for model...")
             shorthand_name = self.generate_shorthand_name(task)
@@ -113,8 +124,10 @@ class VEstimTestingManager:
             print(f"Results for model {shorthand_name}: {results}")
             self.queue.put({
                 'task_completed': {
+                    'saved_dir': save_dir,
                     'sl_no': idx + 1,
                     'model': shorthand_name,
+                    '#params': num_learnable_params,
                     'rms_error_mv': results['rms_error_mv'],
                     'mae_mv': results['mae_mv'],
                     'mape': results['mape'],

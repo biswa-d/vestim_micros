@@ -4,10 +4,13 @@ import sqlite3
 import torch
 from PyQt5.QtCore import QThread, pyqtSignal
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 from vestim.services.model_training.src.data_loader_service_padfil import DataLoaderService
-from vestim.services.model_training.src.training_task_service import TrainingTaskService
+from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
 import logging, wandb
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.multiprocessing as mp
 
 class TrainingTaskManager:
     def __init__(self):
@@ -19,6 +22,8 @@ class TrainingTaskManager:
         self.current_task = None
         self.stop_requested = False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.rank = 0  # Default to 0 for now, will be set dynamically in multi-GPU
+        self.world_size = torch.cuda.device_count()  # This will be 5 based on your setup
         self.training_thread = None  # Initialize the training thread here for PyQt
        
         # WandB setup (optional)
@@ -56,50 +61,42 @@ class TrainingTaskManager:
         cursor = conn.cursor()
 
         cursor.execute('''INSERT INTO task_logs (task_id, epoch, train_loss, val_loss, elapsed_time, avg_batch_time, learning_rate, 
-                        best_val_loss, num_learnable_params, batch_size, lookback, early_stopping, model_memory_usage)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                        best_val_loss, num_learnable_params, batch_size, lookback, max_epochs, early_stopping, model_memory_usage, device)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                     (task['task_id'], epoch, train_loss, val_loss, elapsed_time, avg_batch_time, task['hyperparams']['INITIAL_LR'], best_val_loss,
-                        task['hyperparams']['NUM_LEARNABLE_PARAMS'], task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'],
+                        task['hyperparams']['NUM_LEARNABLE_PARAMS'], task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'],task['hyperparams']['MAX_EPOCHS'],
                         early_stopping, model_memory_usage, self.device.type))
 
         conn.commit()
         conn.close()
 
-    def process_task(self, task, update_progress_callback):
-        """Process a single training task and set up logging."""
+    def process_task(self, task, update_progress_callback, rank, world_size):
         try:
             self.logger.info(f"Starting task with hyperparams: {task['hyperparams']}")
-            
-            # Generate a unique task ID for this task (e.g., based on time or task details)
-            task_id = f"task_{int(time.time())}"  # Example of task_id generation
 
-            # Set the task ID in the task dictionary for future reference
-            task['task_id'] = task_id
-
-            # Setup logging (SQL and CSV) for the job
             self.setup_job_logging(task)
-
-            # Task initialization and logging
             self.current_task = task
             self.stop_requested = False
 
-            # Ensure the task contains a valid model
             if 'model' not in task or task['model'] is None:
                 raise ValueError("Task does not contain a valid model instance.")
 
-            # Configuring DataLoader (send progress update via signal)
             self.logger.info("Configuring DataLoader")
             update_progress_callback.emit({'status': 'Configuring DataLoader...'})
 
-            # Create data loaders for the task
-            train_loader, val_loader = self.create_data_loaders(task)
-            self.logger.info(f"DataLoader configured for task: {task['hyperparams']}")
+            train_loader, val_loader = self.create_data_loaders(
+                folder_path=self.job_manager.get_train_folder(),
+                lookback=task['data_loader_params']['lookback'], 
+                batch_size=task['data_loader_params']['batch_size'], 
+                num_workers=4,
+                rank=rank,
+                world_size=world_size
+            )
 
-            # Update progress for starting training
+            self.logger.info(f"DataLoader configured for task: {task['hyperparams']}")
             update_progress_callback.emit({'status': f'Training LSTM model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
 
-            # Call the training method and pass logging information (task_id, db path)
-            self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
+            self.run_training(task, update_progress_callback, train_loader, val_loader, self.device, rank, world_size)
 
         except Exception as e:
             self.logger.error(f"Error during task processing: {str(e)}")
@@ -201,16 +198,35 @@ class TrainingTaskManager:
 
         return train_loader, val_loader
 
+    # Distributed Data Parallel (DDP) setup
+    def setup_ddp(rank, world_size):
+        dist.init_process_group("nccl", rank=rank, world_size=world_size)
+        torch.cuda.set_device(rank)
+
+    def cleanup_ddp():
+        dist.destroy_process_group()
+
     def run_training(self, task, update_progress_callback, train_loader, val_loader, device):
         """Run the training process for a single task."""
         try:
             self.logger.info("Starting training loop")
             hyperparams = self.convert_hyperparams(task['hyperparams'])
-            model = task['model'].to(device)
+            task_id = task['task_id']
+            model = task['model']
+            self.world_size = torch.cuda.device_count()  # Get number of GPUs
+            self.rank = dist.get_rank() if dist.is_initialized() else 0  # Get rank for DDP
+
+            self.setup_ddp(self.rank, self.world_size)
+            
+            # Move model to the correct GPU and wrap in DDP
+            model = model.to(device)
+            model = DDP(model, device_ids=[self.rank])
+
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
+            lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
 
             best_validation_loss = float('inf')
             patience_counter = 0
@@ -219,11 +235,10 @@ class TrainingTaskManager:
             early_stopping = False  # Initialize early stopping flag
 
             optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'])
-            scheduler = self.training_service.get_scheduler(optimizer, lr_drop_period)
+            scheduler = self.training_service.get_scheduler(optimizer, step_size=lr_drop_period, gamma=lr_drop_factor)
 
             # Log the training progress for each epoch
             def format_time(seconds):
-                """Format time into mm:ss format."""
                 minutes = seconds // 60
                 seconds = seconds % 60
                 return f"{int(minutes)}:{int(seconds):02d}"
@@ -235,15 +250,13 @@ class TrainingTaskManager:
                     print("Stopping training...")
                     break
 
-                # Initialize hidden states for training phase
-                h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
-                h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
+                # No need to initialize hidden states here
 
                 # Measure time for the training loop
                 epoch_start_time = time.time()
 
                 # Train the model for one epoch
-                avg_batch_time, train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task)
+                avg_batch_time, train_loss = self.training_service.train_epoch(model, train_loader, optimizer, epoch, device, self.stop_requested, task)
 
                 epoch_end_time = time.time()
                 epoch_duration = epoch_end_time - epoch_start_time
@@ -256,11 +269,8 @@ class TrainingTaskManager:
 
                 # Only validate at specified frequency
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
-                    h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
-                    h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
-
-                    val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested, task)
-                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
+                    val_loss = self.training_service.validate_epoch(model, val_loader, epoch, device, self.stop_requested, task)
+                    self.logger.info(f"Task ID: {task_id} | Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
 
                     current_time = time.time()
                     elapsed_time = current_time - start_time
@@ -292,14 +302,27 @@ class TrainingTaskManager:
                     if patience_counter > valid_patience:
                         early_stopping = True
                         print(f"Early stopping at epoch {epoch} due to no improvement.")
+                        self.logger.info(f"Early stopping at epoch {epoch} due to no improvement.")
+
+                        # Ensure that we log the final epoch before breaking out
+                        model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
+                        model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
+                        self.log_to_sqlite(
+                            task=task,
+                            epoch=epoch,
+                            train_loss=train_loss,
+                            val_loss=val_loss,
+                            best_val_loss=best_validation_loss,
+                            elapsed_time=elapsed_time,
+                            avg_batch_time=avg_batch_time,
+                            early_stopping=early_stopping,  # Mark the early stopping in the log
+                            model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB, rounded to 2 decimal places
+                        )
                         break
 
-                # Log data to CSV and SQLite after each epoch (whether validated or not)
-                print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
-
-                # Save log data to CSV and SQLite
-                self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
+                # Save log data after each epoch (whether validated or not)
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
+                model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
                 self.log_to_sqlite(
                     task=task,
                     epoch=epoch,
@@ -309,13 +332,14 @@ class TrainingTaskManager:
                     elapsed_time=elapsed_time,
                     avg_batch_time=avg_batch_time,
                     early_stopping=early_stopping,
-                    model_memory_usage=model_memory_usage,
+                    model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB, rounded to 2 decimal places
                 )
 
                 scheduler.step()
 
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
+                self.logger.info("Training was stopped early. Saving Model...")
                 self.save_model(task)
 
             update_progress_callback.emit({'task_completed': True})
@@ -324,7 +348,8 @@ class TrainingTaskManager:
         except Exception as e:
             self.logger.error(f"Error during training: {str(e)}")
             update_progress_callback.emit({'task_error': str(e)})
-
+        finally:
+            self.cleanup_ddp()
 
     def convert_hyperparams(self, hyperparams):
         """Converts all relevant hyperparameters to the correct types."""
@@ -334,6 +359,7 @@ class TrainingTaskManager:
         hyperparams['MAX_EPOCHS'] = int(hyperparams['MAX_EPOCHS'])
         hyperparams['INITIAL_LR'] = float(hyperparams['INITIAL_LR'])
         hyperparams['LR_DROP_PERIOD'] = int(hyperparams['LR_DROP_PERIOD'])
+        hyperparams['LR_DROP_FACTOR'] = float(hyperparams['LR_DROP_FACTOR'])
         hyperparams['VALID_PATIENCE'] = int(hyperparams['VALID_PATIENCE'])
         hyperparams['ValidFrequency'] = int(hyperparams['ValidFrequency'])
         hyperparams['LOOKBACK'] = int(hyperparams['LOOKBACK'])

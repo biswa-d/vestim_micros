@@ -49,7 +49,7 @@ class VEstimHyperParamManager:
                     validated_params[key] = value  # Keep the original string
 
                 # Ensure values are floats for specific keys
-                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB']:  # Added DROPOUT_PROB
+                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB', 'WEIGHT_DECAY']:  # Added WEIGHT_DECAY
                     # Ensure values are floats
                     try:
                         [float(v) for v in value_list]
@@ -69,6 +69,7 @@ class VEstimHyperParamManager:
 
         self.logger.info("Parameter validation complete.")
         return validated_params
+
 
     def save_params(self):
         """Save the current parameters to the job folder."""

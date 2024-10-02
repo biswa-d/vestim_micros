@@ -6,12 +6,13 @@ import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from queue import Queue, Empty
+import logging  
 
 # Import your services
-from vestim.gateway.src.testing_manager_qt import VEstimTestingManager
+from vestim.gateway.src.testing_manager_qt_test import VEstimTestingManager
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
-from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
+from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
+from vestim.gateway.src.hyper_param_manager_qt_test import VEstimHyperParamManager
 
 class TestingThread(QThread):
     # Define the signals at the class level
@@ -21,6 +22,7 @@ class TestingThread(QThread):
 
     def __init__(self, testing_manager, queue):
         super().__init__()
+        self.logger = logging.getLogger(__name__)
         self.testing_manager = testing_manager
         self.queue = queue
         self.stop_flag = False
@@ -51,7 +53,7 @@ class TestingThread(QThread):
 class VEstimTestingGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-
+        self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
         self.testing_manager = VEstimTestingManager()
         self.hyper_param_manager = VEstimHyperParamManager()
@@ -60,6 +62,8 @@ class VEstimTestingGUI(QMainWindow):
         self.param_labels = {
             "LAYERS": "Layers",
             "HIDDEN_UNITS": "Hidden Units",
+            "DROPOUT_PROB": "Dropout Probability",
+            'WEIGHT_DECAY': 'Weight Decay',
             "BATCH_SIZE": "Batch Size",
             "MAX_EPOCHS": "Max Epochs",
             "INITIAL_LR": "Initial Learning Rate",
@@ -105,7 +109,6 @@ class VEstimTestingGUI(QMainWindow):
         self.display_hyperparameters(self.hyper_params)
         print(f"Displayed hyperparameters: {self.hyper_params}")
         
-
         # Timer Label
         self.time_label = QLabel("Testing Time: 00h:00m:00s")
         # Set the font
@@ -123,8 +126,17 @@ class VEstimTestingGUI(QMainWindow):
 
         # TreeWidget to display results
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(7)
-        self.tree.setHeaderLabels(["Sl.No", "Model", "RMS Error (mV)", "MAE (mV)", "MAPE (%)", "R²", "Plot"])
+        self.tree.setColumnCount(8)
+        self.tree.setHeaderLabels(["Sl.No", "Model","#W&Bs", "RMS Error (mV)", "MAE (mV)", "MAPE (%)", "R²", "Plot"])
+        # Set the column widths once in initUI to make them persistent
+        self.tree.setColumnWidth(0, 50)   # Sl.No column
+        self.tree.setColumnWidth(1, 300)  # Model name column
+        self.tree.setColumnWidth(2, 50)   # Number of learnable parameters
+        self.tree.setColumnWidth(3, 90)   # RMS Error column
+        self.tree.setColumnWidth(4, 70)   # MAE column
+        self.tree.setColumnWidth(5, 70)   # MAPE column
+        self.tree.setColumnWidth(6, 70)   # R² column
+        self.tree.setColumnWidth(7, 20)   # Plot button column
         self.main_layout.addWidget(self.tree)
 
         # Status Label (below the tree view)
@@ -140,7 +152,7 @@ class VEstimTestingGUI(QMainWindow):
         self.main_layout.addWidget(self.progress)
 
         # Button to open results folder
-        self.open_results_button = QPushButton("Open Results Folder", self)
+        self.open_results_button = QPushButton("Open Job Folder", self)
         self.open_results_button.setStyleSheet("""
             background-color: #0b6337;  /* Matches the green color */
             font-weight: bold; 
@@ -150,8 +162,7 @@ class VEstimTestingGUI(QMainWindow):
         self.open_results_button.setFixedHeight(40)  # Ensure consistent height
         self.open_results_button.setMinimumWidth(150)  # Set minimum width to ensure consistency
         self.open_results_button.setMaximumWidth(300)  # Set a reasonable maximum width
-        self.open_results_button.clicked.connect(self.open_results_folder)
-
+        self.open_results_button.clicked.connect(self.open_job_folder)
         # Center the button using a layout
         open_button_layout = QHBoxLayout()
         open_button_layout.addStretch(1)  # Add stretchable space before the button
@@ -224,41 +235,15 @@ class VEstimTestingGUI(QMainWindow):
     def update_status(self, message):
         self.status_label.setText(message)
 
-    # def add_result_row(self, result):
-    #     # Add each result as a row in the QTreeWidget
-    #     print(f"Adding result row: {result}")
-    #     task_data = result.get('task_completed')
-    #     if task_data:
-    #         sl_no = task_data.get("sl_no")
-    #         model_name = task_data.get("model")
-    #         rms_error = f"{task_data.get('rms_error_mv', 0):.4f}"
-    #         mae = f"{task_data.get('mae_mv', 0):.4f}"
-    #         mape = f"{task_data.get('mape', 0):.4f}"
-    #         r2 = f"{task_data.get('r2', 0):.4f}"
-
-    #         # Add row data to QTreeWidget
-    #         row = QTreeWidgetItem([str(sl_no), model_name, rms_error, mae, mape, r2])
-
-    #         # Set the column widths (adjust these numbers as needed)
-    #         self.tree.setColumnWidth(0, 50)
-    #         self.tree.setColumnWidth(1, 300)  # Set wider width for model name
-    #         self.tree.setColumnWidth(6, 60)  # Set smaller width for the plot button
-
-    #         # Create the "Plot" button with some styling
-    #         plot_button = QPushButton("Plot Result")
-    #         plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")  # Purple background
-    #         plot_button.clicked.connect(lambda _, name=model_name: self.plot_model_results(name))  # Pass model_name to plot
-    #         self.tree.addTopLevelItem(row)
-
-    #         # Set widget for the "Plot" column
-    #         self.tree.setItemWidget(row, 6, plot_button)
-
     def add_result_row(self, result):
         # Add each result as a row in the QTreeWidget
         print(f"Adding result row: {result}")
+        self.logger.info(f"Adding result row: {result}")
         task_data = result.get('task_completed')
         if task_data:
+            save_dir = task_data.get("saved_dir")
             model_name = task_data.get("model")
+            num_learnable_params = str(task_data.get("#params"))  # Convert to string
             rms_error = f"{task_data.get('rms_error_mv', 0):.4f}"
             mae = f"{task_data.get('mae_mv', 0):.4f}"
             mape = f"{task_data.get('mape', 0):.4f}"
@@ -269,24 +254,19 @@ class VEstimTestingGUI(QMainWindow):
             self.sl_no_counter += 1
 
             # Add row data to QTreeWidget
-            row = QTreeWidgetItem([str(sl_no), model_name, rms_error, mae, mape, r2])
-
-            # Set the column widths (adjust these numbers as needed)
-            self.tree.setColumnWidth(0, 50)
-            self.tree.setColumnWidth(1, 310)  # Set wider width for model name
-            self.tree.setColumnWidth(6, 50)  # Set smaller width for the plot button
+            row = QTreeWidgetItem([str(sl_no), model_name, num_learnable_params, rms_error, mae, mape, r2])
 
             # Create the "Plot" button with some styling
             plot_button = QPushButton("Plot Result")
             plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")  # Purple background
-            plot_button.clicked.connect(lambda _, name=model_name: self.plot_model_results(name))  # Pass model_name to plot
+            plot_button.clicked.connect(lambda _, name=model_name: self.plot_model_results(model_name,save_dir))  # Pass model_name to plot
             self.tree.addTopLevelItem(row)
 
             # Set widget for the "Plot" column
-            self.tree.setItemWidget(row, 6, plot_button)
+            self.tree.setItemWidget(row, 7, plot_button)
 
 
-    def plot_model_results(self, model_name):
+    def plot_model_results(self, model_name, save_dir):
         """
         Plot the test results for a specific model by reading from the saved CSV file.
         """
@@ -297,8 +277,7 @@ class VEstimTestingGUI(QMainWindow):
             plot_window.setGeometry(200, 100, 700, 500)
 
             # Locate the CSV file for this model
-            save_dir = self.job_manager.get_test_results_folder()  # Assuming this method returns the correct save directory
-            result_file = os.path.join(save_dir, model_name, f"{model_name}_test_results.csv")
+            result_file = os.path.join(save_dir, "test_results", f"{model_name}_test_results.csv")
 
             if not os.path.exists(result_file):
                 QMessageBox.critical(self, "Error", f"Test results file not found for model: {model_name}")
@@ -375,8 +354,21 @@ class VEstimTestingGUI(QMainWindow):
         self.testing_thread.testing_complete_signal.connect(self.all_tests_completed)  # Connect to the completion signal
         self.testing_thread.start()
 
+        # Start the timer for updating elapsed time
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_elapsed_time)  # Call the update method every second
+        self.timer.start(1000)  # 1000 milliseconds = 1 second
+
         # Start processing the queue after the thread starts
         self.process_queue()
+    
+    def update_elapsed_time(self):
+        """Update the elapsed time label."""
+        if self.timer_running:
+            elapsed_time = time.time() - self.start_time
+            hours, remainder = divmod(elapsed_time, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            self.time_label.setText(f"Testing Time: {int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
 
 
     def process_queue(self):
@@ -434,6 +426,7 @@ class VEstimTestingGUI(QMainWindow):
         
         # Stop the timer
         self.timer_running = False
+        self.timer.stop()  # Stop the QTimer
         
         # Optionally log or print a message
         print("All tests completed successfully.")
@@ -443,12 +436,12 @@ class VEstimTestingGUI(QMainWindow):
             self.testing_thread.quit()
             self.testing_thread.wait()  # Wait for the thread to finish
 
-    def open_results_folder(self):
-        results_folder = self.job_manager.get_test_results_folder()
-        if os.path.exists(results_folder):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(results_folder))
+    def open_job_folder(self):
+        job_folder = self.job_manager.get_job_folder()
+        if os.path.exists(job_folder):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(job_folder))
         else:
-            QMessageBox.critical(self, "Error", f"Results folder not found: {results_folder}")
+            QMessageBox.critical(self, "Error", f"Results folder not found: {job_folder}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

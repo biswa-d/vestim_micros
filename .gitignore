@@ -106,6 +106,7 @@ env/
 venv/
 testenv/
 packenv/
+new_env/
 
 # Spyder project settings
 .spyderproject
@@ -149,4 +150,5 @@ sample_data/
 /output/
 build/
 dist/
+analytics_notebooks/
 starter_codes/
