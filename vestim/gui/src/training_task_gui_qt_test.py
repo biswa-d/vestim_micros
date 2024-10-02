@@ -229,7 +229,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
         # Time tracking label (move it just below the title)
         time_layout = QHBoxLayout()
-        self.static_text_label = QLabel("Time Since Setup Started:")
+        self.static_text_label = QLabel("Time Since Training Started:")
         self.static_text_label.setStyleSheet("color: blue; font-size: 10pt;")
         self.time_value_label = QLabel("00h:00m:00s")
         self.time_value_label.setStyleSheet("color: purple; font-size: 11pt; font-weight: bold;")
@@ -335,7 +335,10 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.status_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: #004d99;")
 
         # Start processing tasks sequentially
-        self.start_time = time.time()
+        # Set the start time only once when the first task starts
+        if self.start_time is None:
+            self.start_time = time.time()
+            
         self.clear_plot()
 
         # Start the training task in a background thread
