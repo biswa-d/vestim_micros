@@ -45,7 +45,7 @@ class VEstimTestingService:
                 assert X_batch.device == h_s.device == h_c.device, \
                     f"Device mismatch: X_batch {X_batch.device}, h_s {h_s.device}, h_c {h_c.device}"
                 y_pred_tensor, (h_s, h_c) = model(X_batch, h_s, h_c)
-                print(f"Batch {batch_idx + 1}: y_pred_tensor shape: {y_pred_tensor.shape}")
+                # print(f"Batch {batch_idx + 1}: y_pred_tensor shape: {y_pred_tensor.shape}")
 
                 # Collect predictions and true values
                 all_predictions.append(y_pred_tensor.cpu().numpy())
@@ -66,7 +66,7 @@ class VEstimTestingService:
                 # Free up GPU memory
                 del X_batch, y_batch, y_pred_tensor
                 torch.cuda.empty_cache()
-                print(f"Batch {batch_idx + 1}: Freed memory.")
+                # print(f"Batch {batch_idx + 1}: Freed memory.")
 
         # Final average metrics
         avg_rmse = total_rmse / total_samples
