@@ -44,7 +44,7 @@ class VEstimTestingService:
                 X_batch, h_s, h_c = X_batch.to(device), h_s.to(device), h_c.to(device)
                 assert X_batch.device == h_s.device == h_c.device, \
                     f"Device mismatch: X_batch {X_batch.device}, h_s {h_s.device}, h_c {h_c.device}"
-                y_pred_tensor, (h_s, h_c) = model(X_batch, (h_s, h_c))
+                y_pred_tensor, (h_s, h_c) = model(X_batch, h_s, h_c)
                 print(f"Batch {batch_idx + 1}: y_pred_tensor shape: {y_pred_tensor.shape}")
 
                 # Collect predictions and true values
