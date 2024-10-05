@@ -42,6 +42,7 @@ class VEstimTestingService:
 
                 # Forward pass  
                 X_batch, h_s, h_c = X_batch.to(device), h_s.to(device), h_c.to(device)
+                print(f"Batch {batch_idx + 1}: X_batch device: {X_batch.device}, h_s device: {h_s.device}, h_c device: {h_c.device}")
                 assert X_batch.device == h_s.device == h_c.device, \
                     f"Device mismatch: X_batch {X_batch.device}, h_s {h_s.device}, h_c {h_c.device}"
                 y_pred_tensor, (h_s, h_c) = model(X_batch, h_s, h_c)
