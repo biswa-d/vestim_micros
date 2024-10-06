@@ -24,7 +24,7 @@ class VEstimTestingService:
 
         :param device: Device to run the model on ('cpu' or 'cuda').
         """
-        self.device = torch.device(device)
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
     def test_model(self, model, test_loader, h_s, h_c, device, padding_size):
