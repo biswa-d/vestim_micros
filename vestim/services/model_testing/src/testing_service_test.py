@@ -270,7 +270,9 @@ class VEstimTestingService:
         :param task_id: Task ID for naming the file.
         :param save_dir: Directory to save the predictions.
         """
-
+        # Create the save directory if it doesn't exist
+        predictions_dir = os.path.join(save_dir, "test_results")
+        os.makedirs(predictions_dir, exist_ok=True)
         # Save predictions to a CSV file
         predictions_file = os.path.join(save_dir, f"{task_id}_pred.csv")
         pd.DataFrame(predictions, columns=['Predictions (V)']).to_csv(predictions_file, index=False)
