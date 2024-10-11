@@ -1,4 +1,4 @@
-import time, os, sys
+import time, os, sys, math
 import csv
 import sqlite3
 import torch
@@ -208,7 +208,9 @@ class TrainingTaskManager:
             
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
-            valid_patience = hyperparams['VALID_PATIENCE']
+            # Define fixed patience values
+            valid_patience = hyperparams.get('VALID_PATIENCE', 20)  # Default value for early stopping patience if not provided
+            scheduler_patience = math.ceil(valid_patience * 0.7)  # 70% of valid_patience, rounded up
             # lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
             weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
@@ -221,10 +223,8 @@ class TrainingTaskManager:
 
             # Initialize optimizer and scheduler
             optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'], weight_decay=weight_decay)
-            # Set the min_lr to allow at least 3 drops before stopping
-            min_lr = hyperparams['INITIAL_LR'] * (lr_drop_factor ** 3)
-            # Set ReduceLROnPlateau scheduler with the calculated min_lr and patience
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=lr_drop_factor, patience=valid_patience, min_lr=min_lr)
+            min_lr = hyperparams['INITIAL_LR'] * (lr_drop_factor ** 3)  # Set min_lr for at least 3 reductions
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=lr_drop_factor, patience=scheduler_patience, min_lr=min_lr)
 
             # Log the training progress for each epoch
             def format_time(seconds):
@@ -277,6 +277,13 @@ class TrainingTaskManager:
                     scheduler.step(val_loss)
 
                     current_lr = optimizer.param_groups[0]['lr']
+                    
+                    if val_loss < best_validation_loss:
+                        best_validation_loss = val_loss
+                        patience_counter = 0
+                        self.save_model(task)
+                    else:
+                        patience_counter += 1
 
                     progress_data = {
                         'epoch': epoch,
@@ -290,13 +297,6 @@ class TrainingTaskManager:
 
                     # Emit progress after validation
                     update_progress_callback.emit(progress_data)
-
-                    if val_loss < best_validation_loss:
-                        best_validation_loss = val_loss
-                        patience_counter = 0
-                        self.save_model(task)
-                    else:
-                        patience_counter += 1
 
                     if patience_counter > valid_patience:
                         early_stopping = True
