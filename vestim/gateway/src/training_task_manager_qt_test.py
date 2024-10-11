@@ -209,7 +209,7 @@ class TrainingTaskManager:
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
-            lr_drop_period = hyperparams['LR_DROP_PERIOD']
+            # lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
             weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
 
@@ -219,8 +219,12 @@ class TrainingTaskManager:
             last_validation_time = start_time
             early_stopping = False  # Initialize early stopping flag
 
+            # Initialize optimizer and scheduler
             optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'], weight_decay=weight_decay)
-            scheduler = self.training_service.get_scheduler(optimizer, step_size = lr_drop_period, gamma=lr_drop_factor)
+            # Set the min_lr to allow at least 3 drops before stopping
+            min_lr = hyperparams['INITIAL_LR'] * (lr_drop_factor ** 3)
+            # Set ReduceLROnPlateau scheduler with the calculated min_lr and patience
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=lr_drop_factor, patience=valid_patience, min_lr=min_lr)
 
             # Log the training progress for each epoch
             def format_time(seconds):
@@ -268,6 +272,9 @@ class TrainingTaskManager:
                     elapsed_time = current_time - start_time
                     delta_t_epoch = (current_time - last_validation_time) / valid_freq
                     last_validation_time = current_time
+
+                    # Step the scheduler based on validation loss
+                    scheduler.step(val_loss)
 
                     current_lr = optimizer.param_groups[0]['lr']
 
@@ -332,7 +339,7 @@ class TrainingTaskManager:
                     model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB, rounded to 2 decimal places
                 )
 
-                scheduler.step()
+                # scheduler.step()
 
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
