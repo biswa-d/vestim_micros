@@ -228,6 +228,8 @@ class VEstimTestingService:
         #     print(f"Test results saved for model: {model_name}")
         # except Exception as e:
         #     print(f"Error saving test results: {str(e)}")
+        task_id = task.get("task_id", "unknown_task") 
+        self.save_predictions(results['predictions'], task_id, save_dir)
 
         return results
     
