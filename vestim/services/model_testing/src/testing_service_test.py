@@ -223,11 +223,11 @@ class VEstimTestingService:
         model_name = os.path.splitext(os.path.basename(model_path))[0]
 
         # Save the test results
-        try:
-            self.save_test_results(results, model_name, save_dir)
-            print(f"Test results saved for model: {model_name}")
-        except Exception as e:
-            print(f"Error saving test results: {str(e)}")
+        # try:
+        #     self.save_test_results(results, model_name, save_dir)
+        #     print(f"Test results saved for model: {model_name}")
+        # except Exception as e:
+        #     print(f"Error saving test results: {str(e)}")
 
         return results
     
@@ -259,3 +259,20 @@ class VEstimTestingService:
         y_padded = np.concatenate([y, y_padding])
 
         return X_padded, y_padded, padding_size
+    
+    def save_predictions(self, predictions, task_id, save_dir):
+        """
+        Saves the predictions to a CSV file with the task_id in the filename.
+
+        :param predictions: Array of model predictions.
+        :param task_id: Task ID for naming the file.
+        :param save_dir: Directory to save the predictions.
+        """
+
+        # Save predictions to a CSV file
+        predictions_file = os.path.join(save_dir, f"{task_id}_pred.csv")
+        pd.DataFrame(predictions, columns=['Predictions (V)']).to_csv(predictions_file, index=False)
+
+        print(f"Predictions saved to {predictions_file}")
+        self.logger.info(f"Predictions saved to {predictions_file}")
+
