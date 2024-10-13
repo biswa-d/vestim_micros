@@ -210,6 +210,7 @@ class TrainingTaskManager:
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
+            patience_threshold = int(valid_patience * 0.7)  # Set a threshold for early stopping
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
             weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
@@ -322,10 +323,15 @@ class TrainingTaskManager:
                 # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                 model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
-                scheduler.step()
-                current_lr = optimizer.param_groups[0]['lr']
-                print(f"Current learning rate: {current_lr}")
-                logging.info(f"Current learning rate: {current_lr}")
+                
+                # scheduler.step()
+                # Scheduler step condition: Either when lr_drop_period is reached or patience_counter exceeds the threshold
+                if epoch % lr_drop_period == 0 or patience_counter > patience_threshold:
+                    scheduler.step()
+                    current_lr = optimizer.param_groups[0]['lr']
+                    print(f"Current learning rate updated at epoch {epoch}: {current_lr}")
+                    logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr}")
+    
                 # Log data to SQLite
                 self.log_to_sqlite(
                     task=task,
