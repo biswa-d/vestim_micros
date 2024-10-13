@@ -478,20 +478,32 @@ class VEstimTrainingTaskGUI(QMainWindow):
             print(f"Train Loss Values: {self.train_loss_values}")
             print(f"Valid Loss Values: {self.valid_loss_values}")
 
+            #New section for updating the plot
+            # Dynamically adjust the y-axis based on the loss values
+            all_losses = self.train_loss_values + self.valid_loss_values  # Combine train and validation losses
+            min_loss = min(all_losses)  # Get minimum loss so far
+            max_loss = max(all_losses)  # Get maximum loss so far
+
+            # Add a small margin to the y-axis limits (10% of the range)
+            margin = (max_loss - min_loss) * 0.1 if max_loss - min_loss > 0 else 1e-5
+            self.ax.set_ylim(min_loss - margin, max_loss + margin)  # Set y-axis limits dynamically
+            #New section ends here
+
             # Update plot lines with the new data
             self.train_line.set_data(self.valid_x_values, self.train_loss_values)
             self.valid_line.set_data(self.valid_x_values, self.valid_loss_values)
 
-            # Adjust y-axis limits dynamically based on the new data
-            self.ax.relim()  # Recompute the limits
-            self.ax.autoscale_view(scalex=False, scaley=True)  # Autoscale y-axis only
+            #commented out the following lines for testing new plot logic, uncomment if needed
+            # # Adjust y-axis limits dynamically based on the new data
+            # self.ax.relim()  # Recompute the limits
+            # self.ax.autoscale_view(scalex=False, scaley=True)  # Autoscale y-axis only
 
             # Set fixed x-limits to ensure they remain constant
             max_epochs = int(self.task_list[self.current_task_index]['hyperparams']['MAX_EPOCHS'])
             self.ax.set_xlim(1, max_epochs)
 
             # Redraw the plot
-            self.canvas.draw_idle()
+            # self.canvas.draw_idle()
             print("Redrawing the plot")
             # Redraw the plot
             self.canvas.draw_idle()
