@@ -9,6 +9,7 @@ class TrainingTaskService:
         self.criterion = nn.MSELoss()  # Assuming you're using Mean Squared Error Loss for regression tasks
         device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         self.device = device
+        self.log_freq = 1000  # Define how often to log batches
     
     def log_to_csv(self, task, epoch, batch_idx, batch_time, phase):
         """Log batch timing data to a CSV file."""
@@ -49,7 +50,7 @@ class TrainingTaskService:
         model.train()
         total_train_loss = []
         batch_times = []  # Store time per batch
-        log_freq = 100  # Define how often to log batches
+        log_freq = self.log_freq  # Define how often to log batches
         device_str = str(device)  # Convert torch.device to string
 
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
@@ -100,7 +101,7 @@ class TrainingTaskService:
         total_loss = 0
         total_samples = 0
         batch_times = []  # Track validation time for each batch
-        log_freq = 1000  # Define how often to log batches
+        log_freq = self.log_freq  # Define how often to log batches
         device_str = str(device)  # Convert torch.device to string
 
         with torch.no_grad():
