@@ -271,6 +271,13 @@ class TrainingTaskManager:
                     last_validation_time = current_time
 
                     current_lr = optimizer.param_groups[0]['lr']
+                    
+                    if val_loss < best_validation_loss:
+                        best_validation_loss = val_loss
+                        patience_counter = 0
+                        self.save_model(task)
+                    else:
+                        patience_counter += 1
 
                     progress_data = {
                         'epoch': epoch,
@@ -281,16 +288,8 @@ class TrainingTaskManager:
                         'learning_rate': current_lr,
                         'best_val_loss': best_validation_loss,
                     }
-
                     # Emit progress after validation
-                    update_progress_callback.emit(progress_data)
-
-                    if val_loss < best_validation_loss:
-                        best_validation_loss = val_loss
-                        patience_counter = 0
-                        self.save_model(task)
-                    else:
-                        patience_counter += 1
+                    update_progress_callback.emit(progress_data) 
 
                     if patience_counter > valid_patience:
                         early_stopping = True
@@ -309,9 +308,11 @@ class TrainingTaskManager:
                             best_val_loss=best_validation_loss,
                             elapsed_time=elapsed_time,
                             avg_batch_time=avg_batch_time,
-                            early_stopping=early_stopping,  # Mark the early stopping in the log
-                            model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB, rounded to 2 decimal places
+                            early_stopping=early_stopping,
+                            model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
+                            current_lr=current_lr  # Pass updated learning rate here
                         )
+
                         break
 
                 # Log data to CSV and SQLite after each epoch (whether validated or not)
@@ -323,6 +324,8 @@ class TrainingTaskManager:
                 model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
                 scheduler.step()
                 current_lr = optimizer.param_groups[0]['lr']
+                print(f"Current learning rate: {current_lr}")
+                logging.info(f"Current learning rate: {current_lr}")
                 # Log data to SQLite
                 self.log_to_sqlite(
                     task=task,
@@ -348,7 +351,6 @@ class TrainingTaskManager:
         except Exception as e:
             self.logger.error(f"Error during training: {str(e)}")
             update_progress_callback.emit({'task_error': str(e)})
-
 
     def convert_hyperparams(self, hyperparams):
         """Converts all relevant hyperparameters to the correct types."""
