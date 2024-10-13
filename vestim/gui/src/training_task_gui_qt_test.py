@@ -479,21 +479,25 @@ class VEstimTrainingTaskGUI(QMainWindow):
             print(f"Valid Loss Values: {self.valid_loss_values}")
 
             #New section for updating the plot
-            # Dynamically adjust the y-axis based on the loss values
-            all_losses = self.train_loss_values + self.valid_loss_values  # Combine train and validation losses
-            min_loss = min(all_losses)  # Get minimum loss so far
-            max_loss = max(all_losses)  # Get maximum loss so far
+            # Dynamically adjust the y-axis based on the last 30 loss values
+            last_30_train_losses = self.train_loss_values[-30:]  # Get last 30 train losses
+            last_30_val_losses = self.valid_loss_values[-30:]  # Get last 30 validation losses
+            last_30_losses = last_30_train_losses + last_30_val_losses  # Combine last 30 train and validation losses
+
+            # Get minimum and maximum from these last 30 values
+            min_loss = min(last_30_losses) if last_30_losses else 1e-5  # Fallback to a small value if empty
+            max_loss = max(last_30_losses) if last_30_losses else 1e-3  # Fallback to a small value if empty
 
             # Add a small margin to the y-axis limits (10% of the range)
             margin = (max_loss - min_loss) * 0.1 if max_loss - min_loss > 0 else 1e-5
             self.ax.set_ylim(min_loss - margin, max_loss + margin)  # Set y-axis limits dynamically
-            #New section ends here
+            # New section ends here
 
             # Update plot lines with the new data
             self.train_line.set_data(self.valid_x_values, self.train_loss_values)
             self.valid_line.set_data(self.valid_x_values, self.valid_loss_values)
 
-            #commented out the following lines for testing new plot logic, uncomment if needed
+            # Commented out the following lines for testing new plot logic, uncomment if needed
             # # Adjust y-axis limits dynamically based on the new data
             # self.ax.relim()  # Recompute the limits
             # self.ax.autoscale_view(scalex=False, scaley=True)  # Autoscale y-axis only
@@ -507,6 +511,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             print("Redrawing the plot")
             # Redraw the plot
             self.canvas.draw_idle()
+
 
     def stop_training(self):
         print("Stop training button clicked")
