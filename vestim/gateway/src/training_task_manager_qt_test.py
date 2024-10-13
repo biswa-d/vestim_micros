@@ -213,6 +213,9 @@ class TrainingTaskManager:
             patience_threshold = int(valid_patience * 0.7)  # Set a threshold for early stopping
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
+            # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
+            lr_drop_buffer = 400
+            last_lr_drop_epoch = 0  # Initialize the epoch of the last LR drop
             weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
 
             best_validation_loss = float('inf')
@@ -326,11 +329,14 @@ class TrainingTaskManager:
                 
                 # scheduler.step()
                 # Scheduler step condition: Either when lr_drop_period is reached or patience_counter exceeds the threshold
-                if epoch % lr_drop_period == 0 or patience_counter > patience_threshold:
+                # Scheduler step condition: Check for drop period or patience_counter with buffer consideration
+                if (epoch % lr_drop_period == 0 or patience_counter > patience_threshold) and (epoch - last_lr_drop_epoch > lr_drop_buffer):
                     scheduler.step()
                     current_lr = optimizer.param_groups[0]['lr']
                     print(f"Current learning rate updated at epoch {epoch}: {current_lr}")
                     logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr}")
+                    # Update the epoch at which the LR was last dropped
+                    last_lr_drop_epoch = epoch
     
                 # Log data to SQLite
                 self.log_to_sqlite(
