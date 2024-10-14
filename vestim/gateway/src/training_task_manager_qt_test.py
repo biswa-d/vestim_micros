@@ -202,21 +202,18 @@ class TrainingTaskManager:
             self.logger.info("Starting training loop")
             hyperparams = self.convert_hyperparams(task['hyperparams'])
             model = task['model'].to(device)
-            # # If pruning has been applied, ensure it's active
-            # if hasattr(model, 'apply_pruning'):
-            #     model.apply_pruning()
-            #     print("Pruning applied to the model.")
             
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
             patience_threshold = int(valid_patience * 0.7)  # Set a threshold for early stopping
+            current_lr = hyperparams['INITIAL_LR']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
             # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
             lr_drop_buffer = 400
             last_lr_drop_epoch = 0  # Initialize the epoch of the last LR drop
-            weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
+            # weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
 
             best_validation_loss = float('inf')
             patience_counter = 0
@@ -224,8 +221,11 @@ class TrainingTaskManager:
             last_validation_time = start_time
             early_stopping = False  # Initialize early stopping flag
 
-            optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'], weight_decay=weight_decay)
-            scheduler = self.training_service.get_scheduler(optimizer, step_size = lr_drop_period, gamma=lr_drop_factor)
+            self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
+            # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
+            self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
+            optimizer = self.optimizer
+            scheduler = self.scheduler
 
             # Log the training progress for each epoch
             def format_time(seconds):
@@ -279,7 +279,6 @@ class TrainingTaskManager:
                     if val_loss < best_validation_loss:
                         best_validation_loss = val_loss
                         patience_counter = 0
-                        self.save_model(task)
                     else:
                         patience_counter += 1
 
@@ -297,6 +296,7 @@ class TrainingTaskManager:
 
                     if patience_counter > valid_patience:
                         early_stopping = True
+                        self.save_model(task)
                         print(f"Early stopping at epoch {epoch} due to no improvement.")
                         self.logger.info(f"Early stopping at epoch {epoch} due to no improvement.")
                         
@@ -331,12 +331,14 @@ class TrainingTaskManager:
                 # Scheduler step condition: Either when lr_drop_period is reached or patience_counter exceeds the threshold
                 # Scheduler step condition: Check for drop period or patience_counter with buffer consideration
                 if (epoch % lr_drop_period == 0 or patience_counter > patience_threshold) and (epoch - last_lr_drop_epoch > lr_drop_buffer):
+                    print(f"Learning rate before scheduler step: {optimizer.param_groups[0]['lr']: .8f}\n")
                     scheduler.step()
                     current_lr = optimizer.param_groups[0]['lr']
-                    print(f"Current learning rate updated at epoch {epoch}: {current_lr}")
-                    logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr}")
-                    # Update the epoch at which the LR was last dropped
+                    print(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
+                    logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}")
                     last_lr_drop_epoch = epoch
+                else:
+                    print(f"Epoch {epoch}: No LR drop. patience_counter={patience_counter}, patience_threshold={patience_threshold}")
     
                 # Log data to SQLite
                 self.log_to_sqlite(
