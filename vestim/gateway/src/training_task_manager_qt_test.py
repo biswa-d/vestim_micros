@@ -339,6 +339,8 @@ class TrainingTaskManager:
                     logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}")
                     # Update the epoch at which the LR was last dropped
                     last_lr_drop_epoch = epoch
+                else:
+                    print(f"Epoch {epoch}: No LR drop. patience_counter={patience_counter}, patience_threshold={patience_threshold}")
     
                 # Log data to SQLite
                 self.log_to_sqlite(
