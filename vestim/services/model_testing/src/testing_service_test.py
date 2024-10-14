@@ -38,7 +38,7 @@ class VEstimTestingService:
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(test_loader):
                 batch_size = X_batch.size(0)
-                print(f"Batch {batch_idx + 1}: X_batch shape: {X_batch.shape}, y_batch shape: {y_batch.shape}")
+                # print(f"Batch {batch_idx + 1}: X_batch shape: {X_batch.shape}, y_batch shape: {y_batch.shape}")
 
                 # Forward pass  
                 X_batch, h_s, h_c = X_batch.to(device), h_s.to(device), h_c.to(device)
@@ -61,7 +61,7 @@ class VEstimTestingService:
                 total_mae += batch_mae * batch_size
                 total_samples += batch_size
 
-                print(f"Batch {batch_idx + 1}: RMSE: {batch_rmse} mV, MAE: {batch_mae} mV")
+                # print(f"Batch {batch_idx + 1}: RMSE: {batch_rmse} mV, MAE: {batch_mae} mV")
 
                 # Free up GPU memory
                 del X_batch, y_batch, y_pred_tensor
