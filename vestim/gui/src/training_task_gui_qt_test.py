@@ -446,9 +446,9 @@ class VEstimTrainingTaskGUI(QMainWindow):
             # Format the log message using HTML for bold text
             log_message = (
                 f"Epoch: <b>{epoch}</b>, "
-                f"Train Loss: <b>{train_loss:.7f}</b>, "
-                f"Val Loss: <b>{val_loss:.7f}</b>, "
-                f"Best Val Loss: <b>{best_val_loss:.7f}</b>, "
+                f"Train Loss: <b>{train_loss:.10f}</b>, "
+                f"Val Loss: <b>{val_loss:.10f}</b>, "
+                f"Best Val Loss: <b>{best_val_loss:.10f}</b>, "
                 f"Time Per Epoch (ΔT): <b>{delta_t_epoch}s</b>, "
                 f"LR: <b>{learning_rate:.1e}</b><br>"
             )
