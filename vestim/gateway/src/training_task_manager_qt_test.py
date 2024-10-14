@@ -208,11 +208,13 @@ class TrainingTaskManager:
             
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
-            # Define fixed patience values
-            valid_patience = hyperparams.get('VALID_PATIENCE', 20)  # Default value for early stopping patience if not provided
-            scheduler_patience = math.ceil(valid_patience * 0.7)  # 70% of valid_patience, rounded up
-            # lr_drop_period = hyperparams['LR_DROP_PERIOD']
+            valid_patience = hyperparams['VALID_PATIENCE']
+            patience_threshold = int(valid_patience * 0.7)  # Set a threshold for early stopping
+            lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
+            # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
+            lr_drop_buffer = 400
+            last_lr_drop_epoch = 0  # Initialize the epoch of the last LR drop
             weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
 
             best_validation_loss = float('inf')
@@ -221,10 +223,8 @@ class TrainingTaskManager:
             last_validation_time = start_time
             early_stopping = False  # Initialize early stopping flag
 
-            # Initialize optimizer and scheduler
             optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'], weight_decay=weight_decay)
-            min_lr = hyperparams['INITIAL_LR'] * (lr_drop_factor ** 3)  # Set min_lr for at least 3 reductions
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=lr_drop_factor, patience=scheduler_patience, min_lr=min_lr)
+            scheduler = self.training_service.get_scheduler(optimizer, step_size = lr_drop_period, gamma=lr_drop_factor)
 
             # Log the training progress for each epoch
             def format_time(seconds):
@@ -273,9 +273,6 @@ class TrainingTaskManager:
                     delta_t_epoch = (current_time - last_validation_time) / valid_freq
                     last_validation_time = current_time
 
-                    # Step the scheduler based on validation loss
-                    scheduler.step(val_loss)
-
                     current_lr = optimizer.param_groups[0]['lr']
                     
                     if val_loss < best_validation_loss:
@@ -294,9 +291,8 @@ class TrainingTaskManager:
                         'learning_rate': current_lr,
                         'best_val_loss': best_validation_loss,
                     }
-
                     # Emit progress after validation
-                    update_progress_callback.emit(progress_data)
+                    update_progress_callback.emit(progress_data) 
 
                     if patience_counter > valid_patience:
                         early_stopping = True
@@ -315,9 +311,11 @@ class TrainingTaskManager:
                             best_val_loss=best_validation_loss,
                             elapsed_time=elapsed_time,
                             avg_batch_time=avg_batch_time,
-                            early_stopping=early_stopping,  # Mark the early stopping in the log
-                            model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB, rounded to 2 decimal places
+                            early_stopping=early_stopping,
+                            model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
+                            current_lr=current_lr  # Pass updated learning rate here
                         )
+
                         break
 
                 # Log data to CSV and SQLite after each epoch (whether validated or not)
@@ -327,6 +325,19 @@ class TrainingTaskManager:
                 # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                 model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
+                
+                # scheduler.step()
+                # Scheduler step condition: Either when lr_drop_period is reached or patience_counter exceeds the threshold
+                # Scheduler step condition: Check for drop period or patience_counter with buffer consideration
+                if (epoch % lr_drop_period == 0 or patience_counter > patience_threshold) and (epoch - last_lr_drop_epoch > lr_drop_buffer):
+                    scheduler.step()
+                    current_lr = optimizer.param_groups[0]['lr']
+                    print(f"Current learning rate updated at epoch {epoch}: {current_lr}")
+                    logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr}")
+                    # Update the epoch at which the LR was last dropped
+                    last_lr_drop_epoch = epoch
+    
+                # Log data to SQLite
                 self.log_to_sqlite(
                     task=task,
                     epoch=epoch,
@@ -336,10 +347,9 @@ class TrainingTaskManager:
                     elapsed_time=elapsed_time,
                     avg_batch_time=avg_batch_time,
                     early_stopping=early_stopping,
-                    model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB, rounded to 2 decimal places
+                    model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
+                    current_lr=current_lr  # Pass updated learning rate here
                 )
-
-                # scheduler.step()
 
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
