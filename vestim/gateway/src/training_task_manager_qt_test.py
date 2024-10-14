@@ -210,6 +210,7 @@ class TrainingTaskManager:
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
             patience_threshold = int(valid_patience * 0.7)  # Set a threshold for early stopping
+            current_lr = hyperparams['INITIAL_LR']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
             # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
@@ -223,7 +224,7 @@ class TrainingTaskManager:
             last_validation_time = start_time
             early_stopping = False  # Initialize early stopping flag
 
-            optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'], weight_decay=weight_decay)
+            optimizer = self.training_service.get_optimizer(model, lr=current_lr, weight_decay=weight_decay)
             scheduler = self.training_service.get_scheduler(optimizer, step_size = lr_drop_period, gamma=lr_drop_factor)
 
             # Log the training progress for each epoch
@@ -330,10 +331,11 @@ class TrainingTaskManager:
                 # Scheduler step condition: Either when lr_drop_period is reached or patience_counter exceeds the threshold
                 # Scheduler step condition: Check for drop period or patience_counter with buffer consideration
                 if (epoch % lr_drop_period == 0 or patience_counter > patience_threshold) and (epoch - last_lr_drop_epoch > lr_drop_buffer):
+                    print(f"Learning rate before scheduler step: {optimizer.param_groups[0]['lr']: .8f}")
                     scheduler.step()
                     current_lr = optimizer.param_groups[0]['lr']
-                    print(f"Current learning rate updated at epoch {epoch}: {current_lr}")
-                    logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr}")
+                    print(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}")
+                    logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}")
                     # Update the epoch at which the LR was last dropped
                     last_lr_drop_epoch = epoch
     
