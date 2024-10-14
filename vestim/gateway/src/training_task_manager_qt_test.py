@@ -49,18 +49,19 @@ class TrainingTaskManager:
                 'Train Time Per Epoch': delta_t_epoch
             })
 
-    def log_to_sqlite(self, task, epoch, train_loss, val_loss, best_val_loss, elapsed_time, avg_batch_time, early_stopping, model_memory_usage):
-        """Log epoch-level data to a SQLite database."""
+    def log_to_sqlite(self, task, epoch, train_loss, val_loss, best_val_loss, elapsed_time, avg_batch_time, early_stopping, model_memory_usage, current_lr):
+        """Log epoch-level data to a SQLite database with the updated learning rate."""
         sqlite_db_file = task['db_log_file']
         conn = sqlite3.connect(sqlite_db_file)
         cursor = conn.cursor()
 
+        # Insert data with updated learning rate
         cursor.execute('''INSERT INTO task_logs (task_id, epoch, train_loss, val_loss, elapsed_time, avg_batch_time, learning_rate, 
                         best_val_loss, num_learnable_params, batch_size, lookback, max_epochs, early_stopping, model_memory_usage, device)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                    (task['task_id'], epoch, train_loss, val_loss, elapsed_time, avg_batch_time, task['hyperparams']['INITIAL_LR'], best_val_loss,
-                        task['hyperparams']['NUM_LEARNABLE_PARAMS'], task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'],task['hyperparams']['MAX_EPOCHS'],
-                        early_stopping, model_memory_usage, self.device.type))
+                    (task['task_id'], epoch, train_loss, val_loss, elapsed_time, avg_batch_time, current_lr, best_val_loss,
+                    task['hyperparams']['NUM_LEARNABLE_PARAMS'], task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'], 
+                    task['hyperparams']['MAX_EPOCHS'], early_stopping, model_memory_usage, self.device.type))
 
         conn.commit()
         conn.close()
