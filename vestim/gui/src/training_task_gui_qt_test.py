@@ -469,14 +469,14 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
             # Ensure the log scrolls to the bottom
             self.log_text.moveCursor(self.log_text.textCursor().End)
-            print(f"Epoch: {epoch}, Train Loss: {train_loss}, Validation Loss: {val_loss}")
+            # print(f"Epoch: {epoch}, Train Loss: {train_loss}, Validation Loss: {val_loss}")
             # Update the plot with the new data
             self.train_loss_values.append(train_loss)
             self.valid_loss_values.append(val_loss)
             self.valid_x_values.append(epoch)
-            print(f"Valid X Values: {self.valid_x_values}")
-            print(f"Train Loss Values: {self.train_loss_values}")
-            print(f"Valid Loss Values: {self.valid_loss_values}")
+            # print(f"Valid X Values: {self.valid_x_values}")
+            # print(f"Train Loss Values: {self.train_loss_values}")
+            # print(f"Valid Loss Values: {self.valid_loss_values}")
 
             #New section for updating the plot
             # Dynamically adjust the y-axis based on the last 30 loss values

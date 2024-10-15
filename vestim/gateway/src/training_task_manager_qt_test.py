@@ -206,7 +206,7 @@ class TrainingTaskManager:
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
-            patience_threshold = int(valid_patience * 0.7)  # Set a threshold for early stopping
+            patience_threshold = int(valid_patience * 0.5)  # Set a threshold for early stopping
             current_lr = hyperparams['INITIAL_LR']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
@@ -267,7 +267,7 @@ class TrainingTaskManager:
                     h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
 
                     val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested, task)
-                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
+                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time} | Best Val Loss: {best_validation_loss}")
 
                     current_time = time.time()
                     elapsed_time = current_time - start_time
@@ -335,10 +335,10 @@ class TrainingTaskManager:
                     scheduler.step()
                     current_lr = optimizer.param_groups[0]['lr']
                     print(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
-                    logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}")
+                    logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
                     last_lr_drop_epoch = epoch
                 else:
-                    print(f"Epoch {epoch}: No LR drop. patience_counter={patience_counter}, patience_threshold={patience_threshold}")
+                    print(f"Epoch {epoch}: No LR drop. patience_counter={patience_counter}, patience_threshold={patience_threshold}\n")
     
                 # Log data to SQLite
                 self.log_to_sqlite(
