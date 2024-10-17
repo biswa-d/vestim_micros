@@ -58,6 +58,8 @@ class TrainingTaskService:
                 print("Stop requested during training")
                 break  # Exit the loop if stop is requested
 
+            start_batch_time = time.time()  # Start timing for this batch
+
             h_s, h_c = torch.zeros_like(h_s), torch.zeros_like(h_c)
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
 
@@ -70,6 +72,16 @@ class TrainingTaskService:
             optimizer.step()
 
             total_train_loss.append(loss.item())
+            
+            end_batch_time = time.time()  # End timing for this batch
+            batch_time = end_batch_time - start_batch_time
+            batch_times.append(batch_time)
+
+            # Log less frequently
+            if batch_idx % log_freq == 0:
+                batch_freq_time = sum(batch_times) / len(batch_times)
+                # self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='train', device=device)
+                # self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train', device=device_str)
 
             # Log progress every 150 batches
             if batch_idx % log_freq == 0:
@@ -98,7 +110,7 @@ class TrainingTaskService:
                     print("Stop requested during validation")
                     break  # Exit the loop if stop is requested
 
-
+                start_batch_time = time.time()  # Start timing for this batch
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                 # y_pred = y_pred.squeeze(-1)
@@ -107,6 +119,16 @@ class TrainingTaskService:
                 loss = self.criterion(y_pred[:, -1, :].squeeze(-1), y_batch)
                 total_loss += loss.item() * X_batch.size(0)
                 total_samples += X_batch.size(0)
+
+                end_batch_time = time.time()  # End timing for this batch
+                batch_time = end_batch_time - start_batch_time
+                batch_times.append(batch_time)
+                
+                # Log less frequently
+                if batch_idx % log_freq == 0:
+                    batch_freq_time = sum(batch_times) / len(batch_times)
+                    # self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='validate')
+                    # self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='validate', device=device_str)
 
                 # Log progress every 150 batches
                 if batch_idx % log_freq == 0:
