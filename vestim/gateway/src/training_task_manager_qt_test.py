@@ -234,7 +234,7 @@ class TrainingTaskManager:
             exploitation_lr_update_interval = 600  # Update every 50 epochs during exploitation
             exploration_epochs = 3000  # Set how long you want the exploration phase to last (in validation epochs)
             # Initialize PSO with a number of particles (learning rates) to explore
-            self.pso = PSO(n_particles=10, lr_range=[1e-8, 1e-4])  # PSO initialized with 10 particles (learning rates)
+            self.pso = PSO(n_particles=8, lr_range=[1e-8, 1e-4])  # PSO initialized with 10 particles (learning rates)
             pso = self.pso
 
 
@@ -285,22 +285,6 @@ class TrainingTaskManager:
                     # Pass the validation loss to PSO for fitness evaluation
                     pso.evaluate_fitness(val_loss, current_particle_index)  # Feed the current validation loss into PSO for evaluation
                     
-                    # Determine whether we are in the exploration phase or exploitation phase
-                    if epoch <= exploration_epochs:
-                        # Exploration Phase: Update learning rate frequently to explore
-                        if epoch % exploration_lr_update_interval == 0:
-                            pso.update()  # Update learning rates dynamically using PSO
-                            current_lr = pso.global_best_position  # Get the best learning rate found so far by PSO
-                            optimizer.param_groups[0]['lr'] = current_lr  # Apply the best LR to the optimizer
-                            print(f"Exploration Phase: Learning Rate updated to {current_lr:.8f} at Epoch {epoch}")
-                    else:
-                        # Exploitation Phase: Update learning rate less frequently to fine-tune
-                        if epoch % exploitation_lr_update_interval == 0:
-                            pso.update()  # PSO updates learning rates for exploitation
-                            current_lr = pso.global_best_position
-                            optimizer.param_groups[0]['lr'] = current_lr
-                            print(f"Exploitation Phase: Learning Rate updated to {current_lr:.8f} at Epoch {epoch}")
-
                     current_time = time.time()
                     elapsed_time = current_time - last_validation_time
                     last_validation_time = current_time
@@ -352,6 +336,18 @@ class TrainingTaskManager:
 
                 # Log data to CSV and SQLite after each epoch (whether validated or not)
                 print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
+
+                # Determine whether we are in the exploration phase or exploitation phase
+                if epoch <= exploration_epochs:
+                    # Exploration Phase: Update learning rate frequently to explore
+                    if epoch % exploration_lr_update_interval == 0:
+                        pso.update()  # Update learning rates dynamically using PSO
+                        print(f"Exploration Phase: Learning Rate updated to {current_lr:.8f} at Epoch {epoch}")
+                else:
+                    # Exploitation Phase: Update learning rate less frequently to fine-tune
+                    if epoch % exploitation_lr_update_interval == 0:
+                        pso.update()  # PSO updates learning rates for exploitation
+                        print(f"Exploitation Phase: Learning Rate updated to {current_lr:.8f} at Epoch {epoch}")
 
                 # Save log data to CSV and SQLite
                 # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
