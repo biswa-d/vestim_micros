@@ -208,14 +208,6 @@ class TrainingTaskManager:
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
             current_lr = hyperparams['INITIAL_LR']
-            
-            # patience_threshold = int(valid_patience * 0.7)  # Set a threshold for early stopping
-            # lr_drop_period = hyperparams['LR_DROP_PERIOD']
-            # lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
-            # # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
-            # lr_drop_buffer = 400
-            # last_lr_drop_epoch = 0  # Initialize the epoch of the last LR drop
-            # # weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
 
             best_validation_loss = float('inf')
             patience_counter = 0
@@ -354,19 +346,19 @@ class TrainingTaskManager:
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                 model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
                 
-                # Log data to SQLite
-                self.log_to_sqlite(
-                    task=task,
-                    epoch=epoch,
-                    train_loss=train_loss,
-                    val_loss=val_loss,
-                    best_val_loss=best_validation_loss,
-                    elapsed_time=elapsed_time,
-                    avg_batch_time=avg_batch_time,
-                    early_stopping=early_stopping,
-                    model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
-                    current_lr=current_lr  # Pass updated learning rate here
-                )
+                # # Log data to SQLite
+                # self.log_to_sqlite(
+                #     task=task,
+                #     epoch=epoch,
+                #     train_loss=train_loss,
+                #     val_loss=val_loss,
+                #     best_val_loss=best_validation_loss,
+                #     elapsed_time=elapsed_time,
+                #     avg_batch_time=avg_batch_time,
+                #     early_stopping=early_stopping,
+                #     model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
+                #     current_lr=current_lr  # Pass updated learning rate here
+                # )
 
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
