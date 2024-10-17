@@ -7,6 +7,7 @@ from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 from vestim.services.model_training.src.data_loader_service_test_h5 import DataLoaderService
 from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
+from vestim.services.model_training.src.pso import PSO
 import logging, wandb
 
 class TrainingTaskManager:
@@ -206,14 +207,15 @@ class TrainingTaskManager:
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
-            patience_threshold = int(valid_patience * 0.7)  # Set a threshold for early stopping
             current_lr = hyperparams['INITIAL_LR']
-            lr_drop_period = hyperparams['LR_DROP_PERIOD']
-            lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
-            # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
-            lr_drop_buffer = 400
-            last_lr_drop_epoch = 0  # Initialize the epoch of the last LR drop
-            # weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
+            
+            # patience_threshold = int(valid_patience * 0.7)  # Set a threshold for early stopping
+            # lr_drop_period = hyperparams['LR_DROP_PERIOD']
+            # lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
+            # # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
+            # lr_drop_buffer = 400
+            # last_lr_drop_epoch = 0  # Initialize the epoch of the last LR drop
+            # # weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
 
             best_validation_loss = float('inf')
             patience_counter = 0
@@ -222,10 +224,19 @@ class TrainingTaskManager:
             early_stopping = False  # Initialize early stopping flag
 
             self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
-            # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
-            self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
             optimizer = self.optimizer
-            scheduler = self.scheduler
+            # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
+            # self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
+            # scheduler = self.scheduler
+            #Scheduler replaced with PSO logic
+            # Assuming lr_update_interval is set for different phases
+            exploration_lr_update_interval = 1000  # Update every 10 epochs during exploration
+            exploitation_lr_update_interval = 600  # Update every 50 epochs during exploitation
+            exploration_epochs = 3000  # Set how long you want the exploration phase to last (in validation epochs)
+            # Initialize PSO with a number of particles (learning rates) to explore
+            self.pso = PSO(n_particles=10, lr_range=[1e-8, 1e-4])  # PSO initialized with 10 particles (learning rates)
+            pso = self.pso
+
 
             # Log the training progress for each epoch
             def format_time(seconds):
@@ -240,6 +251,10 @@ class TrainingTaskManager:
                     self.logger.info("Training stopped by user")
                     print("Stopping training...")
                     break
+                # Select the current particle's learning rate (for example, let's say we're using particle 5)
+                current_particle_index = epoch % pso.n_particles  # Cycle through particles, for example
+                current_lr = pso.positions[current_particle_index]  # Use this particle's learning rate
+                optimizer.param_groups[0]['lr'] = current_lr  # Set the optimizer learning rate to this particle's LR
 
                 # Initialize hidden states for training phase
                 h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
@@ -265,13 +280,29 @@ class TrainingTaskManager:
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
                     h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
                     h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
-
                     val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested, task)
                     self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
+                    # Pass the validation loss to PSO for fitness evaluation
+                    pso.evaluate_fitness(val_loss, current_particle_index)  # Feed the current validation loss into PSO for evaluation
+                    
+                    # Determine whether we are in the exploration phase or exploitation phase
+                    if epoch <= exploration_epochs:
+                        # Exploration Phase: Update learning rate frequently to explore
+                        if epoch % exploration_lr_update_interval == 0:
+                            pso.update()  # Update learning rates dynamically using PSO
+                            current_lr = pso.global_best_position  # Get the best learning rate found so far by PSO
+                            optimizer.param_groups[0]['lr'] = current_lr  # Apply the best LR to the optimizer
+                            print(f"Exploration Phase: Learning Rate updated to {current_lr:.8f} at Epoch {epoch}")
+                    else:
+                        # Exploitation Phase: Update learning rate less frequently to fine-tune
+                        if epoch % exploitation_lr_update_interval == 0:
+                            pso.update()  # PSO updates learning rates for exploitation
+                            current_lr = pso.global_best_position
+                            optimizer.param_groups[0]['lr'] = current_lr
+                            print(f"Exploitation Phase: Learning Rate updated to {current_lr:.8f} at Epoch {epoch}")
 
                     current_time = time.time()
-                    elapsed_time = current_time - start_time
-                    delta_t_epoch = (current_time - last_validation_time) / valid_freq
+                    elapsed_time = current_time - last_validation_time
                     last_validation_time = current_time
 
                     current_lr = optimizer.param_groups[0]['lr']
@@ -327,19 +358,6 @@ class TrainingTaskManager:
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                 model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
                 
-                # scheduler.step()
-                # Scheduler step condition: Either when lr_drop_period is reached or patience_counter exceeds the threshold
-                # Scheduler step condition: Check for drop period or patience_counter with buffer consideration
-                if (epoch % lr_drop_period == 0 or patience_counter > patience_threshold) and (epoch - last_lr_drop_epoch > lr_drop_buffer):
-                    print(f"Learning rate before scheduler step: {optimizer.param_groups[0]['lr']: .8f}\n")
-                    scheduler.step()
-                    current_lr = optimizer.param_groups[0]['lr']
-                    print(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
-                    logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}")
-                    last_lr_drop_epoch = epoch
-                else:
-                    print(f"Epoch {epoch}: No LR drop. patience_counter={patience_counter}, patience_threshold={patience_threshold}")
-    
                 # Log data to SQLite
                 self.log_to_sqlite(
                     task=task,
