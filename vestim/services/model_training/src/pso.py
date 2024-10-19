@@ -1,7 +1,7 @@
 import numpy as np
 
 class PSO:
-    def __init__(self, n_particles, lr_range, inertia=0.5, cognitive=1.5, social=1.5):
+    def __init__(self, n_particles, lr_range, inertia=0.8, cognitive=1.9, social=1.9):
         """
         Initialize the PSO algorithm for learning rate optimization.
         
@@ -33,16 +33,28 @@ class PSO:
         Update the learning rates (positions) of the particles based on PSO rules.
         """
         for i in range(self.n_particles):
-            # Update velocities using the inertia, cognitive, and social components
             r1, r2 = np.random.rand(2)  # Random coefficients for stochastic behavior
+    
+            # Cognitive and social velocities
             cognitive_velocity = self.cognitive * r1 * (self.personal_best_positions[i] - self.positions[i])
             social_velocity = self.social * r2 * (self.global_best_position - self.positions[i])
+    
+            # Update the velocity
             self.velocities[i] = self.inertia * self.velocities[i] + cognitive_velocity + social_velocity
-            
-            # Update position (learning rate) based on velocity
+    
+            # Update the learning rate position based on velocity
             self.positions[i] += self.velocities[i]
-            # Ensure learning rates stay within the defined range
-            self.positions[i] = np.clip(self.positions[i], self.lr_range[0], self.lr_range[1])
+    
+            # Only clip learning rate if it's far outside the bounds
+            if self.positions[i] < self.lr_range[0]:
+                self.positions[i] = self.lr_range[0] + np.random.uniform(0, 1e-6)  # Small nudge to avoid staying at the lower bound
+            elif self.positions[i] > self.lr_range[1]:
+                self.positions[i] = self.lr_range[1] - np.random.uniform(0, 1e-6)  # Small nudge to avoid staying at the upper bound
+    
+            # Debugging: Print velocities and updated positions
+            print(f"Particle {i}: Velocity = {self.velocities[i]}, Updated LR = {self.positions[i]}")
+
+
 
     def evaluate_fitness(self, val_loss, current_particle_index):
         """
@@ -51,17 +63,18 @@ class PSO:
         :param val_loss: The validation loss corresponding to the current learning rate (lower is better)
         :param current_particle_index: The index of the particle whose learning rate was used in the last training epoch
         """
-        # Update personal best for the specific particle used in the last epoch
         current_loss = val_loss  # Validation loss for the current particle's learning rate
-
+    
         i = current_particle_index  # The particle that was used in the last epoch
-
+    
         # Update personal best if the current validation loss is better for this particle
         if current_loss < self.personal_best_losses[i]:
             self.personal_best_losses[i] = current_loss  # Update the personal best loss
             self.personal_best_positions[i] = self.positions[i]  # Update the personal best learning rate (position)
+            print(f"Particle {i}: New Personal Best LR = {self.personal_best_positions[i]}, Loss = {self.personal_best_losses[i]}", flush=True)
             
         # Update global best if the current validation loss is the best across all particles
         if current_loss < self.global_best_loss:
             self.global_best_loss = current_loss  # Update global best loss
             self.global_best_position = self.positions[i]  # Update global best learning rate (position)
+            print(f"New Global Best LR = {self.global_best_position}, Loss = {self.global_best_loss}", flush=True)

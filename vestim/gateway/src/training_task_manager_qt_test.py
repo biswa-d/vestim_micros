@@ -226,7 +226,7 @@ class TrainingTaskManager:
             exploitation_lr_update_interval = 600  # Update every 50 epochs during exploitation
             exploration_epochs = 3000  # Set how long you want the exploration phase to last (in validation epochs)
             # Initialize PSO with a number of particles (learning rates) to explore
-            self.pso = PSO(n_particles=10, lr_range=[1e-8, 1e-4])  # PSO initialized with 10 particles (learning rates)
+            self.pso = PSO(n_particles=10, lr_range=[1e-7, 1e-5])  # PSO initialized with 10 particles (learning rates)
             pso = self.pso
 
 
