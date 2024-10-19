@@ -222,8 +222,8 @@ class TrainingTaskManager:
             # scheduler = self.scheduler
             #Scheduler replaced with PSO logic
             # Assuming lr_update_interval is set for different phases
-            exploration_lr_update_interval = 1000  # Update every 10 epochs during exploration
-            exploitation_lr_update_interval = 600  # Update every 50 epochs during exploitation
+            exploration_lr_update_interval = 600  # Update every 70 epochs during exploration
+            exploitation_lr_update_interval = 400  # Update every 30 epochs during exploitation
             exploration_epochs = 3000  # Set how long you want the exploration phase to last (in validation epochs)
             # Initialize PSO with a number of particles (learning rates) to explore
             self.pso = PSO(n_particles=10, lr_range=[1e-7, 1e-5])  # PSO initialized with 10 particles (learning rates)
