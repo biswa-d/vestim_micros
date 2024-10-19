@@ -341,18 +341,19 @@ class TrainingTaskManager:
                     print(f"Epoch {epoch}: No LR drop. patience_counter={patience_counter}, patience_threshold={patience_threshold}\n")
     
                 # Log data to SQLite
-                self.log_to_sqlite(
-                    task=task,
-                    epoch=epoch,
-                    train_loss=train_loss,
-                    val_loss=val_loss,
-                    best_val_loss=best_validation_loss,
-                    elapsed_time=elapsed_time,
-                    avg_batch_time=avg_batch_time,
-                    early_stopping=early_stopping,
-                    model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
-                    current_lr=current_lr  # Pass updated learning rate here
-                )
+                #commented out for testing db error
+                # self.log_to_sqlite(
+                #     task=task,
+                #     epoch=epoch,
+                #     train_loss=train_loss,
+                #     val_loss=val_loss,
+                #     best_val_loss=best_validation_loss,
+                #     elapsed_time=elapsed_time,
+                #     avg_batch_time=avg_batch_time,
+                #     early_stopping=early_stopping,
+                #     model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
+                #     current_lr=current_lr  # Pass updated learning rate here
+                # )
 
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
