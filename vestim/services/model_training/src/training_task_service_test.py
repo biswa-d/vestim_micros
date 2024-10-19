@@ -80,7 +80,7 @@ class TrainingTaskService:
             if batch_idx % log_freq == 0:
                 batch_freq_time = sum(batch_times) / len(batch_times)
                 # self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='train', device=device)
-                self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train', device=device_str)
+                # self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train', device=device_str)
 
             # Log progress every 150 batches
             if batch_idx % log_freq == 0:
@@ -127,7 +127,7 @@ class TrainingTaskService:
                 if batch_idx % log_freq == 0:
                     batch_freq_time = sum(batch_times) / len(batch_times)
                     # self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='validate')
-                    self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='validate', device=device_str)
+                    # self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='validate', device=device_str)
 
                 # Log progress every 150 batches
                 if batch_idx % log_freq == 0:
