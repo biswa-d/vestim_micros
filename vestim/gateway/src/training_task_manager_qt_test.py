@@ -245,9 +245,10 @@ class TrainingTaskManager:
                     break
                 # Select the current particle's learning rate (for example, let's say we're using particle 5)
                 current_particle_index = epoch % pso.n_particles  # Cycle through particles, for example
+                print(f"Using particle {current_particle_index} for learning rate selection at Epoch {epoch}")
                 current_lr = pso.positions[current_particle_index]  # Use this particle's learning rate
                 optimizer.param_groups[0]['lr'] = current_lr  # Set the optimizer learning rate to this particle's LR
-
+                print(f"Current learning rate: {current_lr:.8f}")
                 # Initialize hidden states for training phase
                 h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
                 h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
@@ -335,11 +336,15 @@ class TrainingTaskManager:
                     if epoch % exploration_lr_update_interval == 0:
                         pso.update()  # Update learning rates dynamically using PSO
                         print(f"Exploration Phase: Learning Rate updated to {current_lr:.8f} at Epoch {epoch}")
+                        print(f"Global Best Loss: {pso.global_best_loss:.6f} at Learning Rate: {pso.global_best_position:.8f}")
+                        print(f"All particle losses: {pso.personal_best_losses}")
                 else:
                     # Exploitation Phase: Update learning rate less frequently to fine-tune
                     if epoch % exploitation_lr_update_interval == 0:
                         pso.update()  # PSO updates learning rates for exploitation
                         print(f"Exploitation Phase: Learning Rate updated to {current_lr:.8f} at Epoch {epoch}")
+                        print(f"Global Best Loss: {pso.global_best_loss:.6f} at Learning Rate: {pso.global_best_position:.8f}")
+                        print(f"All particle losses: {pso.personal_best_losses}")
 
                 # Save log data to CSV and SQLite
                 # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
