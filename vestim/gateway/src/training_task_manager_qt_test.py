@@ -211,7 +211,7 @@ class TrainingTaskManager:
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
             # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
-            lr_drop_buffer = 100
+            lr_drop_buffer = 50
             last_lr_drop_epoch = 0  # Initialize the epoch of the last LR drop
             # weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
 
