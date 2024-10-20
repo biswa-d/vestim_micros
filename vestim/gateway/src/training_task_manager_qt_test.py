@@ -7,7 +7,7 @@ from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 from vestim.services.model_training.src.data_loader_service_test_h5 import DataLoaderService
 from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
-from vestim.services.model_training.src.pso import PSO
+from vestim.services.model_training.src.pso_wlr import PSOWeightsAndLR
 import logging, wandb
 
 class TrainingTaskManager:
@@ -215,20 +215,14 @@ class TrainingTaskManager:
             last_validation_time = start_time
             early_stopping = False  # Initialize early stopping flag
 
-            self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
-            optimizer = self.optimizer
-            # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
-            # self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
-            # scheduler = self.scheduler
-            #Scheduler replaced with PSO logic
-            # Assuming lr_update_interval is set for different phases
-            exploration_lr_update_interval = 600  # Update every 70 epochs during exploration
-            exploitation_lr_update_interval = 400  # Update every 30 epochs during exploitation
-            exploration_epochs = 3000  # Set how long you want the exploration phase to last (in validation epochs)
-            # Initialize PSO with a number of particles (learning rates) to explore
-            self.pso = PSO(n_particles=10, lr_range=[1e-7, 1e-5])  # PSO initialized with 10 particles (learning rates)
+            # Initialize PSO with both weights and learning rate optimization
+            self.pso = PSOWeightsAndLR(n_particles=10, model=model, lr_range=[1e-5, 2e-4])
             pso = self.pso
-
+            # Assuming lr_update_interval is set for different phases
+            exploration_lr_update_interval = 1000  # Update every 70 epochs during exploration
+            exploitation_lr_update_interval = 800  # Update every 30 epochs during exploitation
+            exploration_epochs = 4000  # Set how long you want the exploration phase to last (in validation epochs)
+           
 
             # Log the training progress for each epoch
             def format_time(seconds):
@@ -243,12 +237,31 @@ class TrainingTaskManager:
                     self.logger.info("Training stopped by user")
                     print("Stopping training...")
                     break
-                # Select the current particle's learning rate (for example, let's say we're using particle 5)
-                current_particle_index = epoch % pso.n_particles  # Cycle through particles, for example
-                print(f"Using particle {current_particle_index} for learning rate selection at Epoch {epoch}")
-                current_lr = pso.positions[current_particle_index]  # Use this particle's learning rate
-                optimizer.param_groups[0]['lr'] = current_lr  # Set the optimizer learning rate to this particle's LR
-                print(f"Current learning rate: {current_lr:.8f}")
+                # Select the current particle (weights + learning rate)
+                # Determine if we are in exploration or exploitation phase
+                if epoch <= exploration_epochs:
+                    # Exploration phase: wider learning rate range, longer particle blocks
+                    update_epoch_interval = exploration_lr_update_interval
+                    particle_train_epochs = update_epoch_interval // pso.n_particles  # E.g., 800 epochs / 10 particles = 80 epochs per particle
+                    print(f"Exploration Phase: Epoch {epoch}, Particle Training Block: {particle_train_epochs} epochs")
+                else:
+                    # Exploitation phase: narrower learning rate range, shorter particle blocks
+                    update_epoch_interval = exploitation_lr_update_interval
+                    particle_train_epochs = update_epoch_interval // pso.n_particles  # E.g., 500 epochs / 10 particles = 50 epochs per particle
+                    print(f"Exploitation Phase: Epoch {epoch}, Particle Training Block: {particle_train_epochs} epochs")
+                
+                current_particle_index = (epoch // particle_train_epochs) % pso.n_particles
+                current_particle = pso.positions[current_particle_index]
+
+                # Apply particle's weights to the model
+                pso.set_model_weights(current_particle)
+
+                # Set the particle's learning rate in the optimizer
+                current_lr = current_particle['lr']
+                self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
+                optimizer = self.optimizer
+                print(f"Using particle {current_particle_index}: LR = {current_lr:.8f} at Epoch {epoch}")
+                
                 # Initialize hidden states for training phase
                 h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
                 h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
@@ -328,42 +341,42 @@ class TrainingTaskManager:
                         break
 
                 # Log data to CSV and SQLite after each epoch (whether validated or not)
-                print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
+                # print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
 
                 # Determine whether we are in the exploration phase or exploitation phase
                 if epoch <= exploration_epochs:
-                    # Exploration Phase: Update learning rate frequently to explore
+                    # Exploration Phase: Wider learning rate range
                     if epoch % exploration_lr_update_interval == 0:
-                        pso.update()  # Update learning rates dynamically using PSO
-                        print(f"Exploration Phase: Learning Rate updated to {current_lr:.8f} at Epoch {epoch}")
-                        print(f"Global Best Loss: {pso.global_best_loss:.6f} at Learning Rate: {pso.global_best_position:.8f}")
-                        print(f"All particle losses: {pso.personal_best_losses}")
+                        # Increase the learning rate range for exploration phase
+                        pso.lr_range = [5e-6, 2e-4]  # Set wider range for exploration
+                        pso.update()  # Update weights and learning rates using PSO
+                        print(f"Exploration Phase: Parameters updated at Epoch {epoch}")
                 else:
-                    # Exploitation Phase: Update learning rate less frequently to fine-tune
+                    # Exploitation Phase: Narrower learning rate range
                     if epoch % exploitation_lr_update_interval == 0:
-                        pso.update()  # PSO updates learning rates for exploitation
-                        print(f"Exploitation Phase: Learning Rate updated to {current_lr:.8f} at Epoch {epoch}")
-                        print(f"Global Best Loss: {pso.global_best_loss:.6f} at Learning Rate: {pso.global_best_position:.8f}")
-                        print(f"All particle losses: {pso.personal_best_losses}")
+                        # Reduce the learning rate range for exploitation phase
+                        pso.lr_range = [1e-7, 1e-5]  # Set narrower range for exploitation
+                        pso.update()  # PSO updates weights and learning rates for exploitation
+                        print(f"Exploitation Phase: Parameters updated at Epoch {epoch}")
 
                 # Save log data to CSV and SQLite
                 # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                 model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
                 
-                # # Log data to SQLite
-                # self.log_to_sqlite(
-                #     task=task,
-                #     epoch=epoch,
-                #     train_loss=train_loss,
-                #     val_loss=val_loss,
-                #     best_val_loss=best_validation_loss,
-                #     elapsed_time=elapsed_time,
-                #     avg_batch_time=avg_batch_time,
-                #     early_stopping=early_stopping,
-                #     model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
-                #     current_lr=current_lr  # Pass updated learning rate here
-                # )
+                # Log data to SQLite
+                self.log_to_sqlite(
+                    task=task,
+                    epoch=epoch,
+                    train_loss=train_loss,
+                    val_loss=val_loss,
+                    best_val_loss=best_validation_loss,
+                    elapsed_time=elapsed_time,
+                    avg_batch_time=avg_batch_time,
+                    early_stopping=early_stopping,
+                    model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
+                    current_lr=current_lr  # Pass updated learning rate here
+                )
 
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
