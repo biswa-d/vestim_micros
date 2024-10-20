@@ -52,7 +52,7 @@ class PSOWeightsAndLR:
         """
         random_weights = []
         for param in self.model.parameters():
-            random_weights.append(torch.randn_like(param).numpy())
+            random_weights.append(torch.randn_like(param).cpu().numpy())
         return random_weights
 
     def set_model_weights(self, particle):
