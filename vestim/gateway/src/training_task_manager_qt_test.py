@@ -289,7 +289,7 @@ class TrainingTaskManager:
                     val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested, task)
                     self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
                     # Pass the validation loss to PSO for fitness evaluation
-                    pso.evaluate_fitness(val_loss, current_particle_index)  # Feed the current validation loss into PSO for evaluation
+                    pso.evaluate_fitness(val_loss, current_particle_index, model)  # Feed the current validation loss into PSO for evaluation
                     
                     current_time = time.time()
                     elapsed_time = current_time - last_validation_time
