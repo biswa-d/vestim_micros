@@ -418,7 +418,9 @@ class TrainingTaskManager:
         if model is None:
             self.logger.error("No model instance found in task.")
             raise ValueError("No model instance found in task.")
-
+        
+        # Ensure the model has the best weights (from PSO's global best particle)
+        self.pso.set_model_weights(self.pso.global_best_position)
         torch.save(model.state_dict(), model_path)
         print(f"Model saved to {model_path}")
 
