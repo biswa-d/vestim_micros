@@ -108,7 +108,7 @@ class PSOWeightsAndLR:
                 self.positions[i]['lr'] = self.lr_range[1]
 
             # Debugging: Print velocities and updated positions
-            print(f"Particle {i}: Velocity (weights) = {self.velocities[i]['weights']}, Updated LR = {self.positions[i]['lr']}")
+            # print(f"Particle {i}: Velocity (weights) = {self.velocities[i]['weights']}, Updated LR = {self.positions[i]['lr']}")
 
 
     def evaluate_fitness(self, val_loss, current_particle_index, model):
