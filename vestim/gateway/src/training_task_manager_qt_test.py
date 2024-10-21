@@ -219,9 +219,9 @@ class TrainingTaskManager:
             self.pso = PSOWeightsAndLR(n_particles=10, model=model, lr_range=[1e-5, 2e-4])
             pso = self.pso
             # Assuming lr_update_interval is set for different phases
-            exploration_lr_update_interval = 10  # Update every 70 epochs during exploration
-            exploitation_lr_update_interval = 10 # Update every 30 epochs during exploitation
-            exploration_epochs = 6000  # Set how long you want the exploration phase to last (in validation epochs)
+            exploration_lr_update_interval = 500  # Update every 70 epochs during exploration
+            exploitation_lr_update_interval = 300 # Update every 30 epochs during exploitation
+            exploration_epochs = 4000  # Set how long you want the exploration phase to last (in validation epochs)
            
 
             # Log the training progress for each epoch
