@@ -62,6 +62,7 @@ class PSOWeightsAndLR:
         with torch.no_grad():
             for param, weight in zip(self.model.parameters(), particle['weights']):
                 param.copy_(torch.tensor(weight))
+        print("Model weights updated")
 
     def update(self):
         """
