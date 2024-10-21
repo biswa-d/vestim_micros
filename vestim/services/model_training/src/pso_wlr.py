@@ -69,21 +69,36 @@ class PSOWeightsAndLR:
         """
         for i in range(self.n_particles):
             r1, r2 = np.random.rand(2)  # Random coefficients for stochastic behavior
-            
-            # Cognitive and social velocities for weights
-            cognitive_velocity_weights = self.cognitive * r1 * (np.array(self.personal_best_positions[i]['weights']) - np.array(self.positions[i]['weights']))
-            social_velocity_weights = self.social * r2 * (np.array(self.global_best_position['weights']) - np.array(self.positions[i]['weights']))
+
+            # Iterate over each parameter in the model
+            for param_index, param in enumerate(self.model.parameters()):
+                # Convert the current particle's weight and velocity for this parameter to tensors
+                current_weights = torch.tensor(self.positions[i]['weights'][param_index])
+                current_velocities = torch.tensor(self.velocities[i]['weights'][param_index])
+
+                # Cognitive and social velocities for weights
+                cognitive_velocity_weights = self.cognitive * r1 * (torch.tensor(self.personal_best_positions[i]['weights'][param_index]) - current_weights)
+                social_velocity_weights = self.social * r2 * (torch.tensor(self.global_best_position['weights'][param_index]) - current_weights)
+
+                # Update the velocities for this parameter
+                updated_velocity = self.inertia * current_velocities + cognitive_velocity_weights + social_velocity_weights
+
+                # Update the positions (weights) for this parameter
+                updated_position = current_weights + updated_velocity
+
+                # Update the velocity and position in the particle
+                self.velocities[i]['weights'][param_index] = updated_velocity.numpy()  # Convert back to numpy
+                self.positions[i]['weights'][param_index] = updated_position.numpy()  # Convert back to numpy
+
+                # Apply the updated weights to the model
+                param.data.copy_(updated_position)
 
             # Cognitive and social velocities for learning rate
             cognitive_velocity_lr = self.cognitive * r1 * (self.personal_best_positions[i]['lr'] - self.positions[i]['lr'])
             social_velocity_lr = self.social * r2 * (self.global_best_position['lr'] - self.positions[i]['lr'])
 
-            # Update the velocities
-            self.velocities[i]['weights'] = self.inertia * np.array(self.velocities[i]['weights']) + cognitive_velocity_weights + social_velocity_weights
+            # Update the learning rate velocity and position
             self.velocities[i]['lr'] = self.inertia * self.velocities[i]['lr'] + cognitive_velocity_lr + social_velocity_lr
-
-            # Update the positions (weights and learning rates)
-            self.positions[i]['weights'] = np.array(self.positions[i]['weights']) + self.velocities[i]['weights']
             self.positions[i]['lr'] += self.velocities[i]['lr']
 
             # Clip the learning rate within the specified range
@@ -94,6 +109,7 @@ class PSOWeightsAndLR:
 
             # Debugging: Print velocities and updated positions
             print(f"Particle {i}: Velocity (weights) = {self.velocities[i]['weights']}, Updated LR = {self.positions[i]['lr']}")
+
 
     def evaluate_fitness(self, val_loss, current_particle_index, model):
         """
