@@ -36,7 +36,6 @@ class TrainingThread(QThread):
         except Exception as e:
             self.task_error_signal.emit(str(e))  # Emit error message
 
-
 class VEstimTrainingTaskGUI(QMainWindow):
     def __init__(self, task_list, params):
         super().__init__()
@@ -77,19 +76,19 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
         self.param_labels = {
             "LAYERS": "Layers",
-            "HIDDEN_UNITS": "Hidden Units",
-            # "DROPOUT_PROB": "Dropout Probability",
+            "HIDDEN_UNITS": "Units",
             "BATCH_SIZE": "Batch Size",
             "MAX_EPOCHS": "Max Epochs",
-            "INITIAL_LR": "Initial Learning Rate",
-            "LR_DROP_FACTOR": "LR Drop Factor",
-            "LR_DROP_PERIOD": "LR Drop Period",
-            "VALID_PATIENCE": "Validation Patience",
-            "ValidFrequency": "Validation Frequency",
-            "LOOKBACK": "Lookback Sequence Length",
-            "REPETITIONS": "Repetitions",
-            "NUM_LEARNABLE_PARAMS": "Number of Learnable Parameters",
-
+            "VALID_PATIENCE": "Val Patience",
+            "ValidFrequency": "Val Freq",
+            "LOOKBACK": "Lookback Len",
+            "NUM_LEARNABLE_PARAMS": "Learnable Params",
+            "N_PARTICLES": "PSO Particles",
+            "EXPLORATION_LR_RANGE": "Explor LR Range",
+            "EXPLOITATION_LR_RANGE": "Exploit LR Range",
+            "EXPLORATION_EPOCHS": "Explor Epochs",
+            "EXPLORATION_LR_UPDATE_INTERVAL": "Explor LR Update",
+            "EXPLOITATION_LR_UPDATE_INTERVAL": "Exploit LR Update"
         }
 
         self.initUI()
@@ -119,7 +118,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.hyperparam_frame = QFrame(self)
         self.hyperparam_frame.setLayout(QVBoxLayout())  # Set a default layout for the frame
         self.main_layout.addWidget(self.hyperparam_frame)
-        self.display_hyperparameters(task['hyperparams'])
+        self.display_hyperparameters(task)
 
         # Status Label
         self.status_label = QLabel("Starting training...")
@@ -172,7 +171,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Attach the layout to the central widget
         container.setLayout(self.main_layout)
 
-    def display_hyperparameters(self, params):
+    def display_hyperparameters(self, task):
+        """Display both general hyperparameters and PSO-specific hyperparameters."""
         # Clear previous widgets in the hyperparam_frame layout
         layout = self.hyperparam_frame.layout()
         
@@ -186,24 +186,35 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Create a new grid layout for hyperparameters
         hyperparam_layout = QGridLayout()
 
-        # Get the parameter items (mapping them to the correct labels if necessary)
-        param_items = [(self.param_labels.get(param, param), value) for param, value in params.items()]
+        # Split the task dictionary into hyperparams and pso_params
+        hyperparams = task['hyperparams']
+        pso_params = task['pso_params']
 
-        # Split the parameters into five columns
+        # Combine both sets of parameters
+        all_params = {**hyperparams, **pso_params}
+
+        # Get the parameter items (mapping them to the correct labels if necessary)
+        param_items = [(self.param_labels.get(param, param), value) for param, value in all_params.items()]
+
+        # Split the parameters into five columns for better UI display
         columns = [param_items[i::5] for i in range(5)]  # Split into five columns
 
         # Display each column with labels
         for col_num, column in enumerate(columns):
             for row_num, (param, value) in enumerate(column):
                 value_str = str(value)
-                if "," in value_str:
-                    values = value_str.split(",")
-                    if len(values) > 2:
-                        display_value = f"{values[0]},{values[1]},..."
+                if isinstance(value, list):
+                    # Handling lists like LR ranges
+                    display_value = f"[{value[0]}, {value[1]}]" if len(value) == 2 else f"{value}"
+                else:
+                    if "," in value_str:
+                        values = value_str.split(",")
+                        if len(values) > 2:
+                            display_value = f"{values[0]},{values[1]},..."
+                        else:
+                            display_value = value_str
                     else:
                         display_value = value_str
-                else:
-                    display_value = value_str
 
                 # Create parameter label
                 param_label = QLabel(f"{param}:")
@@ -217,6 +228,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
         # Now add the grid layout to the existing layout (hyperparam_frame's layout)
         layout.addLayout(hyperparam_layout)
+
 
 
     def setup_time_and_plot(self, task):
@@ -309,9 +321,6 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 padding: 10px;
             }
         """)
-
-        # Insert initial logs with task repetition details
-        self.log_text.append(f"Repetition: {task['hyperparams']['REPETITIONS']}\n")
 
         # Automatically scroll to the bottom of the log window
         self.log_text.moveCursor(self.log_text.textCursor().End)

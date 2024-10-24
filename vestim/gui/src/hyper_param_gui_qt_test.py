@@ -103,21 +103,26 @@ class VEstimHyperParamGUI(QWidget):
 
     def add_param_widgets(self, layout):
         # Increase size of labels and entry boxes
-        hyperparameters = [
+        hyperparameters = hyperparameters = [
             {"label": "Layers:", "default": self.params.get("LAYERS", "1"), "tooltip": "Number of LSTM layers in the model", "param": "LAYERS"},
             {"label": "Hidden Units:", "default": self.params.get("HIDDEN_UNITS", "10"), "tooltip": "Number of units in each LSTM layer", "param": "HIDDEN_UNITS"},
             {"label": "Mini-batches:", "default": self.params.get("BATCH_SIZE", "100"), "tooltip": "Number of mini-batches to use during training", "param": "BATCH_SIZE"},
             {"label": "Max Epochs:", "default": self.params.get("MAX_EPOCHS", "5000"), "tooltip": "Maximum number of epochs to train the model", "param": "MAX_EPOCHS"},
-            {"label": "Initial LR:", "default": self.params.get("INITIAL_LR", "0.00001"), "tooltip": "The starting learning rate for the optimizer", "param": "INITIAL_LR"},
-            {"label": "LR Drop Factor:", "default": self.params.get("LR_DROP_FACTOR", "0.1"), "tooltip": "Factor by which the learning rate is reduced after Drop Period", "param": "LR_DROP_FACTOR"},
-            {"label": "LR Drop Period:", "default": self.params.get("LR_DROP_PERIOD", "1000"), "tooltip": "The number of epochs after which the learning rate drops", "param": "LR_DROP_PERIOD"},
-            {"label": "Validation Patience:", "default": self.params.get("VALID_PATIENCE", "10"), "tooltip": "Number of epochs to wait for validation improvement before early stopping", "param": "VALID_PATIENCE"},
-            {"label": "Validation Freq:", "default": self.params.get("ValidFrequency", "3"), "tooltip": "How often (in epochs) to perform validation", "param": "ValidFrequency"},
+            {"label": "Valid Patience:", "default": self.params.get("VALID_PATIENCE", "10"), "tooltip": "Number of epochs to wait for validation improvement before early stopping", "param": "VALID_PATIENCE"},
+            {"label": "Valid Freq:", "default": self.params.get("ValidFrequency", "3"), "tooltip": "How often (in epochs) to perform validation", "param": "ValidFrequency"},
             {"label": "Lookback:", "default": self.params.get("LOOKBACK", "400"), "tooltip": "Number of previous time steps to consider for each timestep", "param": "LOOKBACK"},
-            {"label": "Repetitions:", "default": self.params.get("REPETITIONS", "1"), "tooltip": "Number of times to repeat the entire training process with randomized initial parameters", "param": "REPETITIONS"},
-            # Add Dropout Probability and weight decay widget
-            {"label": "Dropout Probability:", "default": self.params.get("DROPOUT_PROB", "0.0"), "tooltip": "Probability of dropout used in LSTM layers to prevent overfitting", "param": "DROPOUT_PROB"},
-            {"label": "Weight Decay:", "default": self.params.get("WEIGHT_DECAY", "0.0"), "tooltip": "Weight decay (L2 penalty) applied to the optimizer", "param": "WEIGHT_DECAY"},
+            
+            # New PSO related parameters with shorter labels
+            {"label": "Particles:", "default": self.params.get("N_PARTICLES", "10"), "tooltip": "Number of particles in PSO", "param": "N_PARTICLES"},
+            
+            # Learning Rate Ranges as arrays
+            {"label": "Expl LR Range:", "default": str(self.params.get("EXPLORATION_LR_RANGE", "[1e-4, 1e-5]")), "tooltip": "Learning rate range during exploration phase [min, max]", "param": "EXPLORATION_LR_RANGE"},
+            {"label": "Expt LR Range:", "default": str(self.params.get("EXPLOITATION_LR_RANGE", "[1e-5, 1e-8]")), "tooltip": "Learning rate range during exploitation phase [min, max]", "param": "EXPLOITATION_LR_RANGE"},
+            
+            # Exploration and Exploitation Parameters with shorter labels
+            {"label": "Expl Epochs:", "default": self.params.get("EXPLORATION_EPOCHS", "4000"), "tooltip": "Number of epochs to run the exploration phase", "param": "EXPLORATION_EPOCHS"},
+            {"label": "Expl LR Up. Epoch:", "default": self.params.get("EXPLORATION_LR_UPDATE_INTERVAL", "1000"), "tooltip": "Epochs between LR updates during exploration", "param": "EXPLORATION_LR_UPDATE_INTERVAL"},
+            {"label": "Expt LR Up. Epoch:", "default": self.params.get("EXPLOITATION_LR_UPDATE_INTERVAL", "800"), "tooltip": "Epochs between LR updates during exploitation", "param": "EXPLOITATION_LR_UPDATE_INTERVAL"}
         ]
 
         # Set bigger sizes for labels and entry boxes

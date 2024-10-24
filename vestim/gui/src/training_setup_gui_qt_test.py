@@ -56,19 +56,21 @@ class VEstimTrainSetupGUI(QWidget):
         self.timer_running = True  # Ensure this flag is initialized in __init__
         self.param_labels = {
             "LAYERS": "Layers",
-            "HIDDEN_UNITS": "Hidden Units",
-            "DROPOUT_PROB": "Dropout Probability",
-            "WEIGHT_DECAY": "Weight Decay",
+            "HIDDEN_UNITS": "Units",
             "BATCH_SIZE": "Batch Size",
             "MAX_EPOCHS": "Max Epochs",
-            "INITIAL_LR": "Initial Learning Rate",
-            "LR_DROP_FACTOR": "LR Drop Factor",
-            "LR_DROP_PERIOD": "LR Drop Period",
-            "VALID_PATIENCE": "Validation Patience",
-            "ValidFrequency": "Validation Frequency",
-            "LOOKBACK": "Lookback Sequence Length",
-            "REPETITIONS": "Repetitions"
+            "VALID_PATIENCE": "Val Patience",
+            "ValidFrequency": "Val Freq",
+            "LOOKBACK": "Lookback Len",
+            "NUM_LEARNABLE_PARAMS": "Learnable Params",
+            "N_PARTICLES": "PSO Particles",
+            "EXPLORATION_LR_RANGE": "Explor LR Range",
+            "EXPLOITATION_LR_RANGE": "Exploit LR Range",
+            "EXPLORATION_EPOCHS": "Explor Epochs",
+            "EXPLORATION_LR_UPDATE_INTERVAL": "Explor LR Update",
+            "EXPLOITATION_LR_UPDATE_INTERVAL": "Exploit LR Update"
         }
+
 
         # Setup GUI
         self.logger.info("Initializing VEstimTrainSetupGUI")

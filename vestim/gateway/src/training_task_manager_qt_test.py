@@ -196,18 +196,23 @@ class TrainingTaskManager:
         )
 
         return train_loader, val_loader
-
+    
     def run_training(self, task, update_progress_callback, train_loader, val_loader, device):
         """Run the training process for a single task."""
         try:
             self.logger.info("Starting training loop")
-            hyperparams = self.convert_hyperparams(task['hyperparams'])
-            model = task['model'].to(device)
             
+            # Convert the full task including both hyperparams and pso_params
+            task = self.convert_hyperparams(task)
+            
+            # Extract relevant hyperparameters from the task
+            model = task['model'].to(device)
+            hyperparams = task['hyperparams']
+            pso_params = task['pso_params']
+
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
-            current_lr = hyperparams['INITIAL_LR']
 
             best_validation_loss = float('inf')
             patience_counter = 0
@@ -215,14 +220,16 @@ class TrainingTaskManager:
             last_validation_time = start_time
             early_stopping = False  # Initialize early stopping flag
 
+            # Extract PSO hyperparameters from task
+            exploration_lr_range = pso_params['EXPLORATION_LR_RANGE']
+            exploitation_lr_range = pso_params['EXPLOITATION_LR_RANGE']
+            exploration_epochs = pso_params['EXPLORATION_EPOCHS']
+            exploration_lr_update_interval = pso_params['EXPLORATION_LR_UPDATE_INTERVAL']
+            exploitation_lr_update_interval = pso_params['EXPLOITATION_LR_UPDATE_INTERVAL']
+
             # Initialize PSO with both weights and learning rate optimization
-            self.pso = PSOWeightsAndLR(n_particles=10, model=model, lr_range=[1e-5, 2e-4])
+            self.pso = PSOWeightsAndLR(n_particles=10, model=model, lr_range=exploration_lr_range)
             pso = self.pso
-            # Assuming lr_update_interval is set for different phases
-            exploration_lr_update_interval = 1000  # Update every 70 epochs during exploration
-            exploitation_lr_update_interval = 800  # Update every 30 epochs during exploitation
-            exploration_epochs = 4000  # Set how long you want the exploration phase to last (in validation epochs)
-           
 
             # Log the training progress for each epoch
             def format_time(seconds):
@@ -237,17 +244,18 @@ class TrainingTaskManager:
                     self.logger.info("Training stopped by user")
                     print("Stopping training...")
                     break
+
                 # Select the current particle (weights + learning rate)
                 # Determine if we are in exploration or exploitation phase
                 if epoch <= exploration_epochs:
                     # Exploration phase: wider learning rate range, longer particle blocks
                     update_epoch_interval = exploration_lr_update_interval
-                    particle_train_epochs = update_epoch_interval // pso.n_particles  # E.g., 800 epochs / 10 particles = 80 epochs per particle
+                    particle_train_epochs = update_epoch_interval // pso.n_particles
                     print(f"Exploration Phase: Epoch {epoch}, Particle Training Block: {particle_train_epochs} epochs")
                 else:
                     # Exploitation phase: narrower learning rate range, shorter particle blocks
                     update_epoch_interval = exploitation_lr_update_interval
-                    particle_train_epochs = update_epoch_interval // pso.n_particles  # E.g., 500 epochs / 10 particles = 50 epochs per particle
+                    particle_train_epochs = update_epoch_interval // pso.n_particles
                     print(f"Exploitation Phase: Epoch {epoch}, Particle Training Block: {particle_train_epochs} epochs")
                 
                 current_particle_index = (epoch // particle_train_epochs) % pso.n_particles
@@ -274,7 +282,7 @@ class TrainingTaskManager:
 
                 epoch_end_time = time.time()
                 epoch_duration = epoch_end_time - epoch_start_time
-                formatted_epoch_time = format_time(epoch_duration)  # Convert epoch time to mm:ss format
+                formatted_epoch_time = format_time(epoch_duration)
 
                 if self.stop_requested:
                     self.logger.info("Training stopped by user")
@@ -289,7 +297,7 @@ class TrainingTaskManager:
                     val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested, task)
                     self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
                     # Pass the validation loss to PSO for fitness evaluation
-                    pso.evaluate_fitness(val_loss, current_particle_index, model)  # Feed the current validation loss into PSO for evaluation
+                    pso.evaluate_fitness(val_loss, current_particle_index, model)
                     
                     current_time = time.time()
                     elapsed_time = current_time - last_validation_time
@@ -313,18 +321,13 @@ class TrainingTaskManager:
                         'best_val_loss': best_validation_loss,
                     }
                     # Emit progress after validation
-                    update_progress_callback.emit(progress_data) 
+                    update_progress_callback.emit(progress_data)
 
                     if patience_counter > valid_patience:
                         early_stopping = True
                         self.save_model(task)
                         print(f"Early stopping at epoch {epoch} due to no improvement.")
                         self.logger.info(f"Early stopping at epoch {epoch} due to no improvement.")
-                        
-                        # Ensure that we log the final epoch before breaking out
-                        model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
-                        model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
-                        # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
                         # self.log_to_sqlite(
                         #     task=task,
                         #     epoch=epoch,
@@ -337,34 +340,23 @@ class TrainingTaskManager:
                         #     model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
                         #     current_lr=current_lr  # Pass updated learning rate here
                         # )
-
                         break
 
-                # Log data to CSV and SQLite after each epoch (whether validated or not)
-                # print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
-
-                # Determine whether we are in the exploration phase or exploitation phase
+                # Update PSO parameters for exploration or exploitation phase
                 if epoch <= exploration_epochs:
-                    # Exploration Phase: Wider learning rate range
                     if epoch % exploration_lr_update_interval == 0:
-                        # Increase the learning rate range for exploration phase
-                        pso.lr_range = [5e-6, 2e-4]  # Set wider range for exploration
-                        pso.update()  # Update weights and learning rates using PSO
+                        pso.lr_range = exploration_lr_range  # Use wider range for exploration
+                        pso.update()
                         print(f"Exploration Phase: Parameters updated at Epoch {epoch}")
                 else:
-                    # Exploitation Phase: Narrower learning rate range
                     if epoch % exploitation_lr_update_interval == 0:
-                        # Reduce the learning rate range for exploitation phase
-                        pso.lr_range = [1e-7, 1e-5]  # Set narrower range for exploitation
-                        pso.update()  # PSO updates weights and learning rates for exploitation
+                        pso.lr_range = exploitation_lr_range  # Use narrower range for exploitation
+                        pso.update()
                         print(f"Exploitation Phase: Parameters updated at Epoch {epoch}")
 
-                # Save log data to CSV and SQLite
-                # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
+                # Log data and progress after each epoch if needed
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
-                model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
-                
-                # Log data to SQLite
+                model_memory_usage_mb = model_memory_usage / (1024 * 1024)
                 # self.log_to_sqlite(
                 #     task=task,
                 #     epoch=epoch,
@@ -390,22 +382,33 @@ class TrainingTaskManager:
             self.logger.error(f"Error during training: {str(e)}")
             update_progress_callback.emit({'task_error': str(e)})
 
-    def convert_hyperparams(self, hyperparams):
-        """Converts all relevant hyperparameters to the correct types."""
-        hyperparams['LAYERS'] = int(hyperparams['LAYERS'])
-        hyperparams['HIDDEN_UNITS'] = int(hyperparams['HIDDEN_UNITS'])
-        hyperparams['DROPOUT_PROB'] = float(hyperparams['DROPOUT_PROB'])
-        hyperparams['WEIGHT_DECAY'] = float(hyperparams['WEIGHT_DECAY'])
-        hyperparams['BATCH_SIZE'] = int(hyperparams['BATCH_SIZE'])
-        hyperparams['MAX_EPOCHS'] = int(hyperparams['MAX_EPOCHS'])
-        hyperparams['INITIAL_LR'] = float(hyperparams['INITIAL_LR'])
-        hyperparams['LR_DROP_PERIOD'] = int(hyperparams['LR_DROP_PERIOD'])
-        hyperparams['LR_DROP_FACTOR'] = float(hyperparams['LR_DROP_FACTOR'])
-        hyperparams['VALID_PATIENCE'] = int(hyperparams['VALID_PATIENCE'])
-        hyperparams['ValidFrequency'] = int(hyperparams['ValidFrequency'])
-        hyperparams['LOOKBACK'] = int(hyperparams['LOOKBACK'])
-        hyperparams['REPETITIONS'] = int(hyperparams['REPETITIONS'])
-        return hyperparams
+
+    def convert_hyperparams(self, task):
+        """Converts all relevant hyperparameters and PSO parameters within the task to the correct types."""
+
+        # Convert the standard hyperparameters (inside task['hyperparams'])
+        task['hyperparams']['LAYERS'] = int(task['hyperparams']['LAYERS'])
+        task['hyperparams']['HIDDEN_UNITS'] = int(task['hyperparams']['HIDDEN_UNITS'])
+        task['hyperparams']['BATCH_SIZE'] = int(task['hyperparams']['BATCH_SIZE'])
+        task['hyperparams']['MAX_EPOCHS'] = int(task['hyperparams']['MAX_EPOCHS'])
+        task['hyperparams']['VALID_PATIENCE'] = int(task['hyperparams']['VALID_PATIENCE'])
+        task['hyperparams']['ValidFrequency'] = int(task['hyperparams']['ValidFrequency'])
+        task['hyperparams']['LOOKBACK'] = int(task['hyperparams']['LOOKBACK'])
+
+        # Convert the PSO-related hyperparameters (inside task['pso_params'])
+        task['pso_params']['EXPLORATION_LR_RANGE'] = [
+            float(val.strip()) for val in task['pso_params']['EXPLORATION_LR_RANGE'].strip('[]').split(',')
+        ]
+        task['pso_params']['EXPLOITATION_LR_RANGE'] = [
+            float(val.strip()) for val in task['pso_params']['EXPLOITATION_LR_RANGE'].strip('[]').split(',')
+        ]
+
+        # Convert PSO epoch and interval hyperparameters to integers
+        task['pso_params']['EXPLORATION_EPOCHS'] = int(task['pso_params']['EXPLORATION_EPOCHS'])
+        task['pso_params']['EXPLORATION_LR_UPDATE_INTERVAL'] = int(task['pso_params']['EXPLORATION_LR_UPDATE_INTERVAL'])
+        task['pso_params']['EXPLOITATION_LR_UPDATE_INTERVAL'] = int(task['pso_params']['EXPLOITATION_LR_UPDATE_INTERVAL'])
+
+        return task
 
     def save_model(self, task):
         """Save the trained model to disk."""

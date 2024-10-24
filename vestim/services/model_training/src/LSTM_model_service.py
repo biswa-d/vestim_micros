@@ -59,7 +59,7 @@ class LSTMModelService:
         input_size = params.get("INPUT_SIZE", 3)  # Default input size set to 3, change if needed
         hidden_units = int(params["HIDDEN_UNITS"])  # Ensure hidden_units is an integer
         num_layers = int(params["LAYERS"])
-        dropout_prob = params.get("DROPOUT_PROB", 0.5)  # Default dropout probability
+        dropout_prob = params.get("DROPOUT_PROB", 0.0)  # Default dropout probability
 
         print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, "
               f"num_layers={num_layers}, dropout_prob={dropout_prob}")

@@ -137,26 +137,25 @@ class VEstimTestingManager:
 
     @staticmethod
     def generate_shorthand_name(task):
-        """Generate a shorthand name for the task based on hyperparameters."""
+        """Generate a shorthand name for the task based on essential hyperparameters."""
         hyperparams = task['hyperparams']
+        
+        # Extract core hyperparameters
         layers = hyperparams.get('LAYERS', 'NA')
         hidden_units = hyperparams.get('HIDDEN_UNITS', 'NA')
         batch_size = hyperparams.get('BATCH_SIZE', 'NA')
-        max_epochs = hyperparams.get('MAX_EPOCHS', 'NA')
-        lr = hyperparams.get('INITIAL_LR', 'NA')
-        lr_drop_period = hyperparams.get('LR_DROP_PERIOD', 'NA')
-        valid_patience = hyperparams.get('VALID_PATIENCE', 'NA')
-        valid_frequency = hyperparams.get('ValidFrequency', 'NA')
         lookback = hyperparams.get('LOOKBACK', 'NA')
-        repetitions = hyperparams.get('REPETITIONS', 'NA')
+        
+        # Generate the simplified task name
+        task_name = f"L{layers}_H{hidden_units}_B{batch_size}_Lk{lookback}"
 
-        short_name = (f"L{layers}_H{hidden_units}_B{batch_size}_Lk{lookback}_"
-                      f"E{max_epochs}_LR{lr}_LD{lr_drop_period}_VP{valid_patience}_"
-                      f"VF{valid_frequency}_R{repetitions}")
+        # Create a unique hash based on key parameters
+        param_string = f"{layers}_{hidden_units}_{batch_size}_{lookback}"
+        short_hash = hashlib.md5(param_string.encode()).hexdigest()[:3]  # Use first 3 chars for uniqueness
 
-        param_string = f"{layers}_{hidden_units}_{batch_size}_{lookback}_{lr}_{valid_patience}_{max_epochs}"
-        short_hash = hashlib.md5(param_string.encode()).hexdigest()[:3]  # First 6 chars for uniqueness
-        shorthand_name = f"{short_name}_{short_hash}"
+        # Final task name with hash
+        shorthand_name = f"{task_name}_{short_hash}"
+
         return shorthand_name
     
     def log_test_to_sqlite(self, task, results, db_log_file):
