@@ -461,16 +461,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 f"Time Per Epoch (ΔT): <b>{delta_t_epoch}s</b>, "
                 f"LR: <b>{learning_rate:.1e}</b><br>"
             )
-           # WandB logging (only if enabled)
-            # if self.wandb_enabled:
-            #     try:
-            #         wandb.log({
-            #             'train_loss': progress_data['train_loss'],
-            #             'val_loss': progress_data['val_loss'],
-            #             'epoch': progress_data['epoch']
-            #         })
-            #     except Exception as e:
-            #         self.logger.error(f"Failed to log to WandB: {e}")
+        
             self.logger.info(f"Epoch {progress_data['epoch']} | Train Loss: {progress_data['train_loss']} | Val Loss: {progress_data['val_loss']}")
 
             # Append the log message to the log text widget using rich text format
@@ -493,33 +484,31 @@ class VEstimTrainingTaskGUI(QMainWindow):
             last_30_val_losses = self.valid_loss_values[-30:]  # Get last 30 validation losses
             last_30_losses = last_30_train_losses + last_30_val_losses  # Combine last 30 train and validation losses
 
-            # Get minimum and maximum from these last 30 values
-            min_loss = min(last_30_losses) if last_30_losses else 1e-5  # Fallback to a small value if empty
-            max_loss = max(last_30_losses) if last_30_losses else 1e-3  # Fallback to a small value if empty
+            # Calculate min_loss, max_loss, and margin
+            try:
+                min_loss = min(self.train_loss_values + self.valid_loss_values)
+                max_loss = max(self.train_loss_values + self.valid_loss_values)
+                margin = 0.1 * (max_loss - min_loss)
 
-            # Add a small margin to the y-axis limits (10% of the range)
-            margin = (max_loss - min_loss) * 0.1 if max_loss - min_loss > 0 else 1e-5
-            self.ax.set_ylim(min_loss - margin, max_loss + margin)  # Set y-axis limits dynamically
-            # New section ends here
+                # Debugging print statements (Optional)
+                print(f"min_loss: {min_loss}, max_loss: {max_loss}, margin: {margin}")
 
-            # Update plot lines with the new data
-            self.train_line.set_data(self.valid_x_values, self.train_loss_values)
-            self.valid_line.set_data(self.valid_x_values, self.valid_loss_values)
+                # Check for valid finite values
+                if not np.isfinite(min_loss) or not np.isfinite(max_loss):
+                    raise ValueError("Invalid min or max loss: either NaN or Inf detected.")
 
-            # Commented out the following lines for testing new plot logic, uncomment if needed
-            # # Adjust y-axis limits dynamically based on the new data
-            # self.ax.relim()  # Recompute the limits
-            # self.ax.autoscale_view(scalex=False, scaley=True)  # Autoscale y-axis only
+                # Adjust y-axis limits dynamically based on the new data
+                self.ax.set_ylim(min_loss - margin, max_loss + margin)  # Set y-axis limits dynamically
 
-            # Set fixed x-limits to ensure they remain constant
-            max_epochs = int(self.task_list[self.current_task_index]['hyperparams']['MAX_EPOCHS'])
-            self.ax.set_xlim(1, max_epochs)
+            except ValueError as e:
+                # Log the error and set default axis limits
+                self.logger.warning(f"Skipping axis update due to invalid limits: {e}")
+                # Optionally, set default axis limits if loss values are invalid
+                self.ax.set_ylim(0, 1)  # Default limits (adjust based on your data)
 
-            # Redraw the plot
-            # self.canvas.draw_idle()
-            print("Redrawing the plot")
             # Redraw the plot
             self.canvas.draw_idle()
+            print("Redrawing the plot")
 
 
     def stop_training(self):
