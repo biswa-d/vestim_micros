@@ -364,6 +364,8 @@ class TrainingTaskManager:
 
         except Exception as e:
             self.logger.error(f"Error during training: {str(e)}")
+            print(f"Error during training: {str(e)}")
+            self.save_model(task)  # Save the model before raising the error
             update_progress_callback.emit({'task_error': str(e)})
 
     def convert_hyperparams(self, hyperparams):
