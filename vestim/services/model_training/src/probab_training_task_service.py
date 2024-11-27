@@ -4,9 +4,11 @@ import torch.optim as optim
 import json, csv, sqlite3, os
 import time
 
+
 class TrainingTaskService:
     def __init__(self):
         self.criterion = nn.MSELoss()  # Assuming you're using Mean Squared Error Loss for regression tasks
+        self.nll_loss = nll_loss()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
     
@@ -43,14 +45,27 @@ class TrainingTaskService:
         conn.commit()
         conn.close()
 
-        
+      
+    
     def train_epoch(self, model, train_loader, optimizer, h_s, h_c, epoch, device, stop_requested, task):
         """Train the model for a single epoch."""
         model.train()
         total_train_loss = []
         batch_times = []  # Store time per batch
-        log_freq = 1000  # Define how often to log batches
-        device_str = str(device)  # Convert torch.device to string
+        log_freq = 100  # Define how often to log batches
+        def nll_loss(y_true, mu, sigma):
+            """
+            Compute the Negative Log-Likelihood (NLL) loss for Gaussian predictions.
+
+            Args:
+            - y_true: Ground truth values (batch, seq_len, 1).
+            - mu: Predicted mean values (batch, seq_len, 1).
+            - sigma: Predicted variance (batch, seq_len, 1).
+
+            Returns:
+            - NLL loss (scalar).
+            """
+            return torch.mean(0.5 * torch.log(sigma**2) + (y_true - mu)**2 / (2 * sigma**2))
 
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
             if stop_requested:  # Check if a stop has been requested
@@ -63,10 +78,16 @@ class TrainingTaskService:
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
 
             optimizer.zero_grad()
-            y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
-            # y_pred = y_pred.squeeze(-1)
+            # Forward pass
+            mu, sigma, (h_s, h_c) = model(X_batch, h_s, h_c)
 
-            loss = self.criterion(y_pred[:, -1, :].squeeze(-1), y_batch)
+            # Extract the last time step
+            mu_last = mu[:, -1, :]  # Shape: (batch, 1)
+            sigma_last = sigma[:, -1, :]  # Shape: (batch, 1)
+
+            # Compute the NLL loss
+            loss = nll_loss(y_batch, mu_last, sigma_last)
+
             loss.backward()
             optimizer.step()
 
@@ -79,13 +100,13 @@ class TrainingTaskService:
             # Log less frequently
             if batch_idx % log_freq == 0:
                 batch_freq_time = sum(batch_times) / len(batch_times)
-                # self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='train', device=device)
-                # self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train', device=device_str)
+                self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='train', device=device)
+                self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train', device=device)
 
             # Log progress every 150 batches
             if batch_idx % log_freq == 0:
-                print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
-                print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
+                print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
+                print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
             
             # Clear unused memory
             del X_batch, y_batch, y_pred  # Explicitly clear tensors
@@ -100,8 +121,20 @@ class TrainingTaskService:
         total_loss = 0
         total_samples = 0
         batch_times = []  # Track validation time for each batch
-        log_freq = 1000  # Define how often to log batches
-        device_str = str(device)  # Convert torch.device to string
+        log_freq = 100  # Define how often to log batches
+        def nll_loss(y_true, mu, sigma):
+            """
+            Compute the Negative Log-Likelihood (NLL) loss for Gaussian predictions.
+
+            Args:
+            - y_true: Ground truth values (batch, seq_len, 1).
+            - mu: Predicted mean values (batch, seq_len, 1).
+            - sigma: Predicted variance (batch, seq_len, 1).
+
+            Returns:
+            - NLL loss (scalar).
+            """
+            return torch.mean(0.5 * torch.log(sigma**2) + (y_true - mu)**2 / (2 * sigma**2))
 
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
@@ -111,28 +144,32 @@ class TrainingTaskService:
 
                 start_batch_time = time.time()  # Start timing for this batch
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-                y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
-                # y_pred = y_pred.squeeze(-1)
+                # Forward pass
+                mu, sigma, (h_s, h_c) = model(X_batch, h_s, h_c)
 
-                # loss = self.criterion(y_pred, y_batch)
-                loss = self.criterion(y_pred[:, -1, :].squeeze(-1), y_batch)
+                # Extract the last time step
+                mu_last = mu[:, -1, :]  # Shape: (batch, 1)
+                sigma_last = sigma[:, -1, :]  # Shape: (batch, 1)
+
+                # Compute the NLL loss
+                loss = nll_loss(y_batch, mu_last, sigma_last)
                 total_loss += loss.item() * X_batch.size(0)
                 total_samples += X_batch.size(0)
 
                 end_batch_time = time.time()  # End timing for this batch
                 batch_time = end_batch_time - start_batch_time
                 batch_times.append(batch_time)
-                
+
                 # Log less frequently
                 if batch_idx % log_freq == 0:
                     batch_freq_time = sum(batch_times) / len(batch_times)
-                    # self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='validate')
-                    # self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='validate', device=device_str)
+                    self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='validate')
+                    self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='validate')
 
                 # Log progress every 150 batches
                 if batch_idx % log_freq == 0:
-                    print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
-                    print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
+                    print(f"Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
+                    print(f"Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
                 
                 # Clear unused memory
                 del X_batch, y_batch, y_pred  # Explicitly clear tensors
@@ -147,19 +184,11 @@ class TrainingTaskService:
         with open(model_path + '_hyperparams.json', 'w') as f:
             json.dump(model.hyperparams, f, indent=4)
 
-    def get_optimizer(self, model, lr, weight_decay=0):
-
+    def get_optimizer(self, model, lr):
         """Initialize the optimizer for the model."""
-        return optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+        return optim.Adam(model.parameters(), lr=lr)
 
-    def get_scheduler(self, optimizer, step_size=10, gamma=0.1):
-        """
-        Initialize the learning rate scheduler with step size and gamma.
-
-        :param optimizer: Optimizer to attach the scheduler to.
-        :param step_size: Number of epochs after which to adjust the learning rate.
-        :param gamma: Factor by which the learning rate should decrease.
-        :return: A PyTorch StepLR scheduler object.
-        """
-        return torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
-
+    def get_scheduler(self, optimizer, lr_drop_period):
+        """Initialize the learning rate scheduler."""
+        # Create a learning rate scheduler that reduces the LR by 10% every lr_drop_period epochs
+        return optim.lr_scheduler.StepLR(optimizer, step_size=lr_drop_period, gamma=0.1)

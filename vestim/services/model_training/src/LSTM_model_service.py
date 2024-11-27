@@ -44,6 +44,57 @@ class LSTMModel(nn.Module):
         out = self.fc(out)
 
         return out, (h_s, h_c)
+    
+class ProbabilisticLSTMModel(nn.Module):
+    def __init__(self, input_size, hidden_units, num_layers, device, dropout_prob=0.0):
+        super(ProbabilisticLSTMModel, self).__init__()
+        self.input_size = input_size
+        self.hidden_units = hidden_units
+        self.num_layers = num_layers
+        self.device = device
+        self.dropout_prob = dropout_prob
+
+        # Batch normalization for input features
+        self.batch_norm = nn.BatchNorm1d(input_size)  # Normalize each feature
+
+        # Define the LSTM layer with dropout between layers
+        self.lstm = nn.LSTM(
+            input_size,
+            hidden_units,
+            num_layers,
+            batch_first=True,
+            dropout=dropout_prob if num_layers > 1 else 0
+        ).to(self.device)
+
+        # Define a dropout layer for the outputs
+        self.dropout = nn.Dropout(p=dropout_prob)
+
+        # Fully connected layers for probabilistic outputs
+        self.fc_mu = nn.Linear(hidden_units, 1).to(self.device)       # Predict mean
+        self.fc_sigma = nn.Linear(hidden_units, 1).to(self.device)    # Predict log-variance
+
+    def forward(self, x, h_s=None, h_c=None):
+        # Ensure the input is on the correct device
+        x = x.to(self.device)  # Input: (batch, seq_len, feature)
+
+        # Permute for BatchNorm1d: (batch, feature, seq_len)
+        x = x.permute(0, 2, 1)
+        x = self.batch_norm(x)  # Apply batch normalization
+        x = x.permute(0, 2, 1)  # Revert back to (batch, seq_len, feature)
+
+        # Pass input through LSTM
+        out, (h_s, h_c) = self.lstm(x, (h_s, h_c))  # Output: (batch, seq_len, hidden_units)
+
+        # Apply dropout to the outputs of the LSTM
+        out = self.dropout(out)
+
+        # Predict mean and log-variance for each sequence
+        mu = self.fc_mu(out)                     # Shape: (batch, seq_len, 1)
+        log_sigma = self.fc_sigma(out)           # Shape: (batch, seq_len, 1)
+        sigma = torch.exp(log_sigma)             # Convert log-variance to variance
+
+        # Return mean and variance
+        return mu, sigma, (h_s, h_c)
 
 class LSTMModelService:
     def __init__(self):
@@ -99,3 +150,5 @@ class LSTMModelService:
         model = self.build_lstm_model(params)
         self.save_model(model, model_path)
         return model
+    
+
