@@ -337,7 +337,7 @@ class TrainingTaskManager:
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
                 self.logger.info("Training was stopped early. Saving Model...")
-                self.save_model(task)
+
 
             update_progress_callback.emit({'task_completed': True})
             self.logger.info("Training task completed")
