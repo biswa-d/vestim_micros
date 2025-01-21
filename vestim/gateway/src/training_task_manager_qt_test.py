@@ -287,6 +287,8 @@ class TrainingTaskManager:
                     if val_loss < best_validation_loss:
                         best_validation_loss = val_loss
                         patience_counter = 0
+                        print(f"Validation loss improved at epoch {epoch}. Saving model...")
+                        self.logger.info(f"Validation loss improved at epoch {epoch}. Saving model...")
                         self.save_model(task)
                     else:
                         patience_counter += 1
@@ -337,7 +339,6 @@ class TrainingTaskManager:
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
                 self.logger.info("Training was stopped early. Saving Model...")
-                self.save_model(task)
 
             update_progress_callback.emit({'task_completed': True})
             self.logger.info("Training task completed")
