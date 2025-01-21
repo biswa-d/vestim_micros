@@ -277,6 +277,9 @@ class TrainingTaskManager:
                     current_lr = optimizer.param_groups[0]['lr']
                     
                     if val_loss < best_validation_loss:
+                        print(f"Validation loss improved from {best_validation_loss:.6f} to {val_loss:.6f}. Saving model...")
+                        self.logger.info(f"Validation loss improved from {best_validation_loss:.6f} to {val_loss:.6f}. Saving model...")
+                        self.save_model(task)
                         best_validation_loss = val_loss
                         patience_counter = 0
                     else:
@@ -296,7 +299,6 @@ class TrainingTaskManager:
 
                     if patience_counter > valid_patience:
                         early_stopping = True
-                        self.save_model(task)
                         print(f"Early stopping at epoch {epoch} due to no improvement.")
                         self.logger.info(f"Early stopping at epoch {epoch} due to no improvement.")
                         
@@ -357,7 +359,6 @@ class TrainingTaskManager:
             if self.stop_requested:
                 print("Training was stopped early. Saving Model...")
                 self.logger.info("Training was stopped early. Saving Model...")
-                self.save_model(task)
 
             update_progress_callback.emit({'task_completed': True})
             self.logger.info("Training task completed")
@@ -365,7 +366,6 @@ class TrainingTaskManager:
         except Exception as e:
             self.logger.error(f"Error during training: {str(e)}")
             print(f"Error during training: {str(e)}")
-            self.save_model(task)  # Save the model before raising the error
             update_progress_callback.emit({'task_error': str(e)})
 
     def convert_hyperparams(self, hyperparams):
