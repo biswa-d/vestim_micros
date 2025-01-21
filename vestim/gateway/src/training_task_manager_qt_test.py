@@ -277,7 +277,9 @@ class TrainingTaskManager:
                     current_lr = optimizer.param_groups[0]['lr']
                     
                     if val_loss < best_validation_loss:
+                        print(f"Validation loss improved from {best_validation_loss:.6f} to {val_loss:.6f}. Saving model...")
                         best_validation_loss = val_loss
+                        self.save_model(task)
                         patience_counter = 0
                     else:
                         patience_counter += 1
@@ -296,7 +298,6 @@ class TrainingTaskManager:
 
                     if patience_counter > valid_patience:
                         early_stopping = True
-                        self.save_model(task)
                         print(f"Early stopping at epoch {epoch} due to no improvement.")
                         self.logger.info(f"Early stopping at epoch {epoch} due to no improvement.")
                         
@@ -356,9 +357,8 @@ class TrainingTaskManager:
                 # )
 
             if self.stop_requested:
-                print("Training was stopped early. Saving Model...")
-                self.logger.info("Training was stopped early. Saving Model...")
-                self.save_model(task)
+                print("Training was stopped early. Exiting...")
+                self.logger.info("Training was stopped early. Exiting...")
 
             update_progress_callback.emit({'task_completed': True})
             self.logger.info("Training task completed")
