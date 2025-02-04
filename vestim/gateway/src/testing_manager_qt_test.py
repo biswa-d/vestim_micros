@@ -97,7 +97,7 @@ class VEstimTestingManager:
 
             print("Loading and processing test data...")
             self.logger.info(f"Loading and processing test data")
-            X_test, y_test = self.test_data_service.load_and_process_data(test_folder, lookback)
+            X_test, y_test = self.test_data_service.load_test_data(test_folder)
         
 
             print("Generating shorthand name for model...")
