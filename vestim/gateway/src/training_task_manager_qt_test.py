@@ -372,8 +372,6 @@ class TrainingTaskManager:
         """Converts all relevant hyperparameters to the correct types."""
         hyperparams['LAYERS'] = int(hyperparams['LAYERS'])
         hyperparams['HIDDEN_UNITS'] = int(hyperparams['HIDDEN_UNITS'])
-        hyperparams['DROPOUT_PROB'] = float(hyperparams['DROPOUT_PROB'])
-        hyperparams['WEIGHT_DECAY'] = float(hyperparams['WEIGHT_DECAY'])
         hyperparams['BATCH_SIZE'] = int(hyperparams['BATCH_SIZE'])
         hyperparams['MAX_EPOCHS'] = int(hyperparams['MAX_EPOCHS'])
         hyperparams['INITIAL_LR'] = float(hyperparams['INITIAL_LR'])

@@ -25,6 +25,10 @@ class VEstimLSTM(nn.Module):
 class LSTMModel(nn.Module):
     def __init__(self, input_size, hidden_units, num_layers, device):
         super().__init__()
+        self.input_size = input_size
+        self.hidden_units = hidden_units
+        self.num_layers = num_layers
+        self.device = device  # Store the device in the model
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_units,
                             num_layers=num_layers, batch_first=True)  # Match definition with VEstimLSTM
         self.linear = nn.Linear(hidden_units, 1)  # Renamed from 'fc' to 'linear' to match VEstimLSTM
