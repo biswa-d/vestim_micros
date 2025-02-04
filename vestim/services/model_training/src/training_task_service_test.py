@@ -6,7 +6,7 @@ import time
 
 class TrainingTaskService:
     def __init__(self):
-        self.criterion = nn.MSELoss()  # Assuming you're using Mean Squared Error Loss for regression tasks
+        self.criterion = nn.MSELoss()  #Mean Squared Error Loss for regression tasks
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
     

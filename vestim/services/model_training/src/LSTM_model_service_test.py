@@ -1,43 +1,51 @@
+#inconsistency with original model noted and being corrected with this test script
+
 import torch
 import torch.nn as nn
 
+class VEstimLSTM(nn.Module):
+    def __init__(self, hidden_size, input_size, layers):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
+                            num_layers=layers, batch_first=True) #we have out data from the datacreate method arranged in (batches,  sequence, features) 
+        self.linear = nn.Linear(hidden_size, 1)
+        self.ReLU = nn.ReLU()
+        self.LeakyReLU = nn.LeakyReLU(negative_slope=0.1)
+        # self.h_s = None
+        # self.h_c = None
+
+    def forward(self, x, h_s, h_c):
+        # The h_s, h_c is defaulted to 0 every time, so only remember last 500-second data
+        y, (h_s, h_c) = self.lstm(x, (h_s, h_c))
+        y = self.linear(y)
+        # y = torch.clamp(y, 0, 1)    # Clipped ReLU layer
+        # y = self.LeakyReLU(y)
+        return y, (h_s, h_c)
+
 class LSTMModel(nn.Module):
     def __init__(self, input_size, hidden_units, num_layers, device):
-        super(LSTMModel, self).__init__()
-        self.input_size = input_size
-        self.hidden_units = hidden_units
-        self.num_layers = num_layers
-        self.device = device  # Store the device in the model
-        self.lstm = nn.LSTM(input_size, hidden_units, num_layers, batch_first=True).to(self.device)
-        self.fc = nn.Linear(hidden_units, 1).to(self.device)  # Assuming regression, adjust if needed
+        super().__init__()
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_units,
+                            num_layers=num_layers, batch_first=True)  # Match definition with VEstimLSTM
+        self.linear = nn.Linear(hidden_units, 1)  # Renamed from 'fc' to 'linear' to match VEstimLSTM
+        self.ReLU = nn.ReLU()
+        self.LeakyReLU = nn.LeakyReLU(negative_slope=0.1)
 
-    def forward(self, x, h_s=None, h_c=None):
-        # Ensure the input is on the correct device
-        x = x.to(self.device)
-        
-        # Debugging: Print input shape
-        # print(f"Input shape: {x.shape}")
-        
-        # Initialize hidden and cell states if not provided
-        if h_s is None or h_c is None:
-            h_s = torch.zeros(self.lstm.num_layers, x.size(0), self.hidden_units).to(self.device)
-            h_c = torch.zeros(self.lstm.num_layers, x.size(0), self.hidden_units).to(self.device)
-        
-        # Pass input through LSTM
-        out, (h_s, h_c) = self.lstm(x, (h_s, h_c))
-        
-        # Debugging: Print output shape after LSTM
-        # print(f"Output shape after LSTM: {out.shape}")
-        
-        # # Check if output shape is as expected before slicing
-        # if len(out.shape) == 3:
-        #     out = out[:, -1, :]  # Get the last time step's output
-        # else:
-        #     raise ValueError(f"Unexpected output shape from LSTM: {out.shape}")
-        
-        # Pass the LSTM output through the fully connected layer
-        out = self.fc(out)
-        return out, (h_s, h_c)
+    def forward(self, x, h_s, h_c):
+        # Ensure input is on the correct device
+        x = x.to(self.linear.weight.device)  
+
+        # Pass through LSTM
+        y, (h_s, h_c) = self.lstm(x, (h_s, h_c))
+
+        # Pass through Linear layer (FC)
+        y = self.linear(y)
+
+        # Activation functions (comment/uncomment based on need)
+        # y = torch.clamp(y, 0, 1)    # Clipped ReLU layer
+        # y = self.LeakyReLU(y)
+
+        return y, (h_s, h_c)
 
 
 class LSTMModelService:

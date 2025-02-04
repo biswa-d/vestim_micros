@@ -116,8 +116,8 @@ class VEstimHyperParamGUI(QWidget):
             {"label": "Lookback:", "default": self.params.get("LOOKBACK", "400"), "tooltip": "Number of previous time steps to consider for each timestep", "param": "LOOKBACK"},
             {"label": "Repetitions:", "default": self.params.get("REPETITIONS", "1"), "tooltip": "Number of times to repeat the entire training process with randomized initial parameters", "param": "REPETITIONS"},
             # Add Dropout Probability and weight decay widget
-            {"label": "Dropout Probability:", "default": self.params.get("DROPOUT_PROB", "0.0"), "tooltip": "Probability of dropout used in LSTM layers to prevent overfitting", "param": "DROPOUT_PROB"},
-            {"label": "Weight Decay:", "default": self.params.get("WEIGHT_DECAY", "0.0"), "tooltip": "Weight decay (L2 penalty) applied to the optimizer", "param": "WEIGHT_DECAY"},
+            #{"label": "Dropout Probability:", "default": self.params.get("DROPOUT_PROB", "0.0"), "tooltip": "Probability of dropout used in LSTM layers to prevent overfitting", "param": "DROPOUT_PROB"},
+            #{"label": "Weight Decay:", "default": self.params.get("WEIGHT_DECAY", "0.0"), "tooltip": "Weight decay (L2 penalty) applied to the optimizer", "param": "WEIGHT_DECAY"},
         ]
 
         # Set bigger sizes for labels and entry boxes
