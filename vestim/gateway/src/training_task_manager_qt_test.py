@@ -206,7 +206,7 @@ class TrainingTaskManager:
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
-            patience_threshold = int(valid_patience * 0.5) 
+            #patience_threshold = int(valid_patience * 0.5) 
             current_lr = hyperparams['INITIAL_LR']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
@@ -223,7 +223,12 @@ class TrainingTaskManager:
 
             self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
             # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
-            self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
+            #self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
+            self.scheduler = torch.optim.lr_scheduler.StepLR(
+                self.optimizer, 
+                step_size=lr_drop_period,  # Number of epochs between drops
+                gamma=lr_drop_factor       # Multiplicative factor for the drop
+            )
             optimizer = self.optimizer
             scheduler = self.scheduler
 
@@ -328,18 +333,21 @@ class TrainingTaskManager:
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                 model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
                 
-                # scheduler.step()
+                scheduler.step()
+                current_lr = optimizer.param_groups[0]['lr']
+                print(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
+                logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
                 # Scheduler step condition: Either when lr_drop_period is reached or patience_counter exceeds the threshold
                 # Scheduler step condition: Check for drop period or patience_counter with buffer consideration
-                if (epoch % lr_drop_period == 0 or patience_counter > patience_threshold) and (epoch - last_lr_drop_epoch > lr_drop_buffer):
-                    print(f"Learning rate before scheduler step: {optimizer.param_groups[0]['lr']: .8f}\n")
-                    scheduler.step()
-                    current_lr = optimizer.param_groups[0]['lr']
-                    print(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
-                    logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
-                    last_lr_drop_epoch = epoch
-                else:
-                    print(f"Epoch {epoch}: No LR drop. patience_counter={patience_counter}, patience_threshold={patience_threshold}\n")
+                # if (epoch % lr_drop_period == 0 or patience_counter > patience_threshold) and (epoch - last_lr_drop_epoch > lr_drop_buffer):
+                #     print(f"Learning rate before scheduler step: {optimizer.param_groups[0]['lr']: .8f}\n")
+                #     scheduler.step()
+                #     current_lr = optimizer.param_groups[0]['lr']
+                #     print(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
+                #     logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
+                #     last_lr_drop_epoch = epoch
+                # else:
+                #     print(f"Epoch {epoch}: No LR drop. patience_counter={patience_counter}, patience_threshold={patience_threshold}\n")
     
                 # Log data to SQLite
                 #commented out for testing db error
