@@ -43,6 +43,7 @@ class VEstimTestingService:
             y_actual: Actual values from the test set.
         """
         print("Entered test_model")
+        model.to(device)  # Ensure model is on the correct device
         model.eval()  # Set model to evaluation mode
 
         # Extract test inputs & outputs
