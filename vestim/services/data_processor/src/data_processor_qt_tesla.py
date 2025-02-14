@@ -32,10 +32,10 @@ class DataProcessorTesla:
         self.switch_log_file(job_log_file)
 
         # Create directories for raw and processed data
-        train_raw_folder = os.path.join(job_folder, 'train', 'raw_data')
-        train_processed_folder = os.path.join(job_folder, 'train', 'processed_data')
-        test_raw_folder = os.path.join(job_folder, 'test', 'raw_data')
-        test_processed_folder = os.path.join(job_folder, 'test', 'processed_data')
+        train_raw_folder = os.path.join(job_folder, 'train_data', 'raw_data')
+        train_processed_folder = os.path.join(job_folder, 'train_data', 'processed_data')
+        test_raw_folder = os.path.join(job_folder, 'test_data', 'raw_data')
+        test_processed_folder = os.path.join(job_folder, 'test_data', 'processed_data')
 
         os.makedirs(train_raw_folder, exist_ok=True)
         os.makedirs(train_processed_folder, exist_ok=True)
