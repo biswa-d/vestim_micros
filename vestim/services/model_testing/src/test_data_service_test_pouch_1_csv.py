@@ -16,7 +16,7 @@ class VEstimTestDataService:
     def __init__(self):
         print("Initializing VEstimTestDataService...")
 
-    def load_and_process_data(folder_path):
+    def load_and_process_data(self, folder_path):
         """
         Loads and processes CSV files, extracts features and target values, 
         and returns combined input and output arrays.
