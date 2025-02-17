@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.services.model_testing.src.testing_service_test import VEstimTestingService
-from vestim.services.model_testing.src.test_data_service_test_pouch_1_csv import VEstimTestDataService
+from vestim.services.model_testing.src.test_data_service_test_pouch_csv import VEstimTestDataService
 from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 import logging
 
