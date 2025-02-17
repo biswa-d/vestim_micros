@@ -27,7 +27,7 @@ class VEstimTestingService:
         model.eval()  # Set the model to evaluation mode
         return model
 
-    def test_model(self, model, X_test, y_test):
+    def test_model(self, model, test_loader):
         """
         Tests the model on the provided test data and calculates multiple evaluation metrics in millivolts (mV).
 
@@ -36,21 +36,29 @@ class VEstimTestingService:
         :param y_test: True output values.
         :return: A dictionary containing the predictions and evaluation metrics.
         """
+        all_predictions, y_test = [], []
+        # **Fetch the first batch outside the loop to get batch size**
+        first_batch = next(iter(test_loader))  # Get first batch
+        batch_size = first_batch[0].size(0)  # Get batch size from first batch
+
         with torch.no_grad():
-            # Convert test data to tensors and move to the device
-            X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(self.device)
-            # y_test_tensor = torch.tensor(y_test, dtype=torch.float32).to(self.device)
 
             # Initialize hidden states (if your model requires them)
-            h_s = torch.zeros(model.num_layers, X_test_tensor.size(0), model.hidden_units).to(self.device)
-            h_c = torch.zeros(model.num_layers, X_test_tensor.size(0), model.hidden_units).to(self.device)
+            h_s = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
+            h_c = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
 
-            # Generate predictions
-            y_pred_tensor, _ = model(X_test_tensor, h_s, h_c)
-            y_pred_tensor = y_pred_tensor.squeeze(-1)  # Ensure output shape matches
+            for X_batch, y_batch in test_loader:
+                X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
 
-            # Convert predictions to numpy for easier evaluation
-            y_pred = y_pred_tensor.cpu().numpy()
+                # Forward pass without resetting hidden state
+                y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
+
+                # Detach hidden states to avoid memory leaks
+                h_s, h_c = h_s.detach(), h_c.detach()
+
+                # Store predictions
+                all_predictions.append(y_pred[:, -1].cpu().numpy())  # Take last timestep prediction
+                y_test.append(y_batch.cpu().numpy())
 
             # Compute evaluation metrics and convert to millivolts (mV)
             rms_error = np.sqrt(mean_squared_error(y_test, y_pred)) * 1000  # Convert to mV
@@ -111,11 +119,8 @@ class VEstimTestingService:
 
         print(f"Results and metrics for model '{model_name}' saved to {model_dir}")
 
-    def run_testing(self, task, model_path, X_test, y_test, save_dir):
-        print(f"Entered run_testing for model at {model_path}")
-        print(f"Task hyperparameters: {task['model_metadata']}")
-        print(f"Test data shapes: X_test={X_test.shape}, y_test={y_test.shape}")
-
+    def run_testing(self, task, model_path, test_loader, save_dir):
+        print(f"Entered run_testing for model")
         # Extract hyperparameters from the task
         model_metadata = task["model_metadata"]
         input_size = model_metadata["input_size"]
@@ -141,7 +146,7 @@ class VEstimTestingService:
 
         # Run the testing process
         try:
-            results = self.test_model(model, X_test, y_test)
+            results = self.test_model(model, test_loader)
             print("Model testing completed")
         except Exception as e:
             print(f"Error during model testing: {str(e)}")

@@ -6,7 +6,7 @@ from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.services.model_testing.src.testing_service_test import VEstimTestingService
+from vestim.services.model_testing.src.testing_service import VEstimTestingService
 from vestim.services.model_testing.src.test_data_service_test_pouch import VEstimTestDataService
 from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
 
@@ -89,16 +89,17 @@ class VEstimTestingManager:
             # Extract lookback and model path from the task
             lookback = task['hyperparams']['LOOKBACK']
             model_path = task['model_path']
+            batch_size = task['hyperparams']['BATCH_SIZE']
             print(f"Testing model: {model_path} with lookback: {lookback}")
 
             print("Loading and processing test data...")
-            X_test, y_test = self.test_data_service.load_and_process_data(test_folder, lookback)
+            test_loader = self.test_data_service.create_ordered_loader(test_folder, lookback, batch_size)
 
             print("Generating shorthand name for model...")
             shorthand_name = self.generate_shorthand_name(task)
 
             # Run the testing process and get results
-            results = self.testing_service.run_testing(task, model_path, X_test, y_test, save_dir)
+            results = self.testing_service.run_testing(task, model_path, test_loader, save_dir)
 
             # Log the test results to CSV and SQLite
             csv_log_file = task['csv_log_file']
