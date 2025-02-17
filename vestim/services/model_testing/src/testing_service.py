@@ -27,7 +27,7 @@ class VEstimTestingService:
         model.eval()  # Set the model to evaluation mode
         return model
 
-    def test_model(self, model, test_loader):
+    def test_model(self, model, test_loader, hidden_units, num_layers):
         """
         Tests the model on the provided test data and calculates multiple evaluation metrics in millivolts (mV).
 
@@ -37,34 +37,50 @@ class VEstimTestingService:
         :return: A dictionary containing the predictions and evaluation metrics.
         """
         all_predictions, y_test = [], []
+    
         # **Fetch the first batch outside the loop to get batch size**
         first_batch = next(iter(test_loader))  # Get first batch
         batch_size = first_batch[0].size(0)  # Get batch size from first batch
 
+        # **Initialize hidden states ONCE using first batch size**
+        h_s = torch.zeros(num_layers, batch_size, hidden_units).to(self.device)
+        h_c = torch.zeros(num_layers, batch_size, hidden_units).to(self.device)
+
         with torch.no_grad():
-
-            # Initialize hidden states (if your model requires them)
-            h_s = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
-            h_c = torch.zeros(model.num_layers, batch_size, model.hidden_units).to(self.device)
-
             for X_batch, y_batch in test_loader:
                 X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
 
                 # Forward pass without resetting hidden state
                 y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
 
-                # Detach hidden states to avoid memory leaks
+                # Detach hidden states to avoid memory leaks but keep continuity
                 h_s, h_c = h_s.detach(), h_c.detach()
 
                 # Store predictions
                 all_predictions.append(y_pred[:, -1].cpu().numpy())  # Take last timestep prediction
                 y_test.append(y_batch.cpu().numpy())
 
-            # Compute evaluation metrics and convert to millivolts (mV)
+            # Convert all batch predictions to a single array
+            y_pred = np.concatenate(all_predictions).flatten()  # Combine all stored predictions
+            y_test = np.concatenate([y.flatten() for y in y_test])  # Combine all stored true values
+
+            # **Find the index of the last non-zero voltage value**
+            nonzero_indices = np.nonzero(y_test)[0]  # Get indices of non-zero values
+            if len(nonzero_indices) > 0:
+                last_valid_index = nonzero_indices[-1]  # Find the last non-zero value's index
+                y_pred = y_pred[: last_valid_index + 1]  # Trim predictions
+                y_test = y_test[: last_valid_index + 1]  # Trim actual values
+                print(f"Trimmed y_pred and y_actual to last valid voltage index: {last_valid_index}")
+
+            # Debug prints
+            print(f"DEBUG: Trimmed y_pred shape: {y_pred.shape}, y_actual shape: {y_test.shape}")
+
+            # Compute evaluation metrics
             rms_error = np.sqrt(mean_squared_error(y_test, y_pred)) * 1000  # Convert to mV
             mae = mean_absolute_error(y_test, y_pred) * 1000  # Convert to mV
-            mape = self.calculate_mape(y_test, y_pred)
+            mape = np.mean(np.abs((y_test - y_pred) / y_test)) * 100  # MAPE in percentage
             r2 = r2_score(y_test, y_pred)
+
             print(f"RMS Error: {rms_error}, MAE: {mae}, MAPE: {mape}, R²: {r2}")
 
             return {
@@ -146,7 +162,7 @@ class VEstimTestingService:
 
         # Run the testing process
         try:
-            results = self.test_model(model, test_loader)
+            results = self.test_model(model, test_loader, hidden_units, num_layers)
             print("Model testing completed")
         except Exception as e:
             print(f"Error during model testing: {str(e)}")

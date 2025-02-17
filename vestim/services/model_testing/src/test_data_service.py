@@ -19,20 +19,18 @@ class VEstimTestDataService:
         :return: PyTorch DataLoader.
         """
         # Generate sequences using the modified function
-        X_sequences, Y_sequences = self.load_and_process_data(folder_path, lookback)
-
-        # Convert to PyTorch tensors
-        X_tensor = torch.tensor(X_sequences, dtype=torch.float32)
-        Y_tensor = torch.tensor(Y_sequences, dtype=torch.float32)
+        X_sequences, Y_sequences = self.load_and_process_data(folder_path, lookback, batch_size)
+        X_sequences = torch.tensor(X_sequences, dtype=torch.float32)
+        Y_sequences = torch.tensor(Y_sequences, dtype=torch.float32)
 
         # Create dataset and DataLoader (No shuffling to maintain time order)
-        dataset = TensorDataset(X_tensor, Y_tensor)
+        dataset = TensorDataset(X_sequences, Y_sequences)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False)
 
         print(f"Ordered DataLoader created: {len(X_sequences)} sequences, batch size = {batch_size}")
         return loader
 
-    def load_and_process_data(self, folder_path, lookback):
+    def load_and_process_data(self, folder_path, lookback, batch_size):
         """
         Loads and processes CSV files into data sequences based on the lookback period.
 
@@ -62,7 +60,7 @@ class VEstimTestDataService:
             print(f"Extracted features with shape: {X_data.shape} and target with shape: {Y_data.shape}.")
             
             # Create sequences using the lookback window
-            X, y = self.create_data_sequence(X_data, Y_data, lookback)
+            X, y = self.create_data_sequence(X_data, Y_data, lookback, batch_size)
             print(f"Created input sequences with shape: {X.shape} and output sequences with shape: {y.shape}.")
             
             # Store the sequences
@@ -80,7 +78,7 @@ class VEstimTestDataService:
 
         return X_combined, y_combined
 
-    def create_data_sequence(self, X_data, Y_data, lookback):
+    def create_data_sequence(self, X_data, Y_data, lookback, batch_size):
         """
         Creates input-output sequences from raw data arrays based on the lookback period.
         If necessary, pads the last sequence to ensure the full dataset is covered.
@@ -91,33 +89,28 @@ class VEstimTestDataService:
         :return: Padded sequences of inputs and outputs.
         """
         print(f"Creating data sequences with lookback: {lookback}...")
-        X_sequences, y_sequences = [], []
-
-        total_samples = len(X_data)
-
-        # Create sequences
-        for i in range(lookback, total_samples):
-            X_sequences.append(X_data[i - lookback:i])  # Lookback features
-            y_sequences.append(Y_data[i])  # Target at the current step
-
-        # If necessary, pad the last sequence with the final values to complete the sequence
-        remainder = total_samples % lookback
-        if remainder > 0:
-            print(f"Padding the last sequence with {lookback - remainder} samples to match full window size.")
+        X, y = [], []
+        for i in range(lookback, len(Y_data)):
+            X.append(X_data[i - lookback:i])
+            y.append(Y_data[i])
             
-            # Use the last valid sequence as a base
-            last_valid_X = X_data[-lookback:].copy()
-            
-            # Pad by repeating the last row
-            pad_size = lookback - remainder
-            padding = np.tile(last_valid_X[-1], (pad_size, 1))  # Repeat last row for padding
-            
-            # Append padded sequence
-            X_padded = np.vstack([last_valid_X[remainder:], padding])  # Replace first part with real values
-            X_sequences.append(X_padded)
-            y_sequences.append(Y_data[-1])  # Use the last available target
+        # Convert to tensors
+        X = torch.tensor(np.array(X), dtype=torch.float32)
+        y = torch.tensor(np.array(y), dtype=torch.float32)
+        # **Ensure y is always 2D before padding**
+        if y.ndim == 1:
+            y = y.unsqueeze(1)  # Converts shape from (N,) → (N,1)
+        print(f"Total test sequences created: {len(y)}")
 
-        print(f"Generated {len(X_sequences)} sequences (including padding if needed).")
-        return np.array(X_sequences), np.array(y_sequences)
+        # Handle padding if the dataset size is not a multiple of batch_size
+        pad_size = batch_size - (len(y) % batch_size) if len(y) % batch_size != 0 else 0
+        if pad_size > 0:
+            print(f"Padding test data with {pad_size} samples to match batch size.")
+            X_pad = torch.zeros((pad_size, lookback, X.shape[2]), dtype=torch.float32)  # Zero padding for X
+            y_pad = torch.zeros((pad_size, y.shape[1]), dtype=torch.float32)  # Zero padding for y
+            X = torch.cat((X, X_pad), dim=0)
+            y = torch.cat((y, y_pad), dim=0)
+        print(f"Final test data shapes: X = {X.shape}, y = {y.shape}")
+        print(f"DEBUG: batch_size = {batch_size}, type = {type(batch_size)}")
+        return X, y
     
-
