@@ -57,12 +57,18 @@ class DataProcessorPouch:
             self._copy_file(file, train_raw_folder, progress_callback)
         for file in test_files:
             self._copy_file(file, test_raw_folder, progress_callback)
+        print(f"number of train files: {len(train_files)}, using CSV format")
 
         # Convert the copied CSV files to HDF5 and store in the processed data folder
+        # for file in train_files:
+        #     self._convert_to_hdf5(file, train_processed_folder, progress_callback)
+        # for file in test_files:
+        #     self._convert_to_hdf5(file, test_processed_folder, progress_callback)
+  
         for file in train_files:
-            self._convert_to_hdf5(file, train_processed_folder, progress_callback)
+            self._copy_file(file, train_processed_folder, progress_callback)
         for file in test_files:
-            self._convert_to_hdf5(file, test_processed_folder, progress_callback)
+            self._copy_file(file, test_processed_folder, progress_callback)
 
         return job_folder
 

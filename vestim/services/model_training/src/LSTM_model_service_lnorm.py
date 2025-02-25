@@ -22,87 +22,6 @@ class VEstimLSTM(nn.Module):
         # y = self.LeakyReLU(y)
         return y, (h_s, h_c)
 
-
-
-class LSTMModelBN(nn.Module):
-    def __init__(self, input_size, hidden_units, num_layers, device):
-        super().__init__()
-        self.input_size = input_size
-        self.hidden_units = hidden_units
-        self.num_layers = num_layers
-        self.device = device  
-
-        # BatchNorm for input features
-        self.batch_norm_input = nn.BatchNorm1d(input_size)  
-
-        # LSTM layer
-        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_units,
-                            num_layers=num_layers, batch_first=True)  
-
-        # BatchNorm for LSTM outputs
-        self.batch_norm_lstm = nn.BatchNorm1d(hidden_units)  
-
-        # Linear layer
-        self.linear = nn.Linear(hidden_units, 1)  
-
-        # Activation functions
-        self.ReLU = nn.ReLU()
-        self.LeakyReLU = nn.LeakyReLU(negative_slope=0.1)
-
-    def forward(self, x, h_s, h_c):
-        x = x.to(self.device)  
-
-        # **Apply BatchNorm to input features** (requires permute)
-        x = x.permute(0, 2, 1)  # Move sequence length to last
-        x = self.batch_norm_input(x)
-        x = x.permute(0, 2, 1)  # Move back sequence length to second dim
-
-        # LSTM forward pass
-        y, (h_s, h_c) = self.lstm(x, (h_s, h_c))
-
-        # **Apply BatchNorm to LSTM outputs** (normalize along hidden units)
-        y = y.permute(0, 2, 1)  # Move sequence length to last
-        y = self.batch_norm_lstm(y)
-        y = y.permute(0, 2, 1)  # Move back sequence length to second dim
-
-        # Pass through linear layer
-        y = self.linear(y)
-
-        return y, (h_s, h_c)
-
-
-class LSTMModelLN(nn.Module):
-    def __init__(self, input_size, hidden_units, num_layers, device):
-        super().__init__()
-        self.input_size = input_size
-        self.hidden_units = hidden_units
-        self.num_layers = num_layers
-        self.device = device  
-
-        # LSTM layer
-        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_units,
-                            num_layers=num_layers, batch_first=True)  
-
-        # LayerNorm on hidden states
-        self.layer_norm = nn.LayerNorm(hidden_units)
-
-        # Linear layer
-        self.linear = nn.Linear(hidden_units, 1)  
-
-    def forward(self, x, h_s, h_c):
-        x = x.to(self.device)  
-
-        # LSTM forward pass
-        y, (h_s, h_c) = self.lstm(x, (h_s, h_c))
-
-        # **Apply LayerNorm on LSTM hidden states**
-        y = self.layer_norm(y)
-
-        # Pass through linear layer
-        y = self.linear(y)
-
-        return y, (h_s, h_c)
-
 class LSTMModel(nn.Module):
     def __init__(self, input_size, hidden_units, num_layers, device):
         super().__init__()
@@ -124,7 +43,7 @@ class LSTMModel(nn.Module):
         y, (h_s, h_c) = self.lstm(x, (h_s, h_c))
 
         # **Apply LayerNorm to stabilize hidden states**
-        #y = self.layer_norm(y)
+        y = self.layer_norm(y)
 
         # Pass through Linear layer (FC)
         y = self.linear(y)

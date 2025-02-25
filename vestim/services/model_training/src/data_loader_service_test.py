@@ -31,13 +31,19 @@ class DataLoaderService:
             data_sequences.append(X)
             target_sequences.append(y)
 
-        X_combined = np.concatenate(data_sequences, axis=0)
-        y_combined = np.concatenate(target_sequences, axis=0)
+        if len(data_sequences) > 1:
+            X_combined = np.concatenate(data_sequences, axis=0)
+            y_combined = np.concatenate(target_sequences, axis=0)
+        else:
+            print("Only one CSV file found in the folder.")
+            X_combined = data_sequences[0]
+            y_combined = target_sequences[0]
 
         # Clean up cache after processing
         del data_sequences, target_sequences
 
         return X_combined, y_combined
+
 
     def create_data_sequence(self, X_data, Y_data, lookback):
         """
@@ -67,6 +73,7 @@ class DataLoaderService:
         :param seed: Random seed for reproducibility (default is current time).
         :return: A tuple of (train_loader, val_loader) PyTorch DataLoader objects.
         """
+        print("Entered create_data_loaders")
         # Use current time as seed if none is provided
         if seed is None:
             seed = int(datetime.now().timestamp())
