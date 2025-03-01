@@ -24,6 +24,7 @@ class DataLoaderService:
         target_sequences = []
 
         for file in csv_files:
+            print(f"Processing file: {file}")
             df = pd.read_csv(file)
             X_data = df[['SOC', 'Current', 'Temp']].values
             Y_data = df['Voltage'].values

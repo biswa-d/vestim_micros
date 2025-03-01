@@ -51,18 +51,25 @@ class VEstimTestingService:
         print(f"X_test_tensor shape: {X_test_tensor.shape}, y_test_tensor shape: {y_test_tensor.shape}")
 
         # Initialize hidden states with zeros (No batches, just one full sequence)
-        h_s = torch.zeros(layers, X_test_tensor.size(0), hidden_size).to(device)
-        h_c = torch.zeros(layers, X_test_tensor.size(0), hidden_size).to(device)
+        h_s = torch.zeros(layers, hidden_size).to(device)
+        h_c = torch.zeros(layers, hidden_size).to(device)
 
         with torch.no_grad():
-            # Forward pass
-            y_pred_tensor, _ = model(X_test_tensor, h_s, h_c)
+            y_pred = []  # Store predictions
 
-            # Convert predictions & true values to numpy
-            y_pred = y_pred_tensor.squeeze().cpu().numpy()
-            y_actual = y_test_tensor.cpu().numpy()
+            for temp_X in X_test_tensor:  # One sample at a time
+                temp_X = temp_X.unsqueeze(0).to(device)  # Ensure correct device
+                temp_Y, (h_s, h_c) = model(temp_X, h_s, h_c)  # Forward pass
 
-        return y_pred, y_actual
+                y_pred.append(temp_Y.squeeze().cpu().numpy())  # Store predicted value
+
+                # Detach hidden states to prevent memory buildup
+                h_s = h_s.detach()
+                h_c = h_c.detach()
+
+            y_actual = y_test_tensor.cpu().numpy()  # Convert true values
+
+        return np.array(y_pred), y_actual
 
     def save_test_results(self, results, model_name, save_dir):
         """
@@ -88,7 +95,7 @@ class VEstimTestingService:
         })
 
         # Save the DataFrame as a CSV file in the model-specific directory
-        result_file = os.path.join(model_dir, f"{model_name}_test_results.csv")
+        result_file = os.path.join(model_dir, f"{model_name}_test_results_stepwise.csv")
         df.to_csv(result_file, index=False)
 
         # Save the metrics separately in the same model-specific directory
@@ -124,7 +131,7 @@ class VEstimTestingService:
         model.eval()
 
         # Convert test data to tensors
-        X_test_tensor = torch.tensor(X_test, dtype=torch.float32).unsqueeze(0).to(device)
+        X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
         y_test_tensor = torch.tensor(y_test, dtype=torch.float32).to(device)
 
         # Run the test_model function
@@ -164,7 +171,7 @@ class VEstimTestingService:
         predictions_dir = os.path.join(save_dir, "test_results")
         os.makedirs(predictions_dir, exist_ok=True)
         # Save predictions to a CSV file
-        predictions_file = os.path.join(save_dir, f"{task_id}_pred.csv")
+        predictions_file = os.path.join(save_dir, f"{task_id}_pred_stepwise.csv")
         pd.DataFrame(predictions, columns=['Predictions (V)']).to_csv(predictions_file, index=False)
 
         print(f"Predictions saved to {predictions_file}")

@@ -78,7 +78,7 @@ class VEstimTrainingSetupManager:
                 model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', f'model_lstm_hu_{hidden_units}_layers_{layers}')
                 os.makedirs(model_dir, exist_ok=True)
 
-                model_name = f"model_lstm_hu_{hidden_units}_layers_{layers}.pth"
+                model_name = f"model_lstm_hu_{hidden_units}_layers_{layers}_untrained.pth"
                 model_path = os.path.join(model_dir, model_name)
 
                 model_params = {
