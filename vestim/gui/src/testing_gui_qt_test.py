@@ -360,14 +360,15 @@ class VEstimTestingGUI(QMainWindow):
         :param model_name: The name of the model being plotted.
         :param save_dir: The directory where the plot should be saved.
         """
-        # Remove .csv from test_file_path before saving plot
-        test_file_name = os.path.splitext(os.path.basename(test_file_path))[0]  # Removes .csv
-
-        plot_file = os.path.join(save_dir, test_file_name, f"{test_file_name}_test_results_plot.png")
-
+        # Create the file path for the saved image
+        #plot_file = os.path.join(save_dir, test_file_path, f"{test_file_path}_test_results_plot.png")
+        # Remove .csv from the filename
+        test_file_name = os.path.splitext(os.path.basename(test_file_path))[0]  
+        # Construct the correct plot file path inside save_dir
+        plot_file = os.path.join(save_dir, f"{test_file_name}_test_results_plot.png")
 
         # Save the figure as a PNG image
-        fig.savefig(plot_file, format='png')
+        fig.savefig(plot_file, format='png', dpi=300, bbox_inches='tight')
         QMessageBox.information(self, "Saved", f"Plot saved as: {plot_file}")
         print(f"Plot saved as: {plot_file}")
 
