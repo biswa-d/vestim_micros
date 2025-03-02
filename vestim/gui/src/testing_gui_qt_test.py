@@ -352,7 +352,7 @@ class VEstimTestingGUI(QMainWindow):
             QMessageBox.critical(self, "Error", f"An error occurred while plotting results\n{str(e)}")
 
 
-    def save_plot(self, fig, model_name, save_dir):
+    def save_plot(self, fig, test_file_path, save_dir):
         """
         Save the current plot as a PNG image.
         
@@ -360,8 +360,11 @@ class VEstimTestingGUI(QMainWindow):
         :param model_name: The name of the model being plotted.
         :param save_dir: The directory where the plot should be saved.
         """
-        # Create the file path for the saved image
-        plot_file = os.path.join(save_dir, model_name, f"{model_name}_test_results_plot.png")
+        # Remove .csv from test_file_path before saving plot
+        test_file_name = os.path.splitext(os.path.basename(test_file_path))[0]  # Removes .csv
+
+        plot_file = os.path.join(save_dir, test_file_name, f"{test_file_name}_test_results_plot.png")
+
 
         # Save the figure as a PNG image
         fig.savefig(plot_file, format='png')
