@@ -1,3 +1,19 @@
+# ---------------------------------------------------------------------------------
+# Author: Biswanath Dehury
+# Date: `{{date:2025-03-01}}`
+# Version: 1.0.0
+# Description: 
+# Entry file for the program and gives the user an UI and to choose folders to select train and test data from.
+# Now it has Digatron, Tesla and Pouch data sources to choose from from the dropdown menu
+#Shows the progress bar for file conversion and the Tesla and Digatron data processors are used to convert the files from mat to csv amd organize them
+#The job folder is created and the files are copied and converted to the respective folders s train raw and processed and similar for test files
+# 
+# Next Steps:
+# 1. Resamling of data to 1hz (Done)
+# 2. Letting the user to select features and targets from the data [ TO DO ] -> To be implemented in the hyperparameter GUI
+# ---------------------------------------------------------------------------------
+
+
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QFileDialog, QProgressBar, QWidget, QMessageBox, QComboBox, QSizePolicy
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 
@@ -7,14 +23,16 @@ from vestim.services.data_processor.src.data_processor_qt_digatron import DataPr
 from vestim.services.data_processor.src.data_processor_qt_tesla import DataProcessorTesla
 from vestim.services.data_processor.src.data_processor_qt_pouch import DataProcessorPouch
 
-from vestim.logger_config import setup_logger  # Assuming you have logger_config.py as shared earlier
+import logging
 
+from vestim.logger_config import setup_logger  # Assuming you have logger_config.py as shared earlier
 # Set up initial logging to a default log file
 logger = setup_logger(log_file='default.log')  # Log everything to 'default.log' initially
 
 class DataImportGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.logger = logging.getLogger(__name__)
         self.train_folder_path = ""
         self.test_folder_path = ""
         self.selected_train_files = []
@@ -22,6 +40,8 @@ class DataImportGUI(QMainWindow):
         self.data_processor_digatron = DataProcessorDigatron()  # Initialize DataProcessor
         self.data_processor_tesla = DataProcessorTesla()  # Initialize DataProcessor
         self.data_processor_pouch = DataProcessorPouch()
+
+        self.sampling_frequency = None  # Default sampling frequency
 
         self.organizer_thread = None
         self.organizer = None
@@ -108,7 +128,7 @@ class DataImportGUI(QMainWindow):
         combined_layout = QHBoxLayout()
 
         # Data source label with color change, bold text, and padding
-        data_source_label = QLabel("Select Data Source:")
+        data_source_label = QLabel("Data Source:")
         data_source_label.setStyleSheet("color: purple; font-weight: bold; font-size: 14px; padding-right: 10px;")  # Set text color to purple, bold, and larger size
         combined_layout.addWidget(data_source_label)
 
@@ -116,10 +136,24 @@ class DataImportGUI(QMainWindow):
         self.data_source_combo = QComboBox(self)
         self.data_source_combo.addItems(["Digatron", "Tesla", "Pouch"])  # Add the data sources
         self.data_source_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
-        self.data_source_combo.setFixedWidth(150)  # Set a specific width for the ComboBox
+        self.data_source_combo.setFixedWidth(120)  # Set a specific width for the ComboBox
         self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")  # Bold text and larger font size
         combined_layout.addWidget(self.data_source_combo)
         self.data_source_combo.currentIndexChanged.connect(self.update_file_display)
+
+        # Add amptjer label to select the sampling frequency
+        sampling_frequency_label = QLabel("Resampling Freq:")
+        sampling_frequency_label.setStyleSheet("color: purple; font-weight: bold; font-size: 14px; padding-right: 10px;")  # Set text color to purple, bold, and larger size
+        combined_layout.addWidget(sampling_frequency_label)
+
+        # Sampling frequency selection with consistent height and styling
+        self.sampling_frequency_combo = QComboBox(self)
+        self.sampling_frequency_combo.addItems(["None", "0.1Hz", "0.5Hz", "1Hz", "5Hz", "10Hz"])  # Add the data sources
+        self.sampling_frequency_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
+        self.sampling_frequency_combo.setFixedWidth(110)  # Set a specific width for the ComboBox
+        self.sampling_frequency_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")  # Bold text and larger font size
+        combined_layout.addWidget(self.sampling_frequency_combo)
+        self.sampling_frequency_combo.currentIndexChanged.connect(self.update_sampling_frequency)
 
         # Add stretchable space between the dropdown and the button
         combined_layout.addStretch(1)  # Push the button to the right
@@ -166,6 +200,27 @@ class DataImportGUI(QMainWindow):
             # Show only .csv files
             self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".csv")
             self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".csv")
+    
+    def update_sampling_frequency(self):
+        selected_value = self.sampling_frequency_combo.currentText().strip()
+
+        if selected_value.lower() == "none":  # Check if "None" is selected
+            self.sampling_frequency = None
+        else:
+            try:
+                frequency_hz = float(selected_value.replace("Hz", "").strip())  # Convert "1Hz" → 1.0
+                
+                if frequency_hz <= 0:
+                    self.sampling_frequency = None  # Invalid values default to None
+                else:
+                    interval_ms = int(1000 / frequency_hz)  # Convert Hz to milliseconds
+                    self.sampling_frequency = f"{interval_ms}L" if interval_ms < 1000 else f"{interval_ms // 1000}S"
+
+            except ValueError:
+                self.sampling_frequency = None  # Fallback in case of errors
+
+        self.logger.info(f"Updated resampling frequency: {self.sampling_frequency}")  # Logging for debugging
+
 
     def select_train_folder(self):
         self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder")
@@ -196,6 +251,18 @@ class DataImportGUI(QMainWindow):
             self.organize_button.setEnabled(False)
 
     def organize_files(self):
+        
+        logger.info("Starting file organization process...")
+        # Use selectedItems() to get the selected files
+        train_files = [item.text() for item in self.train_list_widget.selectedItems()]
+        test_files = [item.text() for item in self.test_list_widget.selectedItems()]
+        print(f"Train files: {train_files}")
+        print(f"Test files: {test_files}")
+
+
+        if not train_files or not test_files:
+            self.show_error("No files selected for either training or testing.")
+            return
         # Update the button label and color when the process starts
         self.organize_button.setText("Importing and Preprocessing Files")
         self.organize_button.setStyleSheet("""
@@ -210,17 +277,6 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
-        logger.info("Starting file organization process...")
-        # Use selectedItems() to get the selected files
-        train_files = [item.text() for item in self.train_list_widget.selectedItems()]
-        test_files = [item.text() for item in self.test_list_widget.selectedItems()]
-        print(f"Train files: {train_files}")
-        print(f"Test files: {test_files}")
-
-        if not train_files or not test_files:
-            self.show_error("No files selected for either training or testing.")
-            return
-
         # Determine which data processor to use based on the selected data source
         selected_source = self.data_source_combo.currentText()
         if selected_source == "Digatron":
@@ -234,7 +290,7 @@ class DataImportGUI(QMainWindow):
             return
 
         # Create and start the file organizer thread with the selected data processor
-        self.organizer = FileOrganizer(train_files, test_files, data_processor)
+        self.organizer = FileOrganizer(train_files, test_files, data_processor, sampling_frequency=self.sampling_frequency)
         self.organizer_thread = QThread()
 
         # Connect signals and slots
@@ -256,7 +312,7 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(False)
         
         # Change the button label to indicate next step and enable it
-        self.organize_button.setText("Proceed to Hyperparameter Selection")
+        self.organize_button.setText("Select Hyperparameters")
         self.organize_button.setStyleSheet("""
             background-color: #1f8b4c; 
             font-weight: bold;
@@ -277,7 +333,6 @@ class DataImportGUI(QMainWindow):
         self.hyper_param_gui = VEstimHyperParamGUI()
         self.hyper_param_gui.show()
 
-
     def show_error(self, message):
         # Display error message
         QMessageBox.critical(self, "Error", message)
@@ -286,11 +341,12 @@ class FileOrganizer(QObject):
     progress = pyqtSignal(int)  # Emit progress percentage
     job_folder_signal = pyqtSignal(str)  # To communicate when the job folder is created
 
-    def __init__(self, train_files, test_files, data_processor):
+    def __init__(self, train_files, test_files, data_processor, sampling_frequency=None):
         super().__init__()
         self.train_files = train_files
         self.test_files = test_files
         self.data_processor = data_processor
+        self.sampling_frequency = sampling_frequency
 
     def run(self):
         if not self.train_files or not self.test_files:
@@ -299,7 +355,7 @@ class FileOrganizer(QObject):
 
         try:
             # Call the backend method from DataProcessor to organize and convert files
-            job_folder = self.data_processor.organize_and_convert_files(self.train_files, self.test_files, progress_callback=self.update_progress)
+            job_folder = self.data_processor.organize_and_convert_files(self.train_files, self.test_files, progress_callback=self.update_progress, sampling_frequency=self.sampling_frequency)
             logger.info(f"Job folder created: {job_folder}")
             # Emit success message with job folder details
             self.job_folder_signal.emit(job_folder)

@@ -1,3 +1,16 @@
+# ---------------------------------------------------------------------------------
+# Author: Biswanath Dehury
+# Date: `{{date:2023-03-02}}`
+# Version: 1.0.0
+# Description: Description of the script
+#Descrition: This is the batchtesting without padding implementation for the unscaled data where the batch-size is used for testloader preparation but the model is tested
+# one sequence at a time like a running window. The first part of the test file is padded with data to avoid the size mismatch and get the final prediction the same
+# shape as the test file.
+
+# Copyright (c) 2024 Biswanath Dehury, Dr. Phil Kollmeyer's Battery Lab at McMaster University
+# ---------------------------------------------------------------------------------
+
+
 import torch
 import os
 import json, hashlib, sqlite3, csv

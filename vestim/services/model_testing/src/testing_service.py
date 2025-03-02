@@ -38,39 +38,32 @@ class VEstimTestingService:
         """
         all_predictions, y_test = [], []
     
-        # **Fetch the first batch outside the loop to get batch size**
-        first_batch = next(iter(test_loader))  # Get first batch
-        batch_size = first_batch[0].size(0)  # Get batch size from first batch
-
-        # **Initialize hidden states ONCE using first batch size**
-        h_s = torch.zeros(num_layers, batch_size, hidden_units).to(self.device)
-        h_c = torch.zeros(num_layers, batch_size, hidden_units).to(self.device)
-
         with torch.no_grad():
+            # Initialize hidden states for the first sample (removing batch dimension)
+            h_s = torch.zeros(num_layers, 1, hidden_units).to(self.device)
+            h_c = torch.zeros(num_layers, 1, hidden_units).to(self.device)
+
+            # Loop over the test set one sequence at a time
             for X_batch, y_batch in test_loader:
-                X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
+                # Since test_loader is batched, process each sequence in the batch individually
+                for i in range(X_batch.size(0)):
+                    # Extract a single sequence (shape: [1, lookback, features])
+                    x_seq = X_batch[i].unsqueeze(0).to(self.device)
+                    y_true = y_batch[i].unsqueeze(0).to(self.device)
 
-                # Forward pass without resetting hidden state
-                y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
+                    # Forward pass with current hidden states
+                    y_out, (h_s, h_c) = model(x_seq, h_s, h_c)
 
-                # Detach hidden states to avoid memory leaks but keep continuity
-                h_s, h_c = h_s.detach(), h_c.detach()
+                    # Detach hidden states to avoid accumulation of gradients
+                    h_s, h_c = h_s.detach(), h_c.detach()
 
-                # Store predictions
-                all_predictions.append(y_pred[:, -1].cpu().numpy())  # Take last timestep prediction
-                y_test.append(y_batch.cpu().numpy())
+                    # Store the last timestep prediction and corresponding true value
+                    all_predictions.append(y_out[:, -1].cpu().numpy())
+                    y_test.append(y_true.cpu().numpy())
 
             # Convert all batch predictions to a single array
             y_pred = np.concatenate(all_predictions).flatten()  # Combine all stored predictions
             y_test = np.concatenate([y.flatten() for y in y_test])  # Combine all stored true values
-
-            # **Find the index of the last non-zero voltage value**
-            nonzero_indices = np.nonzero(y_test)[0]  # Get indices of non-zero values
-            if len(nonzero_indices) > 0:
-                last_valid_index = nonzero_indices[-1]  # Find the last non-zero value's index
-                y_pred = y_pred[: last_valid_index + 1]  # Trim predictions
-                y_test = y_test[: last_valid_index + 1]  # Trim actual values
-                print(f"Trimmed y_pred and y_actual to last valid voltage index: {last_valid_index}")
 
             # Debug prints
             print(f"DEBUG: Trimmed y_pred shape: {y_pred.shape}, y_actual shape: {y_test.shape}")
@@ -92,90 +85,36 @@ class VEstimTestingService:
                 'r2': r2
             }
 
-    def calculate_mape(self, y_true, y_pred):
-        """
-        Calculates the Mean Absolute Percentage Error (MAPE).
 
-        :param y_true: Array of true values.
-        :param y_pred: Array of predicted values.
-        :return: MAPE as a percentage.
-        """
-        return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+    def run_testing(self, task, model_path, test_loader, test_file_path):
+        """Runs testing for a given model and test file, returning results without saving."""
+        print(f"Running testing for model: {model_path}")
 
-    def save_test_results(self, results, model_name, save_dir):
-        """
-        Saves the test results to a model-specific subdirectory within the save directory.
-
-        :param results: Dictionary containing predictions, true values, and metrics.
-        :param model_name: Name of the model (or model file) to label the results.
-        :param save_dir: Directory where the results will be saved.
-        """
-        # Create a model-specific subdirectory within save_dir
-        model_dir = os.path.join(save_dir, model_name)
-        os.makedirs(model_dir, exist_ok=True)  # Create the directory if it doesn't exist
-
-        # Create a DataFrame to store the predictions and true values
-        df = pd.DataFrame({
-            'True Values (V)': results['true_values'],
-            'Predictions (V)': results['predictions'],
-            'Difference (mV)': (results['true_values'] - results['predictions']) * 1000  # Difference in mV
-        })
-
-        # Save the DataFrame as a CSV file in the model-specific directory
-        result_file = os.path.join(model_dir, f"{model_name}_test_results.csv")
-        df.to_csv(result_file, index=False)
-
-        # Save the metrics separately in the same model-specific directory
-        metrics_file = os.path.join(model_dir, f"{model_name}_metrics.txt")
-        with open(metrics_file, 'w') as f:
-            f.write(f"RMS Error (mV): {results['rms_error_mv']:.2f}\n")
-            f.write(f"MAE (mV): {results['mae_mv']:.2f}\n")
-            f.write(f"MAPE (%): {results['mape']:.2f}\n")
-            f.write(f"R²: {results['r2']:.4f}\n")
-
-        print(f"Results and metrics for model '{model_name}' saved to {model_dir}")
-
-    def run_testing(self, task, model_path, test_loader, save_dir):
-        print(f"Entered run_testing for model")
-        # Extract hyperparameters from the task
-        model_metadata = task["model_metadata"]
-        input_size = model_metadata["input_size"]
-        hidden_units = model_metadata["hidden_units"]
-        num_layers = model_metadata["num_layers"]
-
-        print(f"Instantiating LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
-
-        # Instantiate the model
-        model = LSTMModel(input_size=input_size,
-                        hidden_units=hidden_units,
-                        num_layers=num_layers,
-                        device=self.device)
-
-        # Load the model weights
         try:
+            model_metadata = task["model_metadata"]
+            model = LSTMModel(
+                input_size=model_metadata["input_size"],
+                hidden_units=model_metadata["hidden_units"],
+                num_layers=model_metadata["num_layers"],
+                device=self.device
+            )
+
+            # Load the model weights
             model.load_state_dict(torch.load(model_path))
             model.eval()  # Set the model to evaluation mode
-            print("Model loaded and set to evaluation mode")
+
+            # Run the testing process (returns results but does NOT save them)
+            results = self.test_model(
+                model,
+                test_loader,
+                model_metadata["hidden_units"],
+                model_metadata["num_layers"]
+            )
+
+            print(f"Model testing completed for file: {test_file_path}")
+            return results  # Return results without saving
+
         except Exception as e:
-            print(f"Error loading model from {model_path}: {str(e)}")
-            return
+            print(f"Error testing model {model_path}: {str(e)}")
+            return None
 
-        # Run the testing process
-        try:
-            results = self.test_model(model, test_loader, hidden_units, num_layers)
-            print("Model testing completed")
-        except Exception as e:
-            print(f"Error during model testing: {str(e)}")
-            return
-
-        # Get the model name for saving results
-        model_name = os.path.splitext(os.path.basename(model_path))[0]
-
-        # Save the test results
-        try:
-            self.save_test_results(results, model_name, save_dir)
-            print(f"Test results saved for model: {model_name}")
-        except Exception as e:
-            print(f"Error saving test results: {str(e)}")
-
-        return results

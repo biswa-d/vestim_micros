@@ -1,11 +1,15 @@
-#----------------------------------------------------------------------------------------
-#Descrition: This file _1 is to implement the testing service without sequential data preparationfor testing the LSTM model
-#
-# Created On: Tue Sep 24 2024 16:50:29
+# ---------------------------------------------------------------------------------
 # Author: Biswanath Dehury
-# Company: Dr. Phil Kollmeyer's Battery Lab at McMaster University
+# Date: `{{date:2023-03-02}}`
+# Version: 1.0.0
+# Description: Description of the script
+#Descrition: This is the batchtesting without padding implementation for the unscaled data where the batch-size is used for testloader preparation but the model is tested
+# one sequence at a time like a running window. The first part of the test file is padded with data to avoid the size mismatch and get the final prediction the same
+# shape as the test file.
+
 # Copyright (c) 2024 Biswanath Dehury, Dr. Phil Kollmeyer's Battery Lab at McMaster University
-#----------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------
+
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 import os
