@@ -185,11 +185,15 @@ class TrainingTaskManager:
         lookback = task['data_loader_params']['lookback']
         batch_size = task['data_loader_params']['batch_size']
         num_workers = 4
+        feature_cols = task['data_loader_params']['feature_columns']
+        target_col = task['data_loader_params']['target_column']
 
         self.logger.info("Creating data loaders")
         train_loader, val_loader = self.data_loader_service.create_data_loaders(
             folder_path=self.job_manager.get_train_folder(),  # Adjusted to use the correct folder
-            lookback=lookback, 
+            lookback=lookback,
+            feature_cols=feature_cols,
+            target_col=target_col, 
             batch_size=batch_size, 
             num_workers=num_workers
         )

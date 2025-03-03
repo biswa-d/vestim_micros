@@ -1,11 +1,20 @@
+# ---------------------------------------------------------------------------------
+# Author: Biswanath Dehury
+# Date: `{{date:YYYY-MM-DD}}`
+# Version: 1.0.0
+# Description: Description of the script
+# ---------------------------------------------------------------------------------
+
+
 import os
 import json
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, 
-    QLineEdit, QFileDialog, QMessageBox, QDialog
+    QLineEdit, QFileDialog, QMessageBox, QDialog, QComboBox, QListWidget, QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QPropertyAnimation
 from PyQt5.QtGui import QIcon
+import pandas as pd
 
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.hyper_param_manager_qt_test import VEstimHyperParamManager
@@ -73,6 +82,7 @@ class VEstimHyperParamGUI(QWidget):
 
         # Add parameter widgets
         self.add_param_widgets(param_layout)
+        self.add_feature_target_selection(param_layout)
 
         # Make the grid take more vertical space
         layout.addStretch(1)
@@ -140,27 +150,125 @@ class VEstimHyperParamGUI(QWidget):
             layout.addWidget(entry, idx // 2, (idx % 2) * 2 + 1)
 
             self.param_entries[param_name] = entry
+    
+    def add_feature_target_selection(self, layout):
+        """Adds dropdowns to select feature and target columns side by side."""
+        column_names = self.load_column_names()
+        
+        if not column_names:
+            error_label = QLabel("No CSV columns found. Ensure data is processed.")
+            error_label.setStyleSheet("color: red; font-weight: bold;")
+            layout.addWidget(error_label, layout.rowCount(), 0, 1, 2)  # Centered in grid
+            return
 
+        # **Feature Selection (Multi-Select List)**
+        feature_label = QLabel("Feature Columns:")
+        feature_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        
+        self.feature_list = QListWidget()
+        self.feature_list.addItems(column_names)
+        self.feature_list.setSelectionMode(QAbstractItemView.MultiSelection)  # Enable multi-selection
+        self.feature_list.setFixedHeight(100)  # Adjust height for better visibility
+
+        # **Target Selection (Single-Select Dropdown)**
+        target_label = QLabel("Target Column:")
+        target_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+
+        self.target_combo = QComboBox()
+        self.target_combo.addItems(column_names)
+
+        # **Properly Place in QGridLayout**
+        row = layout.rowCount()  # Get the next available row
+        layout.addWidget(feature_label, row, 0)
+        layout.addWidget(self.feature_list, row + 1, 0)  # Features on the left
+        layout.addWidget(target_label, row, 1)
+        layout.addWidget(self.target_combo, row + 1, 1)  # Target on the right
+
+    def get_selected_features(self):
+        """Retrieve selected feature columns as a list."""
+        return [item.text() for item in self.feature_list.selectedItems()]
+
+    def save_params(self):
+        """Save the selected hyperparameters, features, and target into hyperparams.json."""
+        job_folder = self.job_manager.get_job_folder()
+        if not job_folder:
+            self.logger.error("Job folder is not set.")
+            return
+
+        # Get selected features & target
+        selected_features = self.get_selected_features()  # Fetch multiple selected features
+        selected_target = self.target_combo.currentText()
+
+        if not selected_features or not selected_target:
+            self.logger.error("Feature or target column selection is missing!")
+            QMessageBox.critical(self, "Error", "Please select at least one feature and a target column.")
+            return
+
+        # Load existing params file if it exists
+        params_file = os.path.join(job_folder, 'hyperparams.json')
+        if os.path.exists(params_file):
+            with open(params_file, 'r') as file:
+                try:
+                    params = json.load(file)  # Load existing hyperparameters
+                except json.JSONDecodeError:
+                    self.logger.error("Error reading hyperparams.json. Resetting file.")
+                    params = {}
+        else:
+            params = {}
+
+        # Save all hyperparameters (LSTM settings)
+        for param_name, entry_widget in self.param_entries.items():
+            params[param_name] = entry_widget.text().strip()
+
+        # Add Feature & Target selections**
+        params.update({
+            "FEATURE_COLUMNS": selected_features,
+            "TARGET_COLUMN": selected_target
+        })
+
+        # Save updated parameters
+        try:
+            with open(params_file, 'w') as file:
+                json.dump(params, file, indent=4)
+            self.logger.info("Parameters successfully saved.")
+            QMessageBox.information(self, "Success", "Hyperparameters saved successfully.")
+        except Exception as e:
+            self.logger.error(f"Failed to save parameters: {e}")
+            QMessageBox.critical(self, "Error", f"Could not save hyperparameters: {e}")
 
 
     def proceed_to_training(self):
         try:
-            # Validate parameters and save them if valid
+            # Fetch hyperparameters from text fields
             new_params = {param: entry.text() for param, entry in self.param_entries.items()}
+
+            # Fetch selected features & target
+            selected_features = self.get_selected_features()  # Multi-select feature list
+            selected_target = self.target_combo.currentText()  # Single target column
+
+            # Add to new_params
+            new_params["FEATURE_COLUMNS"] = selected_features
+            new_params["TARGET_COLUMN"] = selected_target
+
             self.logger.info(f"Proceeding to training with params: {new_params}")
+
+            # Update the parameter manager
             self.update_params(new_params)
+
+            # Save params only if job folder is set
             if self.job_manager.get_job_folder():
                 self.hyper_param_manager.save_params()
             else:
                 self.logger.error("Job folder is not set.")
                 raise ValueError("Job folder is not set.")
 
-            self.close()  # Close the current window immediately
-            self.training_setup_gui = VEstimTrainSetupGUI(new_params)
+            self.close()  # Close current window
+            self.training_setup_gui = VEstimTrainSetupGUI(new_params)  # Pass updated params
             self.training_setup_gui.show()
 
         except ValueError as e:
             QMessageBox.critical(self, "Error", f"Invalid parameter input: {str(e)}")
+
 
     def show_training_setup_gui(self):
         # Initialize the next GUI after fade-out is complete
@@ -171,7 +279,23 @@ class VEstimHyperParamGUI(QWidget):
         self.training_setup_gui.show()
         self.close()  # Close the previous window
 
+    def load_column_names(self):
+        """Loads column names from a sample CSV file in the train processed data folder."""
+        train_folder = self.job_manager.get_train_folder()
+        if train_folder:
+            try:
+                csv_files = [f for f in os.listdir(train_folder) if f.endswith(".csv")]
+                if not csv_files:
+                    raise FileNotFoundError("No CSV files found in train processed data folder.")
+                
+                sample_csv_path = os.path.join(train_folder, csv_files[0])  # Pick the first CSV
+                df = pd.read_csv(sample_csv_path, nrows=1)  # Load only header
+                return list(df.columns)  # Return column names
 
+            except Exception as e:
+                print(f"Error loading CSV columns: {e}")
+        return []
+    
     def load_params_from_json(self):
         filepath, _ = QFileDialog.getOpenFileName(self, "Load Params", "", "JSON Files (*.json);;All Files (*)")
         if filepath:
@@ -194,10 +318,27 @@ class VEstimHyperParamGUI(QWidget):
         self.update_gui_with_loaded_params()
 
     def update_gui_with_loaded_params(self):
+        """Update the GUI with previously saved parameters, including features & target."""
+        
+        # Update standard hyperparameters
         for param_name, entry in self.param_entries.items():
             if param_name in self.params:
                 value = ', '.join(map(str, self.params[param_name])) if isinstance(self.params[param_name], list) else str(self.params[param_name])
                 entry.setText(value)
+
+        # Update feature selection list (Multi-Select)
+        if "FEATURE_COLUMNS" in self.params:
+            saved_features = set(self.params["FEATURE_COLUMNS"])  # Convert to set for quick lookup
+            for i in range(self.feature_list.count()):
+                item = self.feature_list.item(i)
+                item.setSelected(item.text() in saved_features)
+
+        # Update target selection (Single-Select Dropdown)
+        if "TARGET_COLUMN" in self.params:
+            target_index = self.target_combo.findText(self.params["TARGET_COLUMN"])
+            if target_index != -1:  # Ensure it's a valid index
+                self.target_combo.setCurrentIndex(target_index)
+
 
     def open_guide(self):
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')

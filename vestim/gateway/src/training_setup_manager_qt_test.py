@@ -68,49 +68,73 @@ class VEstimTrainingSetupManager:
 
     def build_models(self):
         """Build and store the LSTM models based on hyperparameters."""
-        # Parse comma-separated values for hidden_units and layers (dropout removed)
-        hidden_units_list = [int(h) for h in self.params['HIDDEN_UNITS'].split(',')]
-        layers_list = [int(l) for l in self.params['LAYERS'].split(',')]  # Allow multiple layers
+        try:
+            # Ensure HIDDEN_UNITS and LAYERS are properly formatted
+            hidden_units_value = str(self.params['HIDDEN_UNITS'])  # Convert to string if it's an integer
+            layers_value = str(self.params['LAYERS'])  # Convert to string if it's an integer
 
-        # Iterate over all combinations of hidden_units and layers (dropout removed)
-        for hidden_units in hidden_units_list:
-            for layers in layers_list:
-                self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
+            hidden_units_list = [int(h) for h in hidden_units_value.split(',')]  # Parse hidden units
+            layers_list = [int(l) for l in layers_value.split(',')]  # Parse layers
 
-                # Create model directory (dropout removed)
-                model_dir = os.path.join(
-                    self.job_manager.get_job_folder(),
-                    'models',
-                    f'model_lstm_hu_{hidden_units}_layers_{layers}'
-                )
-                os.makedirs(model_dir, exist_ok=True)
+            # **Get input and output feature sizes**
+            feature_columns = self.params.get("FEATURE_COLUMNS", [])
+            target_column = self.params.get("TARGET_COLUMN", "")
 
-                model_name = f"model_lstm_hu_{hidden_units}_layers_{layers}.pth"
-                model_path = os.path.join(model_dir, model_name)
+            if not feature_columns or not target_column:
+                raise ValueError("Feature columns or target column not set in hyperparameters.")
 
-                # Model parameters
-                model_params = {
-                    "INPUT_SIZE": 3,  # Modify as needed
-                    "HIDDEN_UNITS": hidden_units,
-                    "LAYERS": layers
-                }
+            input_size = len(feature_columns)  # Number of input features
+            output_size = 1  # Assuming a single target variable for regression
 
-                # Create and save the LSTM model
-                model = self.lstm_model_service.create_and_save_lstm_model(model_params, model_path)
+            self.logger.info(f"Building LSTM models with INPUT_SIZE={input_size}, OUTPUT_SIZE={output_size}")
 
-                # Store model information
-                self.models.append({
-                    'model': model,
-                    'model_dir': model_dir,
-                    'hyperparams': {
-                        'INPUT_SIZE': 3,  # Modify as needed
-                        'LAYERS': layers,
-                        'HIDDEN_UNITS': hidden_units,
-                        'model_path': model_path
+            # Iterate over all combinations of hidden_units and layers
+            for hidden_units in hidden_units_list:
+                for layers in layers_list:
+                    self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
+
+                    # Create model directory
+                    model_dir = os.path.join(
+                        self.job_manager.get_job_folder(),
+                        'models',
+                        f'model_lstm_hu_{hidden_units}_layers_{layers}'
+                    )
+                    os.makedirs(model_dir, exist_ok=True)
+
+                    model_name = f"model_lstm_hu_{hidden_units}_layers_{layers}.pth"
+                    model_path = os.path.join(model_dir, model_name)
+
+                    # Model parameters
+                    model_params = {
+                        "INPUT_SIZE": input_size,  # Dynamically set input size
+                        "OUTPUT_SIZE": output_size,  # Single target output
+                        "HIDDEN_UNITS": hidden_units,
+                        "LAYERS": layers
                     }
-                })
-        
-        self.logger.info("Model building complete.")
+
+                    # Create and save the LSTM model
+                    model = self.lstm_model_service.create_and_save_lstm_model(model_params, model_path)
+
+                    # Store model information
+                    self.models.append({
+                        'model': model,
+                        'model_dir': model_dir,
+                        "FEATURE_COLUMNS": feature_columns,
+                        "TARGET_COLUMN": target_column,
+                        'hyperparams': {
+                            'INPUT_SIZE': input_size,
+                            'OUTPUT_SIZE': output_size,
+                            'LAYERS': layers,
+                            'HIDDEN_UNITS': hidden_units,
+                            'model_path': model_path
+                        }
+                    })
+
+            self.logger.info("Model building complete.")
+
+        except Exception as e:
+            self.logger.error(f"Error during model building: {e}")
+            raise
 
 
     def create_training_tasks(self):
@@ -149,6 +173,8 @@ class VEstimTrainingSetupManager:
                 model_task['hyperparams']['INPUT_SIZE'],  
                 model_task['hyperparams']['HIDDEN_UNITS']
             )
+            feature_columns = model_task['FEATURE_COLUMNS']
+            target_column = model_task['TARGET_COLUMN']
 
             # Iterate through hyperparameters (excluding weight decay & dropout)
             for lr in learning_rates:
@@ -183,6 +209,8 @@ class VEstimTrainingSetupManager:
                                             'data_loader_params': {
                                                 'lookback': lookback,
                                                 'batch_size': batch_size,
+                                                'feature_columns': feature_columns,
+                                                'target_column': target_column,
                                             },
                                             'model_dir': task_dir,
                                             'model_path': os.path.join(task_dir, 'model.pth'),

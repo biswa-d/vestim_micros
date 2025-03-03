@@ -11,7 +11,7 @@ class DataLoaderService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-    def load_and_process_data(self, folder_path, lookback):
+    def load_and_process_data(self, folder_path, lookback, feature_cols, target_col):
         """
         Loads and processes CSV files into data sequences based on the lookback period.
 
@@ -25,8 +25,8 @@ class DataLoaderService:
 
         for file in csv_files:
             df = pd.read_csv(file)
-            X_data = df[['SOC', 'Current', 'Temp']].values
-            Y_data = df['Voltage'].values
+            X_data = df[feature_cols].values
+            Y_data = df[target_col].values
             X, y = self.create_data_sequence(X_data, Y_data, lookback)
             data_sequences.append(X)
             target_sequences.append(y)
@@ -61,7 +61,7 @@ class DataLoaderService:
 
         return np.array(X_sequences), np.array(y_sequences)
 
-    def create_data_loaders(self, folder_path, lookback, batch_size, num_workers, train_split=0.7, seed=None):
+    def create_data_loaders(self, folder_path, lookback,feature_cols, target_col, batch_size, num_workers, train_split=0.7, seed=None):
         """
         Creates DataLoaders for training and validation data.
 
@@ -79,7 +79,7 @@ class DataLoaderService:
             seed = int(datetime.now().timestamp())
         
         # Load and process data
-        X, y = self.load_and_process_data(folder_path, lookback)
+        X, y = self.load_and_process_data(folder_path, lookback, feature_cols, target_col)
 
         # Convert to PyTorch tensors
         X_tensor = torch.tensor(X, dtype=torch.float32)
