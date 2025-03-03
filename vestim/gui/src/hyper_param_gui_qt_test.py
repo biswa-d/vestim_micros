@@ -151,14 +151,47 @@ class VEstimHyperParamGUI(QWidget):
 
             self.param_entries[param_name] = entry
     
+    # def add_feature_target_selection(self, layout):
+    #     """Adds dropdowns to select feature and target columns side by side."""
+    #     column_names = self.load_column_names()
+        
+    #     if not column_names:
+    #         error_label = QLabel("No CSV columns found. Ensure data is processed.")
+    #         error_label.setStyleSheet("color: red; font-weight: bold;")
+    #         layout.addWidget(error_label, layout.rowCount(), 0, 1, 2)  # Centered in grid
+    #         return
+
+    #     # **Feature Selection (Multi-Select List)**
+    #     feature_label = QLabel("Feature Columns:")
+    #     feature_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        
+    #     self.feature_list = QListWidget()
+    #     self.feature_list.addItems(column_names)
+    #     self.feature_list.setSelectionMode(QAbstractItemView.MultiSelection)  # Enable multi-selection
+    #     self.feature_list.setFixedHeight(100)  # Adjust height for better visibility
+
+    #     # **Target Selection (Single-Select Dropdown)**
+    #     target_label = QLabel("Target Column:")
+    #     target_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+
+    #     self.target_combo = QComboBox()
+    #     self.target_combo.addItems(column_names)
+
+    #     # **Properly Place in QGridLayout**
+    #     row = layout.rowCount()  # Get the next available row
+    #     layout.addWidget(feature_label, row, 0)
+    #     layout.addWidget(self.feature_list, row + 1, 0)  # Features on the left
+    #     layout.addWidget(target_label, row, 1)
+    #     layout.addWidget(self.target_combo, row + 1, 1)  # Target on the right
+
     def add_feature_target_selection(self, layout):
-        """Adds dropdowns to select feature and target columns side by side."""
+        """Adds dropdowns to select feature and target columns with better layout."""
         column_names = self.load_column_names()
         
         if not column_names:
             error_label = QLabel("No CSV columns found. Ensure data is processed.")
             error_label.setStyleSheet("color: red; font-weight: bold;")
-            layout.addWidget(error_label, layout.rowCount(), 0, 1, 2)  # Centered in grid
+            layout.addWidget(error_label, layout.rowCount(), 0, 1, 3)  # Span across 3 columns
             return
 
         # **Feature Selection (Multi-Select List)**
@@ -169,6 +202,10 @@ class VEstimHyperParamGUI(QWidget):
         self.feature_list.addItems(column_names)
         self.feature_list.setSelectionMode(QAbstractItemView.MultiSelection)  # Enable multi-selection
         self.feature_list.setFixedHeight(100)  # Adjust height for better visibility
+        self.feature_list.setFixedWidth(250)  # Prevent excessive width
+        
+        # **Spacer to Reduce Clutter**
+        spacer = QLabel("")  # Empty QLabel acts as a spacing element
 
         # **Target Selection (Single-Select Dropdown)**
         target_label = QLabel("Target Column:")
@@ -176,13 +213,18 @@ class VEstimHyperParamGUI(QWidget):
 
         self.target_combo = QComboBox()
         self.target_combo.addItems(column_names)
+        self.target_combo.setFixedWidth(150)  # Adjust width for clarity
 
         # **Properly Place in QGridLayout**
         row = layout.rowCount()  # Get the next available row
         layout.addWidget(feature_label, row, 0)
+        layout.addWidget(spacer, row, 1)  # Spacer in the middle
+        layout.addWidget(target_label, row, 2)
+
         layout.addWidget(self.feature_list, row + 1, 0)  # Features on the left
-        layout.addWidget(target_label, row, 1)
-        layout.addWidget(self.target_combo, row + 1, 1)  # Target on the right
+        layout.addWidget(spacer, row + 1, 1)  # Spacer in the middle
+        layout.addWidget(self.target_combo, row + 1, 2)  # Target on the right
+
 
     def get_selected_features(self):
         """Retrieve selected feature columns as a list."""

@@ -437,8 +437,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Handle log updates
         if 'epoch' in progress_data:
             epoch = progress_data['epoch']
-            train_loss = progress_data['train_loss']
-            val_loss = progress_data['val_loss']
+            train_loss = max(progress_data['train_loss'], 1e-8)  # Ensure nonzero values
+            val_loss = max(progress_data['val_loss'], 1e-8)
             delta_t_epoch = progress_data['delta_t_epoch']
             learning_rate = progress_data.get('learning_rate', None)
             best_val_loss = progress_data.get('best_val_loss', None)
@@ -474,6 +474,11 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.train_loss_values.append(train_loss)
             self.valid_loss_values.append(val_loss)
             self.valid_x_values.append(epoch)
+
+            # Enable log-scale on y-axis
+            self.ax.set_yscale("log")  # 🔥 Log Scale Enabled
+
+
             # print(f"Valid X Values: {self.valid_x_values}")
             # print(f"Train Loss Values: {self.train_loss_values}")
             # print(f"Valid Loss Values: {self.valid_loss_values}")

@@ -13,7 +13,7 @@ class DataProcessorPouch:
         self.total_files = 0  # Total number of files to process (copy)
         self.processed_files = 0  # Keep track of total processed files
 
-    def organize_and_convert_files(self, train_files, test_files, progress_callback=None):
+    def organize_and_convert_files(self, train_files, test_files, progress_callback=None, sampling_frequency=None):
         # Ensure valid CSV files are provided
         if not all(f.endswith('.csv') for f in train_files + test_files):
             self.logger.error("Invalid file types. Only CSV files are accepted.")
@@ -71,7 +71,6 @@ class DataProcessorPouch:
             self._copy_file(file, test_processed_folder, progress_callback)
 
         return job_folder
-
 
     def _convert_to_hdf5(self, csv_file, output_folder, progress_callback=None):
         """Convert a CSV file to HDF5 and save in the processed folder."""
@@ -133,3 +132,38 @@ class DataProcessorPouch:
             progress_value = int((self.processed_files / self.total_files) * 100)
             self.logger.debug(f"Progress: {progress_value}%")
             progress_callback(progress_value)
+        
+    def _resample_data(self, df, sampling_frequency='1S'):
+        """
+        Resamples the DataFrame to a specified frequency based on the Time column.
+
+        Parameters:
+        df (pd.DataFrame): Input DataFrame with a 'Time' column.
+        target_freq (str): Target frequency (e.g., '1S' for 1Hz, '100ms' for 10Hz).
+
+        Returns:
+        pd.DataFrame: Resampled DataFrame.
+        """
+        try:
+            # Ensure 'Time' is present in the dataset
+            if 'Time' not in df.columns:
+                print("No 'Time' column found in the dataset.")
+                return None
+            
+            # Convert 'Time' to seconds (if not already datetime)
+            if not pd.api.types.is_datetime64_any_dtype(df['Time']):
+                df['Time'] = pd.to_datetime(df['Time'], unit='s')
+
+            # Set time as index for resampling
+            df.set_index('Time', inplace=True)
+
+            # Resample using the specified frequency, interpolating missing values
+            df_resampled = df.resample(sampling_frequency).mean(numeric_only=True).interpolate()
+
+            # Reset index to keep 'Time' as a column
+            df_resampled.reset_index(inplace=True)
+
+            return df_resampled
+        except Exception as e:
+            self.logger.error(f"Error resampling data: {e}")
+            return None

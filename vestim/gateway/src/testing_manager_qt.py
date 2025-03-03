@@ -92,6 +92,8 @@ class VEstimTestingManager:
             batch_size = task['hyperparams']['BATCH_SIZE']
             model_path = task['model_path']
             save_dir = task['task_dir']
+            feature_cols = task['data_loader_params']['feature_columns']
+            target_col = task['data_loader_params']['target_column']
             print(f"Testing model: {model_path} with lookback: {lookback}")
 
             print("Generating shorthand name for model...")
@@ -113,7 +115,7 @@ class VEstimTestingManager:
                 print(f"Processing test file: {test_file}")
 
                 # Load and process test data for the specific file
-                test_file_loader = self.test_data_service.create_test_file_loader(test_file_path, lookback, batch_size)
+                test_file_loader = self.test_data_service.create_test_file_loader(test_file_path, lookback, batch_size, feature_cols, target_col)
 
                 # Run the testing process
                 results = self.testing_service.run_testing(task, model_path, test_file_loader, test_file_path)

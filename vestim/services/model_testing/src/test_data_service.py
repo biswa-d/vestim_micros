@@ -17,7 +17,7 @@ class VEstimTestDataService:
     def __init__(self):
         print("Initializing VEstimTestDataService...")
 
-    def create_test_file_loader(self, test_file_path, lookback, batch_size):
+    def create_test_file_loader(self, test_file_path, lookback, batch_size, feature_cols, target_col):
         """
         Create a test DataLoader from a CSV file without shuffling, ensuring sequential order.
         Pads the initial data to preserve all values when creating sequences.
@@ -36,8 +36,8 @@ class VEstimTestDataService:
         data = pd.read_csv(test_file_path)
         print(f"Dataset shape: {data.shape}")
 
-        X_data = data[["SOC", "Current", "Temp"]].values.astype('float32')
-        Y_data = data[["Voltage"]].values.astype('float32')
+        X_data = data[feature_cols].values.astype('float32')
+        Y_data = data[[target_col]].values.astype('float32')
 
         # **Padding the first `lookback` rows with the first row values**
         pad_X = np.tile(X_data[0], (lookback, 1))  # Repeat first row for lookback times
