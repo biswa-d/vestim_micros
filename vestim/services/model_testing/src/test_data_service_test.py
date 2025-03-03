@@ -1,5 +1,5 @@
 #----------------------------------------------------------------------------------------
-#Descrition: This file _1 is to implement the testing service without sequential data preparationfor testing the LSTM model
+# Descrition: This file _1 is to implement the testing service without sequential data preparationfor testing the LSTM model
 #
 # Created On: Tue Sep 24 2024 16:51:00
 # Author: Biswanath Dehury

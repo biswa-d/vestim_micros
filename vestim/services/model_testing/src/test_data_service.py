@@ -3,7 +3,7 @@
 # Date: `{{date:YYYY-MM-DD}}`
 # Version: 1.0.0
 # Description: This returns the test loader for each file in the test folder where the intintial part of the testfile is not missed as we pad the data and 
-#make sequences out of it and we pad the initial vales with the same values as the first row of the test file.
+# make sequences out of it and we pad the initial vales with the same values as the first row of the test file.
 # ---------------------------------------------------------------------------------
 
 
