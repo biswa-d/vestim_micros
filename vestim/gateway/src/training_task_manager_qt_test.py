@@ -187,6 +187,7 @@ class TrainingTaskManager:
         num_workers = 4
         feature_cols = task['data_loader_params']['feature_columns']
         target_col = task['data_loader_params']['target_column']
+        train_val_split = task['data_loader_params']['train_val_split']
 
         self.logger.info("Creating data loaders")
         train_loader, val_loader = self.data_loader_service.create_data_loaders(
@@ -195,7 +196,8 @@ class TrainingTaskManager:
             feature_cols=feature_cols,
             target_col=target_col, 
             batch_size=batch_size, 
-            num_workers=num_workers
+            num_workers=num_workers,
+            train_split=train_val_split
         )
 
         return train_loader, val_loader
@@ -276,7 +278,7 @@ class TrainingTaskManager:
                     h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
 
                     val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested, task)
-                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time} | Best Val Loss: {best_validation_loss}")
+                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss: {best_validation_loss} | Patience Counter: {patience_counter}")
 
                     current_time = time.time()
                     elapsed_time = current_time - start_time
@@ -330,7 +332,7 @@ class TrainingTaskManager:
                         break
 
                 # Log data to CSV and SQLite after each epoch (whether validated or not)
-                print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
+                #print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
 
                 # Save log data to CSV and SQLite
                 # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
@@ -338,9 +340,13 @@ class TrainingTaskManager:
                 model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
                 
                 scheduler.step()
-                current_lr = optimizer.param_groups[0]['lr']
-                print(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
-                logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
+
+                new_lr = optimizer.param_groups[0]['lr']
+                if new_lr != current_lr:
+                    print(f"Learning rate changed from {current_lr:.8f} to {new_lr:.8f} at epoch {epoch}")
+                    logging.info(f"Learning rate changed from {current_lr:.8f} to {new_lr:.8f} at epoch {epoch}")
+                    current_lr = new_lr
+
                 # Scheduler step condition: Either when lr_drop_period is reached or patience_counter exceeds the threshold
                 # Scheduler step condition: Check for drop period or patience_counter with buffer consideration
                 # if (epoch % lr_drop_period == 0 or patience_counter > patience_threshold) and (epoch - last_lr_drop_epoch > lr_drop_buffer):
@@ -408,7 +414,7 @@ class TrainingTaskManager:
             raise ValueError("No model instance found in task.")
 
         torch.save(model.state_dict(), model_path)
-        print(f"Model saved to {model_path}")
+        print(f"Model saved to model.pth in the task directory.")
 
     def stop_task(self):
         self.stop_requested = True  # Set the flag to request a stop

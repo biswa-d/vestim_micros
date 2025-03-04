@@ -4,7 +4,9 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 import torch
 import json, time
+import numpy as np
 from matplotlib.figure import Figure
+import matplotlib.ticker as ticker
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from queue import Queue, Empty
 from threading import Thread
@@ -252,9 +254,10 @@ class VEstimTrainingTaskGUI(QMainWindow):
         fig = Figure(figsize=(6, 2.5), dpi=100)
         self.ax = fig.add_subplot(111)
         self.ax.set_xlabel("Epoch", labelpad=0)
-        self.ax.set_ylabel("Loss [% RMSE]")
+        self.ax.set_ylabel("Loss [% MSE]")
         self.ax.set_xlim(1, max_epochs)
 
+        
         # Set x-ticks to ensure a maximum of 10 parts or based on validation frequency
         max_ticks = 10
         if max_epochs <= max_ticks:
@@ -382,7 +385,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.ax.clear()
             self.ax.set_title("Training and Validation Loss", fontsize=12, fontweight='normal', color='#0f0c0c')
             self.ax.set_xlabel("Epoch")
-            self.ax.set_ylabel("Loss [% RMSE]")
+            self.ax.set_ylabel("Loss [% MSE]")
 
             # Reinitialize plot lines
             self.train_line, = self.ax.plot([], [], label='Train Loss')
@@ -424,7 +427,6 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Hide the stop button since the task encountered an error
         self.stop_button.hide()
 
-
     def update_gui_after_epoch(self, progress_data):
         # Task index and dynamic status for the status label
         task_info = f"Task {self.current_task_index + 1}/{len(self.task_list)}"
@@ -437,11 +439,11 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Handle log updates
         if 'epoch' in progress_data:
             epoch = progress_data['epoch']
-            train_loss = max(progress_data['train_loss'], 1e-8)  # Ensure nonzero values
-            val_loss = max(progress_data['val_loss'], 1e-8)
+            train_loss = progress_data['train_loss'] * 100 # Ensure nonzero values
+            val_loss = progress_data['val_loss'] * 100
             delta_t_epoch = progress_data['delta_t_epoch']
             learning_rate = progress_data.get('learning_rate', None)
-            best_val_loss = progress_data.get('best_val_loss', None)
+            best_val_loss = progress_data.get('best_val_loss', None) * 100
 
             # Format the log message using HTML for bold text
             log_message = (
@@ -462,7 +464,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             #         })
             #     except Exception as e:
             #         self.logger.error(f"Failed to log to WandB: {e}")
-            self.logger.info(f"Epoch {progress_data['epoch']} | Train Loss: {progress_data['train_loss']} | Val Loss: {progress_data['val_loss']}")
+            #self.logger.info(f"Epoch {progress_data['epoch']} | Train Loss: {progress_data['train_loss']} | Val Loss: {progress_data['val_loss']}")
 
             # Append the log message to the log text widget using rich text format
             self.log_text.append(log_message)
@@ -476,7 +478,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.valid_x_values.append(epoch)
 
             # Enable log-scale on y-axis
-            self.ax.set_yscale("log")  # 🔥 Log Scale Enabled
+            #self.ax.set_yscale("log")  # 🔥 Log Scale Enabled
 
 
             # print(f"Valid X Values: {self.valid_x_values}")
@@ -485,6 +487,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
             #New section for updating the plot
             # Dynamically adjust the y-axis based on the last 30 loss values
+            #commenting out to check log plot issues
             last_30_train_losses = self.train_loss_values[-30:]  # Get last 30 train losses
             last_30_val_losses = self.valid_loss_values[-30:]  # Get last 30 validation losses
             last_30_losses = last_30_train_losses + last_30_val_losses  # Combine last 30 train and validation losses
@@ -513,7 +516,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
             # Redraw the plot
             # self.canvas.draw_idle()
-            print("Redrawing the plot")
+            #print("Redrawing the plot")
             # Redraw the plot
             self.canvas.draw_idle()
 

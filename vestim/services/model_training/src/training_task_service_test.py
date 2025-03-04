@@ -66,7 +66,7 @@ class TrainingTaskService:
             y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
             # y_pred = y_pred.squeeze(-1)
 
-            loss = self.criterion(y_pred[:, -1, :].squeeze(-1), y_batch)
+            loss = self.criterion(y_pred[:, -1, :], y_batch)
             loss.backward()
             optimizer.step()
 
@@ -77,15 +77,15 @@ class TrainingTaskService:
             batch_times.append(batch_time)
 
             # Log less frequently
-            if batch_idx % log_freq == 0:
-                batch_freq_time = sum(batch_times) / len(batch_times)
-                # self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='train', device=device)
-                # self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train', device=device_str)
+            # if batch_idx % log_freq == 0:
+            #     batch_freq_time = sum(batch_times) / len(batch_times)
+            #     self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='train', device=device)
+            #     self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train', device=device_str)
 
             # Log progress every 150 batches
-            if batch_idx % log_freq == 0:
-                print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
-                print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
+            #if batch_idx % log_freq == 0:
+                #print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
+                #print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
             
             # Clear unused memory
             del X_batch, y_batch, y_pred  # Explicitly clear tensors
@@ -115,7 +115,7 @@ class TrainingTaskService:
                 # y_pred = y_pred.squeeze(-1)
 
                 # loss = self.criterion(y_pred, y_batch)
-                loss = self.criterion(y_pred[:, -1, :].squeeze(-1), y_batch)
+                loss = self.criterion(y_pred[:, -1, :], y_batch)
                 total_loss += loss.item() * X_batch.size(0)
                 total_samples += X_batch.size(0)
 
@@ -130,9 +130,9 @@ class TrainingTaskService:
                     # self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='validate', device=device_str)
 
                 # Log progress every 150 batches
-                if batch_idx % log_freq == 0:
-                    print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
-                    print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
+                # if batch_idx % log_freq == 0:
+                #     print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
+                #     print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
                 
                 # Clear unused memory
                 del X_batch, y_batch, y_pred  # Explicitly clear tensors

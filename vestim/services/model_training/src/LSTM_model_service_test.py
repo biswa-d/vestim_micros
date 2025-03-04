@@ -153,6 +153,20 @@ class LSTMModelService:
         
         print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
         return LSTMModel(input_size, hidden_units, num_layers, self.device)
+    
+    def build_lstm_model_LN(self, params):
+        """
+        Build the LSTM model using the provided parameters.
+        
+        :param params: Dictionary containing model parameters.
+        :return: An instance of LSTMModel.
+        """
+        input_size = params.get("INPUT_SIZE", 3)  # Default input size set to 3, change if needed
+        hidden_units = int(params["HIDDEN_UNITS"])  # Ensure hidden_units is an integer
+        num_layers = int(params["LAYERS"])
+        
+        print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
+        return LSTMModelLN(input_size, hidden_units, num_layers, self.device)
 
     def save_model(self, model, model_path):
         """
@@ -173,5 +187,17 @@ class LSTMModelService:
         :return: The built LSTM model.
         """
         model = self.build_lstm_model(params)
+        self.save_model(model, model_path)
+        return model
+
+    def create_and_save_lstm_model_with_LN(self, params, model_path):
+        """
+        Build and save an LSTM model using the provided parameters.
+        
+        :param params: Dictionary containing model parameters.
+        :param model_path: The file path where the model will be saved.
+        :return: The built LSTM model.
+        """
+        model = self.build_lstm_model_LN(params)
         self.save_model(model, model_path)
         return model

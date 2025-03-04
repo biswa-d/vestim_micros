@@ -465,7 +465,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             #         })
             #     except Exception as e:
             #         self.logger.error(f"Failed to log to WandB: {e}")
-            self.logger.info(f"Epoch {progress_data['epoch']} | Train Loss: {progress_data['train_loss']} | Val Loss: {progress_data['val_loss']}")
+            #self.logger.info(f"Epoch {progress_data['epoch']} | Train Loss: {progress_data['train_loss']} | Val Loss: {progress_data['val_loss']}")
 
             # Append the log message to the log text widget using rich text format
             self.log_text.append(log_message)

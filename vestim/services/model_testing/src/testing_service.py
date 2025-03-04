@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel
+from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN
 
 class VEstimTestingService:
     def __init__(self, device='cpu'):
@@ -92,7 +92,7 @@ class VEstimTestingService:
 
         try:
             model_metadata = task["model_metadata"]
-            model = LSTMModel(
+            model = LSTMModelLN(
                 input_size=model_metadata["input_size"],
                 hidden_units=model_metadata["hidden_units"],
                 num_layers=model_metadata["num_layers"],

@@ -125,6 +125,7 @@ class VEstimHyperParamGUI(QWidget):
             {"label": "Validation Freq:", "default": self.params.get("ValidFrequency", "3"), "tooltip": "How often (in epochs) to perform validation", "param": "ValidFrequency"},
             {"label": "Lookback:", "default": self.params.get("LOOKBACK", "400"), "tooltip": "Number of previous time steps to consider for each timestep", "param": "LOOKBACK"},
             {"label": "Repetitions:", "default": self.params.get("REPETITIONS", "1"), "tooltip": "Number of times to repeat the entire training process with randomized initial parameters", "param": "REPETITIONS"},
+            {"label": "Train-Val Split:", "default": self.params.get("TRAIN_VAL_SPLIT", "0.8"), "tooltip": "Proportion of data to use for training, the rest is used for validation", "param": "TRAIN_VAL_SPLIT"},
             # Add Dropout Probability and weight decay widget
             #{"label": "Dropout Probability:", "default": self.params.get("DROPOUT_PROB", "0.0"), "tooltip": "Probability of dropout used in LSTM layers to prevent overfitting", "param": "DROPOUT_PROB"},
             #{"label": "Weight Decay:", "default": self.params.get("WEIGHT_DECAY", "0.0"), "tooltip": "Weight decay (L2 penalty) applied to the optimizer", "param": "WEIGHT_DECAY"},
@@ -151,39 +152,6 @@ class VEstimHyperParamGUI(QWidget):
 
             self.param_entries[param_name] = entry
     
-    # def add_feature_target_selection(self, layout):
-    #     """Adds dropdowns to select feature and target columns side by side."""
-    #     column_names = self.load_column_names()
-        
-    #     if not column_names:
-    #         error_label = QLabel("No CSV columns found. Ensure data is processed.")
-    #         error_label.setStyleSheet("color: red; font-weight: bold;")
-    #         layout.addWidget(error_label, layout.rowCount(), 0, 1, 2)  # Centered in grid
-    #         return
-
-    #     # **Feature Selection (Multi-Select List)**
-    #     feature_label = QLabel("Feature Columns:")
-    #     feature_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
-        
-    #     self.feature_list = QListWidget()
-    #     self.feature_list.addItems(column_names)
-    #     self.feature_list.setSelectionMode(QAbstractItemView.MultiSelection)  # Enable multi-selection
-    #     self.feature_list.setFixedHeight(100)  # Adjust height for better visibility
-
-    #     # **Target Selection (Single-Select Dropdown)**
-    #     target_label = QLabel("Target Column:")
-    #     target_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
-
-    #     self.target_combo = QComboBox()
-    #     self.target_combo.addItems(column_names)
-
-    #     # **Properly Place in QGridLayout**
-    #     row = layout.rowCount()  # Get the next available row
-    #     layout.addWidget(feature_label, row, 0)
-    #     layout.addWidget(self.feature_list, row + 1, 0)  # Features on the left
-    #     layout.addWidget(target_label, row, 1)
-    #     layout.addWidget(self.target_combo, row + 1, 1)  # Target on the right
-
     def add_feature_target_selection(self, layout):
         """Adds dropdowns to select feature and target columns with better layout."""
         column_names = self.load_column_names()
