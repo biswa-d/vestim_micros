@@ -89,6 +89,7 @@ class TrainingTaskManager:
             # Create data loaders for the task
             train_loader, val_loader = self.create_data_loaders(task)
             self.logger.info(f"DataLoader configured for task: {task['hyperparams']}")
+            print(f" dataloader size, Train: {len(train_loader)} | Validation: {len(val_loader)}")
 
             # Update progress for starting training
             update_progress_callback.emit({'status': f'Training LSTM model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
@@ -278,7 +279,6 @@ class TrainingTaskManager:
                     h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
 
                     val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested, task)
-                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss: {best_validation_loss} | Patience Counter: {patience_counter}")
 
                     current_time = time.time()
                     elapsed_time = current_time - start_time
@@ -294,7 +294,7 @@ class TrainingTaskManager:
                         patience_counter = 0
                     else:
                         patience_counter += 1
-
+                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss: {best_validation_loss} | Patience Counter: {patience_counter}")
                     progress_data = {
                         'epoch': epoch,
                         'train_loss': train_loss,

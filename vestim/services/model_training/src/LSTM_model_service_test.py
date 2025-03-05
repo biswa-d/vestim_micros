@@ -118,7 +118,7 @@ class LSTMModel(nn.Module):
 
     def forward(self, x, h_s, h_c):
         # Ensure input is on the correct device
-        x = x.to(self.linear.weight.device)  
+        x = x.to(self.device)  
 
         # Pass through LSTM
         y, (h_s, h_c) = self.lstm(x, (h_s, h_c))

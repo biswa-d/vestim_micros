@@ -70,6 +70,7 @@ class VEstimHyperParamManager:
         # Feature & Target Columns - No validation needed (since they come from UI dropdowns)
         validated_params["FEATURE_COLUMNS"] = params.get("FEATURE_COLUMNS", [])
         validated_params["TARGET_COLUMN"] = params.get("TARGET_COLUMN", "")
+        validated_params["MODEL_TYPE"] = params.get("MODEL_TYPE", "")
 
         self.logger.info("Parameter validation completed without errors.")
         return validated_params

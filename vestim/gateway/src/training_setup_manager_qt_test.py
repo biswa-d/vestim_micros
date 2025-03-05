@@ -66,6 +66,24 @@ class VEstimTrainingSetupManager:
             if self.progress_signal:
                 self.progress_signal.emit(f"Error during setup: {str(e)}", "", 0)
 
+    def create_selected_model(self, model_type, model_params, model_path):
+        """Creates and saves the selected model based on the dropdown selection."""
+        
+        model_map = {
+            "LSTM": self.lstm_model_service.create_and_save_lstm_model,
+            #"LSTM Batch Norm": self.lstm_model_service.create_and_save_lstm_model_with_BN,
+            "LSTM Layer Norm": self.lstm_model_service.create_and_save_lstm_model_with_LN,
+            #"Transformer": self.transformer_model_service.create_and_save_transformer_model,
+            #"FCNN": self.fcnn_model_service.create_and_save_fcnn_model,
+            #"GRU": self.gru_model_service.create_and_save_gru_model,
+        }
+
+        # Call the function from the dictionary or raise an error if not found
+        if model_type in model_map:
+            return model_map[model_type](model_params, model_path)
+        
+        raise ValueError(f"Unsupported model type: {model_type}")
+
     def build_models(self):
         """Build and store the LSTM models based on hyperparameters."""
         try:
@@ -79,6 +97,7 @@ class VEstimTrainingSetupManager:
             # **Get input and output feature sizes**
             feature_columns = self.params.get("FEATURE_COLUMNS", [])
             target_column = self.params.get("TARGET_COLUMN", "")
+            model_type = self.params.get("MODEL_TYPE", "")
 
             if not feature_columns or not target_column:
                 raise ValueError("Feature columns or target column not set in hyperparameters.")
@@ -86,7 +105,7 @@ class VEstimTrainingSetupManager:
             input_size = len(feature_columns)  # Number of input features
             output_size = 1  # Assuming a single target variable for regression
 
-            self.logger.info(f"Building LSTM models with INPUT_SIZE={input_size}, OUTPUT_SIZE={output_size}")
+            self.logger.info(f"Building {model_type} models with INPUT_SIZE={input_size}, OUTPUT_SIZE={output_size}")
 
             # Iterate over all combinations of hidden_units and layers
             for hidden_units in hidden_units_list:
@@ -113,7 +132,7 @@ class VEstimTrainingSetupManager:
                     }
 
                     # Create and save the LSTM model
-                    model = self.lstm_model_service.create_and_save_lstm_model_with_LN(model_params, model_path)
+                    model = self.create_selected_model(model_type, model_params, model_path)
 
                     # Store model information
                     self.models.append({

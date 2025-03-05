@@ -55,6 +55,7 @@ class VEstimHyperParamGUI(QWidget):
         title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
         layout.addWidget(title_label)
 
+
         # Hyperparameter Guide Button, centered and smaller size
         guide_button = QPushButton("Open Hyperparameter Guide")
         guide_button.setFixedWidth(200)  # Half the length of the title
@@ -67,7 +68,7 @@ class VEstimHyperParamGUI(QWidget):
         guide_button_layout.addStretch(1)
         guide_button_layout.addWidget(guide_button)
         guide_button_layout.addStretch(1)
-        guide_button_layout.setContentsMargins(0, 10, 0, 10)  # Add padding
+        guide_button_layout.setContentsMargins(0, 10, 0, 5)  # Add padding
         layout.addLayout(guide_button_layout)
 
         # Instructional text below the guide button
@@ -81,8 +82,19 @@ class VEstimHyperParamGUI(QWidget):
         param_layout = QGridLayout()
 
         # Add parameter widgets
+        # First param_layout for feature and target selection
+        feature_target_layout = QGridLayout()
+
+        # Add feature and target selection
+        self.add_feature_target_selection(feature_target_layout)
+
+        # Add feature_target_layout to the main layout
+        layout.addLayout(feature_target_layout)
+
+        # Add some space between the feature selection and parameter selection sections
+        layout.addSpacing(20)
+
         self.add_param_widgets(param_layout)
-        self.add_feature_target_selection(param_layout)
 
         # Make the grid take more vertical space
         layout.addStretch(1)
@@ -153,9 +165,9 @@ class VEstimHyperParamGUI(QWidget):
             self.param_entries[param_name] = entry
     
     def add_feature_target_selection(self, layout):
-        """Adds dropdowns to select feature and target columns with better layout."""
+        """Adds dropdowns to select feature, target columns, and model selection with better layout."""
         column_names = self.load_column_names()
-        
+
         if not column_names:
             error_label = QLabel("No CSV columns found. Ensure data is processed.")
             error_label.setStyleSheet("color: red; font-weight: bold;")
@@ -165,15 +177,12 @@ class VEstimHyperParamGUI(QWidget):
         # **Feature Selection (Multi-Select List)**
         feature_label = QLabel("Feature Columns:")
         feature_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
-        
+
         self.feature_list = QListWidget()
         self.feature_list.addItems(column_names)
         self.feature_list.setSelectionMode(QAbstractItemView.MultiSelection)  # Enable multi-selection
         self.feature_list.setFixedHeight(100)  # Adjust height for better visibility
         self.feature_list.setFixedWidth(250)  # Prevent excessive width
-        
-        # **Spacer to Reduce Clutter**
-        spacer = QLabel("")  # Empty QLabel acts as a spacing element
 
         # **Target Selection (Single-Select Dropdown)**
         target_label = QLabel("Target Column:")
@@ -183,15 +192,46 @@ class VEstimHyperParamGUI(QWidget):
         self.target_combo.addItems(column_names)
         self.target_combo.setFixedWidth(150)  # Adjust width for clarity
 
-        # **Properly Place in QGridLayout**
-        row = layout.rowCount()  # Get the next available row
-        layout.addWidget(feature_label, row, 0)
-        layout.addWidget(spacer, row, 1)  # Spacer in the middle
-        layout.addWidget(target_label, row, 2)
+        # **Model Selection (Single-Select Dropdown)**
+        model_label = QLabel("Select Model:")
+        model_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
 
-        layout.addWidget(self.feature_list, row + 1, 0)  # Features on the left
-        layout.addWidget(spacer, row + 1, 1)  # Spacer in the middle
-        layout.addWidget(self.target_combo, row + 1, 2)  # Target on the right
+        self.model_combo = QComboBox()
+        # model_options = ['LSTM', 'LSTM Batch Norm', 'LSTM Layer Norm', 'Transformer', 'FCNN', 'GRU']
+        model_options = ['LSTM', 'LSTM Layer Norm']
+        self.model_combo.addItems(model_options)
+        self.model_combo.setFixedWidth(150)  # Adjust width for clarity
+
+        # **Feature Layout (Label + List)**
+        feature_layout = QVBoxLayout()
+        feature_layout.addWidget(feature_label, alignment=Qt.AlignCenter)
+        feature_layout.addWidget(self.feature_list, alignment=Qt.AlignCenter)
+
+        # **Target Layout (Label + Dropdown)**
+        target_layout = QVBoxLayout()
+        target_layout.addWidget(target_label, alignment=Qt.AlignCenter)
+        target_layout.addWidget(self.target_combo, alignment=Qt.AlignCenter)
+        target_layout.setAlignment(Qt.AlignTop)
+
+        # **Model Layout (Label + Dropdown)**
+        model_layout = QVBoxLayout()
+        model_layout.addWidget(model_label, alignment=Qt.AlignCenter)
+        model_layout.addWidget(self.model_combo, alignment=Qt.AlignCenter)
+        model_layout.setAlignment(Qt.AlignTop)
+
+        # **Main Layout for Centered Alignment**
+        main_layout = QHBoxLayout()
+        main_layout.addStretch(1)  # Left Spacer
+        main_layout.addLayout(feature_layout)  # Feature section
+        main_layout.addStretch(1)  # Reduced space between Feature and Target
+        main_layout.addLayout(target_layout)  # Target section
+        main_layout.addStretch(1)  # Reduced space between Target and Model
+        main_layout.addLayout(model_layout)  # Model section
+        main_layout.addStretch(1)  # Right Spacer
+
+        # **Add to Overall Layout**
+        row = layout.rowCount()  # Get the next available row
+        layout.addLayout(main_layout, row, 0, 1, 3)  # Span across 3 columns
 
 
     def get_selected_features(self):
@@ -208,9 +248,10 @@ class VEstimHyperParamGUI(QWidget):
         # Get selected features & target
         selected_features = self.get_selected_features()  # Fetch multiple selected features
         selected_target = self.target_combo.currentText()
+        selected_model = self.model_combo.currentText()
 
-        if not selected_features or not selected_target:
-            self.logger.error("Feature or target column selection is missing!")
+        if not selected_features or not selected_target or not selected_model:
+            self.logger.error("Feature or target or model column selection is missing!")
             QMessageBox.critical(self, "Error", "Please select at least one feature and a target column.")
             return
 
@@ -233,7 +274,8 @@ class VEstimHyperParamGUI(QWidget):
         # Add Feature & Target selections**
         params.update({
             "FEATURE_COLUMNS": selected_features,
-            "TARGET_COLUMN": selected_target
+            "TARGET_COLUMN": selected_target,
+            "MODEL_TYPE": selected_model
         })
 
         # Save updated parameters
@@ -252,13 +294,26 @@ class VEstimHyperParamGUI(QWidget):
             # Fetch hyperparameters from text fields
             new_params = {param: entry.text() for param, entry in self.param_entries.items()}
 
-            # Fetch selected features & target
+            # Fetch selected features, target, and model
             selected_features = self.get_selected_features()  # Multi-select feature list
             selected_target = self.target_combo.currentText()  # Single target column
+            selected_model = self.model_combo.currentText()
 
-            # Add to new_params
+            # **Validation: Ensure all required fields are selected**
+            if not selected_features:
+                QMessageBox.critical(self, "Selection Error", "Please select at least one feature column.")
+                return
+            if not selected_target:
+                QMessageBox.critical(self, "Selection Error", "Please select a target column.")
+                return
+            if not selected_model:
+                QMessageBox.critical(self, "Selection Error", "Please select a model type.")
+                return
+
+            # Add validated selections to params
             new_params["FEATURE_COLUMNS"] = selected_features
             new_params["TARGET_COLUMN"] = selected_target
+            new_params["MODEL_TYPE"] = selected_model
 
             self.logger.info(f"Proceeding to training with params: {new_params}")
 
@@ -278,6 +333,7 @@ class VEstimHyperParamGUI(QWidget):
 
         except ValueError as e:
             QMessageBox.critical(self, "Error", f"Invalid parameter input: {str(e)}")
+
 
 
     def show_training_setup_gui(self):

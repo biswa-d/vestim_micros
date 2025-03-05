@@ -76,7 +76,7 @@ class DataLoaderService:
 
         return np.array(X_sequences), np.array(y_sequences)
 
-    def create_data_loaders(self, folder_path, lookback,feature_cols, target_col, batch_size, num_workers, train_split=0.7, seed=None):
+    def create_data_loaders(self, folder_path, lookback,feature_cols, target_col, batch_size, num_workers, train_split=0.7, seed=2000):
         """
         Creates DataLoaders for training and validation data.
 
@@ -106,6 +106,7 @@ class DataLoaderService:
         indices = list(range(dataset_size))
 
         # Train-validation split
+        print(f"using train_split: {train_split}")
         train_size = int(dataset_size * train_split)
         valid_size = dataset_size - train_size
 
