@@ -94,6 +94,7 @@ class VEstimTestingManager:
             save_dir = task['task_dir']
             feature_cols = task['data_loader_params']['feature_columns']
             target_col = task['data_loader_params']['target_column']
+            task_id = task['task_id']
             print(f"Testing model: {model_path} with lookback: {lookback}")
 
             print("Generating shorthand name for model...")

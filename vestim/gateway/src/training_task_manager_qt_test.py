@@ -413,7 +413,8 @@ class TrainingTaskManager:
             self.logger.error("No model instance found in task.")
             raise ValueError("No model instance found in task.")
 
-        torch.save(model.state_dict(), model_path)
+        # torch.save(model.state_dict(), model_path)
+        torch.save(model, model_path)
         print(f"Model saved to model.pth in the task directory.")
 
     def stop_task(self):

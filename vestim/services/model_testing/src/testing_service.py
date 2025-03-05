@@ -13,7 +13,7 @@ class VEstimTestingService:
 
         :param device: Device to run the model on ('cpu' or 'cuda').
         """
-        self.device = torch.device(device)
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     def load_model(self, model_path):
         """
@@ -84,31 +84,22 @@ class VEstimTestingService:
                 'mape': mape,  # MAPE remains a percentage
                 'r2': r2
             }
-
-
+ 
     def run_testing(self, task, model_path, test_loader, test_file_path):
         """Runs testing for a given model and test file, returning results without saving."""
         print(f"Running testing for model: {model_path}")
 
         try:
-            model_metadata = task["model_metadata"]
-            model = LSTMModelLN(
-                input_size=model_metadata["input_size"],
-                hidden_units=model_metadata["hidden_units"],
-                num_layers=model_metadata["num_layers"],
-                device=self.device
-            )
-
             # Load the model weights
-            model.load_state_dict(torch.load(model_path))
+            model= torch.load(model_path).to(self.device)
             model.eval()  # Set the model to evaluation mode
 
             # Run the testing process (returns results but does NOT save them)
             results = self.test_model(
                 model,
                 test_loader,
-                model_metadata["hidden_units"],
-                model_metadata["num_layers"]
+                task['model_metadata']["hidden_units"],
+                task['model_metadata']["num_layers"]
             )
 
             print(f"Model testing completed for file: {test_file_path}")

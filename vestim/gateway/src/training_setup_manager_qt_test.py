@@ -116,7 +116,7 @@ class VEstimTrainingSetupManager:
                     model_dir = os.path.join(
                         self.job_manager.get_job_folder(),
                         'models',
-                        f'model_lstm_hu_{hidden_units}_layers_{layers}'
+                        f'model_{model_type}_hu_{hidden_units}_layers_{layers}'
                     )
                     os.makedirs(model_dir, exist_ok=True)
 
@@ -137,6 +137,7 @@ class VEstimTrainingSetupManager:
                     # Store model information
                     self.models.append({
                         'model': model,
+                        'model_type': model_type,
                         'model_dir': model_dir,
                         "FEATURE_COLUMNS": feature_columns,
                         "TARGET_COLUMN": target_column,
@@ -183,7 +184,7 @@ class VEstimTrainingSetupManager:
         for model_task in self.models:
             model = model_task['model']  # Define model once per model_task
             model_metadata = {
-                'model_type': 'LSTMModel',
+                'model_type': model_task['model_type'],
                 'input_size': model_task['hyperparams']['INPUT_SIZE'],
                 'hidden_units': model_task['hyperparams']['HIDDEN_UNITS'],
                 'num_layers': model_task['hyperparams']['LAYERS'],
@@ -225,6 +226,7 @@ class VEstimTrainingSetupManager:
                                             task_info = {
                                                 'task_id': task_id,
                                                 "task_dir": task_dir,
+                                                'model_type': model_metadata['model_type'],
                                                 'model': model,
                                                 'model_metadata': model_metadata,  # Use metadata instead of the full model
                                                 'data_loader_params': {
