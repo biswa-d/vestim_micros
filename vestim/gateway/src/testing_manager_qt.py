@@ -108,9 +108,6 @@ class VEstimTestingManager:
             
             print(f"Found {len(test_files)} test files. Running tests...")
 
-            # Initialize lists to store metrics for averaging
-            rms_errors, mae_errors, mape_errors, r2_scores = [], [], [], []
-
             for test_file in test_files:
                 test_file_path = os.path.join(test_folder, test_file)
                 print(f"Processing test file: {test_file}")
@@ -118,46 +115,23 @@ class VEstimTestingManager:
                 # Load and process test data for the specific file
                 test_file_loader = self.test_data_service.create_test_file_loader(test_file_path, lookback, batch_size, feature_cols, target_col)
 
-                # Run the testing process
+                # Run testing on this file
                 results = self.testing_service.run_testing(task, model_path, test_file_loader, test_file_path)
 
-                # Log the test results to CSV and SQLite
-                csv_log_file = task['csv_log_file']
-                db_log_file = task['db_log_file']
-
-                self.log_test_to_csv(task, results, csv_log_file)
-                self.log_test_to_sqlite(task, results, db_log_file)
-
-                # Save individual test results
-                self.save_test_results(results, save_dir, test_file_path)
-
-                # Store error metrics for averaging later
-                rms_errors.append(results['rms_error_mv'])
-                mae_errors.append(results['mae_mv'])
-                mape_errors.append(results['mape'])
-                r2_scores.append(results['r2'])
-
-            # Compute the average metrics across all test files
-            avg_rms_error = np.mean(rms_errors) if rms_errors else None
-            avg_mae = np.mean(mae_errors) if mae_errors else None
-            avg_mape = np.mean(mape_errors) if mape_errors else None
-            avg_r2 = np.mean(r2_scores) if r2_scores else None
-
-            print(f"Averaged results for model {shorthand_name}: RMS Error = {avg_rms_error}, MAE = {avg_mae}, MAPE = {avg_mape}, R² = {avg_r2}")
-
-            # Put the averaged results in the queue for the GUI
-            self.queue.put({
-                'task_completed': {
-                    'sl_no': idx + 1,
-                    'model': shorthand_name,
-                    'avg_rms_error_mv': avg_rms_error,
-                    'avg_mae_mv': avg_mae,
-                    'avg_mape': avg_mape,
-                    'avg_r2': avg_r2,
-                    '#params': learnable_params,
-                    'saved_dir': save_dir
-                }
-            })
+                # Send **file-specific** test results to the queue
+                self.queue.put({
+                    'task_completed': {
+                        'task_id': task_id,
+                        'model': shorthand_name,
+                        'file_name': test_file[:15] + "..." if len(test_file) > 15 else test_file,  # First 15 letters
+                        'rms_error_mv': results['rms_error_mv'],
+                        'mae_mv': results['mae_mv'],
+                        'mape': results['mape'],
+                        'r2': results['r2'],
+                        '#params': learnable_params,
+                        'saved_dir': save_dir
+                    }
+                })
 
         except Exception as e:
             print(f"Error testing model {task['model_path']}: {str(e)}")

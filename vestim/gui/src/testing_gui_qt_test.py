@@ -139,17 +139,21 @@ class VEstimTestingGUI(QMainWindow):
 
         # TreeWidget to display results
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(8)
-        self.tree.setHeaderLabels(["Sl.No", "Model","#W&Bs", "RMS Error (mV)", "MAE (mV)", "MAPE (%)", "R²", "Plot"])
-        # Set the column widths once in initUI to make them persistent
+        self.tree.setColumnCount(9)
+        self.tree.setHeaderLabels(["Sl.No", "Task ID", "Model", "File Name", "#W&Bs", "RMS Error (mV)", "MAE (mV)", "MAPE (%)", "R²", "Plot"])
+
+        # Set optimized column widths
         self.tree.setColumnWidth(0, 50)   # Sl.No column
-        self.tree.setColumnWidth(1, 300)  # Model name column
-        self.tree.setColumnWidth(2, 50)   # Number of learnable parameters
-        self.tree.setColumnWidth(3, 90)   # RMS Error column
-        self.tree.setColumnWidth(4, 70)   # MAE column
-        self.tree.setColumnWidth(5, 70)   # MAPE column
-        self.tree.setColumnWidth(6, 70)   # R² column
-        self.tree.setColumnWidth(7, 20)   # Plot button column
+        self.tree.setColumnWidth(1, 100)  # Task ID column
+        self.tree.setColumnWidth(2, 230)  # Model name column (Wider)
+        self.tree.setColumnWidth(3, 220)  # File name column (Wider)
+        self.tree.setColumnWidth(4, 70)   # Number of learnable parameters
+        self.tree.setColumnWidth(5, 120)   # RMS Error column
+        self.tree.setColumnWidth(6, 80)   # MAE column
+        self.tree.setColumnWidth(7, 80)   # MAPE column
+        self.tree.setColumnWidth(8, 80)   # R² column
+        self.tree.setColumnWidth(9, 50)   # Plot button column (Narrow)
+
         self.main_layout.addWidget(self.tree)
 
         # Status Label (below the tree view)
@@ -249,43 +253,39 @@ class VEstimTestingGUI(QMainWindow):
         self.status_label.setText(message)
 
     def add_result_row(self, result):
-        """Add each result as a row in the QTreeWidget with a Plot button."""
+        """Add each test result as a row in the QTreeWidget (showing Task ID, Model, File Name, etc.)."""
         print(f"Adding result row: {result}")
         self.logger.info(f"Adding result row: {result}")
+
         task_data = result.get('task_completed')
 
         if task_data:
-            save_dir = task_data.get("saved_dir", "")  # Ensure it's not None
+            save_dir = task_data.get("saved_dir", "")  
+            task_id = task_data.get("task_id", "N/A")
             model_name = task_data.get("model", "Unknown Model")
-            num_learnable_params = str(task_data.get("#params", "N/A"))  # Default to "N/A" if missing
+            file_name = task_data.get("file_name", "Unknown File")
+            num_learnable_params = str(task_data.get("#params", "N/A"))
 
-            # Extract correct keys for metrics
-            rms_error = f"{task_data.get('avg_rms_error_mv', 0):.4f}"
-            mae = f"{task_data.get('avg_mae_mv', 0):.4f}"
-            mape = f"{task_data.get('avg_mape', 0):.4f}"
-            r2 = f"{task_data.get('avg_r2', 0):.4f}"
+            # Extract metrics
+            rms_error = f"{task_data.get('rms_error_mv', 0):.2f}"
+            mae = f"{task_data.get('mae_mv', 0):.2f}"
+            mape = f"{task_data.get('mape', 0):.2f}"
+            r2 = f"{task_data.get('r2', 0):.2f}"
 
             # Manually increment Sl.No counter
             sl_no = self.sl_no_counter
             self.sl_no_counter += 1
 
             # Add row data to QTreeWidget
-            row = QTreeWidgetItem([str(sl_no), model_name, num_learnable_params, rms_error, mae, mape, r2])
+            row = QTreeWidgetItem([str(sl_no), task_id, model_name, file_name, num_learnable_params, rms_error, mae, mape, r2])
 
-            # Get model directory where test results are saved
-            model_dir = os.path.join(save_dir, model_name)
-
-            # Create the "Plot" button with styling
+            # Create "Plot" button
             plot_button = QPushButton("Plot Result")
             plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")  # Purple background
-            
-            # Fix lambda function to correctly pass model_dir (for plotting all test files)
             plot_button.clicked.connect(lambda _, path=save_dir: self.plot_model_results(path))
 
             self.tree.addTopLevelItem(row)
-
-            # Set widget for the "Plot" column
-            self.tree.setItemWidget(row, 7, plot_button)
+            self.tree.setItemWidget(row, 9, plot_button)  # Add plot button at the correct column
 
 
     def plot_model_results(self, save_dir):
