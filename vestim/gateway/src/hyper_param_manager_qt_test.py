@@ -32,60 +32,80 @@ class VEstimHyperParamManager:
         return validated_params
 
     def validate_and_normalize_params(self, params):
-        """Validate the parameter values without altering them."""
+        """Validate and normalize the parameter values while ensuring type consistency."""
         validated_params = {}
 
         for key, value in params.items():
             if isinstance(value, str):
                 # Split the string into a list, allowing for comma or space separation
                 value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
-                
-                # Ensure values are integers for specific keys
-                if key in ['LAYERS', 'HIDDEN_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD', 'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS']:
-                    # Ensure values are integers
-                    if not all(v.isdigit() for v in value_list):
-                        self.logger.error(f"Invalid value for {key}: {value_list} (expected integers)")
-                        raise ValueError(f"Invalid value for {key}: Expected integers, got {value_list}")
-                    validated_params[key] = value  # Keep the original string
 
-                # Ensure values are floats for specific keys
-                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB','TRAIN_VAL_SPLIT']:  # Added DROPOUT_PROB
-                    # Ensure values are floats
+                # ✅ Ensure integer type for specific keys
+                if key in ['LAYERS', 'HIDDEN_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD', 
+                        'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS']:
                     try:
-                        [float(v) for v in value_list]
+                        validated_params[key] = int(value) if len(value_list) == 1 else [int(v) for v in value_list]
                     except ValueError:
-                        self.logger.error(f"Invalid value for {key}: {value_list} (expected floats)")
-                        raise ValueError(f"Invalid value for {key}: Expected floats, got {value_list}")
-                    validated_params[key] = value  # Keep the original string
+                        self.logger.error(f"Invalid integer value for {key}: {value}")
+                        raise ValueError(f"Invalid value for {key}: Expected integers, got {value}")
+
+                # ✅ Ensure float type for specific keys
+                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB', 'TRAIN_VAL_SPLIT']:
+                    try:
+                        validated_params[key] = float(value) if len(value_list) == 1 else [float(v) for v in value_list]
+                    except ValueError:
+                        self.logger.error(f"Invalid float value for {key}: {value}")
+                        raise ValueError(f"Invalid value for {key}: Expected floats, got {value}")
+
+                # ✅ Ensure boolean conversion for checkboxes (if applicable)
+                elif key in ['BATCH_TRAINING']:
+                    validated_params[key] = value.lower() in ['true', '1', 'yes']
 
                 else:
-                    validated_params[key] = value
+                    validated_params[key] = value  # Keep as string for other cases
 
             elif isinstance(value, list):
-                # Check list elements without altering them
+                # ✅ Ensure lists retain proper types
                 validated_params[key] = value
+
             else:
-                validated_params[key] = value
-        
-        # Feature & Target Columns - No validation needed (since they come from UI dropdowns)
+                validated_params[key] = value  # Keep as-is for other data types
+
+        # ✅ Feature & Target Columns (No validation needed, comes from UI dropdowns)
         validated_params["FEATURE_COLUMNS"] = params.get("FEATURE_COLUMNS", [])
         validated_params["TARGET_COLUMN"] = params.get("TARGET_COLUMN", "")
         validated_params["MODEL_TYPE"] = params.get("MODEL_TYPE", "")
 
-        self.logger.info("Parameter validation completed without errors.")
+        self.logger.info("Parameter validation and normalization completed successfully.")
         return validated_params
 
+
     def save_params(self):
-        """Save the current parameters to the job folder."""
+        """Save the current validated parameters to the job folder in a JSON file."""
         job_folder = self.job_manager.get_job_folder()
-        if job_folder and self.current_params:
-            params_file = os.path.join(job_folder, 'hyperparams.json')
+
+        if not job_folder:
+            self.logger.error("Job folder is not set. Cannot save parameters.")
+            raise ValueError("Job folder is not set or current parameters are unavailable.")
+
+        if not self.current_params:
+            self.logger.error("No parameters available to save.")
+            raise ValueError("No parameters available for saving.")
+
+        params_file = os.path.join(job_folder, 'hyperparams.json')
+
+        try:
+            # ✅ Validate before saving to avoid corrupt JSON
+            validated_params = self.validate_and_normalize_params(self.current_params)
+
             with open(params_file, 'w') as file:
-                json.dump(self.current_params, file, indent=4)
-                self.logger.info("Parameters successfully saved.")
-        else:
-            self.logger.error("Failed to save parameters: Job folder or current parameters are not set.")
-            raise ValueError("Job folder is not set or current parameters are not available.")
+                json.dump(validated_params, file, indent=4)
+
+            self.logger.info("Hyperparameters successfully saved to file.")
+
+        except Exception as e:
+            self.logger.error(f"Failed to save parameters: {e}")
+            raise ValueError(f"Error saving hyperparameters: {e}")
 
     def save_params_to_file(self, new_params, filepath):
         """Save new parameters to a specified file."""
