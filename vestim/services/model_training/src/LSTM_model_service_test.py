@@ -77,7 +77,10 @@ class LSTMModelLN(nn.Module):
         self.input_size = input_size
         self.hidden_units = hidden_units
         self.num_layers = num_layers
-        self.device = device  
+        self.device = device
+
+        # Layernorm on input features
+        self.layer_norm_input = nn.LayerNorm(input_size)  
 
         # LSTM layer
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_units,
@@ -91,6 +94,9 @@ class LSTMModelLN(nn.Module):
 
     def forward(self, x, h_s, h_c):
         x = x.to(self.device)  
+
+        # Apply LayerNorm to input features
+        #x = self.layer_norm_input(x)
 
         # LSTM forward pass
         y, (h_s, h_c) = self.lstm(x, (h_s, h_c))
@@ -135,6 +141,78 @@ class LSTMModel(nn.Module):
 
         return y, (h_s, h_c)
 
+class CustomLSTMLayer(nn.Module):
+    def __init__(self, input_size, hidden_units):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_units = hidden_units
+
+        # LSTM parameters
+        self.weight_ih = nn.Parameter(torch.Tensor(4 * hidden_units, input_size))
+        self.weight_hh = nn.Parameter(torch.Tensor(4 * hidden_units, hidden_units))
+        self.bias = nn.Parameter(torch.Tensor(4 * hidden_units))
+
+        # LayerNorm for hidden states
+        self.layer_norm = nn.LayerNorm(hidden_units)
+
+        # Initialize weights
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight_ih)
+        nn.init.xavier_uniform_(self.weight_hh)
+        nn.init.zeros_(self.bias)
+
+    def forward(self, x, h_s, h_c):
+        # LSTM equations
+        gates = (x @ self.weight_ih.t()) + (h_s @ self.weight_hh.t()) + self.bias
+        i, f, g, o = gates.chunk(4, 1)
+
+        i = torch.sigmoid(i)
+        f = torch.sigmoid(f)
+        g = torch.tanh(g)
+        o = torch.sigmoid(o)
+
+        # Update cell state
+        h_c = f * h_c + i * g
+
+        # Apply LayerNorm to cell state
+        h_c = self.layer_norm(h_c)
+
+        # Update hidden state
+        h_s = o * torch.tanh(h_c)
+
+        return h_s, h_c
+
+
+class LSTMModel_CustomLN(nn.Module):
+    def __init__(self, input_size, hidden_units, num_layers, device):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_units = hidden_units
+        self.num_layers = num_layers
+        self.device = device
+
+        # Custom LSTM layers
+        self.lstm_layers = nn.ModuleList([
+            CustomLSTMLayer(input_size if i == 0 else hidden_units, hidden_units)
+            for i in range(num_layers)
+        ])
+
+        # Linear layer
+        self.linear = nn.Linear(hidden_units, 1)
+
+    def forward(self, x, h_s, h_c):
+        x = x.to(self.device)
+
+        # Forward pass through each LSTM layer
+        for i, lstm_layer in enumerate(self.lstm_layers):
+            x, (h_s[i], h_c[i]) = lstm_layer(x, h_s[i], h_c[i])
+
+        # Pass through linear layer
+        y = self.linear(x)
+
+        return y, (h_s, h_c)
 
 class LSTMModelService:
     def __init__(self):
@@ -167,6 +245,20 @@ class LSTMModelService:
         
         print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
         return LSTMModelLN(input_size, hidden_units, num_layers, self.device)
+    
+    def build_lstm_model_CustomLN(self, params):
+        """
+        Build the LSTM model using the provided parameters.
+        
+        :param params: Dictionary containing model parameters.
+        :return: An instance of LSTMModel.
+        """
+        input_size = params.get("INPUT_SIZE", 3)  # Default input size set to 3, change if needed
+        hidden_units = int(params["HIDDEN_UNITS"])  # Ensure hidden_units is an integer
+        num_layers = int(params["LAYERS"])
+        
+        print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
+        return LSTMModel_CustomLN(input_size, hidden_units, num_layers, self.device)
 
     def save_model(self, model, model_path):
         """
@@ -201,3 +293,4 @@ class LSTMModelService:
         model = self.build_lstm_model_LN(params)
         self.save_model(model, model_path)
         return model
+    

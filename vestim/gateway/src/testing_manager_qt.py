@@ -117,15 +117,17 @@ class VEstimTestingManager:
 
                 # Run testing on this file
                 results = self.testing_service.run_testing(task, model_path, test_file_loader, test_file_path)
+                prediction_file_path = self.save_test_results(results, save_dir, test_file_path)
 
                 # Send **file-specific** test results to the queue
                 self.queue.put({
                     'task_completed': {
                         'task_id': task_id,
                         'model': shorthand_name,
+                        'test_file': prediction_file_path,
                         'file_name': test_file[:15] + "..." if len(test_file) > 15 else test_file,  # First 15 letters
                         'rms_error_mv': results['rms_error_mv'],
-                        'mae_mv': results['mae_mv'],
+                        'max_error_mv': results['max_error_mv'],
                         'mape': results['mape'],
                         'r2': results['r2'],
                         '#params': learnable_params,
@@ -166,11 +168,12 @@ class VEstimTestingManager:
         with open(metrics_file, 'w') as f:
             f.write(f"Test File: {test_file_name}\n")
             f.write(f"RMS Error (mV): {results['rms_error_mv']:.2f}\n")
-            f.write(f"MAE (mV): {results['mae_mv']:.2f}\n")
+            f.write(f"MAX Error (mV): {results['max_error_mv']:.2f}\n")
             f.write(f"MAPE (%): {results['mape']:.2f}\n")
             f.write(f"R²: {results['r2']:.4f}\n")
 
         print(f"Results and metrics for test file '{test_file_name}' saved in {save_dir}")
+        return prediction_file
 
     
     @staticmethod
@@ -208,7 +211,7 @@ class VEstimTestingManager:
                 task_id TEXT,
                 model TEXT,
                 rms_error_mv REAL,
-                mae_mv REAL,
+                max_error_mv REAL,
                 mape REAL,
                 r2 REAL,
                 PRIMARY KEY(task_id)
@@ -217,16 +220,16 @@ class VEstimTestingManager:
 
         # Insert test results
         cursor.execute('''
-            INSERT OR REPLACE INTO test_logs (task_id, model, rms_error_mv, mae_mv, mape, r2)
+            INSERT OR REPLACE INTO test_logs (task_id, model, rms_error_mv, max_error_mv, mape, r2)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (task['task_id'], task['model_path'], results['rms_error_mv'], results['mae_mv'], results['mape'], results['r2']))
+        ''', (task['task_id'], task['model_path'], results['rms_error_mv'], results['max_error_mv'], results['mape'], results['r2']))
 
         conn.commit()
         conn.close()
 
     def log_test_to_csv(self, task, results, csv_log_file):
         """Log test results to CSV file."""
-        fieldnames = ['Task ID', 'Model', 'RMS Error (mV)', 'MAE (mV)', 'MAPE', 'R2']
+        fieldnames = ['Task ID', 'Model', 'RMS Error (mV)', 'MAX Error (mV)', 'MAPE', 'R2']
         file_exists = os.path.isfile(csv_log_file)
 
         with open(csv_log_file, 'a', newline='') as f:
@@ -237,7 +240,7 @@ class VEstimTestingManager:
                 'Task ID': task['task_id'],
                 'Model': task['model_path'],
                 'RMS Error (mV)': results['rms_error_mv'],
-                'MAE (mV)': results['mae_mv'],
+                'MAX Error (mV)': results['max_error_mv'],
                 'MAPE': results['mape'],
                 'R2': results['r2']
             })

@@ -2,7 +2,7 @@ import torch
 import os
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, max_error
 from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN
 
 class VEstimTestingService:
@@ -70,17 +70,17 @@ class VEstimTestingService:
 
             # Compute evaluation metrics
             rms_error = np.sqrt(mean_squared_error(y_test, y_pred)) * 1000  # Convert to mV
-            mae = mean_absolute_error(y_test, y_pred) * 1000  # Convert to mV
+            max_error_mv = max_error(y_test, y_pred) * 1000  # Convert to mV
             mape = np.mean(np.abs((y_test - y_pred) / y_test)) * 100  # MAPE in percentage
             r2 = r2_score(y_test, y_pred)
 
-            print(f"RMS Error: {rms_error}, MAE: {mae}, MAPE: {mape}, R²: {r2}")
+            print(f"RMS Error: {rms_error}, MAX: {max_error_mv}, MAPE: {mape}, R²: {r2}")
 
             return {
                 'predictions': y_pred,
                 'true_values': y_test,
                 'rms_error_mv': rms_error,  # Error in mV
-                'mae_mv': mae,  # Error in mV
+                'max_error_mv': max_error_mv,  # Error in mV
                 'mape': mape,  # MAPE remains a percentage
                 'r2': r2
             }

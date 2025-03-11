@@ -99,7 +99,7 @@ class VEstimTestingService:
         metrics_file = os.path.join(model_dir, f"{model_name}_metrics.txt")
         with open(metrics_file, 'w') as f:
             f.write(f"RMS Error (mV): {results['rms_error_mv']:.2f}\n")
-            f.write(f"MAE (mV): {results['mae_mv']:.2f}\n")
+            f.write(f"MAE (mV): {results['max_error']:.2f}\n")
             f.write(f"MAPE (%): {results['mape']:.2f}\n")
             f.write(f"R²: {results['r2']:.4f}\n")
 

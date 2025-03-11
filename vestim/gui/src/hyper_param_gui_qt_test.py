@@ -175,8 +175,8 @@ class VEstimHyperParamGUI(QWidget):
             return
 
         # **Feature Selection (Multi-Select List)**
-        feature_label = QLabel("Feature Columns:")
-        feature_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        feature_label = QLabel("Input (Features) Columns:")
+        feature_label.setStyleSheet("font-size: 10pt; font-weight: bold;")
 
         self.feature_list = QListWidget()
         self.feature_list.addItems(column_names)
@@ -185,8 +185,8 @@ class VEstimHyperParamGUI(QWidget):
         self.feature_list.setFixedWidth(250)  # Prevent excessive width
 
         # **Target Selection (Single-Select Dropdown)**
-        target_label = QLabel("Target Column:")
-        target_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        target_label = QLabel("Output (Target) Column:")
+        target_label.setStyleSheet("font-size: 10pt; font-weight: bold;")
 
         self.target_combo = QComboBox()
         self.target_combo.addItems(column_names)

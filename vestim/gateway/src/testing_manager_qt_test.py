@@ -137,7 +137,7 @@ class VEstimTestingManager:
                     'model': shorthand_name,
                     '#params': num_learnable_params,
                     'rms_error_mv': results['rms_error_mv'],
-                    'mae_mv': results['mae_mv'],
+                    'max_mv': results['max_error'],
                     'mape': results['mape'],
                     'r2': results['r2']
                 }
@@ -183,7 +183,7 @@ class VEstimTestingManager:
                 task_id TEXT,
                 model TEXT,
                 rms_error_mv REAL,
-                mae_mv REAL,
+                max_mv REAL,
                 mape REAL,
                 r2 REAL,
                 PRIMARY KEY(task_id)
@@ -192,16 +192,16 @@ class VEstimTestingManager:
 
         # Insert test results
         cursor.execute('''
-            INSERT OR REPLACE INTO test_logs (task_id, model, rms_error_mv, mae_mv, mape, r2)
+            INSERT OR REPLACE INTO test_logs (task_id, model, rms_error_mv, max_mv, mape, r2)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (task['task_id'], task['model_path'], results['rms_error_mv'], results['mae_mv'], results['mape'], results['r2']))
+        ''', (task['task_id'], task['model_path'], results['rms_error_mv'], results['max_error'], results['mape'], results['r2']))
 
         conn.commit()
         conn.close()
 
     def log_test_to_csv(self, task, results, csv_log_file):
         """Log test results to CSV file."""
-        fieldnames = ['Task ID', 'Model', 'RMS Error (mV)', 'MAE (mV)', 'MAPE', 'R2']
+        fieldnames = ['Task ID', 'Model', 'RMS Error (mV)', 'MAX (mV)', 'MAPE', 'R2']
         file_exists = os.path.isfile(csv_log_file)
 
         with open(csv_log_file, 'a', newline='') as f:
@@ -212,7 +212,7 @@ class VEstimTestingManager:
                 'Task ID': task['task_id'],
                 'Model': task['model_path'],
                 'RMS Error (mV)': results['rms_error_mv'],
-                'MAE (mV)': results['mae_mv'],
+                'MAX (mV)': results['max_error'],
                 'MAPE': results['mape'],
                 'R2': results['r2']
             })

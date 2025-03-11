@@ -69,6 +69,8 @@ class TrainingTaskService:
             loss = self.criterion(y_pred[:, -1, :], y_batch)
             loss.backward()
             optimizer.step()
+            
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Clip gradients to prevent exploding gradients
 
             total_train_loss.append(loss.item())
             

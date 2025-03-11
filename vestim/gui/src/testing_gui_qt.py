@@ -22,6 +22,7 @@ from matplotlib.figure import Figure
 from queue import Queue, Empty
 import logging  
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Import your services
 from vestim.gateway.src.testing_manager_qt import VEstimTestingManager
@@ -264,6 +265,7 @@ class VEstimTestingGUI(QMainWindow):
             mae = f"{task_data.get('avg_mae_mv', 0):.4f}"
             mape = f"{task_data.get('avg_mape', 0):.4f}"
             r2 = f"{task_data.get('avg_r2', 0):.4f}"
+            test_file_path = task_data.get("test_file", "Unknown Test File")
 
             # Manually increment Sl.No counter
             sl_no = self.sl_no_counter
@@ -280,7 +282,7 @@ class VEstimTestingGUI(QMainWindow):
             plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")  # Purple background
             
             # Fix lambda function to correctly pass model_dir (for plotting all test files)
-            plot_button.clicked.connect(lambda _, path=save_dir: self.plot_model_results(path))
+            plot_button.clicked.connect(lambda _, path=save_dir: self.plot_model_result(test_file_path, save_dir))
 
             self.tree.addTopLevelItem(row)
 
@@ -288,65 +290,69 @@ class VEstimTestingGUI(QMainWindow):
             self.tree.setItemWidget(row, 7, plot_button)
 
 
-    def plot_model_results(self, save_dir):
+    def plot_model_result(self, test_file_path, save_dir):
         """
-        Plot all test results for a specific model by reading from all saved CSV files.
-        Opens multiple windows, one for each test file.
+        Plot test results for a specific model by reading from a single CSV file.
+        Opens a window to display the plot with true values and predictions.
         """
         try:
-            if not os.path.exists(save_dir):
-                QMessageBox.critical(self, "Error", f"Model results folder not found: {save_dir}")
+            # Check if the provided file exists
+            if not os.path.exists(test_file_path):
+                QMessageBox.critical(self, "Error", f"Test file not found: {test_file_path}")
                 return
 
-            # Get all test result files for this model
-            test_files = [f for f in os.listdir(save_dir) if f.endswith("_predictions.csv")]
+            # Read the CSV file
+            df = pd.read_csv(test_file_path)
 
-            if not test_files:
-                QMessageBox.critical(self, "Error", f"No test result files found for model: {save_dir}")
+            # Check if required columns exist
+            if "True Values (V)" not in df.columns or "Predictions (V)" not in df.columns:
+                QMessageBox.critical(self, "Error", f"Required columns not found in the file: {test_file_path}")
                 return
 
-            # Iterate over each test file and open a new plot window
-            for test_file in test_files:
-                test_file_path = os.path.join(save_dir, test_file)
-                df = pd.read_csv(test_file_path)
+            # Calculate RMS and Max error
+            errors = df["True Values (V)"] - df["Predictions (V)"]
+            rms_error = np.sqrt(np.mean(errors**2))
+            max_error = np.max(np.abs(errors))
 
-                if "True Values (V)" not in df.columns or "Predictions (V)" not in df.columns:
-                    print(f"Skipping {test_file} due to missing columns.")
-                    continue
+            # Create a new dialog window for the plot
+            plot_window = QDialog(self)
+            test_name = os.path.splitext(os.path.basename(test_file_path))[0]  # Extract filename without extension
+            plot_window.setWindowTitle(f"Test Results: {test_name}")
+            plot_window.setGeometry(200, 100, 800, 600)
 
-                # Create a new dialog window for each test file
-                plot_window = QDialog(self)
-                test_name = os.path.splitext(test_file)[0]
-                plot_window.setWindowTitle(f"Test Results: {test_name}")
-                plot_window.setGeometry(200, 100, 800, 600)
+            # Create a matplotlib figure
+            fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
 
-                # Create a matplotlib figure
-                fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
+            # Plot true values vs predictions
+            ax.plot(df["True Values (V)"], label='True Values (V)', color='blue', marker='o', markersize=5, linestyle='-', linewidth=1)
+            ax.plot(df["Predictions (V)"], label='Predictions (V)', color='red', marker='x', markersize=5, linestyle='--', linewidth=1)
 
-                # Plot true values vs predictions
-                ax.plot(df["True Values (V)"], label='True Values (V)', color='blue', marker='o', markersize=3, linestyle='-', linewidth=0.8)
-                ax.plot(df["Predictions (V)"], label='Predictions (V)', color='green', marker='x', markersize=3, linestyle='--', linewidth=0.8)
+            # Add RMS and Max error as text annotations
+            text_str = f"RMS Error: {rms_error:.4f} V\nMax Error: {max_error:.4f} V"
+            ax.text(0.02, 0.98, text_str, transform=ax.transAxes, fontsize=12, verticalalignment='top', 
+                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
-                ax.set_xlabel('Index', fontsize=12)
-                ax.set_ylabel('Voltage (V)', fontsize=12)
-                ax.set_title(f"Test: {test_name}", fontsize=14, fontweight='bold')
-                ax.legend(loc='upper right', fontsize=10)
-                ax.grid(True, linestyle='--', alpha=0.6)
-                ax.tick_params(axis='both', which='major', labelsize=10)
+            # Customize the plot
+            ax.set_xlabel('Index', fontsize=12)
+            ax.set_ylabel('Voltage (V)', fontsize=12)
+            ax.set_title(f"Test: {test_name}", fontsize=14, fontweight='bold')
+            ax.legend(loc='upper right', fontsize=10)
+            ax.grid(True, linestyle='--', alpha=0.6)
+            ax.tick_params(axis='both', which='major', labelsize=10)
 
-                # Embed the plot in the dialog window using FigureCanvas
-                canvas = FigureCanvas(fig)
-                layout = QVBoxLayout()
-                layout.addWidget(canvas)
-                plot_window.setLayout(layout)
+            # Embed the plot in the dialog window using FigureCanvas
+            canvas = FigureCanvas(fig)
+            layout = QVBoxLayout()
+            layout.addWidget(canvas)
+            plot_window.setLayout(layout)
 
-                # Add "Save Plot" button
-                save_button = QPushButton("Save Plot")
-                save_button.clicked.connect(lambda checked, f=fig, t=test_file_path: self.save_plot(f, t, save_dir))
-                layout.addWidget(save_button)
+            # Add "Save Plot" button
+            save_button = QPushButton("Save Plot")
+            save_button.clicked.connect(lambda checked, f=fig, t=test_file_path: self.save_plot(f, t, save_dir))
+            layout.addWidget(save_button)
 
-                # Show the plot window (opens multiple windows)
-                plot_window.show()
+            # Show the plot window
+            plot_window.show()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while plotting results\n{str(e)}")
