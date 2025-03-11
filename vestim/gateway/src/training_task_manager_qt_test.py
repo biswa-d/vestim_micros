@@ -231,25 +231,12 @@ class TrainingTaskManager:
             self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
             # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
             #self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
-            # self.scheduler = torch.optim.lr_scheduler.StepLR(
-            #     self.optimizer, 
-            #     step_size=lr_drop_period,  # Number of epochs between drops
-            #     gamma=lr_drop_factor       # Multiplicative factor for the drop
-            # )
-
-            # Checking the ReduceLROnPlateau scheduler for dynamic learning rate reduction
-            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            self.scheduler = torch.optim.lr_scheduler.StepLR(
                 self.optimizer, 
-                mode='min',               # Minimize the validation loss
-                factor=lr_drop_factor,    # Factor by which the learning rate will be reduced
-                patience=lr_drop_period,  # Number of epochs with no improvement after which LR will be reduced
-                verbose=True,             # Print a message when LR is reduced
-                threshold=1e-4,           # Threshold for measuring the new optimum
-                threshold_mode='rel',     # Use relative change
-                cooldown=0,               # Number of epochs to wait before resuming normal operation
-                min_lr=0,                 # Lower bound on the learning rate
-                eps=1e-8                  # Minimal decay applied to the learning rate
+                step_size=lr_drop_period,  # Number of epochs between drops
+                gamma=lr_drop_factor       # Multiplicative factor for the drop
             )
+
 
             optimizer = self.optimizer
             scheduler = self.scheduler
@@ -309,8 +296,6 @@ class TrainingTaskManager:
                         patience_counter = 0
                     else:
                         patience_counter += 1
-                    # To be used with ReduceLROnPlateau scheduler
-                    scheduler.step(val_loss)
                      
                     self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss: {best_validation_loss} | Patience Counter: {patience_counter}")
                     progress_data = {
@@ -357,7 +342,7 @@ class TrainingTaskManager:
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                 model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
                 
-                #scheduler.step()
+                scheduler.step()
 
                 new_lr = optimizer.param_groups[0]['lr']
                 if new_lr != current_lr:
