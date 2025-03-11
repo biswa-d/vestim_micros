@@ -339,8 +339,8 @@ class TrainingTaskManager:
 
                 # Save log data to CSV and SQLite
                 # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
-                model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
-                model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
+                #model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
+                #model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
                 
                 scheduler.step()
 
