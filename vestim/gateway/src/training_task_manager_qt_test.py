@@ -8,6 +8,7 @@ from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetu
 from vestim.services.model_training.src.data_loader_service_test import DataLoaderService
 from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
 import logging, wandb
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 
 class TrainingTaskManager:
     def __init__(self):
@@ -214,7 +215,8 @@ class TrainingTaskManager:
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
             #patience_threshold = int(valid_patience * 0.5) 
-            current_lr = hyperparams['INITIAL_LR']
+            initial_lr = hyperparams['INITIAL_LR']
+            current_lr = initial_lr
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
             # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
@@ -228,15 +230,38 @@ class TrainingTaskManager:
             last_validation_time = start_time
             early_stopping = False  # Initialize early stopping flag
 
-            self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
+            # self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
             # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
             #self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
-            self.scheduler = torch.optim.lr_scheduler.StepLR(
-                self.optimizer, 
-                step_size=lr_drop_period,  # Number of epochs between drops
-                gamma=lr_drop_factor       # Multiplicative factor for the drop
+            # self.scheduler = torch.optim.lr_scheduler.StepLR(
+            #     self.optimizer, 
+            #     step_size=lr_drop_period,  # Number of epochs between drops
+            #     gamma=lr_drop_factor       # Multiplicative factor for the drop
+            # )
+            
+            # Checking the ReduceLROnPlateau scheduler for dynamic learning rate reduction
+            # self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            #     self.optimizer, 
+            #     mode='min',               # Minimize the validation loss
+            #     factor=lr_drop_factor,    # Factor by which the learning rate will be reduced
+            #     patience=lr_drop_period,  # Number of epochs with no improvement after which LR will be reduced
+            #     verbose=True,             # Print a message when LR is reduced
+            #     threshold=1e-4,           # Threshold for measuring the new optimum
+            #     threshold_mode='rel',     # Use relative change
+            #     cooldown=0,               # Number of epochs to wait before resuming normal operation
+            #     min_lr=0,                 # Lower bound on the learning rate
+            #     eps=1e-8                  # Minimal decay applied to the learning rate
+            # )
+            self.optimizer = torch.optim.Adam(model.parameters(), lr=initial_lr)
+            # Define the CosineAnnealingWarmRestarts scheduler
+            self.scheduler = CosineAnnealingWarmRestarts(
+                self.optimizer,
+                T_0=lr_drop_period,  # Number of iterations for the first restart
+                T_mult=2,       # Factor by which T_0 is multiplied after each restart
+                eta_min=initial_lr*(lr_drop_factor**2),     # Minimum learning rate
+                last_epoch=-1,       # The index of the last epoch
+                verbose=True         # Print learning rate updates
             )
-
 
             optimizer = self.optimizer
             scheduler = self.scheduler
@@ -296,6 +321,7 @@ class TrainingTaskManager:
                         patience_counter = 0
                     else:
                         patience_counter += 1
+                    # scheduler.step(val_loss)
                      
                     self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss: {best_validation_loss} | Patience Counter: {patience_counter}")
                     progress_data = {
