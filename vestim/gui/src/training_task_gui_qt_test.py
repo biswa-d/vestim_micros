@@ -488,22 +488,32 @@ class VEstimTrainingTaskGUI(QMainWindow):
             #New section for updating the plot
             # Dynamically adjust the y-axis based on the last 30 loss values
             #commenting out to check log plot issues
-            last_30_train_losses = self.train_loss_values[-30:]  # Get last 30 train losses
-            last_30_val_losses = self.valid_loss_values[-30:]  # Get last 30 validation losses
-            last_30_losses = last_30_train_losses + last_30_val_losses  # Combine last 30 train and validation losses
+            # Get last 30 train and validation losses
+            last_30_train_losses = [x for x in self.train_loss_values[-30:] if np.isfinite(x)]
+            last_30_val_losses = [x for x in self.valid_loss_values[-30:] if np.isfinite(x)]
 
-            # Get minimum and maximum from these last 30 values
-            min_loss = min(last_30_losses) if last_30_losses else 1e-5  # Fallback to a small value if empty
-            max_loss = max(last_30_losses) if last_30_losses else 1e-3  # Fallback to a small value if empty
+            # Combine only valid losses
+            last_30_losses = last_30_train_losses + last_30_val_losses 
 
-            # Add a small margin to the y-axis limits (10% of the range)
+            # Ensure we have valid values, otherwise set safe defaults
+            if not last_30_losses:  # If empty after filtering
+                min_loss, max_loss = 1e-5, 1e-3  # Safe default range
+            else:
+                min_loss, max_loss = min(last_30_losses), max(last_30_losses)
+
+            # Add a small margin to prevent collapsing the y-axis
             margin = (max_loss - min_loss) * 0.1 if max_loss - min_loss > 0 else 1e-5
-            self.ax.set_ylim(min_loss - margin, max_loss + margin)  # Set y-axis limits dynamically
-            # New section ends here
+
+            # Prevent invalid axis limits
+            if np.isnan(min_loss) or np.isnan(max_loss) or np.isinf(min_loss) or np.isinf(max_loss):
+                print(f"Warning: Invalid loss detected - min_loss: {min_loss}, max_loss: {max_loss}")
+            else:
+                self.ax.set_ylim(min_loss - margin, max_loss + margin)  # Set y-axis limits dynamically
 
             # Update plot lines with the new data
             self.train_line.set_data(self.valid_x_values, self.train_loss_values)
             self.valid_line.set_data(self.valid_x_values, self.valid_loss_values)
+
 
             # Commented out the following lines for testing new plot logic, uncomment if needed
             # # Adjust y-axis limits dynamically based on the new data
