@@ -24,6 +24,14 @@ from vestim.services.data_processor.src.data_processor_qt_tesla import DataProce
 from vestim.services.data_processor.src.data_processor_qt_pouch import DataProcessorPouch
 
 import logging
+import os
+
+# Set the temporary directory
+os.environ["TMPDIR"] = "/mnt/data0/tmp"
+
+# Ensure the directory exists
+os.makedirs(os.environ["TMPDIR"], exist_ok=True)
+print(f"TMPDIR set to: {os.environ['TMPDIR']}")
 
 from vestim.logger_config import setup_logger  # Assuming you have logger_config.py as shared earlier
 # Set up initial logging to a default log file

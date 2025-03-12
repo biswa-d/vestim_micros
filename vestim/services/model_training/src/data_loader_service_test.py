@@ -1,4 +1,4 @@
-import os
+import os, gc
 import numpy as np
 import pandas as pd
 import torch
@@ -124,5 +124,7 @@ class DataLoaderService:
 
         # Clean up cache variables after DataLoaders are created
         del X_tensor, y_tensor, indices, train_indices, valid_indices
+        gc.collect()
+        torch.cuda.empty_cache()
 
         return train_loader, val_loader

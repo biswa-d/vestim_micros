@@ -492,15 +492,22 @@ class VEstimTrainingTaskGUI(QMainWindow):
             last_30_val_losses = self.valid_loss_values[-30:]  # Get last 30 validation losses
             last_30_losses = last_30_train_losses + last_30_val_losses  # Combine last 30 train and validation losses
 
-            # Get minimum and maximum from these last 30 values
-            min_loss = min(last_30_losses) if last_30_losses else 1e-5  # Fallback to a small value if empty
-            max_loss = max(last_30_losses) if last_30_losses else 1e-3  # Fallback to a small value if empty
+            # Ensure we have valid values, otherwise set safe defaults
+            if not last_30_losses:  # If empty after filtering
+                min_loss, max_loss = 1e-5, 1e-3  # Safe default range
+            else:
+                min_loss, max_loss = min(last_30_losses), max(last_30_losses)
 
-            # Add a small margin to the y-axis limits (10% of the range)
+            # Add a small margin to prevent collapsing the y-axis
             margin = (max_loss - min_loss) * 0.1 if max_loss - min_loss > 0 else 1e-5
-            self.ax.set_ylim(min_loss - margin, max_loss + margin)  # Set y-axis limits dynamically
-            # New section ends here
 
+            # Prevent invalid axis limits
+            if np.isnan(min_loss) or np.isnan(max_loss) or np.isinf(min_loss) or np.isinf(max_loss):
+                print(f"Warning: Invalid loss detected - min_loss: {min_loss}, max_loss: {max_loss}")
+            else:
+                self.ax.set_ylim(min_loss - margin, max_loss + margin)  # Set y-axis limits dynamically
+
+            # New section ends here
             # Update plot lines with the new data
             self.train_line.set_data(self.valid_x_values, self.train_loss_values)
             self.valid_line.set_data(self.valid_x_values, self.valid_loss_values)

@@ -1,4 +1,4 @@
-import time, os, sys, math
+import time, os, sys, math, gc
 import csv
 import sqlite3
 import torch
@@ -311,8 +311,6 @@ class TrainingTaskManager:
                     elapsed_time = current_time - start_time
                     delta_t_epoch = (current_time - last_validation_time) / valid_freq
                     last_validation_time = current_time
-
-                    current_lr = optimizer.param_groups[0]['lr']
                     
                     if val_loss < best_validation_loss:
                         print(f"Validation loss improved from {best_validation_loss:.6f} to {val_loss:.6f}. Saving model...")
@@ -360,6 +358,9 @@ class TrainingTaskManager:
 
                         break
 
+                    gc.collect()
+                    torch.cuda.empty_cache()
+
                 # Log data to CSV and SQLite after each epoch (whether validated or not)
                 #print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
 
@@ -374,7 +375,7 @@ class TrainingTaskManager:
                 if new_lr != current_lr:
                     print(f"Learning rate changed from {current_lr:.8f} to {new_lr:.8f} at epoch {epoch}")
                     logging.info(f"Learning rate changed from {current_lr:.8f} to {new_lr:.8f} at epoch {epoch}")
-                    current_lr = new_lr
+                    self.current_lr = new_lr
 
                 # Scheduler step condition: Either when lr_drop_period is reached or patience_counter exceeds the threshold
                 # Scheduler step condition: Check for drop period or patience_counter with buffer consideration

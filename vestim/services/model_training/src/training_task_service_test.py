@@ -2,7 +2,7 @@ import torch, numpy as np
 import torch.nn as nn
 import torch.optim as optim
 import json, csv, sqlite3, os
-import time
+import time, gc
 
 class TrainingTaskService:
     def __init__(self):
@@ -91,8 +91,11 @@ class TrainingTaskService:
             
             # Clear unused memory
             del X_batch, y_batch, y_pred  # Explicitly clear tensors
+            
 
         avg_batch_time = sum(batch_times) / len(batch_times)  # Average batch time
+        gc.collect()
+        torch.cuda.empty_cache()
         return avg_batch_time, sum(total_train_loss) / len(total_train_loss)
 
 
