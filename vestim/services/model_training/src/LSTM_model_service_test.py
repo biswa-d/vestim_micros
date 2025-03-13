@@ -84,7 +84,7 @@ class LSTMModelLN(nn.Module):
 
         # LSTM layer
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_units,
-                            num_layers=num_layers, batch_first=True)  
+                            num_layers=num_layers, batch_first=True, dropout=0.2)  
 
         # LayerNorm on hidden states
         self.layer_norm = nn.LayerNorm(hidden_units)

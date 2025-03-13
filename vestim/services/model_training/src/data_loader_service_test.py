@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
-import torch
+import torch, gc
 from torch.utils.data import DataLoader, TensorDataset, SubsetRandomSampler
 from datetime import datetime
 import  logging
@@ -109,6 +109,7 @@ class DataLoaderService:
         print(f"using train_split: {train_split}")
         train_size = int(dataset_size * train_split)
         valid_size = dataset_size - train_size
+        print(f"train_size: {train_size} sequences, valid_size: {valid_size} sequences")
 
         np.random.seed(seed)
         np.random.shuffle(indices)
@@ -124,5 +125,7 @@ class DataLoaderService:
 
         # Clean up cache variables after DataLoaders are created
         del X_tensor, y_tensor, indices, train_indices, valid_indices
+        gc.collect()
+        torch.cuda.empty_cache()
 
         return train_loader, val_loader

@@ -7,7 +7,7 @@ import time
 class TrainingTaskService:
     def __init__(self):
         self.criterion = nn.MSELoss()  #Mean Squared Error Loss for regression tasks
-        self.criterion1 = nn.HuberLoss(delta=3.5)  #Huber Loss for regression tasks
+        self.criterion1 = nn.HuberLoss(delta=1)  #Huber Loss for regression tasks
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
     
@@ -67,12 +67,17 @@ class TrainingTaskService:
             y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
             # y_pred = y_pred.squeeze(-1)
 
-            loss = self.criterion(y_pred[:, -1, :], y_batch)
-            #loss = self.criterion1(y_pred[:, -1, :], y_batch)
+            # loss = self.criterion(y_pred[:, -1, :], y_batch)
+            loss = self.criterion1(y_pred[:, -1, :], y_batch)
+            if torch.isnan(loss) or torch.isinf(loss):
+                print(f"Skipping batch {batch_idx} due to NaN loss")
+                continue  
+
             loss.backward()
+
+            #Clip before optimizer update
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Clip gradients to prevent exploding gradients
 
             total_train_loss.append(loss.item())
             
@@ -119,7 +124,8 @@ class TrainingTaskService:
                 # y_pred = y_pred.squeeze(-1)
 
                 # loss = self.criterion(y_pred, y_batch)
-                loss = self.criterion(y_pred[:, -1, :], y_batch)
+                #loss = self.criterion(y_pred[:, -1, :], y_batch)
+                loss = self.criterion1(y_pred[:, -1, :], y_batch)
                 total_loss += loss.item() * X_batch.size(0)
                 total_samples += X_batch.size(0)
 

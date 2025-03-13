@@ -24,6 +24,7 @@ class TrainingThread(QThread):
     update_epoch_signal = pyqtSignal(dict)  # Signal to send progress data (e.g., after each epoch)
     task_completed_signal = pyqtSignal()  # Signal when the task is completed
     task_error_signal = pyqtSignal(str)  # Signal for any error during the task
+    
 
     def __init__(self, task, training_task_manager):
         super().__init__()
@@ -67,6 +68,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.params = params
 
         # Initialize variables
+        self.progress_history = []
         self.train_loss_values = []
         self.valid_loss_values = []
         self.valid_x_values = []
@@ -445,6 +447,16 @@ class VEstimTrainingTaskGUI(QMainWindow):
             learning_rate = progress_data.get('learning_rate', None)
             best_val_loss = progress_data.get('best_val_loss', None) * 100
 
+            # Store in progress history
+            self.progress_history.append({
+                'epoch': epoch,
+                'train_loss': train_loss,
+                'val_loss': val_loss,
+                'delta_t_epoch': delta_t_epoch,
+                'learning_rate': learning_rate,
+                'best_val_loss': best_val_loss
+            })
+
             # Format the log message using HTML for bold text
             log_message = (
                 f"Epoch: <b>{epoch}</b>, "
@@ -661,7 +673,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
     def transition_to_testing_gui(self):
         self.close()  # Close the current window
-        self.testing_gui = VEstimTestingGUI()  # Initialize the testing GUI
+        self.testing_gui = VEstimTestingGUI(self.progress_history)  # Initialize the testing GUI
         self.testing_gui.show()  # Show the testing GUI
 
 if __name__ == "__main__":

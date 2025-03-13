@@ -238,13 +238,13 @@ class TrainingTaskManager:
             #     step_size=lr_drop_period,  # Number of epochs between drops
             #     gamma=lr_drop_factor       # Multiplicative factor for the drop
             # )
-            self.optimizer = torch.optim.Adam(model.parameters(), lr=initial_lr)
+            self.optimizer = torch.optim.Adam(model.parameters(), lr=initial_lr, weight_decay=5e-5)
             # Define the CosineAnnealingWarmRestarts scheduler
             self.scheduler = CosineAnnealingWarmRestarts(
                 self.optimizer,
                 T_0=lr_drop_period,  # Number of iterations for the first restart
-                T_mult=2,       # Factor by which T_0 is multiplied after each restart
-                eta_min=initial_lr*(lr_drop_factor**2),     # Minimum learning rate
+                T_mult=1,       # Factor by which T_0 is multiplied after each restart
+                eta_min=initial_lr*(lr_drop_factor**3),     # Minimum learning rate
                 last_epoch=-1,       # The index of the last epoch
                 verbose=True         # Print learning rate updates
             )
@@ -438,5 +438,5 @@ class TrainingTaskManager:
             print("Waiting for the training thread to finish before saving the model...")
             self.training_thread.quit()  # Gracefully stop the thread
             self.training_thread.wait(7000)  # Wait for the thread to finish cleanly
-            print("Training thread has finished. Proceeding to save the model.")
-            self.logger.info("Training thread has finished. Proceeding to save the model.")
+            print("Training thread has finished.")
+            self.logger.info("Training thread has finished.")
