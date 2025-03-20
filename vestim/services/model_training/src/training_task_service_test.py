@@ -47,6 +47,7 @@ class TrainingTaskService:
         
     def train_epoch(self, model, train_loader, optimizer, h_s, h_c, epoch, device, stop_requested, task):
         """Train the model for a single epoch."""
+        scaler = torch.cuda.amp.GradScaler()
         model.train()
         total_train_loss = []
         batch_times = []  # Store time per batch
@@ -165,4 +166,3 @@ class TrainingTaskService:
     def get_scheduler(self, optimizer, gamma=0.1):
         """Initialize the learning rate scheduler with step size and gamma."""
         return torch.optim.lr_scheduler.StepLR(optimizer, gamma=gamma)
-

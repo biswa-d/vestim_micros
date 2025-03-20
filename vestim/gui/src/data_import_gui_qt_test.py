@@ -50,61 +50,63 @@ class DataImportGUI(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("VEstim Modelling Tool")
-        self.setGeometry(100, 100, 900, 600)
+        self.setGeometry(100, 100, 900, 700)  # Set window size
 
-        # Main layout
+        # Main vertical layout
         self.central_widget = QWidget(self)
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
 
-        # Header
-        self.header_label = QLabel("Select data folders to train your LSTM Model", self)
+        # ---- HEADER ----
+        self.header_label = QLabel("Select Data Folders for Training, Validation, and Testing", self)
         self.header_label.setAlignment(Qt.AlignCenter)
-        self.header_label.setStyleSheet("font-size: 18px; font-weight: bold; color: green;")
+        self.header_label.setStyleSheet("font-size: 20px; font-weight: bold; color: darkgreen; padding: 10px;")
         self.main_layout.addWidget(self.header_label)
 
-        # Training folder section
+        # ---- SPACING BELOW HEADER ----
+        self.main_layout.addSpacing(10)
+
+        # ---- Training & Validation Section (Side-by-Side) ----
+        train_val_layout = QHBoxLayout()  # Horizontal layout for Train & Validation
+
+        # --- Training Data Section ---
         train_layout = QVBoxLayout()
         self.train_select_button = QPushButton("Select Train Data Folder", self)
-        self.train_select_button.setStyleSheet("""
-            background-color: #add8e6;  /* Light blue background */
-            font-weight: bold;
-            padding: 8px 15px;  /* Adds padding inside the button */
-            color: black;  /* Set the text color to black for contrast */
-        """)
-        self.train_select_button.setFixedHeight(30)  # Set a consistent height for the button
-        self.train_select_button.setMinimumWidth(150)  # Set a reasonable minimum width
-        self.train_select_button.setMaximumWidth(300)  # Set a reasonable maximum width
+        self.train_select_button.setFixedHeight(30)
         self.train_select_button.clicked.connect(self.select_train_folder)
+        train_layout.addWidget(self.train_select_button)
 
-        # Center the train button
-        train_button_layout = QHBoxLayout()
-        train_button_layout.addStretch(1)  # Add stretch before
-        train_button_layout.addWidget(self.train_select_button, alignment=Qt.AlignCenter)
-        train_button_layout.addStretch(1)  # Add stretch after
-        train_layout.addLayout(train_button_layout)
-
-        # Train folder list widget (covers full width)
         self.train_list_widget = QListWidget(self)
         self.train_list_widget.setSelectionMode(QListWidget.MultiSelection)
-        self.train_list_widget.setMinimumHeight(100)  # Set minimum height for scrollability
+        self.train_list_widget.setMinimumHeight(120)  
         train_layout.addWidget(self.train_list_widget)
+        train_val_layout.addLayout(train_layout)
 
-        # Add the training section to the main layout
-        self.main_layout.addLayout(train_layout)
+        # --- Validation Data Section ---
+        val_layout = QVBoxLayout()
+        self.val_select_button = QPushButton("Select Validation Data Folder", self)
+        self.val_select_button.setFixedHeight(30)
+        self.val_select_button.clicked.connect(self.select_valid_folder)
+        val_layout.addWidget(self.val_select_button)
 
-        # Testing folder section
+        self.valid_list_widget = QListWidget(self)
+        self.valid_list_widget.setSelectionMode(QListWidget.MultiSelection)
+        self.valid_list_widget.setMinimumHeight(120)
+        val_layout.addWidget(self.valid_list_widget)
+        train_val_layout.addLayout(val_layout)
+
+        # Add Train & Validation layout to main layout
+        self.main_layout.addLayout(train_val_layout)
+
+        # ---- SPACING BELOW TRAIN/VALID SECTION ----
+        self.main_layout.addSpacing(10)
+
+        # ---- Testing Section (Below Train/Valid) ----
         test_layout = QVBoxLayout()
+
+        # Test folder selection button
         self.test_select_button = QPushButton("Select Test Data Folder", self)
-        self.test_select_button.setStyleSheet("""
-            background-color: #add8e6;  /* Light blue background */
-            font-weight: bold;
-            padding: 8px 15px;  /* Adds padding inside the button */
-            color: black;  /* Set the text color to black for contrast */
-        """)
-        self.test_select_button.setFixedHeight(30)  # Set a consistent height for the button
-        self.test_select_button.setMinimumWidth(150)  # Set a reasonable minimum width
-        self.test_select_button.setMaximumWidth(300)  # Set a reasonable maximum width
+        self.test_select_button.setFixedHeight(30)
         self.test_select_button.clicked.connect(self.select_test_folder)
 
         # Center the test button
@@ -114,81 +116,118 @@ class DataImportGUI(QMainWindow):
         test_button_layout.addStretch(1)
         test_layout.addLayout(test_button_layout)
 
-        # Test folder list widget (covers full width)
+        # Test files list
         self.test_list_widget = QListWidget(self)
         self.test_list_widget.setSelectionMode(QListWidget.MultiSelection)
         self.test_list_widget.setMinimumHeight(100)
         test_layout.addWidget(self.test_list_widget)
 
-        # Add the testing section to the main layout
+        # Reduce test section height by adding stretch
+        test_layout.addStretch(1)
+
+        # Add testing section to main layout
         self.main_layout.addLayout(test_layout)
 
-        #Adding the option to select the data processor (Version 2.0 VEstim)
-        # Main layout for data source selection and organize button
-        combined_layout = QHBoxLayout()
+        # ---- SPACING BELOW TEST SECTION ----
+        self.main_layout.addSpacing(10)
 
-        # Data source label with color change, bold text, and padding
+        # ---- Data Source and Sampling Frequency (Compact Alignment) ----
+        data_layout = QHBoxLayout()
+        
+        # Add left padding to shift everything to the right
+        data_layout.setContentsMargins(60, 0, 0, 0)  # (Left, Top, Right, Bottom)
+
+        # Data Source (Label + Dropdown without unnecessary spacing)
+        data_source_container = QHBoxLayout()
         data_source_label = QLabel("Data Source:")
-        data_source_label.setStyleSheet("color: purple; font-weight: bold; font-size: 14px; padding-right: 10px;")  # Set text color to purple, bold, and larger size
-        combined_layout.addWidget(data_source_label)
+        data_source_label.setStyleSheet("color: purple; font-weight: bold; font-size: 14px;")
 
-        # Data source selection with consistent height and styling
         self.data_source_combo = QComboBox(self)
-        self.data_source_combo.addItems(["Digatron", "Tesla", "Pouch"])  # Add the data sources
-        self.data_source_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
-        self.data_source_combo.setFixedWidth(120)  # Set a specific width for the ComboBox
-        self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")  # Bold text and larger font size
-        combined_layout.addWidget(self.data_source_combo)
+        self.data_source_combo.addItems(["Digatron", "Tesla", "Pouch"])
+        self.data_source_combo.setFixedHeight(35)
+        self.data_source_combo.setFixedWidth(120)
         self.data_source_combo.currentIndexChanged.connect(self.update_file_display)
 
-        # Add amptjer label to select the sampling frequency
-        sampling_frequency_label = QLabel("Resampling Freq:")
-        sampling_frequency_label.setStyleSheet("color: purple; font-weight: bold; font-size: 14px; padding-right: 10px;")  # Set text color to purple, bold, and larger size
-        combined_layout.addWidget(sampling_frequency_label)
+        # **Ensure they are tightly packed together**
+        data_source_container.addWidget(data_source_label)
+        data_source_container.addWidget(self.data_source_combo)
+        data_source_container.addStretch(0)  # No unnecessary stretch
+        data_source_container.setSpacing(2)  # **Minimize spacing between label & dropdown**
+        data_layout.addLayout(data_source_container)
 
-        # Sampling frequency selection with consistent height and styling
+        data_layout.addSpacing(80)  # Add spacing between the dropdowns
+        # Sampling Frequency (Label + Dropdown without unnecessary spacing)
+        sampling_freq_container = QHBoxLayout()
+        sampling_frequency_label = QLabel("Resampling Freq:")
+        sampling_frequency_label.setStyleSheet("color: purple; font-weight: bold; font-size: 14px;")
+
         self.sampling_frequency_combo = QComboBox(self)
-        self.sampling_frequency_combo.addItems(["None", "0.1Hz", "0.5Hz", "1Hz", "5Hz", "10Hz"])  # Add the data sources
-        self.sampling_frequency_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
-        self.sampling_frequency_combo.setFixedWidth(110)  # Set a specific width for the ComboBox
-        self.sampling_frequency_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")  # Bold text and larger font size
-        combined_layout.addWidget(self.sampling_frequency_combo)
+        self.sampling_frequency_combo.addItems(["None", "0.1Hz", "0.5Hz", "1Hz", "5Hz", "10Hz"])
+        self.sampling_frequency_combo.setFixedHeight(35)
+        self.sampling_frequency_combo.setFixedWidth(110)
         self.sampling_frequency_combo.currentIndexChanged.connect(self.update_sampling_frequency)
 
-        # Add stretchable space between the dropdown and the button
-        combined_layout.addStretch(1)  # Push the button to the right
+        # **Ensure they are tightly packed together**
+        sampling_freq_container.addWidget(sampling_frequency_label)
+        sampling_freq_container.addWidget(self.sampling_frequency_combo)
+        sampling_freq_container.addStretch(0)  # No unnecessary stretch
+        sampling_freq_container.setSpacing(2)  # **Minimize spacing between label & dropdown**
+        data_layout.addLayout(sampling_freq_container)
 
-        # Organize button with consistent height and padding
+        # Add to main layout
+        self.main_layout.addLayout(data_layout)
+
+
+
+        # ---- SPACING BELOW SOURCE & FREQUENCY SELECTION ----
+        self.main_layout.addSpacing(15)
+
+        # ---- Organize Button (Centered Below) ----
+        button_layout = QHBoxLayout()
+        button_layout.addStretch(1)  # Add stretch to center the button
+
         self.organize_button = QPushButton("Load and Prepare Files", self)
-        self.organize_button.setStyleSheet("""
-            background-color: #0b6337; 
-            font-weight: bold; 
-            padding: 10px 20px;  /* Adjust padding for visual appeal */
-            color: white;  
-            font-size: 14px;  /* Increase font size */
-        """)
-        self.organize_button.setFixedHeight(35)  # Ensure consistent height
-        self.organize_button.setMinimumWidth(150)  # Set minimum width
-        self.organize_button.setMaximumWidth(300)  # Set maximum width
+        self.organize_button.setFixedHeight(40)
+        self.organize_button.setMinimumWidth(180)
+        self.organize_button.setMaximumWidth(300)
+        self.organize_button.setStyleSheet("background-color: #0b6337; font-weight: bold; color: white;")
         self.organize_button.clicked.connect(self.organize_files)
 
-        # Add stretchable space to center the button and provide border spacing
-        combined_layout.addStretch(2)  # Adds extra space for centering
+        button_layout.addWidget(self.organize_button, alignment=Qt.AlignCenter)
+        button_layout.addStretch(1)  # Add stretch to center the button
 
-        # Add the organize button to the combined layout
-        combined_layout.addWidget(self.organize_button)
+        self.main_layout.addLayout(button_layout)
 
-        # Add the combined layout to the main layout
-        self.main_layout.addLayout(combined_layout)
+        # ---- SPACING BELOW ORGANIZE BUTTON ----
+        self.main_layout.addSpacing(10)
 
-        # Add margins to the main layout for border spacing
-        self.main_layout.setContentsMargins(30, 10, 30, 10)  # Increase left, right margins for more centering
-
-        # Progress bar
+        # Progress bar (now spans full width)
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setValue(0)
-        self.progress_bar.setVisible(False)  # Initially hidden
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setAlignment(Qt.AlignCenter)  # Center the percentage text
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                text-align: center;  /* Ensures text is centered */
+                font-weight: bold;   /* Makes text bold */
+                font-size: 14px;     /* Adjusts text size */
+                color: black;        /* Sets text color to black */
+            }
+        """)
+
+        self.progress_bar.setMinimumWidth(700)  # Set wide width
+        self.progress_bar.setMaximumWidth(900)  # Ensure it scales well
+        self.progress_bar.setStyleSheet("padding: 5px;")  # Add slight padding for aesthetics
+
+        # Add to the layout with no centering constraint (full width effect)
         self.main_layout.addWidget(self.progress_bar)
+
+
+        # Add final spacing at the bottom for a clean UI
+        self.main_layout.addStretch(1)
+
+
+
 
     def update_file_display(self):
         selected_source = self.data_source_combo.currentText()
@@ -196,10 +235,12 @@ class DataImportGUI(QMainWindow):
             # Show only .mat files
             self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".mat")
             self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".mat")
+            self.populate_file_list(self.valid_folder_path, self.valid_list_widget, file_extension=".mat")
         elif selected_source == "Pouch":
             # Show only .csv files
             self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".csv")
             self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".csv")
+            self.populate_file_list(self.valid_folder_path, self.valid_list_widget, file_extension=".csv")
     
     def update_sampling_frequency(self):
         selected_value = self.sampling_frequency_combo.currentText().strip()
@@ -229,6 +270,13 @@ class DataImportGUI(QMainWindow):
             logger.info(f"Selected training folder: {self.train_folder_path}")
         self.check_folders_selected()
 
+    def select_valid_folder(self):
+        self.valid_folder_path = QFileDialog.getExistingDirectory(self, "Select Validation Folder")
+        if self.valid_folder_path:
+            self.populate_file_list(self.valid_folder_path, self.valid_list_widget)
+            logger.info(f"Selected validation folder: {self.valid_folder_path}")
+        self.check_folders_selected()
+
     def select_test_folder(self):
         self.test_folder_path = QFileDialog.getExistingDirectory(self, "Select Testing Folder")
         if self.test_folder_path:
@@ -256,6 +304,7 @@ class DataImportGUI(QMainWindow):
         # Use selectedItems() to get the selected files
         train_files = [item.text() for item in self.train_list_widget.selectedItems()]
         test_files = [item.text() for item in self.test_list_widget.selectedItems()]
+        valid_files = [item.text() for item in self.valid_list_widget.selectedItems()]
         print(f"Train files: {train_files}")
         print(f"Test files: {test_files}")
 
@@ -290,7 +339,7 @@ class DataImportGUI(QMainWindow):
             return
 
         # Create and start the file organizer thread with the selected data processor
-        self.organizer = FileOrganizer(train_files, test_files, data_processor, sampling_frequency=self.sampling_frequency)
+        self.organizer = FileOrganizer(train_files, valid_files, test_files, data_processor, sampling_frequency=self.sampling_frequency)
         self.organizer_thread = QThread()
 
         # Connect signals and slots
@@ -341,10 +390,11 @@ class FileOrganizer(QObject):
     progress = pyqtSignal(int)  # Emit progress percentage
     job_folder_signal = pyqtSignal(str)  # To communicate when the job folder is created
 
-    def __init__(self, train_files, test_files, data_processor, sampling_frequency=None):
+    def __init__(self, train_files, valid_files, test_files, data_processor, sampling_frequency=None):
         super().__init__()
         self.train_files = train_files
         self.test_files = test_files
+        self.valid_files = valid_files
         self.data_processor = data_processor
         self.sampling_frequency = sampling_frequency
 
@@ -355,7 +405,7 @@ class FileOrganizer(QObject):
 
         try:
             # Call the backend method from DataProcessor to organize and convert files
-            job_folder = self.data_processor.organize_and_convert_files(self.train_files, self.test_files, progress_callback=self.update_progress, sampling_frequency=self.sampling_frequency)
+            job_folder = self.data_processor.organize_and_convert_files(self.train_files, self.valid_files, self.test_files, progress_callback=self.update_progress, sampling_frequency=self.sampling_frequency)
             logger.info(f"Job folder created: {job_folder}")
             # Emit success message with job folder details
             self.job_folder_signal.emit(job_folder)

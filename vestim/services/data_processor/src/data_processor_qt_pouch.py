@@ -13,7 +13,7 @@ class DataProcessorPouch:
         self.total_files = 0  # Total number of files to process (copy)
         self.processed_files = 0  # Keep track of total processed files
 
-    def organize_and_convert_files(self, train_files, test_files, progress_callback=None, sampling_frequency=None):
+    def organize_and_convert_files(self, train_files, valid_files, test_files, progress_callback=None, sampling_frequency=None):
         # Ensure valid CSV files are provided
         if not all(f.endswith('.csv') for f in train_files + test_files):
             self.logger.error("Invalid file types. Only CSV files are accepted.")
@@ -21,7 +21,8 @@ class DataProcessorPouch:
 
         self.logger.info("Starting file organization and copy.")
         print(f"number of train files: {len(train_files)}")
-        print(f"number of test files: {len(test_files)}")   
+        print(f"number of test files: {len(test_files)}")  
+        print(f"number of valid files: {len(valid_files)}") 
         
         job_id, job_folder = self.job_manager.create_new_job()
         self.logger.info(f"Job created with ID: {job_id}, Folder: {job_folder}")
@@ -35,28 +36,36 @@ class DataProcessorPouch:
         train_processed_folder = os.path.join(job_folder, 'train_data', 'processed_data')
         test_raw_folder = os.path.join(job_folder, 'test_data', 'raw_data')
         test_processed_folder = os.path.join(job_folder, 'test_data', 'processed_data')
+        valid_processed_folder = os.path.join(job_folder, 'valid_data', 'processed_data')
+        valid_processed_folder = os.path.join(job_folder, 'valid_data', 'processed_data')
 
         # Clear the processed data folders before proceeding
         if os.path.exists(train_processed_folder):
             shutil.rmtree(train_processed_folder)
         if os.path.exists(test_processed_folder):
             shutil.rmtree(test_processed_folder)
+        if os.path.exists(valid_processed_folder):
+            shutil.rmtree(valid_processed_folder)
         
         os.makedirs(train_raw_folder, exist_ok=True)
         os.makedirs(train_processed_folder, exist_ok=True)
         os.makedirs(test_raw_folder, exist_ok=True)
         os.makedirs(test_processed_folder, exist_ok=True)
+        os.makedirs(valid_processed_folder, exist_ok=True)
+        os.makedirs(valid_processed_folder, exist_ok=True)
         self.logger.info(f"Created folders: {train_raw_folder}, {train_processed_folder}, {test_raw_folder}, {test_processed_folder}")
         
         # Reset processed files counter
         self.processed_files = 0
-        self.total_files = len(train_files) + len(test_files)  # Dynamically set based on actual file count
+        self.total_files = len(train_files) + len(test_files) + len(valid_files)  # Dynamically set based on actual file count
 
         # Copy files to the raw data directories
         for file in train_files:
             self._copy_file(file, train_raw_folder, progress_callback)
         for file in test_files:
             self._copy_file(file, test_raw_folder, progress_callback)
+        for file in valid_files:
+            self._copy_file(file, valid_processed_folder, progress_callback)
         print(f"number of train files: {len(train_files)}, using CSV format")
 
         # Convert the copied CSV files to HDF5 and store in the processed data folder

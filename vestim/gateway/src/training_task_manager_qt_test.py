@@ -193,7 +193,8 @@ class TrainingTaskManager:
 
         self.logger.info("Creating data loaders")
         train_loader, val_loader = self.data_loader_service.create_data_loaders(
-            folder_path=self.job_manager.get_train_folder(),  # Adjusted to use the correct folder
+            train_folder_path=self.job_manager.get_train_folder(),  # Adjusted to use the correct folder
+            valid_folder_path=self.job_manager.get_valid_folder(),  # Adjusted to use the correct folder
             lookback=lookback,
             feature_cols=feature_cols,
             target_col=target_col, 
@@ -416,8 +417,24 @@ class TrainingTaskManager:
         hyperparams['REPETITIONS'] = int(hyperparams['REPETITIONS'])
         return hyperparams
 
+    # def save_model(self, task):
+    #     """Save the trained model to disk."""
+    #     model_path = task.get('model_path', None)
+    #     if model_path is None:
+    #         self.logger.error("Model path not found in task.")
+    #         raise ValueError("Model path not found in task.")
+
+    #     model = task['model']
+    #     if model is None:
+    #         self.logger.error("No model instance found in task.")
+    #         raise ValueError("No model instance found in task.")
+
+    #     # torch.save(model.state_dict(), model_path)
+    #     torch.save(model, model_path)
+    #     print(f"Model saved to model.pth in the task directory.")
+
     def save_model(self, task):
-        """Save the trained model to disk."""
+        """Save the trained model to disk in a portable format."""
         model_path = task.get('model_path', None)
         if model_path is None:
             self.logger.error("Model path not found in task.")
@@ -427,10 +444,25 @@ class TrainingTaskManager:
         if model is None:
             self.logger.error("No model instance found in task.")
             raise ValueError("No model instance found in task.")
-
+       
         # torch.save(model.state_dict(), model_path)
         torch.save(model, model_path)
         print(f"Model saved to model.pth in the task directory.")
+
+        # Save the model's state_dict and metadata
+        model_export = {
+            'state_dict': model.state_dict(),  # Model weights
+            'input_size': model.input_size,    # Example metadata
+            'hidden_units': model.hidden_units,
+            'num_layers': model.num_layers,
+            'model_class': model.__class__.__name__,  # Model class name
+        }
+
+        # Save to a separate file (e.g., model_export.pth)
+        export_path = model_path.replace(".pth", "_export.pth")
+        torch.save(model_export, export_path)
+        print(f"Model exported to {export_path} in a portable format.")
+
 
     def stop_task(self):
         self.stop_requested = True  # Set the flag to request a stop

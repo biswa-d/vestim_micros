@@ -80,7 +80,7 @@ class LSTMModelLN(nn.Module):
         self.device = device
 
         # Layernorm on input features
-        self.layer_norm_input = nn.LayerNorm(input_size)  
+        #self.layer_norm_input = nn.LayerNorm(input_size)  
 
         # LSTM layer
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_units,

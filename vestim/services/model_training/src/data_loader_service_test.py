@@ -76,7 +76,7 @@ class DataLoaderService:
 
         return np.array(X_sequences), np.array(y_sequences)
 
-    def create_data_loaders(self, folder_path, lookback,feature_cols, target_col, batch_size, num_workers, train_split=0.7, seed=2000):
+    def create_data_loaders(self, train_folder_path, valid_folder_path,lookback,feature_cols, target_col, batch_size, num_workers, train_split=0.7, seed=2000):
         """
         Creates DataLoaders for training and validation data.
 
@@ -94,37 +94,44 @@ class DataLoaderService:
             seed = int(datetime.now().timestamp())
         
         # Load and process data
-        X, y = self.load_and_process_data(folder_path, lookback, feature_cols, target_col)
+        X_train, y_train = self.load_and_process_data(train_folder_path, lookback, feature_cols, target_col)
+        X_valid, y_valid = self.load_and_process_data(valid_folder_path, lookback, feature_cols, target_col)
 
         # Convert to PyTorch tensors
-        X_tensor = torch.tensor(X, dtype=torch.float32)
-        y_tensor = torch.tensor(y, dtype=torch.float32)
+        X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
+        y_train_tensor = torch.tensor(y_train, dtype=torch.float32)
+        X_valid_tensor = torch.tensor(X_valid, dtype=torch.float32)
+        y_valid_tensor = torch.tensor(y_valid, dtype=torch.float32)
 
         # Create a TensorDataset
-        dataset = TensorDataset(X_tensor, y_tensor)
-        dataset_size = len(dataset)
-        indices = list(range(dataset_size))
+        train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+        valid_dataset = TensorDataset(X_valid_tensor, y_valid_tensor)
+        train_dataset_size = len(train_dataset)
+        valid_dataset_size = len(valid_dataset)
+        train_indices = list(range(train_dataset_size))
+        valid_indices = list(range(valid_dataset_size))
 
         # Train-validation split
-        print(f"using train_split: {train_split}")
-        train_size = int(dataset_size * train_split)
-        valid_size = dataset_size - train_size
-        print(f"train_size: {train_size} sequences, valid_size: {valid_size} sequences")
+        # print(f"using train_split: {train_split}")
+        # train_size = int(dataset_size * train_split)
+        # valid_size = dataset_size - train_size
+        print(f"train_size: {train_dataset_size} sequences, valid_size: {valid_dataset_size} sequences")
 
         np.random.seed(seed)
-        np.random.shuffle(indices)
+        np.random.shuffle(train_indices)
+        np.random.shuffle(valid_indices)
 
-        train_indices, valid_indices = indices[:train_size], indices[train_size:]
+        # train_indices, valid_indices = indices[:train_size], indices[train_size:]
 
         train_sampler = SubsetRandomSampler(train_indices)
         valid_sampler = SubsetRandomSampler(valid_indices)
 
         # Create DataLoaders with num_workers included
-        train_loader = DataLoader(dataset, batch_size=batch_size, sampler=train_sampler, drop_last=True, num_workers=num_workers)
-        val_loader = DataLoader(dataset, batch_size=batch_size, sampler=valid_sampler, drop_last=True, num_workers=num_workers)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, drop_last=True, num_workers=num_workers)
+        val_loader = DataLoader(valid_dataset, batch_size=batch_size, sampler=valid_sampler, drop_last=True, num_workers=num_workers)
 
         # Clean up cache variables after DataLoaders are created
-        del X_tensor, y_tensor, indices, train_indices, valid_indices
+        del train_indices, valid_indices, train_dataset, valid_dataset, X_train, y_train, X_valid, y_valid, X_train_tensor, y_train_tensor, X_valid_tensor, y_valid_tensor, train_sampler, valid_sampler
         gc.collect()
         torch.cuda.empty_cache()
 
