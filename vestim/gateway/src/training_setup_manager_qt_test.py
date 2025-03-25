@@ -337,8 +337,7 @@ class VEstimTrainingSetupManager:
                 'hidden_units': hidden_units,
                 'num_layers': layers,
                 'input_size': input_size,
-                'output_size': output_size,
-                'device': 'cuda' if torch.cuda.is_available() else 'cpu'
+                'output_size': output_size
             },
             'hyperparams': {
                 'LAYERS': layers,
@@ -365,9 +364,7 @@ class VEstimTrainingSetupManager:
                 'feature_columns': model_task['FEATURE_COLUMNS'],
                 'target_column': model_task['TARGET_COLUMN'],
                 'train_val_split': hyperparams['TRAIN_VAL_SPLIT'],
-                'num_workers': 4,
-                'shuffle': True,
-                'drop_last': True
+                'num_workers': 4
             },
             'training_params': {
                 'early_stopping': True,
