@@ -256,8 +256,28 @@ class VEstimTrainingSetupManager:
                                                     )
                                                     task_list.append(task_info)
 
+            # Save the task list
             self.training_tasks = task_list
-            self.logger.info(f"Created {len(task_list)} training tasks.")
+            
+            # Save task info for each task
+            for task_info in task_list:
+                task_dir = task_info['model_dir']
+                task_info_file = os.path.join(task_dir, 'task_info.json')
+                
+                # Create a copy of task_info without the model object (which can't be serialized)
+                serializable_info = {k: v for k, v in task_info.items() if k != 'model'}
+                
+                with open(task_info_file, 'w') as f:
+                    json.dump(serializable_info, f, indent=4)
+
+            # Save the entire task list summary at the job level
+            tasks_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
+            serializable_tasks = [{k: v for k, v in task.items() if k != 'model'} for task in task_list]
+            
+            with open(tasks_summary_file, 'w') as f:
+                json.dump(serializable_tasks, f, indent=4)
+
+            self.logger.info(f"Created {len(task_list)} training tasks and saved task information to disk.")
             return task_list
 
         except Exception as e:
@@ -283,14 +303,52 @@ class VEstimTrainingSetupManager:
         )
         os.makedirs(task_dir, exist_ok=True)
 
+        # Create logs directory within task directory
+        logs_dir = os.path.join(task_dir, 'logs')
+        os.makedirs(logs_dir, exist_ok=True)
+
         return {
             'task_id': f"task_{timestamp}_{task_counter}_rep_{repetition}",
             'model': model_task['model'],
             'model_dir': task_dir,
             'model_path': os.path.join(task_dir, 'model.pth'),
-            'hyperparams': hyperparams,
-            'csv_log_file': os.path.join(task_dir, 'training_log.csv'),
-            'db_log_file': os.path.join(task_dir, 'training_log.db')
+            'hyperparams': {
+                # Ensure all required hyperparameters are explicitly included
+                'LAYERS': model_task['hyperparams']['LAYERS'],
+                'HIDDEN_UNITS': model_task['hyperparams']['HIDDEN_UNITS'],
+                'INPUT_SIZE': model_task['hyperparams']['INPUT_SIZE'],
+                'OUTPUT_SIZE': model_task['hyperparams']['OUTPUT_SIZE'],
+                'BATCH_SIZE': hyperparams['BATCH_SIZE'],
+                'MAX_EPOCHS': hyperparams['MAX_EPOCHS'],
+                'INITIAL_LR': hyperparams['INITIAL_LR'],
+                'VALID_PATIENCE': hyperparams['VALID_PATIENCE'],
+                'ValidFrequency': hyperparams['ValidFrequency'],
+                'LOOKBACK': hyperparams['LOOKBACK'],
+                'SCHEDULER_TYPE': hyperparams['SCHEDULER_TYPE'],
+                # Scheduler-specific parameters
+                'LR_PERIOD': hyperparams.get('LR_PERIOD'),
+                'LR_PARAM': hyperparams.get('LR_PARAM'),
+                'PLATEAU_PATIENCE': hyperparams.get('PLATEAU_PATIENCE'),
+                'PLATEAU_FACTOR': hyperparams.get('PLATEAU_FACTOR'),
+                'REPETITIONS': hyperparams['REPETITIONS'],
+            },
+            'data_loader_params': {
+                'lookback': hyperparams['LOOKBACK'],
+                'batch_size': hyperparams['BATCH_SIZE'],
+                'feature_columns': model_task['FEATURE_COLUMNS'],
+                'target_column': model_task['TARGET_COLUMN'],
+                'train_val_split': hyperparams['TRAIN_VAL_SPLIT'],
+                'num_workers': 4  # Make this configurable if needed
+            },
+            'csv_log_file': os.path.join(logs_dir, 'training_progress.csv'),
+            'model_metadata': {  # Add metadata for easier task management
+                'model_type': model_task.get('model_type', 'LSTM'),
+                'num_learnable_params': self.calculate_learnable_parameters(
+                    model_task['hyperparams']['LAYERS'],
+                    model_task['hyperparams']['INPUT_SIZE'],
+                    model_task['hyperparams']['HIDDEN_UNITS']
+                )
+            }
         }
 
     def calculate_learnable_parameters(self, layers, input_size, hidden_units):

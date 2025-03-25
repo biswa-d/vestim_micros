@@ -94,7 +94,7 @@ class TrainingTaskManager:
             # Update progress for starting training
             update_progress_callback.emit({'status': f'Training LSTM model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
 
-            # Call the training method and pass logging information (task_id, db path)
+            # Run training with all necessary parameters
             self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
 
         except Exception as e:
@@ -185,7 +185,6 @@ class TrainingTaskManager:
         """Create data loaders for the current task."""
         lookback = task['data_loader_params']['lookback']
         batch_size = task['data_loader_params']['batch_size']
-        num_workers = 4
         feature_cols = task['data_loader_params']['feature_columns']
         target_col = task['data_loader_params']['target_column']
         train_val_split = task['data_loader_params']['train_val_split']
@@ -197,7 +196,7 @@ class TrainingTaskManager:
             feature_cols=feature_cols,
             target_col=target_col, 
             batch_size=batch_size, 
-            num_workers=num_workers,
+            num_workers=4,
             train_split=train_val_split
         )
 
@@ -239,12 +238,10 @@ class TrainingTaskManager:
             optimizer = self.optimizer
             scheduler = self.scheduler
 
-            # Log the training progress for each epoch
-            def format_time(seconds):
-                """Format time into mm:ss format."""
-                minutes = seconds // 60
-                seconds = seconds % 60
-                return f"{int(minutes)}:{int(seconds):02d}"
+            # Initialize CSV logging
+            csv_log_file = task['csv_log_file']
+            with open(csv_log_file, 'w') as f:
+                f.write("epoch,train_loss,val_loss,learning_rate\n")  # CSV header
 
             # Training loop
             for epoch in range(1, max_epochs + 1):
@@ -377,6 +374,16 @@ class TrainingTaskManager:
             if self.stop_requested:
                 print("Training was stopped early. Exiting...")
                 self.logger.info("Training was stopped early. Exiting...")
+
+            # Final save and cleanup
+            self.save_model(task)
+            
+            # Log final summary
+            with open(os.path.join(task['model_dir'], 'training_summary.txt'), 'w') as f:
+                f.write(f"Training completed\n")
+                f.write(f"Best validation loss: {best_validation_loss:.6f}\n")
+                f.write(f"Final learning rate: {optimizer.param_groups[0]['lr']:.8f}\n")
+                f.write(f"Stopped at epoch: {epoch}/{max_epochs}\n")
 
             update_progress_callback.emit({'task_completed': True})
             self.logger.info("Training task completed")
