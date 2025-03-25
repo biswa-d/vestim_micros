@@ -131,23 +131,33 @@ class VEstimTestingManager:
     def generate_shorthand_name(task):
         """Generate a shorthand name for the task based on hyperparameters."""
         hyperparams = task['hyperparams']
-        layers = hyperparams.get('LAYERS', 'NA')
-        hidden_units = hyperparams.get('HIDDEN_UNITS', 'NA')
-        batch_size = hyperparams.get('BATCH_SIZE', 'NA')
-        max_epochs = hyperparams.get('MAX_EPOCHS', 'NA')
-        lr = hyperparams.get('INITIAL_LR', 'NA')
-        lr_drop_period = hyperparams.get('LR_DROP_PERIOD', 'NA')
-        valid_patience = hyperparams.get('VALID_PATIENCE', 'NA')
-        valid_frequency = hyperparams.get('ValidFrequency', 'NA')
-        lookback = hyperparams.get('LOOKBACK', 'NA')
-        repetitions = hyperparams.get('REPETITIONS', 'NA')
+        # Convert all parameters to strings safely
+        layers = str(hyperparams.get('LAYERS', 'NA'))
+        hidden_units = str(hyperparams.get('HIDDEN_UNITS', 'NA'))
+        batch_size = str(hyperparams.get('BATCH_SIZE', 'NA'))
+        max_epochs = str(hyperparams.get('MAX_EPOCHS', 'NA'))
+        lr = str(hyperparams.get('INITIAL_LR', 'NA'))
+        lr_param = str(hyperparams.get('LR_PARAM', 'NA'))
+        lr_period = str(hyperparams.get('LR_PERIOD', 'NA'))
+        plateau_patience = str(hyperparams.get('PLATEAU_PATIENCE', 'NA'))
+        plateau_factor = str(hyperparams.get('PLATEAU_FACTOR', 'NA'))
+        valid_patience = str(hyperparams.get('VALID_PATIENCE', 'NA'))
+        valid_frequency = str(hyperparams.get('VALID_FREQUENCY', 'NA'))
+        lookback = str(hyperparams.get('LOOKBACK', 'NA'))
+        repetitions = str(hyperparams.get('REPETITIONS', 'NA'))
 
         short_name = (f"L{layers}_H{hidden_units}_B{batch_size}_Lk{lookback}_"
-                      f"E{max_epochs}_LR{lr}_LD{lr_drop_period}_VP{valid_patience}_"
-                      f"VF{valid_frequency}_R{repetitions}")
+                     f"E{max_epochs}_LR{lr}_LP{lr_param}_LPer{lr_period}_"
+                     f"PP{plateau_patience}_PF{plateau_factor}_VP{valid_patience}_"
+                     f"VF{valid_frequency}_R{repetitions}")
 
-        param_string = f"{layers}_{hidden_units}_{batch_size}_{lookback}_{lr}_{valid_patience}_{max_epochs}"
-        short_hash = hashlib.md5(param_string.encode()).hexdigest()[:3]  # First 6 chars for uniqueness
+        # Create unique hash including all parameters
+        param_string = "_".join([
+            layers, hidden_units, batch_size, lookback, lr, 
+            lr_param, lr_period, plateau_patience, plateau_factor,
+            valid_patience, valid_frequency, max_epochs
+        ])
+        short_hash = hashlib.md5(param_string.encode()).hexdigest()[:6]
         shorthand_name = f"{short_name}_{short_hash}"
         return shorthand_name
     

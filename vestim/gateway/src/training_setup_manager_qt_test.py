@@ -121,15 +121,27 @@ class VEstimTrainingSetupManager:
         self.logger.info("Creating training tasks...")
         task_list = []  # Initialize a list to store tasks
 
-        # Retrieve relevant hyperparameters for training (excluding weight decay and dropout)
-        learning_rates = [float(lr) for lr in self.current_hyper_params['INITIAL_LR'].split(',')]
-        lr_drop_periods = [int(drop) for drop in self.current_hyper_params['LR_DROP_PERIOD'].split(',')]
-        lr_drop_factors = [float(drop_factor) for drop_factor in self.current_hyper_params['LR_DROP_FACTOR'].split(',')]
-        valid_patience_values = [int(vp) for vp in self.current_hyper_params['VALID_PATIENCE'].split(',')]
+        # Safely handle parameters that might be comma-separated
+        def parse_numeric_list(param_str, convert_func):
+            if isinstance(param_str, (int, float)):
+                return [param_str]
+            return [convert_func(x.strip()) for x in str(param_str).split(',')]
+
+        # Parse parameters safely
+        learning_rates = parse_numeric_list(self.current_hyper_params['INITIAL_LR'], float)
+        lr_drop_periods = parse_numeric_list(self.current_hyper_params['LR_DROP_PERIOD'], int)
+        lr_drop_factors = parse_numeric_list(self.current_hyper_params['LR_DROP_FACTOR'], float)
+        valid_patience_values = parse_numeric_list(self.current_hyper_params['VALID_PATIENCE'], int)
+        lookbacks = parse_numeric_list(self.current_hyper_params['LOOKBACK'], int)
+        batch_sizes = parse_numeric_list(self.current_hyper_params['BATCH_SIZE'], int)
         repetitions = int(self.current_hyper_params['REPETITIONS'])
-        lookbacks = [int(lb) for lb in self.current_hyper_params['LOOKBACK'].split(',')]
-        batch_sizes = [int(bs) for bs in self.current_hyper_params['BATCH_SIZE'].split(',')]
-        max_epochs = int(self.current_hyper_params['MAX_EPOCHS'])  # Ensure MAX_EPOCHS is included
+
+        # Parse MAX_EPOCHS properly
+        try:
+            max_epochs = int(self.current_hyper_params.get('MAX_EPOCHS', 100))
+        except ValueError:
+            self.logger.warning("Invalid MAX_EPOCHS value, using default of 100")
+            max_epochs = 100
 
         # Set the logic for task_id
         timestamp = time.strftime("%Y%m%d%H%M%S")  # Format timestamp as YYYYMMDDHHMMSS
@@ -197,7 +209,7 @@ class VEstimTrainingSetupManager:
                                                 'VALID_PATIENCE': patience,
                                                 'ValidFrequency': self.current_hyper_params['ValidFrequency'],
                                                 'REPETITIONS': rep,
-                                                'MAX_EPOCHS': max_epochs,  # Include MAX_EPOCHS here
+                                                'MAX_EPOCHS': max_epochs,  # Make sure it's included in the task
                                                 'NUM_LEARNABLE_PARAMS': num_learnable_params,
                                             },
                                             'csv_log_file': csv_log_file,
@@ -278,5 +290,48 @@ class VEstimTrainingSetupManager:
     def get_task_list(self):
         """Returns the list of training tasks."""
         return self.training_tasks
+
+    def validate_parameters(self, params):
+        """Validate and convert parameters to appropriate types."""
+        try:
+            # Ensure MAX_EPOCHS is a positive integer
+            max_epochs = int(params.get('MAX_EPOCHS', 100))
+            if max_epochs <= 0:
+                raise ValueError("MAX_EPOCHS must be a positive integer")
+            
+            validated = {
+                # Model structure parameters
+                'FEATURE_COLUMNS': params['FEATURE_COLUMNS'],
+                'TARGET_COLUMN': params['TARGET_COLUMN'],
+                'MODEL_TYPE': params['MODEL_TYPE'],
+                'LAYERS': str(params['LAYERS']),  # Keep as string for potential comma-separated values
+                'HIDDEN_UNITS': str(params['HIDDEN_UNITS']),  # Keep as string for potential comma-separated values
+                'TRAINING_METHOD': params['TRAINING_METHOD'],
+                
+                # Training parameters
+                'LOOKBACK': str(params['LOOKBACK']),  # Keep as string for potential comma-separated values
+                'BATCH_TRAINING': bool(params['BATCH_TRAINING']),
+                'BATCH_SIZE': str(params['BATCH_SIZE']),  # Keep as string for potential comma-separated values
+                'TRAIN_VAL_SPLIT': float(params['TRAIN_VAL_SPLIT']),
+                
+                # Learning rate parameters
+                'SCHEDULER_TYPE': params['SCHEDULER_TYPE'],
+                'INITIAL_LR': str(params['INITIAL_LR']),  # Keep as string for potential comma-separated values
+                'LR_PARAM': str(params['LR_PARAM']),
+                'LR_PERIOD': str(params['LR_PERIOD']),
+                'PLATEAU_PATIENCE': str(params['PLATEAU_PATIENCE']),
+                'PLATEAU_FACTOR': str(params['PLATEAU_FACTOR']),
+                
+                # Validation parameters
+                'VALID_PATIENCE': str(params['VALID_PATIENCE']),  # Keep as string for potential comma-separated values
+                'VALID_FREQUENCY': str(params['VALID_FREQUENCY']),
+                
+                # Additional parameters
+                'MAX_EPOCHS': max_epochs,  # Store as integer
+                'REPETITIONS': int(params.get('REPETITIONS', 1))  # Default to 1 if not provided
+            }
+            return validated
+        except (ValueError, KeyError) as e:
+            raise ValueError(f"Parameter validation failed: {str(e)}")
 
 
