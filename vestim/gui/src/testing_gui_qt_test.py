@@ -12,7 +12,11 @@
 # ---------------------------------------------------------------------------------
 
 
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QDialog, QMessageBox, QGridLayout
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, 
+    QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QDialog, QMessageBox, 
+    QGridLayout
+)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt5.QtGui import QFont, QDesktopServices
 import os, sys, time
@@ -20,8 +24,9 @@ import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from queue import Queue, Empty
-import logging  
+import logging
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Import your services
 from vestim.gateway.src.testing_manager_qt import VEstimTestingManager
@@ -30,10 +35,9 @@ from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetu
 from vestim.gateway.src.hyper_param_manager_qt_test import VEstimHyperParamManager
 
 class TestingThread(QThread):
-    # Define the signals at the class level
-    update_status_signal = pyqtSignal(str)  # Signal to send status messages
-    result_signal = pyqtSignal(dict)        # Signal to send test results
-    testing_complete_signal = pyqtSignal()  # Signal to indicate all tasks are complete
+    update_status_signal = pyqtSignal(str)
+    result_signal = pyqtSignal(dict)
+    testing_complete_signal = pyqtSignal()
 
     def __init__(self, testing_manager, queue):
         super().__init__()
@@ -44,25 +48,23 @@ class TestingThread(QThread):
 
     def run(self):
         try:
-            self.testing_manager.start_testing(self.queue)  # Pass the queue to the manager
+            self.testing_manager.start_testing(self.queue)
             while not self.stop_flag:
                 try:
-                    result = self.queue.get(timeout=1)  # Non-blocking queue retrieval
+                    result = self.queue.get(timeout=1)
                     if result:
-                        # Check for the special completion message
                         if 'all_tasks_completed' in result:
-                            self.testing_complete_signal.emit()  # Emit signal to inform the GUI
-                            self.stop_flag = True  # Stop the thread loop
+                            self.testing_complete_signal.emit()
+                            self.stop_flag = True
                         else:
                             self.result_signal.emit(result)
                 except Empty:
-                    continue  # Continue checking until the thread finishes testing
+                    continue
         except Exception as e:
             self.update_status_signal.emit(f"Error: {str(e)}")
         finally:
             print("Testing thread is stopping...")
-            self.quit()  # Ensure the thread stops properly
-            # self.wait()  # Make sure all operations are completed before exiting
+            self.quit()
 
 
 class VEstimTestingGUI(QMainWindow):
@@ -266,11 +268,12 @@ class VEstimTestingGUI(QMainWindow):
             file_name = task_data.get("file_name", "Unknown File")
             num_learnable_params = str(task_data.get("#params", "N/A"))
 
-            # Extract metrics (all in mV)
+            # Extract metrics
             rms_error = f"{task_data.get('rms_error_mv', 0):.2f}"
             max_error = f"{task_data.get('max_error_mv', 0):.2f}"
             mape = f"{task_data.get('mape', 0):.2f}"
             r2 = f"{task_data.get('r2', 0):.4f}"
+            test_file_path = task_data.get("test_file", "Unknown Test File")
 
             # Add row data to QTreeWidget
             row = QTreeWidgetItem([
@@ -284,36 +287,67 @@ class VEstimTestingGUI(QMainWindow):
                 mape,
                 r2
             ])
+            self.sl_no_counter += 1
 
             # Create "Plot" button
             plot_button = QPushButton("Plot Result")
             plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")
-            # Use test_file path for plotting
-            test_file = task_data.get('test_file', '')
-            plot_button.clicked.connect(lambda _, path=test_file: self.plot_model_results(path))
+            plot_button.clicked.connect(lambda _, path=save_dir: self.plot_model_result(test_file_path, save_dir))
 
             self.tree.addTopLevelItem(row)
             self.tree.setItemWidget(row, 9, plot_button)
-            self.sl_no_counter += 1
 
-    def plot_model_results(self, predictions_file):
-        """Plot test results from a predictions CSV file."""
+    def plot_model_result(self, test_file_path, save_dir):
+        """Plot test results for a specific model."""
         try:
-            print(f"Plotting results for test file: {predictions_file}")
-            
-            if not os.path.exists(predictions_file):
-                QMessageBox.critical(self, "Error", f"Predictions file not found: {predictions_file}")
+            print(f"Plotting results for test file: {test_file_path}")
+            if not os.path.exists(test_file_path):
+                QMessageBox.critical(self, "Error", f"Test file not found: {test_file_path}")
                 return
 
-            # Read and plot predictions
-            df = pd.read_csv(predictions_file)
-            if 'True Values (V)' in df.columns and 'Predictions (V)' in df.columns:
-                self.plot_predictions(df['True Values (V)'], df['Predictions (V)'])
-            else:
-                QMessageBox.warning(self, "Warning", "Invalid predictions file format")
+            df = pd.read_csv(test_file_path)
+            if "True Values (V)" not in df.columns or "Predictions (V)" not in df.columns:
+                QMessageBox.critical(self, "Error", f"Required columns not found in the file: {test_file_path}")
+                return
+
+            errors = df["Difference (mV)"]
+            rms_error = np.sqrt(np.mean(errors**2))
+            max_error = np.max(np.abs(errors))
+
+            # Create plot window and display results
+            plot_window = QDialog(self)
+            test_name = os.path.splitext(os.path.basename(test_file_path))[0]
+            plot_window.setWindowTitle(f"Test Results: {test_name}")
+            plot_window.setGeometry(200, 100, 800, 600)
+
+            fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
+            ax.plot(df["True Values (V)"], label='True Values (V)', color='blue', marker='o', markersize=5, linestyle='-', linewidth=1)
+            ax.plot(df["Predictions (V)"], label='Predictions (V)', color='red', marker='x', markersize=5, linestyle='--', linewidth=1)
+
+            text_str = f"RMS Error: {rms_error:.4f} V\nMax Error: {max_error:.4f} V"
+            ax.text(0.02, 0.98, text_str, transform=ax.transAxes, fontsize=12, verticalalignment='top', 
+                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+            ax.set_xlabel('Index', fontsize=12)
+            ax.set_ylabel('Voltage (V)', fontsize=12)
+            ax.set_title(f"Test: {test_name}", fontsize=14, fontweight='bold')
+            ax.legend(loc='upper right', fontsize=10)
+            ax.grid(True, linestyle='--', alpha=0.6)
+            ax.tick_params(axis='both', which='major', labelsize=10)
+
+            canvas = FigureCanvas(fig)
+            layout = QVBoxLayout()
+            layout.addWidget(canvas)
+
+            save_button = QPushButton("Save Plot")
+            save_button.clicked.connect(lambda checked, f=fig, t=test_file_path: self.save_plot(f, t, save_dir))
+            layout.addWidget(save_button)
+
+            plot_window.setLayout(layout)
+            plot_window.show()
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error plotting results: {str(e)}")
+            QMessageBox.critical(self, "Error", f"An error occurred while plotting results\n{str(e)}")
 
     def start_testing(self):
         print("Starting testing...")

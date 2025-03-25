@@ -101,7 +101,7 @@ class VEstimTestingManager:
             shorthand_name = self.generate_shorthand_name(task)
 
             # Get all test files in the test folder
-            test_files = [f for f in os.listdir(test_folder) if f.endswith('.csv')]  # Adjust extension if needed
+            test_files = [f for f in os.listdir(test_folder) if f.endswith('.csv')]
             if not test_files:
                 print(f"No test files found in {test_folder}")
                 return
@@ -109,31 +109,29 @@ class VEstimTestingManager:
             print(f"Found {len(test_files)} test files. Running tests...")
 
             for test_file in test_files:
-                file_name = os.path.splitext(test_file)[0]
                 test_file_path = os.path.join(test_folder, test_file)
                 print(f"Processing test file: {test_file}")
 
                 # Load and process test data for the specific file
-                test_file_loader = self.test_data_service.create_test_file_loader(test_file_path, lookback, batch_size, feature_cols, target_col)
+                test_file_loader = self.test_data_service.create_test_file_loader(
+                    test_file_path, 
+                    lookback, 
+                    batch_size, 
+                    feature_cols, 
+                    target_col
+                )
 
                 # Run testing on this file
                 results = self.testing_service.run_testing(task, model_path, test_file_loader, test_file_path)
+                prediction_file_path = self.save_test_results(results, save_dir, test_file_path)
 
-                # Save predictions with correct column names
-                predictions_file = os.path.join(save_dir, f"{file_name}_predictions.csv")
-                pd.DataFrame({
-                    'True Values (V)': results['y_test'],
-                    'Predictions (V)': results['predictions'],
-                    'Error (mV)': (results['predictions'] - results['y_test']) * 1000  # Convert to mV
-                }).to_csv(predictions_file, index=False)
-
-                # Send results to GUI with the predictions file path
+                # Send file-specific test results to the queue
                 self.queue.put({
                     'task_completed': {
                         'task_id': task_id,
                         'model': shorthand_name,
-                        'test_file': predictions_file,  # Full path to predictions file
-                        'file_name': file_name[:15] + "...",
+                        'test_file': prediction_file_path,
+                        'file_name': test_file[:15] + "..." if len(test_file) > 15 else test_file,
                         'rms_error_mv': results['rms_error_mv'],
                         'max_error_mv': results['max_error_mv'],
                         'mape': results['mape'],
@@ -143,46 +141,86 @@ class VEstimTestingManager:
                     }
                 })
 
+                # Log results if log files are specified
+                if 'csv_log_file' in task and 'db_log_file' in task:
+                    self.log_test_to_csv(task, results, task['csv_log_file'])
+                    self.log_test_to_sqlite(task, results, task['db_log_file'])
+
         except Exception as e:
             print(f"Error testing model {task['model_path']}: {str(e)}")
             self.queue.put({'task_error': str(e)})
 
     def save_test_results(self, results, save_dir, test_file_path):
-        """
-        Saves the test results for each test file to a model-specific subdirectory.
-
-        :param results: Dictionary containing predictions, true values, and metrics.
-        :param model_name: Name of the model (or model file) to label the results.
-        :param save_dir: Directory where the results will be saved.
-        :param test_file_path: The path of the test file used for generating predictions.
-        """
-
-        # Extract the test file name without extension for unique result filenames
+        """Saves the test results for each test file."""
         test_file_name = os.path.splitext(os.path.basename(test_file_path))[0]
 
-        # Create a DataFrame to store the predictions and true values
+        # Create a DataFrame with predictions and true values
         df = pd.DataFrame({
             'True Values (V)': results['true_values'],
             'Predictions (V)': results['predictions'],
-            'Difference (mV)': (results['true_values'] - results['predictions']) * 1000  # Difference in mV
+            'Difference (mV)': (results['true_values'] - results['predictions']) * 1000
         })
 
-        # Save the DataFrame as a CSV file named after the test file
+        # Save predictions CSV
         prediction_file = os.path.join(save_dir, f"{test_file_name}_predictions.csv")
         df.to_csv(prediction_file, index=False)
 
-        # Save the metrics separately for the test file
+        # Save metrics text file
         metrics_file = os.path.join(save_dir, f"{test_file_name}_metrics.txt")
         with open(metrics_file, 'w') as f:
             f.write(f"Test File: {test_file_name}\n")
             f.write(f"RMS Error (mV): {results['rms_error_mv']:.2f}\n")
-            f.write(f"MAE (mV): {results['mae_mv']:.2f}\n")
+            f.write(f"MAX Error (mV): {results['max_error_mv']:.2f}\n")
             f.write(f"MAPE (%): {results['mape']:.2f}\n")
             f.write(f"R²: {results['r2']:.4f}\n")
 
         print(f"Results and metrics for test file '{test_file_name}' saved in {save_dir}")
+        return prediction_file
 
-    
+    def log_test_to_sqlite(self, task, results, db_log_file):
+        """Log test results to SQLite database."""
+        conn = sqlite3.connect(db_log_file)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS test_logs (
+                task_id TEXT,
+                model TEXT,
+                rms_error_mv REAL,
+                max_error_mv REAL,
+                mape REAL,
+                r2 REAL,
+                PRIMARY KEY(task_id)
+            )
+        ''')
+
+        cursor.execute('''
+            INSERT OR REPLACE INTO test_logs (task_id, model, rms_error_mv, max_error_mv, mape, r2)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (task['task_id'], task['model_path'], results['rms_error_mv'], 
+              results['max_error_mv'], results['mape'], results['r2']))
+
+        conn.commit()
+        conn.close()
+
+    def log_test_to_csv(self, task, results, csv_log_file):
+        """Log test results to CSV file."""
+        fieldnames = ['Task ID', 'Model', 'RMS Error (mV)', 'MAX Error (mV)', 'MAPE', 'R2']
+        file_exists = os.path.isfile(csv_log_file)
+
+        with open(csv_log_file, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow({
+                'Task ID': task['task_id'],
+                'Model': task['model_path'],
+                'RMS Error (mV)': results['rms_error_mv'],
+                'MAX Error (mV)': results['max_error_mv'],
+                'MAPE': results['mape'],
+                'R2': results['r2']
+            })
+
     @staticmethod
     def generate_shorthand_name(task):
         """Generate a shorthand name for the task based on hyperparameters."""
@@ -206,50 +244,5 @@ class VEstimTestingManager:
         short_hash = hashlib.md5(param_string.encode()).hexdigest()[:3]  # First 6 chars for uniqueness
         shorthand_name = f"{short_name}_{short_hash}"
         return shorthand_name
-    
-    def log_test_to_sqlite(self, task, results, db_log_file):
-        """Log test results to SQLite database."""
-        conn = sqlite3.connect(db_log_file)
-        cursor = conn.cursor()
-
-        # Create the test_logs table if it doesn't exist
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS test_logs (
-                task_id TEXT,
-                model TEXT,
-                rms_error_mv REAL,
-                mae_mv REAL,
-                mape REAL,
-                r2 REAL,
-                PRIMARY KEY(task_id)
-            )
-        ''')
-
-        # Insert test results
-        cursor.execute('''
-            INSERT OR REPLACE INTO test_logs (task_id, model, rms_error_mv, mae_mv, mape, r2)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (task['task_id'], task['model_path'], results['rms_error_mv'], results['mae_mv'], results['mape'], results['r2']))
-
-        conn.commit()
-        conn.close()
-
-    def log_test_to_csv(self, task, results, csv_log_file):
-        """Log test results to CSV file."""
-        fieldnames = ['Task ID', 'Model', 'RMS Error (mV)', 'MAE (mV)', 'MAPE', 'R2']
-        file_exists = os.path.isfile(csv_log_file)
-
-        with open(csv_log_file, 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            if not file_exists:
-                writer.writeheader()  # Write header only once
-            writer.writerow({
-                'Task ID': task['task_id'],
-                'Model': task['model_path'],
-                'RMS Error (mV)': results['rms_error_mv'],
-                'MAE (mV)': results['mae_mv'],
-                'MAPE': results['mape'],
-                'R2': results['r2']
-            })
 
 
