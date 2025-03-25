@@ -445,6 +445,7 @@ class VEstimTestingGUI(QMainWindow):
         # Start processing the queue after the thread starts
         self.process_queue()
     
+    
     def update_elapsed_time(self):
         """Update the elapsed time label."""
         if self.timer_running:
