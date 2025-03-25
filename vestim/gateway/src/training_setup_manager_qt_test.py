@@ -182,18 +182,16 @@ class VEstimTrainingSetupManager:
             batch_sizes = parse_param_list(self.current_hyper_params['BATCH_SIZE'], int)
             max_epochs = parse_param_list(self.current_hyper_params.get('MAX_EPOCHS', '100'), int)
             valid_patience = parse_param_list(self.current_hyper_params['VALID_PATIENCE'], int)
-            repetitions = int(self.current_hyper_params['REPETITIONS'])
+            repetitions = int(self.current_hyper_params.get('REPETITIONS', '1'))  # Default to 1 if not specified
             
             # Get scheduler type
             scheduler_type = self.current_hyper_params.get('SCHEDULER_TYPE', 'StepLR')
 
             # Parse scheduler-specific parameters
             if scheduler_type == 'StepLR':
-                # StepLR parameters
                 lr_periods = parse_param_list(self.current_hyper_params['LR_PERIOD'], int)
                 lr_factors = parse_param_list(self.current_hyper_params['LR_PARAM'], float)
             else:  # ReduceLROnPlateau
-                # Plateau scheduler parameters
                 plateau_patience = parse_param_list(self.current_hyper_params['PLATEAU_PATIENCE'], int)
                 plateau_factors = parse_param_list(self.current_hyper_params['PLATEAU_FACTOR'], float)
 
@@ -211,43 +209,49 @@ class VEstimTrainingSetupManager:
                                 for vp in valid_patience:
                                     # Branch based on scheduler type
                                     if scheduler_type == 'StepLR':
-                                        # StepLR specific combinations
                                         for period in lr_periods:
                                             for factor in lr_factors:
-                                                task_info = self._create_task_info(
-                                                    model_task=model_task,
-                                                    hyperparams={
-                                                        'INITIAL_LR': lr,
-                                                        'TRAIN_VAL_SPLIT': train_val_split,
-                                                        'LOOKBACK': lookback,
-                                                        'BATCH_SIZE': batch_size,
-                                                        'VALID_PATIENCE': vp,
-                                                        'MAX_EPOCHS': max_epochs[0],
-                                                        'SCHEDULER_TYPE': 'StepLR',
-                                                        'LR_PERIOD': period,
-                                                        'LR_PARAM': factor,
-                                                    }
-                                                )
-                                                task_list.append(task_info)
+                                                # Add repetitions as innermost loop
+                                                for rep in range(1, repetitions + 1):
+                                                    task_info = self._create_task_info(
+                                                        model_task=model_task,
+                                                        hyperparams={
+                                                            'INITIAL_LR': lr,
+                                                            'TRAIN_VAL_SPLIT': train_val_split,
+                                                            'LOOKBACK': lookback,
+                                                            'BATCH_SIZE': batch_size,
+                                                            'VALID_PATIENCE': vp,
+                                                            'MAX_EPOCHS': max_epochs[0],
+                                                            'SCHEDULER_TYPE': 'StepLR',
+                                                            'LR_PERIOD': period,
+                                                            'LR_PARAM': factor,
+                                                            'REPETITIONS': rep,  # Add current repetition number
+                                                        },
+                                                        repetition=rep  # Pass repetition to task info creation
+                                                    )
+                                                    task_list.append(task_info)
                                     else:
-                                        # ReduceLROnPlateau specific combinations
                                         for p_patience in plateau_patience:
                                             for p_factor in plateau_factors:
-                                                task_info = self._create_task_info(
-                                                    model_task=model_task,
-                                                    hyperparams={
-                                                        'INITIAL_LR': lr,
-                                                        'TRAIN_VAL_SPLIT': train_val_split,
-                                                        'LOOKBACK': lookback,
-                                                        'BATCH_SIZE': batch_size,
-                                                        'VALID_PATIENCE': vp,
-                                                        'MAX_EPOCHS': max_epochs[0],
-                                                        'SCHEDULER_TYPE': 'ReduceLROnPlateau',
-                                                        'PLATEAU_PATIENCE': p_patience,
-                                                        'PLATEAU_FACTOR': p_factor,
-                                                    }
-                                                )
-                                                task_list.append(task_info)
+                                                # Add repetitions as innermost loop
+                                                for rep in range(1, repetitions + 1):
+                                                    task_info = self._create_task_info(
+                                                        model_task=model_task,
+                                                        hyperparams={
+                                                            'INITIAL_LR': lr,
+                                                            'TRAIN_VAL_SPLIT': train_val_split,
+                                                            'LOOKBACK': lookback,
+                                                            'BATCH_SIZE': batch_size,
+                                                            'VALID_PATIENCE': vp,
+                                                            'MAX_EPOCHS': max_epochs[0],
+                                                            'SCHEDULER_TYPE': 'ReduceLROnPlateau',
+                                                            'PLATEAU_PATIENCE': p_patience,
+                                                            'PLATEAU_FACTOR': p_factor,
+                                                            'REPETITIONS': rep,  # Add current repetition number
+                                                        },
+                                                        repetition=rep  # Pass repetition to task info creation
+                                                    )
+                                                    task_list.append(task_info)
 
             self.training_tasks = task_list
             self.logger.info(f"Created {len(task_list)} training tasks.")
@@ -257,13 +261,13 @@ class VEstimTrainingSetupManager:
             self.logger.error(f"Error creating training tasks: {e}")
             raise
 
-    def _create_task_info(self, model_task, hyperparams):
+    def _create_task_info(self, model_task, hyperparams, repetition):
         """Helper method to create a task info dictionary."""
         timestamp = time.strftime("%Y%m%d%H%M%S")
         task_counter = getattr(self, '_task_counter', 0) + 1
         self._task_counter = task_counter
         
-        # Create task directory with relevant parameters
+        # Create task directory with relevant parameters and repetition number
         scheduler_type = hyperparams['SCHEDULER_TYPE']
         if scheduler_type == 'StepLR':
             task_dir_name = f'lr_{hyperparams["INITIAL_LR"]}_period_{hyperparams["LR_PERIOD"]}_factor_{hyperparams["LR_PARAM"]}'
@@ -272,12 +276,12 @@ class VEstimTrainingSetupManager:
         
         task_dir = os.path.join(
             model_task['model_dir'],
-            f'{task_dir_name}_vp_{hyperparams["VALID_PATIENCE"]}_lb_{hyperparams["LOOKBACK"]}_bs_{hyperparams["BATCH_SIZE"]}'
+            f'{task_dir_name}_vp_{hyperparams["VALID_PATIENCE"]}_lb_{hyperparams["LOOKBACK"]}_bs_{hyperparams["BATCH_SIZE"]}_rep_{repetition}'
         )
         os.makedirs(task_dir, exist_ok=True)
 
         return {
-            'task_id': f"task_{timestamp}_{task_counter}",
+            'task_id': f"task_{timestamp}_{task_counter}_rep_{repetition}",
             'model': model_task['model'],
             'model_dir': task_dir,
             'model_path': os.path.join(task_dir, 'model.pth'),
