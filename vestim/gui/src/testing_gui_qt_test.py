@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
     QGridLayout
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
-from PyQt5.QtGui import QFont, QDesktopServices
+from PyQt5.QtGui import QFont, QDesktopServices, QPixmap
 import os, sys, time
 import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -310,13 +310,25 @@ class VEstimTestingGUI(QMainWindow):
             ])
             self.sl_no_counter += 1
 
-            # Create "Plot" button
+            # Create button layout widget
+            button_widget = QWidget()
+            button_layout = QHBoxLayout(button_widget)
+            button_layout.setContentsMargins(4, 0, 4, 0)  # Reduce margins
+
+            # Create "Plot Result" button
             plot_button = QPushButton("Plot Result")
             plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")
             plot_button.clicked.connect(lambda _, path=save_dir: self.plot_model_result(test_file_path, save_dir))
+            button_layout.addWidget(plot_button)
 
+            # Add row to tree widget
             self.tree.addTopLevelItem(row)
-            self.tree.setItemWidget(row, 9, plot_button)
+            self.tree.setItemWidget(row, 9, button_widget)
+
+            # Automatically show training history plot if it exists
+            training_history_path = os.path.join(save_dir, f'training_history_{task_id}.png')
+            if os.path.exists(training_history_path):
+                self.show_training_history_plot(training_history_path, task_id)
 
     def plot_model_result(self, test_file_path, save_dir):
         """Plot test results for a specific model."""
@@ -369,6 +381,28 @@ class VEstimTestingGUI(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while plotting results\n{str(e)}")
+
+    def show_training_history_plot(self, plot_path, task_id):
+        """Display the training history plot in a new window."""
+        try:
+            plot_window = QDialog(self)
+            plot_window.setWindowTitle(f"Training History - Task {task_id}")
+            plot_window.setGeometry(200, 100, 800, 600)
+
+            # Create QLabel to display the image
+            image_label = QLabel()
+            pixmap = QPixmap(plot_path)
+            scaled_pixmap = pixmap.scaled(780, 580, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            image_label.setPixmap(scaled_pixmap)
+
+            # Create layout
+            layout = QVBoxLayout()
+            layout.addWidget(image_label)
+            plot_window.setLayout(layout)
+            plot_window.show()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to display training history plot: {str(e)}")
 
     def start_testing(self):
         print("Starting testing...")

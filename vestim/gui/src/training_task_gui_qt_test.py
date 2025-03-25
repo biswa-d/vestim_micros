@@ -11,6 +11,8 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from queue import Queue, Empty
 from threading import Thread
 import logging, wandb
+import os
+import matplotlib.pyplot as plt
 
 # Import local services
 from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
@@ -593,6 +595,39 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.task_completed_flag = True  # Set the flag to True on the first call
 
         self.timer_running = False
+
+        # Save the training plot for the current task
+        try:
+            task_id = self.task_list[self.current_task_index].get('task_id', f'task_{self.current_task_index + 1}')
+            save_dir = self.task_list[self.current_task_index].get('saved_dir', self.job_manager.get_job_folder())
+            
+            # Create a new figure for saving
+            fig = Figure(figsize=(8, 5), dpi=300)
+            ax = fig.add_subplot(111)
+            
+            # Plot the data using actual epoch numbers
+            ax.plot(self.epoch_points, self.train_loss_values, label='Training', color='blue', marker='.')
+            ax.plot(self.epoch_points, self.valid_loss_values, label='Validation', color='red', marker='.')
+            
+            # Set y-axis to log scale
+            ax.set_yscale('log')
+            
+            # Set labels and title
+            ax.set_xlabel('Epoch')
+            ax.set_ylabel('RMS Error [mV]')
+            ax.set_title(f'Training History - Task {task_id}')
+            ax.legend()
+            ax.grid(True, which="both", ls="-", alpha=0.2)
+            ax.grid(True, which="minor", ls=":", alpha=0.1)
+            
+            # Save the plot
+            plot_file = os.path.join(save_dir, f'training_history_{task_id}.png')
+            fig.savefig(plot_file, bbox_inches='tight')
+            plt.close(fig)
+            
+            print(f"Saved training history plot for task {task_id} at: {plot_file}")
+        except Exception as e:
+            print(f"Failed to save training history plot: {str(e)}")
 
         if self.isVisible():  # Check if the window still exists
             total_training_time = time.time() - self.start_time
