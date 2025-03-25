@@ -165,119 +165,132 @@ class VEstimTrainingSetupManager:
         self.logger.info("Creating training tasks...")
         task_list = []  # Initialize a list to store tasks
 
-        # Retrieve relevant hyperparameters for training (excluding weight decay and dropout)
-        learning_rates = [float(lr) for lr in self.current_hyper_params['INITIAL_LR'].split(',')]
-        train_val_splits = [float(tv) for tv in self.current_hyper_params['TRAIN_VAL_SPLIT'].split(',')]
-        lr_drop_periods = [int(drop) for drop in self.current_hyper_params['LR_DROP_PERIOD'].split(',')]
-        lr_drop_factors = [float(drop_factor) for drop_factor in self.current_hyper_params['LR_DROP_FACTOR'].split(',')]
-        valid_patience_values = [int(vp) for vp in self.current_hyper_params['VALID_PATIENCE'].split(',')]
-        repetitions = int(self.current_hyper_params['REPETITIONS'])
-        lookbacks = [int(lb) for lb in self.current_hyper_params['LOOKBACK'].split(',')]
-        batch_sizes = [int(bs) for bs in self.current_hyper_params['BATCH_SIZE'].split(',')]
-        max_epochs = int(self.current_hyper_params['MAX_EPOCHS'])  # Ensure MAX_EPOCHS is included
+        def parse_param_list(param_value, convert_func=float):
+            """Safely parse parameter that might be comma-separated."""
+            if isinstance(param_value, (int, float)):
+                return [param_value]
+            try:
+                return [convert_func(x.strip()) for x in str(param_value).split(',')]
+            except ValueError as e:
+                self.logger.error(f"Error parsing parameter: {param_value}")
+                raise ValueError(f"Error parsing parameter: {param_value}") from e
 
-        # Set the logic for task_id
-        timestamp = time.strftime("%Y%m%d%H%M%S")  # Format timestamp as YYYYMMDDHHMMSS
-        task_counter = 1
+        try:
+            # Parse parameters safely
+            learning_rates = parse_param_list(self.current_hyper_params['INITIAL_LR'], float)
+            lr_params = parse_param_list(self.current_hyper_params['LR_PARAM'], float)
+            lr_periods = parse_param_list(self.current_hyper_params['LR_PERIOD'], int)
+            plateau_patience = parse_param_list(self.current_hyper_params['PLATEAU_PATIENCE'], int)
+            plateau_factors = parse_param_list(self.current_hyper_params['PLATEAU_FACTOR'], float)
+            valid_patience_values = parse_param_list(self.current_hyper_params['VALID_PATIENCE'], int)
+            max_epochs = int(self.current_hyper_params.get('MAX_EPOCHS', 100))
 
-        # Iterate through each model and create tasks
-        for model_task in self.models:
-            model = model_task['model']  # Define model once per model_task
-            model_metadata = {
-                'model_type': model_task['model_type'],
-                'input_size': model_task['hyperparams']['INPUT_SIZE'],
-                'hidden_units': model_task['hyperparams']['HIDDEN_UNITS'],
-                'num_layers': model_task['hyperparams']['LAYERS'],
-            }
-            num_learnable_params = self.calculate_learnable_parameters(
-                model_task['hyperparams']['LAYERS'],  
-                model_task['hyperparams']['INPUT_SIZE'],  
-                model_task['hyperparams']['HIDDEN_UNITS']
-            )
-            feature_columns = model_task['FEATURE_COLUMNS']
-            target_column = model_task['TARGET_COLUMN']
+            # Set the logic for task_id
+            timestamp = time.strftime("%Y%m%d%H%M%S")  # Format timestamp as YYYYMMDDHHMMSS
+            task_counter = 1
 
-            # Iterate through hyperparameters (excluding weight decay & dropout)
-            for lr in learning_rates:
-                for tv in train_val_splits:
-                    for drop_period in lr_drop_periods:
-                        for drop_factor in lr_drop_factors:
-                            for patience in valid_patience_values:
-                                for lookback in lookbacks:
-                                    for batch_size in batch_sizes:
-                                        for rep in range(1, repetitions + 1):
+            # Iterate through each model and create tasks
+            for model_task in self.models:
+                model = model_task['model']  # Define model once per model_task
+                model_metadata = {
+                    'model_type': model_task['model_type'],
+                    'input_size': model_task['hyperparams']['INPUT_SIZE'],
+                    'hidden_units': model_task['hyperparams']['HIDDEN_UNITS'],
+                    'num_layers': model_task['hyperparams']['LAYERS'],
+                }
+                num_learnable_params = self.calculate_learnable_parameters(
+                    model_task['hyperparams']['LAYERS'],  
+                    model_task['hyperparams']['INPUT_SIZE'],  
+                    model_task['hyperparams']['HIDDEN_UNITS']
+                )
+                feature_columns = model_task['FEATURE_COLUMNS']
+                target_column = model_task['TARGET_COLUMN']
 
-                                            # Create a unique task_id
-                                            task_id = f"task_{timestamp}_{task_counter}"
-                                            task_counter += 1  # Increment for each subsequent task
+                # Iterate through hyperparameters (excluding weight decay & dropout)
+                for lr in learning_rates:
+                    for tv in lr_params:
+                        for drop_period in lr_periods:
+                            for drop_factor in plateau_factors:
+                                for patience in plateau_patience:
+                                    for lookback in range(1, 11):
+                                        for batch_size in range(10, 101, 10):
+                                            for rep in range(1, 6):
 
-                                            # Create a unique directory for each task based on all parameters
-                                            task_dir = os.path.join(
-                                                model_task['model_dir'],
-                                                f'lr_{lr}_drop_{drop_period}_patience_{patience}_rep_{rep}_lookback_{lookback}_batch_{batch_size}'
-                                            )
-                                            os.makedirs(task_dir, exist_ok=True)
+                                                # Create a unique task_id
+                                                task_id = f"task_{timestamp}_{task_counter}"
+                                                task_counter += 1  # Increment for each subsequent task
 
-                                            # Create the log files at this stage
-                                            csv_log_file = os.path.join(task_dir, f"{task_id}_train_log.csv")
-                                            db_log_file = os.path.join(task_dir, f"{task_id}_train_log.db")
+                                                # Create a unique directory for each task based on all parameters
+                                                task_dir = os.path.join(
+                                                    model_task['model_dir'],
+                                                    f'lr_{lr}_drop_{drop_period}_patience_{patience}_rep_{rep}_lookback_{lookback}_batch_{batch_size}'
+                                                )
+                                                os.makedirs(task_dir, exist_ok=True)
 
-                                            # Define task information
-                                            task_info = {
-                                                'task_id': task_id,
-                                                "task_dir": task_dir,
-                                                'model_type': model_metadata['model_type'],
-                                                'model': model,
-                                                'model_metadata': model_metadata,  # Use metadata instead of the full model
-                                                'data_loader_params': {
-                                                    'lookback': lookback,
-                                                    'batch_size': batch_size,
-                                                    'feature_columns': feature_columns,
-                                                    'target_column': target_column,
-                                                    'train_val_split': tv,
-                                                },
-                                                'model_dir': task_dir,
-                                                'model_path': os.path.join(task_dir, 'model.pth'),
-                                                'hyperparams': {
-                                                    'LAYERS': model_metadata['num_layers'],
-                                                    'HIDDEN_UNITS': model_metadata['hidden_units'],
-                                                    'BATCH_SIZE': batch_size,
-                                                    'LOOKBACK': lookback,
-                                                    'INITIAL_LR': lr,
-                                                    'LR_DROP_PERIOD': drop_period,
-                                                    'LR_DROP_FACTOR': drop_factor,
-                                                    'VALID_PATIENCE': patience,
-                                                    'ValidFrequency': self.current_hyper_params['ValidFrequency'],
-                                                    'REPETITIONS': rep,
-                                                    'MAX_EPOCHS': max_epochs,  # Include MAX_EPOCHS here
-                                                    'NUM_LEARNABLE_PARAMS': num_learnable_params,
-                                                },
-                                                'csv_log_file': csv_log_file,
-                                                'db_log_file': db_log_file  # Set log files here
-                                            }
+                                                # Create the log files at this stage
+                                                csv_log_file = os.path.join(task_dir, f"{task_id}_train_log.csv")
+                                                db_log_file = os.path.join(task_dir, f"{task_id}_train_log.db")
 
-                                            # Append the task to the task list
-                                            task_list.append(task_info)
+                                                # Define task information
+                                                task_info = {
+                                                    'task_id': task_id,
+                                                    "task_dir": task_dir,
+                                                    'model_type': model_metadata['model_type'],
+                                                    'model': model,
+                                                    'model_metadata': model_metadata,  # Use metadata instead of the full model
+                                                    'data_loader_params': {
+                                                        'lookback': lookback,
+                                                        'batch_size': batch_size,
+                                                        'feature_columns': feature_columns,
+                                                        'target_column': target_column,
+                                                        'train_val_split': tv,
+                                                    },
+                                                    'model_dir': task_dir,
+                                                    'model_path': os.path.join(task_dir, 'model.pth'),
+                                                    'hyperparams': {
+                                                        'LAYERS': model_metadata['num_layers'],
+                                                        'HIDDEN_UNITS': model_metadata['hidden_units'],
+                                                        'BATCH_SIZE': batch_size,
+                                                        'LOOKBACK': lookback,
+                                                        'INITIAL_LR': lr,
+                                                        'LR_DROP_PERIOD': drop_period,
+                                                        'LR_DROP_FACTOR': drop_factor,
+                                                        'VALID_PATIENCE': patience,
+                                                        'ValidFrequency': self.current_hyper_params['ValidFrequency'],
+                                                        'REPETITIONS': rep,
+                                                        'MAX_EPOCHS': max_epochs,
+                                                        'NUM_LEARNABLE_PARAMS': num_learnable_params,
+                                                    },
+                                                    'csv_log_file': csv_log_file,
+                                                    'db_log_file': db_log_file  # Set log files here
+                                                }
 
-                                            # Save the task info to disk as a JSON file
-                                            task_info_file = os.path.join(task_dir, 'task_info.json')
-                                            with open(task_info_file, 'w') as f:
-                                                json.dump({k: v for k, v in task_info.items() if k != 'model'}, f, indent=4)
+                                                # Append the task to the task list
+                                                task_list.append(task_info)
 
-        # Replace the existing training tasks with the newly created task list
-        self.training_tasks = task_list
+                                                # Save the task info to disk as a JSON file
+                                                task_info_file = os.path.join(task_dir, 'task_info.json')
+                                                with open(task_info_file, 'w') as f:
+                                                    json.dump({k: v for k, v in task_info.items() if k != 'model'}, f, indent=4)
 
-        # Optionally, save the entire task list for future reference at the root level
-        tasks_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
-        with open(tasks_summary_file, 'w') as f:
-            json.dump([{k: v for k, v in task.items() if k != 'model'} for task in self.training_tasks], f, indent=4)
+            # Replace the existing training tasks with the newly created task list
+            self.training_tasks = task_list
 
-        # Emit progress signal to notify the GUI
-        task_count = len(self.training_tasks)
-        if self.progress_signal:
-            self.logger.info(f"Created {len(self.training_tasks)} training tasks.")
-            print(f"Created {len(self.training_tasks)} training tasks.")
-            self.progress_signal.emit(f"Created {task_count} training tasks and saved to disk.", self.job_manager.get_job_folder(), task_count)
+            # Optionally, save the entire task list for future reference at the root level
+            tasks_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
+            with open(tasks_summary_file, 'w') as f:
+                json.dump([{k: v for k, v in task.items() if k != 'model'} for task in self.training_tasks], f, indent=4)
+
+            # Emit progress signal to notify the GUI
+            task_count = len(self.training_tasks)
+            if self.progress_signal:
+                self.logger.info(f"Created {len(self.training_tasks)} training tasks.")
+                print(f"Created {len(self.training_tasks)} training tasks.")
+                self.progress_signal.emit(f"Created {task_count} training tasks and saved to disk.", self.job_manager.get_job_folder(), task_count)
+
+        except Exception as e:
+            self.logger.error(f"Error during task creation: {str(e)}")
+            raise
 
 
     def calculate_learnable_parameters(self, layers, input_size, hidden_units):
@@ -330,5 +343,34 @@ class VEstimTrainingSetupManager:
     def get_task_list(self):
         """Returns the list of training tasks."""
         return self.training_tasks
+
+    def validate_parameters(self, params):
+        """Validate and convert parameters to appropriate types."""
+        try:
+            validated = {
+                'FEATURE_COLUMNS': params['FEATURE_COLUMNS'],
+                'TARGET_COLUMN': params['TARGET_COLUMN'],
+                'MODEL_TYPE': params['MODEL_TYPE'],
+                'LAYERS': int(params['LAYERS']),
+                'HIDDEN_UNITS': int(params['HIDDEN_UNITS']),
+                'TRAINING_METHOD': params['TRAINING_METHOD'],
+                'LOOKBACK': int(params['LOOKBACK']),
+                'BATCH_TRAINING': bool(params['BATCH_TRAINING']),
+                'BATCH_SIZE': int(params['BATCH_SIZE']),
+                'TRAIN_VAL_SPLIT': float(params['TRAIN_VAL_SPLIT']),
+                'SCHEDULER_TYPE': params['SCHEDULER_TYPE'],
+                # Keep these as strings since they might need splitting
+                'INITIAL_LR': str(params['INITIAL_LR']),
+                'LR_PARAM': str(params['LR_PARAM']),
+                'LR_PERIOD': str(params['LR_PERIOD']),
+                'PLATEAU_PATIENCE': str(params['PLATEAU_PATIENCE']),
+                'PLATEAU_FACTOR': str(params['PLATEAU_FACTOR']),
+                'VALID_PATIENCE': str(params['VALID_PATIENCE']),
+                'VALID_FREQUENCY': str(params['VALID_FREQUENCY']),
+                'MAX_EPOCHS': int(params.get('MAX_EPOCHS', 100))  # Add MAX_EPOCHS with default
+            }
+            return validated
+        except (ValueError, KeyError) as e:
+            raise ValueError(f"Parameter validation failed: {str(e)}")
 
 
