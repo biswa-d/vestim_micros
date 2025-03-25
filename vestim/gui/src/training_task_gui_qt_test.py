@@ -457,84 +457,50 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Handle log updates
         if 'epoch' in progress_data:
             epoch = progress_data['epoch']
-            train_loss = progress_data['train_loss'] * 100 # Ensure nonzero values
+            train_loss = progress_data['train_loss'] * 100  # Ensure nonzero values
             val_loss = progress_data['val_loss'] * 100
+            
+            # Calculate RMS error in mV
+            train_rms_mv = np.sqrt(train_loss) * 1000  # Convert from V² to mV
+            val_rms_mv = np.sqrt(val_loss) * 1000  # Convert from V² to mV
+            
             delta_t_epoch = progress_data['delta_t_epoch']
             learning_rate = progress_data.get('learning_rate', None)
             best_val_loss = progress_data.get('best_val_loss', None) * 100
+            best_val_rms_mv = np.sqrt(best_val_loss) * 1000 if best_val_loss is not None else None
 
             # Format the log message using HTML for bold text
             log_message = (
                 f"Epoch: <b>{epoch}</b>, "
-                f"Train Loss: <b>{train_loss:.10f}</b>, "
-                f"Val Loss: <b>{val_loss:.10f}</b>, "
-                f"Best Val Loss: <b>{best_val_loss:.10f}</b>, "
+                f"Train RMS: <b>{train_rms_mv:.2f}</b> mV, "
+                f"Val RMS: <b>{val_rms_mv:.2f}</b> mV, "
+                f"Best Val RMS: <b>{best_val_rms_mv:.2f}</b> mV, "
                 f"Time Per Epoch (ΔT): <b>{delta_t_epoch}s</b>, "
                 f"LR: <b>{learning_rate:.1e}</b><br>"
             )
-           # WandB logging (only if enabled)
-            # if self.wandb_enabled:
-            #     try:
-            #         wandb.log({
-            #             'train_loss': progress_data['train_loss'],
-            #             'val_loss': progress_data['val_loss'],
-            #             'epoch': progress_data['epoch']
-            #         })
-            #     except Exception as e:
-            #         self.logger.error(f"Failed to log to WandB: {e}")
-            #self.logger.info(f"Epoch {progress_data['epoch']} | Train Loss: {progress_data['train_loss']} | Val Loss: {progress_data['val_loss']}")
 
             # Append the log message to the log text widget using rich text format
             self.log_text.append(log_message)
 
             # Ensure the log scrolls to the bottom
             self.log_text.moveCursor(self.log_text.textCursor().End)
-            # print(f"Epoch: {epoch}, Train Loss: {train_loss}, Validation Loss: {val_loss}")
-            # Update the plot with the new data
-            self.train_loss_values.append(train_loss)
-            self.valid_loss_values.append(val_loss)
-            self.valid_x_values.append(epoch)
 
-            # Enable log-scale on y-axis
-            #self.ax.set_yscale("log")  # 🔥 Log Scale Enabled
+            # Update the plot with the RMS values in mV
+            self.train_loss_values.append(train_rms_mv)
+            self.valid_loss_values.append(val_rms_mv)
 
+            # Update the plot
+            self.ax.clear()
+            self.ax.plot(range(1, len(self.train_loss_values) + 1), self.train_loss_values, label='Train RMS', color='blue')
+            self.ax.plot(range(1, len(self.valid_loss_values) + 1), self.valid_loss_values, label='Validation RMS', color='red')
+            
+            # Update plot labels and title
+            self.ax.set_xlabel('Epoch')
+            self.ax.set_ylabel('RMS Error [mV]')
+            self.ax.set_title('Training Progress')
+            self.ax.legend()
+            self.ax.grid(True)
 
-            # print(f"Valid X Values: {self.valid_x_values}")
-            # print(f"Train Loss Values: {self.train_loss_values}")
-            # print(f"Valid Loss Values: {self.valid_loss_values}")
-
-            #New section for updating the plot
-            # Dynamically adjust the y-axis based on the last 30 loss values
-            #commenting out to check log plot issues
-            last_30_train_losses = self.train_loss_values[-30:]  # Get last 30 train losses
-            last_30_val_losses = self.valid_loss_values[-30:]  # Get last 30 validation losses
-            last_30_losses = last_30_train_losses + last_30_val_losses  # Combine last 30 train and validation losses
-
-            # Get minimum and maximum from these last 30 values
-            min_loss = min(last_30_losses) if last_30_losses else 1e-5  # Fallback to a small value if empty
-            max_loss = max(last_30_losses) if last_30_losses else 1e-3  # Fallback to a small value if empty
-
-            # Add a small margin to the y-axis limits (10% of the range)
-            margin = (max_loss - min_loss) * 0.1 if max_loss - min_loss > 0 else 1e-5
-            self.ax.set_ylim(min_loss - margin, max_loss + margin)  # Set y-axis limits dynamically
-            # New section ends here
-
-            # Update plot lines with the new data
-            self.train_line.set_data(self.valid_x_values, self.train_loss_values)
-            self.valid_line.set_data(self.valid_x_values, self.valid_loss_values)
-
-            # Commented out the following lines for testing new plot logic, uncomment if needed
-            # # Adjust y-axis limits dynamically based on the new data
-            # self.ax.relim()  # Recompute the limits
-            # self.ax.autoscale_view(scalex=False, scaley=True)  # Autoscale y-axis only
-
-            # Set fixed x-limits to ensure they remain constant
-            max_epochs = int(self.task_list[self.current_task_index]['hyperparams']['MAX_EPOCHS'])
-            self.ax.set_xlim(1, max_epochs)
-
-            # Redraw the plot
-            # self.canvas.draw_idle()
-            #print("Redrawing the plot")
             # Redraw the plot
             self.canvas.draw_idle()
 
