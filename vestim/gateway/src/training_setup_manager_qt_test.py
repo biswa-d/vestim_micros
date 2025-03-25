@@ -310,6 +310,13 @@ class VEstimTrainingSetupManager:
         # Create unique task ID
         task_id = f"task_{timestamp}_{task_counter}_rep_{repetition}"
 
+        # Calculate num_learnable_params once to use in both places
+        num_learnable_params = self.calculate_learnable_parameters(
+            model_task['hyperparams']['LAYERS'],
+            model_task['hyperparams']['INPUT_SIZE'],
+            model_task['hyperparams']['HIDDEN_UNITS']
+        )
+
         return {
             'task_id': task_id,
             'model': model_task['model'],
@@ -336,6 +343,7 @@ class VEstimTrainingSetupManager:
                 'PLATEAU_PATIENCE': hyperparams.get('PLATEAU_PATIENCE'),
                 'PLATEAU_FACTOR': hyperparams.get('PLATEAU_FACTOR'),
                 'REPETITIONS': hyperparams['REPETITIONS'],
+                'NUM_LEARNABLE_PARAMS': num_learnable_params,
             },
             'data_loader_params': {
                 'lookback': hyperparams['LOOKBACK'],
@@ -349,11 +357,7 @@ class VEstimTrainingSetupManager:
             'db_log_file': os.path.join(logs_dir, f'{task_id}_training.db'),
             'model_metadata': {  # Add metadata for easier task management
                 'model_type': model_task.get('model_type', 'LSTM'),
-                'num_learnable_params': self.calculate_learnable_parameters(
-                    model_task['hyperparams']['LAYERS'],
-                    model_task['hyperparams']['INPUT_SIZE'],
-                    model_task['hyperparams']['HIDDEN_UNITS']
-                )
+                'num_learnable_params': num_learnable_params
             }
         }
 
