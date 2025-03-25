@@ -13,17 +13,44 @@ def setup_training_params(self):
     self.lookback_input.setPlaceholderText("400")
     training_layout.addRow("Lookback:", self.lookback_input)
 
-    # Max Epochs
-    self.max_epochs_input = QLineEdit()
-    self.max_epochs_input.setPlaceholderText("100")
-    training_layout.addRow("Max Epochs:", self.max_epochs_input)
-
     # Learning Rate
     self.lr_input = QLineEdit()
     self.lr_input.setPlaceholderText("0.0001")
     training_layout.addRow("Initial Learning Rate:", self.lr_input)
 
-    # Other existing parameters...
+    # Learning Rate Parameters
+    self.lr_param_input = QLineEdit()
+    self.lr_param_input.setPlaceholderText("0.1")
+    training_layout.addRow("Learning Rate Parameter:", self.lr_param_input)
+
+    self.lr_period_input = QLineEdit()
+    self.lr_period_input.setPlaceholderText("1000")
+    training_layout.addRow("Learning Rate Period:", self.lr_period_input)
+
+    # Plateau Parameters
+    self.plateau_patience_input = QLineEdit()
+    self.plateau_patience_input.setPlaceholderText("10")
+    training_layout.addRow("Plateau Patience:", self.plateau_patience_input)
+
+    self.plateau_factor_input = QLineEdit()
+    self.plateau_factor_input.setPlaceholderText("0.1")
+    training_layout.addRow("Plateau Factor:", self.plateau_factor_input)
+
+    # Validation Parameters
+    self.valid_patience_input = QLineEdit()
+    self.valid_patience_input.setPlaceholderText("10")
+    training_layout.addRow("Validation Patience:", self.valid_patience_input)
+
+    self.valid_frequency_input = QLineEdit()
+    self.valid_frequency_input.setPlaceholderText("3")
+    training_layout.addRow("Validation Frequency:", self.valid_frequency_input)
+
+    # Add Max Epochs input with spinbox for better control
+    self.max_epochs_spinbox = QSpinBox()
+    self.max_epochs_spinbox.setRange(1, 10000)  # Set reasonable range
+    self.max_epochs_spinbox.setValue(100)  # Default value
+    self.max_epochs_spinbox.setToolTip("Maximum number of training epochs")
+    training_layout.addRow("Max Epochs:", self.max_epochs_spinbox)
 
     training_group.setLayout(training_layout)
     return training_group
@@ -49,12 +76,12 @@ def get_current_params(self):
         'PLATEAU_FACTOR': self.plateau_factor_input.text(),
         'VALID_PATIENCE': self.valid_patience_input.text(),
         'VALID_FREQUENCY': self.valid_frequency_input.text(),
-        'MAX_EPOCHS': self.max_epochs_input.text(),
+        'MAX_EPOCHS': str(self.max_epochs_spinbox.value()),  # Get value from spinbox
     }
     return params
 
 def set_params(self, params):
     """Set parameters in GUI inputs."""
     # ... existing parameter settings ...
-    self.max_epochs_input.setText(str(params.get('MAX_EPOCHS', '100')))
+    self.max_epochs_spinbox.setValue(int(params.get('MAX_EPOCHS', 100)))
     # ... other parameter settings ... 
