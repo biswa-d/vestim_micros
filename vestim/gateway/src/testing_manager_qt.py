@@ -91,106 +91,50 @@ class VEstimTestingManager:
             lookback = task['hyperparams']['LOOKBACK']
             batch_size = task['hyperparams']['BATCH_SIZE']
             model_path = task['model_path']
-            task_dir = task['task_dir']
+            save_dir = task['task_dir']
             feature_cols = task['data_loader_params']['feature_columns']
             target_col = task['data_loader_params']['target_column']
             task_id = task['task_id']
             print(f"Testing model: {model_path} with lookback: {lookback}")
 
-            # Create test_results directory
-            test_results_dir = os.path.join(task_dir, 'test_results')
-            os.makedirs(test_results_dir, exist_ok=True)
+            print("Generating shorthand name for model...")
+            shorthand_name = self.generate_shorthand_name(task)
 
-            # Get all test files
-            test_files = [f for f in os.listdir(test_folder) if f.endswith('.csv')]
+            # Get all test files in the test folder
+            test_files = [f for f in os.listdir(test_folder) if f.endswith('.csv')]  # Adjust extension if needed
             if not test_files:
                 print(f"No test files found in {test_folder}")
                 return
             
             print(f"Found {len(test_files)} test files. Running tests...")
 
-            # Process each test file
-            all_results = []
             for test_file in test_files:
-                file_name = os.path.splitext(test_file)[0]
                 test_file_path = os.path.join(test_folder, test_file)
-                
-                # Load and process test data
-                X_test, y_test = self.test_data_service.load_and_process_data(test_file_path)
-                
-                # Run test for single file
-                results = self.testing_service.run_testing(
-                    task, 
-                    model_path, 
-                    X_test,
-                    y_test,
-                    test_results_dir
-                )
-                
-                # Calculate max error
-                errors = np.abs(results['y_test'] - results['predictions'])
-                max_error = np.max(errors)
+                print(f"Processing test file: {test_file}")
 
-                # Save predictions with correct column names for plotting
-                predictions_file = os.path.join(test_results_dir, f"{file_name}_predictions.csv")
-                pd.DataFrame({
-                    'True Values (V)': results['y_test'],
-                    'Predictions (V)': results['predictions'],
-                    'Error (mV)': errors * 1000  # Convert to mV
-                }).to_csv(predictions_file, index=False)
-                
-                file_results = {
-                    'rms_error_mv': results['rms_error_mv'],
-                    'max_error_mv': max_error * 1000,  # Convert to mV
-                    'mape': results['mape'],
-                    'r2': results['r2'],
-                    'file_name': test_file
-                }
-                all_results.append(file_results)
+                # Load and process test data for the specific file
+                test_file_loader = self.test_data_service.create_test_file_loader(test_file_path, lookback, batch_size, feature_cols, target_col)
 
-            # Save test summary
-            summary_file = os.path.join(task_dir, 'test_summary.csv')
-            with open(summary_file, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['File', 'RMS Error (mV)', 'Max Error (mV)', 'MAPE (%)', 'R2'])
-                for result in all_results:
-                    writer.writerow([
-                        result['file_name'],
-                        result['rms_error_mv'],
-                        result['max_error_mv'],
-                        result['mape'],
-                        result['r2']
-                    ])
+                # Run testing on this file
+                results = self.testing_service.run_testing(task, model_path, test_file_loader, test_file_path)
 
-            # Calculate average metrics
-            avg_results = {
-                'rms_error_mv': np.mean([r['rms_error_mv'] for r in all_results]),
-                'max_error_mv': np.max([r['max_error_mv'] for r in all_results]),
-                'mape': np.mean([r['mape'] for r in all_results]),
-                'r2': np.mean([r['r2'] for r in all_results])
-            }
-
-            print("Generating shorthand name for model...")
-            shorthand_name = self.generate_shorthand_name(task)
-
-            # Put the results in the queue for the GUI
-            print(f"Results for model {shorthand_name}: {avg_results}")
-            self.queue.put({
-                'task_completed': {
-                    'saved_dir': test_results_dir,  # Use test_results_dir for plotting
-                    'task_id': task_id,
-                    'model': shorthand_name,
-                    'file_name': test_files[0],  # Use first test file name
-                    '#params': learnable_params,
-                    'rms_error_mv': avg_results['rms_error_mv'],
-                    'max_error_mv': avg_results['max_error_mv'],
-                    'mape': avg_results['mape'],
-                    'r2': avg_results['r2']
-                }
-            })
+                # Send **file-specific** test results to the queue
+                self.queue.put({
+                    'task_completed': {
+                        'task_id': task_id,
+                        'model': shorthand_name,
+                        'file_name': test_file[:15] + "..." if len(test_file) > 15 else test_file,  # First 15 letters
+                        'rms_error_mv': results['rms_error_mv'],
+                        'mae_mv': results['mae_mv'],
+                        'mape': results['mape'],
+                        'r2': results['r2'],
+                        '#params': learnable_params,
+                        'saved_dir': save_dir
+                    }
+                })
 
         except Exception as e:
-            print(f"Error testing model {model_path}: {str(e)}")
+            print(f"Error testing model {task['model_path']}: {str(e)}")
             self.queue.put({'task_error': str(e)})
 
     def save_test_results(self, results, save_dir, test_file_path):
