@@ -536,6 +536,11 @@ class VEstimHyperParamGUI(QWidget):
         validation_layout = QVBoxLayout()
         validation_layout.setAlignment(Qt.AlignTop)  # Ensures content stays at the top
 
+        # Add maximum training epochs
+        max_epochs_label = QLabel("Max Training Epochs:")
+        max_epochs_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
+        max_epochs_label.setToolTip("Maximum number of epochs to train the model.")
+
         # **Validation Patience**
         patience_label = QLabel("Validation Patience:")
         patience_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
@@ -557,6 +562,7 @@ class VEstimHyperParamGUI(QWidget):
         # ✅ Store references in self.param_entries for parameter collection
         self.param_entries["VALID_PATIENCE"] = self.patience_entry
         self.param_entries["VALID_FREQUENCY"] = self.freq_entry
+        self.param_entries["MAX_EPOCHS"] = self.freq_entry
 
         # **Ensure Proper Alignment**
         patience_layout = QHBoxLayout()
