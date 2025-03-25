@@ -103,73 +103,98 @@ class VEstimTestingManager:
         try:
             print(f"Preparing test data for Task {idx + 1}...")
             
-            # Extract lookback, learnable params and model path from the task
+            # Get required paths and parameters
             lookback = task['hyperparams']['LOOKBACK']
             model_path = task['model_path']
             task_dir = task['task_dir']
             num_learnable_params = task['hyperparams']['NUM_LEARNABLE_PARAMS']
+            
             print(f"Testing model: {model_path} with lookback: {lookback}")
-
-            # Create test_results directory
+            
+            # Create test_results directory within task directory
             test_results_dir = os.path.join(task_dir, 'test_results')
             os.makedirs(test_results_dir, exist_ok=True)
 
-            print("Loading and processing test data...")
-            X_test, y_test = self.test_data_service.load_and_process_data(test_folder)
+            # Get all test files
+            test_files = [f for f in os.listdir(test_folder) if f.endswith('.csv')]
+            if not test_files:
+                print(f"No test files found in {test_folder}")
+                return
 
-            print("Generating shorthand name for model...")
+            print(f"Found {len(test_files)} test files. Running tests...")
+            
+            # Process each test file
+            all_results = []
+            for test_file in test_files:
+                file_name = os.path.splitext(test_file)[0]
+                test_file_path = os.path.join(test_folder, test_file)
+                
+                # Run test for single file
+                file_results = self.testing_service.test_single_file(
+                    task, 
+                    model_path, 
+                    test_file_path
+                )
+                
+                # Calculate max error
+                errors = np.abs(file_results['y_test'] - file_results['predictions'])
+                max_error = np.max(errors)
+                file_results['max_error_mv'] = max_error
+                
+                # Save predictions with correct column names for plotting
+                predictions_file = os.path.join(test_results_dir, f"{file_name}_predictions.csv")
+                pd.DataFrame({
+                    'True Values (V)': file_results['y_test'],
+                    'Predictions (V)': file_results['predictions'],
+                    'Error (mV)': errors
+                }).to_csv(predictions_file, index=False)
+                
+                # Add results to summary file
+                summary_file = os.path.join(task_dir, 'test_summary.csv')
+                if not os.path.exists(summary_file):
+                    with open(summary_file, 'w', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(['File', 'RMS Error (mV)', 'MAE (mV)', 'Max Error (mV)', 'MAPE (%)', 'R2'])
+                
+                with open(summary_file, 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        test_file,
+                        file_results['rms_error_mv'],
+                        file_results['mae_mv'],
+                        max_error,
+                        file_results['mape'],
+                        file_results['r2']
+                    ])
+                
+                all_results.append(file_results)
+
+            # Calculate average metrics across all files
+            avg_results = {
+                'rms_error_mv': np.mean([r['rms_error_mv'] for r in all_results]),
+                'mae_mv': np.mean([r['mae_mv'] for r in all_results]),
+                'max_error_mv': np.max([r['max_error_mv'] for r in all_results]),
+                'mape': np.mean([r['mape'] for r in all_results]),
+                'r2': np.mean([r['r2'] for r in all_results])
+            }
+
+            # Generate shorthand name
             shorthand_name = self.generate_shorthand_name(task)
-
-            # Run the testing process and get results
-            results = self.testing_service.run_testing(task, model_path, X_test, y_test, test_results_dir)
-
-            # Calculate max error
-            errors = np.abs(results['y_test'] - results['predictions'])
-            max_error = np.max(errors)
-
-            # Save predictions with correct column names for plotting
-            predictions_file = os.path.join(test_results_dir, 'test_predictions.csv')
-            pd.DataFrame({
-                'True Values (V)': results['y_test'],
-                'Predictions (V)': results['predictions'],
-                'Error (mV)': errors * 1000  # Convert to mV
-            }).to_csv(predictions_file, index=False)
-
-            # Save test summary
-            summary_file = os.path.join(task_dir, 'test_summary.csv')
-            with open(summary_file, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['File', 'RMS Error (mV)', 'MAE (mV)', 'Max Error (mV)', 'MAPE (%)', 'R2'])
-                writer.writerow([
-                    os.path.basename(test_folder),
-                    results['rms_error_mv'],
-                    results['mae_mv'],
-                    max_error * 1000,  # Convert to mV
-                    results['mape'],
-                    results['r2']
-                ])
-
-            # Log the test results to CSV and SQLite
-            csv_log_file = task.get('csv_log_file')
-            db_log_file = task.get('db_log_file')
-            if csv_log_file and db_log_file:
-                self.log_test_to_csv(task, results, csv_log_file)
-                self.log_test_to_sqlite(task, results, db_log_file)
-
+            
             # Put the results in the queue for the GUI
-            print(f"Results for model {shorthand_name}: {results}")
             self.queue.put({
                 'task_completed': {
-                    'saved_dir': test_results_dir,  # Use test_results_dir for plotting
+                    'saved_dir': test_results_dir,  # Changed to test_results_dir for plotting
                     'task_id': task['task_id'],
+                    'sl_no': idx + 1,
                     'model': shorthand_name,
-                    'file_name': os.path.basename(test_folder),
+                    'file_name': test_file,  # Add filename to display
                     '#params': num_learnable_params,
-                    'rms_error_mv': results['rms_error_mv'],
-                    'mae_mv': results['mae_mv'],
-                    'max_error_mv': max_error * 1000,  # Convert to mV
-                    'mape': results['mape'],
-                    'r2': results['r2']
+                    'rms_error_mv': avg_results['rms_error_mv'],
+                    'mae_mv': avg_results['mae_mv'],
+                    'max_error_mv': avg_results['max_error_mv'],
+                    'mape': avg_results['mape'],
+                    'r2': avg_results['r2']
                 }
             })
 

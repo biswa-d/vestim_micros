@@ -395,7 +395,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Reset the data values for a fresh plot
         self.train_loss_values = []
         self.valid_loss_values = []
-        self.valid_x_values = []
+        self.epoch_points = []
 
         # Ensure the plot axis 'ax' exists (for new tasks or when reinitializing)
         if hasattr(self, 'ax'):
@@ -485,17 +485,19 @@ class VEstimTrainingTaskGUI(QMainWindow):
             # Ensure the log scrolls to the bottom
             self.log_text.moveCursor(self.log_text.textCursor().End)
 
-            # Update the plot data
+            # Update the plot data with actual epoch numbers
+            if not hasattr(self, 'epoch_points'):
+                self.epoch_points = []
+            self.epoch_points.append(epoch)
             self.train_loss_values.append(train_rms_mv)
             self.valid_loss_values.append(val_rms_mv)
 
             # Update the plot
             self.ax.clear()
             
-            # Plot the data
-            epochs = range(1, len(self.train_loss_values) + 1)
-            self.ax.plot(epochs, self.train_loss_values, label='Train RMS', color='blue', marker='.')
-            self.ax.plot(epochs, self.valid_loss_values, label='Validation RMS', color='red', marker='.')
+            # Plot the data using actual epoch numbers
+            self.ax.plot(self.epoch_points, self.train_loss_values, label='Train RMS', color='blue', marker='.')
+            self.ax.plot(self.epoch_points, self.valid_loss_values, label='Validation RMS', color='red', marker='.')
             
             # Set y-axis to log scale
             self.ax.set_yscale('log')
