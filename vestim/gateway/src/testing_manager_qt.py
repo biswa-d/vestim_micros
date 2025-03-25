@@ -124,9 +124,15 @@ class VEstimTestingManager:
                 # Run testing on this file
                 results = self.testing_service.run_testing(task, model_path, test_file_loader, test_file_path)
                 
-                # Ensure consistent key naming
-                if 'max_error' in results:
-                    results['max_error_mv'] = results.pop('max_error')
+                # Ensure all keys are properly aligned
+                results = {
+                    'rms_error_mv': results.get('rms_error', 0) * 1000 if 'rms_error' in results else results.get('rms_error_mv', 0),
+                    'max_error_mv': results.get('max_error', 0) * 1000 if 'max_error' in results else results.get('max_error_mv', 0),
+                    'mape': results.get('mape', 0),
+                    'r2': results.get('r2', 0),
+                    'predictions': results.get('predictions', []),
+                    'true_values': results.get('true_values', [])
+                }
 
                 prediction_file_path = self.save_test_results(results, save_dir, test_file_path)
 
@@ -138,7 +144,7 @@ class VEstimTestingManager:
                         'test_file': prediction_file_path,
                         'file_name': test_file[:15] + "..." if len(test_file) > 15 else test_file,
                         'rms_error_mv': results['rms_error_mv'],
-                        'max_error_mv': results['max_error_mv'],  # Now using consistent key
+                        'max_error_mv': results['max_error_mv'],
                         'mape': results['mape'],
                         'r2': results['r2'],
                         '#params': learnable_params,

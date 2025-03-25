@@ -259,6 +259,10 @@ class VEstimTestingGUI(QMainWindow):
         print(f"Adding result row: {result}")
         self.logger.info(f"Adding result row: {result}")
 
+        if 'task_error' in result:
+            print(f"Error in task: {result['task_error']}")
+            return
+
         task_data = result.get('task_completed')
 
         if task_data:
@@ -268,11 +272,29 @@ class VEstimTestingGUI(QMainWindow):
             file_name = task_data.get("file_name", "Unknown File")
             num_learnable_params = str(task_data.get("#params", "N/A"))
 
-            # Extract metrics
-            rms_error = f"{task_data.get('rms_error_mv', 0):.2f}"
-            max_error = f"{task_data.get('max_error_mv', 0):.2f}"
-            mape = f"{task_data.get('mape', 0):.2f}"
-            r2 = f"{task_data.get('r2', 0):.4f}"
+            # Extract metrics - handle both formats
+            rms_error = task_data.get('rms_error_mv', 0)
+            if isinstance(rms_error, str):
+                rms_error = float(rms_error)
+            
+            max_error = task_data.get('max_error_mv', 0)
+            if isinstance(max_error, str):
+                max_error = float(max_error)
+
+            mape = task_data.get('mape', 0)
+            if isinstance(mape, str):
+                mape = float(mape)
+
+            r2 = task_data.get('r2', 0)
+            if isinstance(r2, str):
+                r2 = float(r2)
+
+            # Format metrics for display
+            rms_error_str = f"{rms_error:.2f}"
+            max_error_str = f"{max_error:.2f}"
+            mape_str = f"{mape:.2f}"
+            r2_str = f"{r2:.4f}"
+
             test_file_path = task_data.get("test_file", "Unknown Test File")
 
             # Add row data to QTreeWidget
@@ -282,10 +304,10 @@ class VEstimTestingGUI(QMainWindow):
                 model_name, 
                 file_name, 
                 num_learnable_params, 
-                rms_error,
-                max_error,
-                mape,
-                r2
+                rms_error_str,
+                max_error_str,
+                mape_str,
+                r2_str
             ])
             self.sl_no_counter += 1
 
