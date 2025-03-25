@@ -109,6 +109,7 @@ class VEstimTestingManager:
             print(f"Found {len(test_files)} test files. Running tests...")
 
             for test_file in test_files:
+                file_name = os.path.splitext(test_file)[0]
                 test_file_path = os.path.join(test_folder, test_file)
                 print(f"Processing test file: {test_file}")
 
@@ -118,14 +119,23 @@ class VEstimTestingManager:
                 # Run testing on this file
                 results = self.testing_service.run_testing(task, model_path, test_file_loader, test_file_path)
 
-                # Send **file-specific** test results to the queue
+                # Save predictions with correct column names
+                predictions_file = os.path.join(save_dir, f"{file_name}_predictions.csv")
+                pd.DataFrame({
+                    'True Values (V)': results['y_test'],
+                    'Predictions (V)': results['predictions'],
+                    'Error (mV)': (results['predictions'] - results['y_test']) * 1000  # Convert to mV
+                }).to_csv(predictions_file, index=False)
+
+                # Send results to GUI with the predictions file path
                 self.queue.put({
                     'task_completed': {
                         'task_id': task_id,
                         'model': shorthand_name,
-                        'file_name': test_file[:15] + "..." if len(test_file) > 15 else test_file,  # First 15 letters
+                        'test_file': predictions_file,  # Full path to predictions file
+                        'file_name': file_name[:15] + "...",
                         'rms_error_mv': results['rms_error_mv'],
-                        'mae_mv': results['mae_mv'],
+                        'max_error_mv': results['max_error_mv'],
                         'mape': results['mape'],
                         'r2': results['r2'],
                         '#params': learnable_params,
