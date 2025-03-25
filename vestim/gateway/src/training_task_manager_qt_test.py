@@ -422,20 +422,193 @@ class TrainingTaskManager:
         return hyperparams
 
     def save_model(self, task):
-        """Save the trained model to disk."""
-        model_path = task.get('model_path', None)
-        if model_path is None:
-            self.logger.error("Model path not found in task.")
-            raise ValueError("Model path not found in task.")
+        """Save the trained model to disk in both internal and portable formats."""
+        try:
+            model_path = task.get('model_path', None)
+            if model_path is None:
+                self.logger.error("Model path not found in task.")
+                raise ValueError("Model path not found in task.")
 
-        model = task['model']
-        if model is None:
-            self.logger.error("No model instance found in task.")
-            raise ValueError("No model instance found in task.")
+            model = task['model']
+            if model is None:
+                self.logger.error("No model instance found in task.")
+                raise ValueError("No model instance found in task.")
 
-        # torch.save(model.state_dict(), model_path)
-        torch.save(model, model_path)
-        print(f"Model saved to model.pth in the task directory.")
+            # Save full model for internal use (current workflow)
+            torch.save(model, model_path)
+            print(f"Full model saved to {model_path}")
+
+            # Save portable version
+            task_dir = os.path.dirname(model_path)
+            export_path = os.path.join(task_dir, 'model_export.pt')
+            
+            # Get model definition code
+            model_def = """
+import torch
+import torch.nn as nn
+
+class LSTMModel(nn.Module):
+    def __init__(self, input_size, hidden_units, num_layers, output_size=1, device='cpu'):
+        super(LSTMModel, self).__init__()
+        self.input_size = input_size
+        self.hidden_units = hidden_units
+        self.num_layers = num_layers
+        self.output_size = output_size
+        self.device = device
+
+        # LSTM layer
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_units,
+            num_layers=num_layers,
+            batch_first=True
+        )
+        
+        # Fully connected layer
+        self.fc = nn.Linear(hidden_units, output_size)
+    
+    def forward(self, x, h_s=None, h_c=None):
+        # Initialize hidden state and cell state if not provided
+        if h_s is None or h_c is None:
+            h_s = torch.zeros(self.num_layers, x.size(0), self.hidden_units).to(self.device)
+            h_c = torch.zeros(self.num_layers, x.size(0), self.hidden_units).to(self.device)
+        
+        # Forward pass through LSTM
+        out, (h_s, h_c) = self.lstm(x, (h_s, h_c))
+        
+        # Get output from last time step
+        out = self.fc(out[:, -1, :])
+        return out, (h_s, h_c)
+"""
+
+            # Create export dictionary with all necessary information
+            export_dict = {
+                'state_dict': model.state_dict(),
+                'model_definition': model_def,
+                'model_metadata': task['model_metadata'],
+                'hyperparams': {
+                    'input_size': task['hyperparams']['INPUT_SIZE'],
+                    'hidden_size': task['hyperparams']['HIDDEN_UNITS'],
+                    'num_layers': task['hyperparams']['LAYERS'],
+                    'output_size': task['hyperparams']['OUTPUT_SIZE']
+                },
+                'data_config': {
+                    'feature_columns': task['data_loader_params']['feature_columns'],
+                    'target_column': task['data_loader_params']['target_column'],
+                    'lookback': task['data_loader_params']['lookback']
+                },
+                'model_type': task['model_metadata']['model_type'],
+                'export_timestamp': time.strftime("%Y%m%d-%H%M%S")
+            }
+
+            # Save portable version
+            torch.save(export_dict, export_path)
+            print(f"Portable model saved to {export_path}")
+
+            # Create a README file with multiple loading options
+            readme_path = os.path.join(task_dir, 'MODEL_LOADING_INSTRUCTIONS.md')
+            readme_content = f"""# Model Loading Instructions
+
+## Model Details
+- Model Type: {task['model_metadata']['model_type']}
+- Input Size: {task['hyperparams']['INPUT_SIZE']}
+- Hidden Units: {task['hyperparams']['HIDDEN_UNITS']}
+- Layers: {task['hyperparams']['LAYERS']}
+- Output Size: {task['hyperparams']['OUTPUT_SIZE']}
+- Lookback: {task['data_loader_params']['lookback']}
+
+## Feature Configuration
+- Input Features: {', '.join(task['data_loader_params']['feature_columns'])}
+- Target Variable: {task['data_loader_params']['target_column']}
+
+## Loading Options
+
+### Option 1: Using VEstim Environment
+```python
+import torch
+from vestim.services.model_training.src.LSTM_model_service_test import LSTMModelService
+
+# Load the exported model
+checkpoint = torch.load('model_export.pt')
+
+# Create model instance
+model_service = LSTMModelService()
+model = model_service.create_model(
+    input_size=checkpoint['hyperparams']['input_size'],
+    hidden_size=checkpoint['hyperparams']['hidden_size'],
+    num_layers=checkpoint['hyperparams']['num_layers'],
+    output_size=checkpoint['hyperparams']['output_size']
+)
+
+# Load state dict
+model.load_state_dict(checkpoint['state_dict'])
+model.eval()  # Set to evaluation mode
+```
+
+### Option 2: Standalone Usage (No VEstim Required)
+```python
+import torch
+import torch.nn as nn
+
+# Load the checkpoint
+checkpoint = torch.load('model_export.pt')
+
+# Execute the model definition code (included in the checkpoint)
+exec(checkpoint['model_definition'])
+
+# Create model instance
+model = LSTMModel(
+    input_size=checkpoint['hyperparams']['input_size'],
+    hidden_units=checkpoint['hyperparams']['hidden_size'],
+    num_layers=checkpoint['hyperparams']['num_layers'],
+    output_size=checkpoint['hyperparams']['output_size']
+)
+
+# Load state dict
+model.load_state_dict(checkpoint['state_dict'])
+model.eval()
+
+# Example usage:
+def predict(model, input_data):
+    with torch.no_grad():
+        output, _ = model(input_data)
+    return output
+```
+
+## Input Data Format
+- Input shape should be: (batch_size, lookback, input_size)
+- Features should be in order: {', '.join(task['data_loader_params']['feature_columns'])}
+- All inputs should be normalized using the same scaling as training data
+
+## Example Preprocessing
+```python
+import numpy as np
+
+def preprocess_data(data, lookback={task['data_loader_params']['lookback']}):
+    # Ensure data is normalized using the same scaling as training
+    # Create sequences of length 'lookback'
+    sequences = []
+    for i in range(len(data) - lookback + 1):
+        sequences.append(data[i:(i + lookback)])
+    return torch.FloatTensor(np.array(sequences))
+```
+
+## Making Predictions
+```python
+# Example prediction
+input_sequence = preprocess_data(your_data)  # Shape: (1, lookback, input_size)
+with torch.no_grad():
+    prediction, _ = model(input_sequence)
+```
+"""
+            
+            with open(readme_path, 'w') as f:
+                f.write(readme_content)
+            print(f"Loading instructions saved to {readme_path}")
+
+        except Exception as e:
+            self.logger.error(f"Error saving model: {str(e)}")
+            raise
 
     def stop_task(self):
         self.stop_requested = True  # Set the flag to request a stop
