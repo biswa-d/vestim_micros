@@ -139,7 +139,7 @@ class VEstimTestingGUI(QMainWindow):
 
         # TreeWidget to display results
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(11)
+        self.tree.setColumnCount(10)
         self.tree.setHeaderLabels([
             'Sl.No', 
             'Task ID', 
@@ -147,25 +147,23 @@ class VEstimTestingGUI(QMainWindow):
             'File Name',
             '#Params', 
             'RMS Error (mV)', 
-            'MAE (mV)',
-            'Max Error (mV)',  # Add this column
+            'Max Error (mV)',
             'MAPE (%)', 
-            'R2',
-            'Plot'  # Plot button column
+            'R²',
+            'Plot'
         ])
 
         # Set optimized column widths
         self.tree.setColumnWidth(0, 50)   # Sl.No column
         self.tree.setColumnWidth(1, 100)  # Task ID column
-        self.tree.setColumnWidth(2, 230)  # Model name column (Wider)
-        self.tree.setColumnWidth(3, 220)  # File name column (Wider)
+        self.tree.setColumnWidth(2, 230)  # Model name column
+        self.tree.setColumnWidth(3, 220)  # File name column
         self.tree.setColumnWidth(4, 70)   # Number of learnable parameters
-        self.tree.setColumnWidth(5, 120)   # RMS Error column
-        self.tree.setColumnWidth(6, 80)   # MAE column
-        self.tree.setColumnWidth(7, 80)   # Max Error column
-        self.tree.setColumnWidth(8, 80)   # MAPE column
-        self.tree.setColumnWidth(9, 80)   # R² column
-        self.tree.setColumnWidth(10, 50)   # Plot button column (Narrow)
+        self.tree.setColumnWidth(5, 120)  # RMS Error column
+        self.tree.setColumnWidth(6, 80)   # Max Error column
+        self.tree.setColumnWidth(7, 80)   # MAPE column
+        self.tree.setColumnWidth(8, 80)   # R² column
+        self.tree.setColumnWidth(9, 50)   # Plot button column
 
         self.main_layout.addWidget(self.tree)
 
@@ -279,10 +277,9 @@ class VEstimTestingGUI(QMainWindow):
             file_name = task_data.get("file_name", "Unknown File")
             num_learnable_params = str(task_data.get("#params", "N/A"))
 
-            # Extract metrics including max error
+            # Extract metrics (removed MAE)
             rms_error = f"{task_data.get('rms_error_mv', 0):.2f}"
-            mae = f"{task_data.get('mae_mv', 0):.2f}"
-            max_error = f"{task_data.get('max_error_mv', 0):.2f}"  # Add max error
+            max_error = f"{task_data.get('max_error_mv', 0):.2f}"
             mape = f"{task_data.get('mape', 0):.2f}"
             r2 = f"{task_data.get('r2', 0):.4f}"
 
@@ -290,17 +287,16 @@ class VEstimTestingGUI(QMainWindow):
             sl_no = self.sl_no_counter
             self.sl_no_counter += 1
 
-            # Add row data to QTreeWidget with max error
+            # Add row data to QTreeWidget (removed MAE)
             row = QTreeWidgetItem([
                 str(sl_no), 
                 task_id, 
                 model_name, 
                 file_name, 
                 num_learnable_params, 
-                rms_error, 
-                mae,
-                max_error,  # Add max error
-                mape, 
+                rms_error,
+                max_error,
+                mape,
                 r2
             ])
 
@@ -310,24 +306,30 @@ class VEstimTestingGUI(QMainWindow):
             plot_button.clicked.connect(lambda _, path=save_dir: self.plot_model_results(path))
 
             self.tree.addTopLevelItem(row)
-            self.tree.setItemWidget(row, 10, plot_button)  # Adjust column index for plot button
+            self.tree.setItemWidget(row, 9, plot_button)  # Adjusted column index for plot button
+
+            # Adjust column widths to content
+            for i in range(self.tree.columnCount()):
+                self.tree.resizeColumnToContents(i)
 
 
     def plot_model_results(self, save_dir):
-        """
-        Plot all test results for a specific model by reading from all saved CSV files.
-        Opens multiple windows, one for each test file.
-        """
+        """Plot all test results for a specific model by reading from all saved CSV files."""
         try:
+            print(f"Attempting to plot results from directory: {save_dir}")
+            
             if not os.path.exists(save_dir):
+                print(f"Directory not found: {save_dir}")
                 QMessageBox.critical(self, "Error", f"Model results folder not found: {save_dir}")
                 return
 
             # Get all test result files for this model
             test_files = [f for f in os.listdir(save_dir) if f.endswith("_predictions.csv")]
+            print(f"Found prediction files: {test_files}")
 
             if not test_files:
-                QMessageBox.critical(self, "Error", f"No test result files found for model: {save_dir}")
+                print(f"No prediction files found in {save_dir}")
+                QMessageBox.critical(self, "Error", f"No test result files found in: {save_dir}")
                 return
 
             # Iterate over each test file and open a new plot window
