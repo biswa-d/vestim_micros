@@ -215,7 +215,7 @@ class TrainingTaskManager:
             #patience_threshold = int(valid_patience * 0.5) 
             current_lr = hyperparams['INITIAL_LR']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
-            lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1)
+            lr_drop_factor = hyperparams['LR_DROP_FACTOR']
             # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
             lr_drop_buffer = 50
             last_lr_drop_epoch = 0  # Initialize the epoch of the last LR drop
@@ -400,8 +400,15 @@ class TrainingTaskManager:
         hyperparams['BATCH_SIZE'] = int(hyperparams['BATCH_SIZE'])
         hyperparams['MAX_EPOCHS'] = int(hyperparams['MAX_EPOCHS'])
         hyperparams['INITIAL_LR'] = float(hyperparams['INITIAL_LR'])
-        hyperparams['LR_DROP_PERIOD'] = int(hyperparams['LR_DROP_PERIOD'])
-        hyperparams['LR_DROP_FACTOR'] = float(hyperparams['LR_DROP_FACTOR'])
+        
+        # Update scheduler parameter names to match task info
+        if hyperparams['SCHEDULER_TYPE'] == 'StepLR':
+            hyperparams['LR_DROP_PERIOD'] = int(hyperparams['LR_PERIOD'])  # Map LR_PERIOD to LR_DROP_PERIOD
+            hyperparams['LR_DROP_FACTOR'] = float(hyperparams['LR_PARAM'])  # Map LR_PARAM to LR_DROP_FACTOR
+        else:
+            hyperparams['PLATEAU_PATIENCE'] = int(hyperparams['PLATEAU_PATIENCE'])
+            hyperparams['PLATEAU_FACTOR'] = float(hyperparams['PLATEAU_FACTOR'])
+        
         hyperparams['VALID_PATIENCE'] = int(hyperparams['VALID_PATIENCE'])
         hyperparams['ValidFrequency'] = int(hyperparams['ValidFrequency'])
         hyperparams['LOOKBACK'] = int(hyperparams['LOOKBACK'])
