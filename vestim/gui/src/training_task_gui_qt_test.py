@@ -457,12 +457,12 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Handle log updates
         if 'epoch' in progress_data:
             epoch = progress_data['epoch']
-            train_loss = progress_data['train_loss'] * 100  # Ensure nonzero values
+            train_loss = progress_data['train_loss'] * 100
             val_loss = progress_data['val_loss'] * 100
             
             # Calculate RMS error in mV
-            train_rms_mv = np.sqrt(train_loss) * 1000  # Convert from V² to mV
-            val_rms_mv = np.sqrt(val_loss) * 1000  # Convert from V² to mV
+            train_rms_mv = np.sqrt(train_loss) * 1000
+            val_rms_mv = np.sqrt(val_loss) * 1000
             
             delta_t_epoch = progress_data['delta_t_epoch']
             learning_rate = progress_data.get('learning_rate', None)
@@ -485,21 +485,50 @@ class VEstimTrainingTaskGUI(QMainWindow):
             # Ensure the log scrolls to the bottom
             self.log_text.moveCursor(self.log_text.textCursor().End)
 
-            # Update the plot with the RMS values in mV
+            # Update the plot data
             self.train_loss_values.append(train_rms_mv)
             self.valid_loss_values.append(val_rms_mv)
 
             # Update the plot
             self.ax.clear()
-            self.ax.plot(range(1, len(self.train_loss_values) + 1), self.train_loss_values, label='Train RMS', color='blue')
-            self.ax.plot(range(1, len(self.valid_loss_values) + 1), self.valid_loss_values, label='Validation RMS', color='red')
             
-            # Update plot labels and title
+            # Plot the data
+            epochs = range(1, len(self.train_loss_values) + 1)
+            self.ax.plot(epochs, self.train_loss_values, label='Train RMS', color='blue', marker='.')
+            self.ax.plot(epochs, self.valid_loss_values, label='Validation RMS', color='red', marker='.')
+            
+            # Set y-axis to log scale
+            self.ax.set_yscale('log')
+            
+            # Keep x-axis fixed to max_epochs
+            max_epochs = int(self.task_list[self.current_task_index]['hyperparams']['MAX_EPOCHS'])
+            self.ax.set_xlim(1, max_epochs)
+            
+            # Set x-ticks to be integers
+            num_ticks = min(10, max_epochs)  # Show at most 10 ticks
+            step = max(1, max_epochs // num_ticks)
+            ticks = list(range(1, max_epochs + 1, step))
+            if max_epochs not in ticks:
+                ticks.append(max_epochs)
+            self.ax.set_xticks(ticks)
+            self.ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+            
+            # Dynamically adjust only y-axis limits
+            all_values = self.train_loss_values + self.valid_loss_values
+            if all_values:
+                y_min = min(all_values) * 0.8  # Give some padding below
+                y_max = max(all_values) * 1.2  # Give some padding above
+                self.ax.set_ylim(y_min, y_max)
+            
+            # Update labels and title
             self.ax.set_xlabel('Epoch')
             self.ax.set_ylabel('RMS Error [mV]')
             self.ax.set_title('Training Progress')
             self.ax.legend()
-            self.ax.grid(True)
+            self.ax.grid(True, which="both", ls="-", alpha=0.2)
+            
+            # Add minor gridlines for log scale
+            self.ax.grid(True, which="minor", ls=":", alpha=0.1)
 
             # Redraw the plot
             self.canvas.draw_idle()
