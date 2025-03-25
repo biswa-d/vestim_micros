@@ -263,6 +263,8 @@ class VEstimTrainingSetupManager:
         timestamp = time.strftime("%Y%m%d%H%M%S")
         task_counter = getattr(self, '_task_counter', 0) + 1
         self._task_counter = task_counter
+        # Create unique task ID
+        task_id = f"task_{timestamp}_{task_counter}_rep_{repetition}"
         
         # Create task directory with relevant parameters and repetition number
         scheduler_type = hyperparams['SCHEDULER_TYPE']
@@ -273,7 +275,7 @@ class VEstimTrainingSetupManager:
         
         task_dir = os.path.join(
             model_task['model_dir'],
-            f'{task_dir_name}_vp_{hyperparams["VALID_PATIENCE"]}_lb_{hyperparams["LOOKBACK"]}_bs_{hyperparams["BATCH_SIZE"]}_rep_{repetition}'
+            f'{task_id}'
         )
         os.makedirs(task_dir, exist_ok=True)
 
@@ -281,9 +283,7 @@ class VEstimTrainingSetupManager:
         logs_dir = os.path.join(task_dir, 'logs')
         os.makedirs(logs_dir, exist_ok=True)
 
-        # Create unique task ID
-        task_id = f"task_{timestamp}_{task_counter}_rep_{repetition}"
-
+        
         # Get model architecture parameters
         hidden_units = model_task['hyperparams']['HIDDEN_UNITS']
         layers = model_task['hyperparams']['LAYERS']
