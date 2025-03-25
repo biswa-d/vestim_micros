@@ -115,14 +115,6 @@ class VEstimTestingManager:
             test_results_dir = os.path.join(task_dir, 'test_results')
             os.makedirs(test_results_dir, exist_ok=True)
 
-            # Create summary CSV file in task directory
-            summary_file = os.path.join(task_dir, 'test_summary.csv')
-            summary_fieldnames = ['File', 'RMS Error (mV)', 'MAE (mV)', 'Max Error (mV)', 'MAPE (%)', 'R2']
-            
-            with open(summary_file, 'w', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=summary_fieldnames)
-                writer.writeheader()
-
             # Get all test files
             test_files = [f for f in os.listdir(test_folder) if f.endswith('.csv')]
             if not test_files:
@@ -149,25 +141,31 @@ class VEstimTestingManager:
                 max_error = np.max(errors)
                 file_results['max_error_mv'] = max_error
                 
-                # Save predictions in test_results directory
+                # Save predictions with correct column names for plotting
                 predictions_file = os.path.join(test_results_dir, f"{file_name}_predictions.csv")
                 pd.DataFrame({
-                    'actual': file_results['y_test'],
-                    'predicted': file_results['predictions'],
-                    'error_mv': file_results['predictions'] - file_results['y_test']
+                    'True Values (V)': file_results['y_test'],
+                    'Predictions (V)': file_results['predictions'],
+                    'Error (mV)': errors
                 }).to_csv(predictions_file, index=False)
                 
                 # Add results to summary file
+                summary_file = os.path.join(task_dir, 'test_summary.csv')
+                if not os.path.exists(summary_file):
+                    with open(summary_file, 'w', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(['File', 'RMS Error (mV)', 'MAE (mV)', 'Max Error (mV)', 'MAPE (%)', 'R2'])
+                
                 with open(summary_file, 'a', newline='') as f:
-                    writer = csv.DictWriter(f, fieldnames=summary_fieldnames)
-                    writer.writerow({
-                        'File': test_file,  # Just the filename, not full path
-                        'RMS Error (mV)': file_results['rms_error_mv'],
-                        'MAE (mV)': file_results['mae_mv'],
-                        'Max Error (mV)': file_results['max_error_mv'],
-                        'MAPE (%)': file_results['mape'],
-                        'R2': file_results['r2']
-                    })
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        test_file,
+                        file_results['rms_error_mv'],
+                        file_results['mae_mv'],
+                        max_error,
+                        file_results['mape'],
+                        file_results['r2']
+                    ])
                 
                 all_results.append(file_results)
 
@@ -186,9 +184,11 @@ class VEstimTestingManager:
             # Put the results in the queue for the GUI
             self.queue.put({
                 'task_completed': {
-                    'saved_dir': task_dir,
+                    'saved_dir': test_results_dir,  # Changed to test_results_dir for plotting
+                    'task_id': task['task_id'],
                     'sl_no': idx + 1,
                     'model': shorthand_name,
+                    'file_name': test_file,  # Add filename to display
                     '#params': num_learnable_params,
                     'rms_error_mv': avg_results['rms_error_mv'],
                     'mae_mv': avg_results['mae_mv'],
