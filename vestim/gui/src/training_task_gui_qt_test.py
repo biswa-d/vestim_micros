@@ -80,7 +80,6 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.param_labels = {
             "LAYERS": "Layers",
             "HIDDEN_UNITS": "Hidden Units",
-            # "DROPOUT_PROB": "Dropout Probability",
             "BATCH_SIZE": "Batch Size",
             "MAX_EPOCHS": "Max Epochs",
             "INITIAL_LR": "Initial Learning Rate",
@@ -91,7 +90,6 @@ class VEstimTrainingTaskGUI(QMainWindow):
             "LOOKBACK": "Lookback Sequence Length",
             "REPETITIONS": "Repetitions",
             "NUM_LEARNABLE_PARAMS": "Number of Learnable Parameters",
-
         }
 
         self.initUI()

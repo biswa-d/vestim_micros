@@ -182,7 +182,8 @@ class VEstimTrainingSetupManager:
             batch_sizes = parse_param_list(self.current_hyper_params['BATCH_SIZE'], int)
             max_epochs = parse_param_list(self.current_hyper_params.get('MAX_EPOCHS', '100'), int)
             valid_patience = parse_param_list(self.current_hyper_params['VALID_PATIENCE'], int)
-            repetitions = int(self.current_hyper_params.get('REPETITIONS', '1'))  # Default to 1 if not specified
+            valid_frequency = int(self.current_hyper_params.get('VALID_FREQUENCY', '3'))
+            repetitions = int(self.current_hyper_params.get('REPETITIONS', '1'))
             
             # Get scheduler type
             scheduler_type = self.current_hyper_params.get('SCHEDULER_TYPE', 'StepLR')
@@ -225,9 +226,10 @@ class VEstimTrainingSetupManager:
                                                             'SCHEDULER_TYPE': 'StepLR',
                                                             'LR_PERIOD': period,
                                                             'LR_PARAM': factor,
-                                                            'REPETITIONS': rep,  # Add current repetition number
+                                                            'REPETITIONS': rep,
+                                                            'ValidFrequency': valid_frequency,
                                                         },
-                                                        repetition=rep  # Pass repetition to task info creation
+                                                        repetition=rep
                                                     )
                                                     task_list.append(task_info)
                                     else:
@@ -247,9 +249,10 @@ class VEstimTrainingSetupManager:
                                                             'SCHEDULER_TYPE': 'ReduceLROnPlateau',
                                                             'PLATEAU_PATIENCE': p_patience,
                                                             'PLATEAU_FACTOR': p_factor,
-                                                            'REPETITIONS': rep,  # Add current repetition number
+                                                            'REPETITIONS': rep,
+                                                            'ValidFrequency': valid_frequency,
                                                         },
-                                                        repetition=rep  # Pass repetition to task info creation
+                                                        repetition=rep
                                                     )
                                                     task_list.append(task_info)
 
