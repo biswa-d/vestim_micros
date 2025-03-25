@@ -124,10 +124,14 @@ class VEstimTestingManager:
                 # Run testing on this file
                 results = self.testing_service.run_testing(task, model_path, test_file_loader, test_file_path)
                 
-                # Ensure all keys are properly aligned
+                # Calculate max error from predictions and true values
+                errors = np.abs(results.get('true_values', []) - results.get('predictions', []))
+                max_error = np.max(errors) if len(errors) > 0 else 0
+
+                # Ensure all keys are properly aligned and convert to mV where needed
                 results = {
                     'rms_error_mv': results.get('rms_error', 0) * 1000 if 'rms_error' in results else results.get('rms_error_mv', 0),
-                    'max_error_mv': results.get('max_error', 0) * 1000 if 'max_error' in results else results.get('max_error_mv', 0),
+                    'max_error_mv': max_error * 1000,  # Convert to mV
                     'mape': results.get('mape', 0),
                     'r2': results.get('r2', 0),
                     'predictions': results.get('predictions', []),
@@ -144,7 +148,7 @@ class VEstimTestingManager:
                         'test_file': prediction_file_path,
                         'file_name': test_file[:15] + "..." if len(test_file) > 15 else test_file,
                         'rms_error_mv': results['rms_error_mv'],
-                        'max_error_mv': results['max_error_mv'],
+                        'max_error_mv': results['max_error_mv'],  # Now included in results
                         'mape': results['mape'],
                         'r2': results['r2'],
                         '#params': learnable_params,
