@@ -183,7 +183,7 @@ class VEstimTrainingSetupManager:
             plateau_patience = parse_param_list(self.current_hyper_params['PLATEAU_PATIENCE'], int)
             plateau_factors = parse_param_list(self.current_hyper_params['PLATEAU_FACTOR'], float)
             valid_patience_values = parse_param_list(self.current_hyper_params['VALID_PATIENCE'], int)
-            max_epochs = int(self.current_hyper_params.get('MAX_EPOCHS', 100))
+            max_epochs = int(self.current_hyper_params.get('MAX_EPOCHS', '100'))
 
             # Set the logic for task_id
             timestamp = time.strftime("%Y%m%d%H%M%S")  # Format timestamp as YYYYMMDDHHMMSS
@@ -367,9 +367,9 @@ class VEstimTrainingSetupManager:
                 'LR_PERIOD': str(params['LR_PERIOD']),
                 'PLATEAU_PATIENCE': str(params['PLATEAU_PATIENCE']),
                 'PLATEAU_FACTOR': str(params['PLATEAU_FACTOR']),
+                'MAX_EPOCHS': str(params.get('MAX_EPOCHS', '100')),  # Add MAX_EPOCHS validation
                 'VALID_PATIENCE': str(params['VALID_PATIENCE']),
-                'VALID_FREQUENCY': str(params['VALID_FREQUENCY']),
-                'MAX_EPOCHS': int(params.get('MAX_EPOCHS', 100))  # Add MAX_EPOCHS with default
+                'VALID_FREQUENCY': str(params['VALID_FREQUENCY'])
             }
             return validated
         except (ValueError, KeyError) as e:

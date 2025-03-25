@@ -48,6 +48,11 @@ class VEstimHyperParameterGUI(QWidget):
         training_layout.addRow("Plateau Factor:", self.plateau_factor_input)
 
         # Validation Parameters
+        # Add Max Training Epochs before validation patience
+        self.max_epochs_input = QLineEdit()
+        self.max_epochs_input.setPlaceholderText("100")
+        training_layout.addRow("Max Training Epochs:", self.max_epochs_input)
+
         self.valid_patience_input = QLineEdit()
         self.valid_patience_input.setPlaceholderText("10")
         training_layout.addRow("Validation Patience:", self.valid_patience_input)
@@ -55,13 +60,6 @@ class VEstimHyperParameterGUI(QWidget):
         self.valid_frequency_input = QLineEdit()
         self.valid_frequency_input.setPlaceholderText("3")
         training_layout.addRow("Validation Frequency:", self.valid_frequency_input)
-
-        # Add Max Epochs input with spinbox
-        self.max_epochs_spinbox = QSpinBox()
-        self.max_epochs_spinbox.setRange(1, 10000)
-        self.max_epochs_spinbox.setValue(100)
-        self.max_epochs_spinbox.setToolTip("Maximum number of training epochs")
-        training_layout.addRow("Max Epochs:", self.max_epochs_spinbox)
 
         training_group.setLayout(training_layout)
         return training_group
@@ -85,9 +83,9 @@ class VEstimHyperParameterGUI(QWidget):
             'LR_PERIOD': self.lr_period_input.text(),
             'PLATEAU_PATIENCE': self.plateau_patience_input.text(),
             'PLATEAU_FACTOR': self.plateau_factor_input.text(),
+            'MAX_EPOCHS': self.max_epochs_input.text(),  # Changed to use LineEdit
             'VALID_PATIENCE': self.valid_patience_input.text(),
             'VALID_FREQUENCY': self.valid_frequency_input.text(),
-            'MAX_EPOCHS': str(self.max_epochs_spinbox.value()),  # Add this line
         }
         return params
 
@@ -95,8 +93,5 @@ class VEstimHyperParameterGUI(QWidget):
         """Set parameters in GUI inputs."""
         # ... existing parameter settings ...
         if 'MAX_EPOCHS' in params:
-            try:
-                self.max_epochs_spinbox.setValue(int(params['MAX_EPOCHS']))
-            except (ValueError, TypeError):
-                self.max_epochs_spinbox.setValue(100)  # Default value if conversion fails
+            self.max_epochs_input.setText(str(params.get('MAX_EPOCHS', '100')))
         # ... rest of the settings ... 
