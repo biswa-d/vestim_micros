@@ -19,6 +19,7 @@ from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetu
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gui.src.testing_gui_qt_test import VEstimTestingGUI
 
+
 class TrainingThread(QThread):
     # Custom signals to emit data back to the main GUI
     update_epoch_signal = pyqtSignal(dict)  # Signal to send progress data (e.g., after each epoch)
