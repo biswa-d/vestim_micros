@@ -256,7 +256,7 @@ class VEstimTrainingSetupManager:
                                                         'LR_DROP_PERIOD': drop_period,
                                                         'LR_DROP_FACTOR': drop_factor,
                                                         'VALID_PATIENCE': patience,
-                                                        'ValidFrequency': self.current_hyper_params['ValidFrequency'],
+                                                        'VALID_FREQUENCY': self.current_hyper_params['VALID_FREQUENCY'],
                                                         'REPETITIONS': rep,
                                                         'MAX_EPOCHS': max_epochs,
                                                         'NUM_LEARNABLE_PARAMS': num_learnable_params,
