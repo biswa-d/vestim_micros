@@ -108,49 +108,49 @@ class VEstimTrainingSetupManager:
             self.logger.info(f"Building {model_type} models with INPUT_SIZE={input_size}, OUTPUT_SIZE={output_size}")
 
             # Iterate over all combinations of hidden_units and layers
-            for hidden_units in hidden_units_list:
-                for layers in layers_list:
-                    self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
+        for hidden_units in hidden_units_list:
+            for layers in layers_list:
+                self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
 
                     # Create model directory
-                    model_dir = os.path.join(
-                        self.job_manager.get_job_folder(),
-                        'models',
+                model_dir = os.path.join(
+                    self.job_manager.get_job_folder(),
+                    'models',
                         f'model_{model_type}_hu_{hidden_units}_layers_{layers}'
-                    )
-                    os.makedirs(model_dir, exist_ok=True)
+                )
+                os.makedirs(model_dir, exist_ok=True)
 
-                    model_name = f"model_lstm_hu_{hidden_units}_layers_{layers}.pth"
-                    model_path = os.path.join(model_dir, model_name)
+                model_name = f"model_lstm_hu_{hidden_units}_layers_{layers}.pth"
+                model_path = os.path.join(model_dir, model_name)
 
-                    # Model parameters
-                    model_params = {
+                # Model parameters
+                model_params = {
                         "INPUT_SIZE": input_size,  # Dynamically set input size
                         "OUTPUT_SIZE": output_size,  # Single target output
-                        "HIDDEN_UNITS": hidden_units,
-                        "LAYERS": layers
-                    }
+                    "HIDDEN_UNITS": hidden_units,
+                    "LAYERS": layers
+                }
 
-                    # Create and save the LSTM model
+                # Create and save the LSTM model
                     model = self.create_selected_model(model_type, model_params, model_path)
 
-                    # Store model information
-                    self.models.append({
-                        'model': model,
+                # Store model information
+                self.models.append({
+                    'model': model,
                         'model_type': model_type,
-                        'model_dir': model_dir,
+                    'model_dir': model_dir,
                         "FEATURE_COLUMNS": feature_columns,
                         "TARGET_COLUMN": target_column,
-                        'hyperparams': {
+                    'hyperparams': {
                             'INPUT_SIZE': input_size,
                             'OUTPUT_SIZE': output_size,
-                            'LAYERS': layers,
-                            'HIDDEN_UNITS': hidden_units,
-                            'model_path': model_path
-                        }
-                    })
-
-            self.logger.info("Model building complete.")
+                        'LAYERS': layers,
+                        'HIDDEN_UNITS': hidden_units,
+                        'model_path': model_path
+                    }
+                })
+        
+        self.logger.info("Model building complete.")
 
         except Exception as e:
             self.logger.error(f"Error during model building: {e}")
@@ -197,16 +197,16 @@ class VEstimTrainingSetupManager:
                 plateau_factors = parse_param_list(self.current_hyper_params['PLATEAU_FACTOR'], float)
 
             # Create tasks for each model
-            for model_task in self.models:
+        for model_task in self.models:
                 feature_columns = model_task['FEATURE_COLUMNS']
                 target_column = model_task['TARGET_COLUMN']
                 model = model_task['model']
                 
                 # Base nested loops for common parameters
-                for lr in learning_rates:
+            for lr in learning_rates:
                     for train_val_split in train_val_splits:
-                        for lookback in lookbacks:
-                            for batch_size in batch_sizes:
+                            for lookback in lookbacks:
+                                for batch_size in batch_sizes:
                                 for vp in valid_patience:
                                     # Branch based on scheduler type
                                     if scheduler_type == 'StepLR':
@@ -236,7 +236,7 @@ class VEstimTrainingSetupManager:
                                         for p_patience in plateau_patience:
                                             for p_factor in plateau_factors:
                                                 # Add repetitions as innermost loop
-                                                for rep in range(1, repetitions + 1):
+                                    for rep in range(1, repetitions + 1):
                                                     task_info = self._create_task_info(
                                                         model_task=model_task,
                                                         hyperparams={
@@ -314,7 +314,9 @@ class VEstimTrainingSetupManager:
             'task_id': task_id,
             'model': model_task['model'],
             'model_dir': task_dir,
+            'task_dir': task_dir,
             'model_path': os.path.join(task_dir, 'model.pth'),
+            'logs_dir': logs_dir,
             'hyperparams': {
                 # Ensure all required hyperparameters are explicitly included
                 'LAYERS': model_task['hyperparams']['LAYERS'],

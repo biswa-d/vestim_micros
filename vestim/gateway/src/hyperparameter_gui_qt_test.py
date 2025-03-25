@@ -49,10 +49,6 @@ class VEstimHyperParameterGUI(QWidget):
 
         # Validation Parameters
         # Add Max Training Epochs before validation patience
-        self.repetitions_input = QLineEdit()
-        self.repetitions_input.setPlaceholderText("1")
-        training_layout.addRow("Training Repetitions:", self.repetitions_input)
-
         self.max_epochs_input = QLineEdit()
         self.max_epochs_input.setPlaceholderText("100")
         training_layout.addRow("Max Training Epochs:", self.max_epochs_input)
@@ -87,8 +83,7 @@ class VEstimHyperParameterGUI(QWidget):
             'LR_PERIOD': self.lr_period_input.text(),
             'PLATEAU_PATIENCE': self.plateau_patience_input.text(),
             'PLATEAU_FACTOR': self.plateau_factor_input.text(),
-            'REPETITIONS': self.repetitions_input.text(),
-            'MAX_EPOCHS': self.max_epochs_input.text(),
+            'MAX_EPOCHS': self.max_epochs_input.text(),  # Changed to use LineEdit
             'VALID_PATIENCE': self.valid_patience_input.text(),
             'VALID_FREQUENCY': self.valid_frequency_input.text(),
         }
