@@ -139,8 +139,20 @@ class VEstimTestingGUI(QMainWindow):
 
         # TreeWidget to display results
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(9)
-        self.tree.setHeaderLabels(["Sl.No", "Task ID", "Model", "File Name", "#W&Bs", "RMS Error (mV)", "MAE (mV)", "MAPE (%)", "R²", "Plot"])
+        self.tree.setColumnCount(11)
+        self.tree.setHeaderLabels([
+            'Sl.No', 
+            'Task ID', 
+            'Model', 
+            'File Name',
+            '#Params', 
+            'RMS Error (mV)', 
+            'MAE (mV)',
+            'Max Error (mV)',  # Add this column
+            'MAPE (%)', 
+            'R2',
+            'Plot'  # Plot button column
+        ])
 
         # Set optimized column widths
         self.tree.setColumnWidth(0, 50)   # Sl.No column
@@ -150,9 +162,10 @@ class VEstimTestingGUI(QMainWindow):
         self.tree.setColumnWidth(4, 70)   # Number of learnable parameters
         self.tree.setColumnWidth(5, 120)   # RMS Error column
         self.tree.setColumnWidth(6, 80)   # MAE column
-        self.tree.setColumnWidth(7, 80)   # MAPE column
-        self.tree.setColumnWidth(8, 80)   # R² column
-        self.tree.setColumnWidth(9, 50)   # Plot button column (Narrow)
+        self.tree.setColumnWidth(7, 80)   # Max Error column
+        self.tree.setColumnWidth(8, 80)   # MAPE column
+        self.tree.setColumnWidth(9, 80)   # R² column
+        self.tree.setColumnWidth(10, 50)   # Plot button column (Narrow)
 
         self.main_layout.addWidget(self.tree)
 
@@ -253,7 +266,7 @@ class VEstimTestingGUI(QMainWindow):
         self.status_label.setText(message)
 
     def add_result_row(self, result):
-        """Add each test result as a row in the QTreeWidget (showing Task ID, Model, File Name, etc.)."""
+        """Add each test result as a row in the QTreeWidget."""
         print(f"Adding result row: {result}")
         self.logger.info(f"Adding result row: {result}")
 
@@ -266,26 +279,38 @@ class VEstimTestingGUI(QMainWindow):
             file_name = task_data.get("file_name", "Unknown File")
             num_learnable_params = str(task_data.get("#params", "N/A"))
 
-            # Extract metrics
+            # Extract metrics including max error
             rms_error = f"{task_data.get('rms_error_mv', 0):.2f}"
             mae = f"{task_data.get('mae_mv', 0):.2f}"
+            max_error = f"{task_data.get('max_error_mv', 0):.2f}"  # Add max error
             mape = f"{task_data.get('mape', 0):.2f}"
-            r2 = f"{task_data.get('r2', 0):.2f}"
+            r2 = f"{task_data.get('r2', 0):.4f}"
 
             # Manually increment Sl.No counter
             sl_no = self.sl_no_counter
             self.sl_no_counter += 1
 
-            # Add row data to QTreeWidget
-            row = QTreeWidgetItem([str(sl_no), task_id, model_name, file_name, num_learnable_params, rms_error, mae, mape, r2])
+            # Add row data to QTreeWidget with max error
+            row = QTreeWidgetItem([
+                str(sl_no), 
+                task_id, 
+                model_name, 
+                file_name, 
+                num_learnable_params, 
+                rms_error, 
+                mae,
+                max_error,  # Add max error
+                mape, 
+                r2
+            ])
 
             # Create "Plot" button
             plot_button = QPushButton("Plot Result")
-            plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")  # Purple background
+            plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")
             plot_button.clicked.connect(lambda _, path=save_dir: self.plot_model_results(path))
 
             self.tree.addTopLevelItem(row)
-            self.tree.setItemWidget(row, 9, plot_button)  # Add plot button at the correct column
+            self.tree.setItemWidget(row, 10, plot_button)  # Adjust column index for plot button
 
 
     def plot_model_results(self, save_dir):

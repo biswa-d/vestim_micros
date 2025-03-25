@@ -17,6 +17,8 @@ import json, hashlib, sqlite3, csv
 from threading import Thread
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import pandas as pd
+import numpy as np
 
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.services.model_testing.src.testing_service_test import VEstimTestingService
@@ -100,51 +102,104 @@ class VEstimTestingManager:
         """Test a single model and save the result."""
         try:
             print(f"Preparing test data for Task {idx + 1}...")
-
-            # Extract lookback, learnable params and model path from the task
+            
+            # Get required paths and parameters
             lookback = task['hyperparams']['LOOKBACK']
             model_path = task['model_path']
-            save_dir = task['task_dir']
+            task_dir = task['task_dir']
             num_learnable_params = task['hyperparams']['NUM_LEARNABLE_PARAMS']
+            
             print(f"Testing model: {model_path} with lookback: {lookback}")
+            
+            # Create test_results directory within task directory
+            test_results_dir = os.path.join(task_dir, 'test_results')
+            os.makedirs(test_results_dir, exist_ok=True)
 
-            print("Loading and processing test data...")
-            self.logger.info(f"Loading and processing test data")
-            X_test, y_test = self.test_data_service.load_and_process_data(test_folder)
-        
+            # Create summary CSV file in task directory
+            summary_file = os.path.join(task_dir, 'test_summary.csv')
+            summary_fieldnames = ['File', 'RMS Error (mV)', 'MAE (mV)', 'Max Error (mV)', 'MAPE (%)', 'R2']
+            
+            with open(summary_file, 'w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=summary_fieldnames)
+                writer.writeheader()
 
-            print("Generating shorthand name for model...")
+            # Get all test files
+            test_files = [f for f in os.listdir(test_folder) if f.endswith('.csv')]
+            if not test_files:
+                print(f"No test files found in {test_folder}")
+                return
+
+            print(f"Found {len(test_files)} test files. Running tests...")
+            
+            # Process each test file
+            all_results = []
+            for test_file in test_files:
+                file_name = os.path.splitext(test_file)[0]
+                test_file_path = os.path.join(test_folder, test_file)
+                
+                # Run test for single file
+                file_results = self.testing_service.test_single_file(
+                    task, 
+                    model_path, 
+                    test_file_path
+                )
+                
+                # Calculate max error
+                errors = np.abs(file_results['y_test'] - file_results['predictions'])
+                max_error = np.max(errors)
+                file_results['max_error_mv'] = max_error
+                
+                # Save predictions in test_results directory
+                predictions_file = os.path.join(test_results_dir, f"{file_name}_predictions.csv")
+                pd.DataFrame({
+                    'actual': file_results['y_test'],
+                    'predicted': file_results['predictions'],
+                    'error_mv': file_results['predictions'] - file_results['y_test']
+                }).to_csv(predictions_file, index=False)
+                
+                # Add results to summary file
+                with open(summary_file, 'a', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=summary_fieldnames)
+                    writer.writerow({
+                        'File': test_file,  # Just the filename, not full path
+                        'RMS Error (mV)': file_results['rms_error_mv'],
+                        'MAE (mV)': file_results['mae_mv'],
+                        'Max Error (mV)': file_results['max_error_mv'],
+                        'MAPE (%)': file_results['mape'],
+                        'R2': file_results['r2']
+                    })
+                
+                all_results.append(file_results)
+
+            # Calculate average metrics across all files
+            avg_results = {
+                'rms_error_mv': np.mean([r['rms_error_mv'] for r in all_results]),
+                'mae_mv': np.mean([r['mae_mv'] for r in all_results]),
+                'max_error_mv': np.max([r['max_error_mv'] for r in all_results]),
+                'mape': np.mean([r['mape'] for r in all_results]),
+                'r2': np.mean([r['r2'] for r in all_results])
+            }
+
+            # Generate shorthand name
             shorthand_name = self.generate_shorthand_name(task)
-
-            # Run the testing process and get results
-            results = self.testing_service.run_testing(task, model_path, X_test, y_test, save_dir, self.device)
-
-            # Log the test results to CSV and SQLite
-            csv_log_file = task['csv_log_file']
-            db_log_file = task['db_log_file']
-
-            self.log_test_to_csv(task, results, csv_log_file)
-            self.log_test_to_sqlite(task, results, db_log_file)
-
-            self.testing_service.save_test_results(results, shorthand_name, save_dir)
-
+            
             # Put the results in the queue for the GUI
-            print(f"Results for model {shorthand_name}: {results}")
             self.queue.put({
                 'task_completed': {
-                    'saved_dir': save_dir,
+                    'saved_dir': task_dir,
                     'sl_no': idx + 1,
                     'model': shorthand_name,
                     '#params': num_learnable_params,
-                    'rms_error_mv': results['rms_error_mv'],
-                    'mae_mv': results['mae_mv'],
-                    'mape': results['mape'],
-                    'r2': results['r2']
+                    'rms_error_mv': avg_results['rms_error_mv'],
+                    'mae_mv': avg_results['mae_mv'],
+                    'max_error_mv': avg_results['max_error_mv'],
+                    'mape': avg_results['mape'],
+                    'r2': avg_results['r2']
                 }
             })
 
         except Exception as e:
-            print(f"Error testing model {task['model_path']}: {str(e)}")
+            print(f"Error testing model {model_path}: {str(e)}")
             self.queue.put({'task_error': str(e)})
 
 
