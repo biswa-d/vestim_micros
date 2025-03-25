@@ -140,7 +140,7 @@ class VEstimTestingGUI(QMainWindow):
         # TreeWidget to display results
         self.tree = QTreeWidget()
         self.tree.setColumnCount(9)
-        self.tree.setHeaderLabels(["Sl.No", "Task ID", "Model", "File Name", "#W&Bs", "RMS Error (mV)", "MAE (mV)", "MAPE (%)", "R²", "Plot"])
+        self.tree.setHeaderLabels(["Sl.No", "Task ID", "Model", "File Name", "#W&Bs", "RMS Error (mV)", "Max Error (mV)", "MAPE (%)", "R²", "Plot"])
 
         # Set optimized column widths
         self.tree.setColumnWidth(0, 50)   # Sl.No column
@@ -149,7 +149,7 @@ class VEstimTestingGUI(QMainWindow):
         self.tree.setColumnWidth(3, 220)  # File name column (Wider)
         self.tree.setColumnWidth(4, 70)   # Number of learnable parameters
         self.tree.setColumnWidth(5, 120)   # RMS Error column
-        self.tree.setColumnWidth(6, 80)   # MAE column
+        self.tree.setColumnWidth(6, 120)   # Max Error column
         self.tree.setColumnWidth(7, 80)   # MAPE column
         self.tree.setColumnWidth(8, 80)   # R² column
         self.tree.setColumnWidth(9, 50)   # Plot button column (Narrow)
@@ -253,7 +253,7 @@ class VEstimTestingGUI(QMainWindow):
         self.status_label.setText(message)
 
     def add_result_row(self, result):
-        """Add each test result as a row in the QTreeWidget (showing Task ID, Model, File Name, etc.)."""
+        """Add each test result as a row in the QTreeWidget."""
         print(f"Adding result row: {result}")
         self.logger.info(f"Adding result row: {result}")
 
@@ -266,111 +266,54 @@ class VEstimTestingGUI(QMainWindow):
             file_name = task_data.get("file_name", "Unknown File")
             num_learnable_params = str(task_data.get("#params", "N/A"))
 
-            # Extract metrics
+            # Extract metrics (all in mV)
             rms_error = f"{task_data.get('rms_error_mv', 0):.2f}"
-            mae = f"{task_data.get('mae_mv', 0):.2f}"
+            max_error = f"{task_data.get('max_error_mv', 0):.2f}"
             mape = f"{task_data.get('mape', 0):.2f}"
-            r2 = f"{task_data.get('r2', 0):.2f}"
-
-            # Manually increment Sl.No counter
-            sl_no = self.sl_no_counter
-            self.sl_no_counter += 1
+            r2 = f"{task_data.get('r2', 0):.4f}"
 
             # Add row data to QTreeWidget
-            row = QTreeWidgetItem([str(sl_no), task_id, model_name, file_name, num_learnable_params, rms_error, mae, mape, r2])
+            row = QTreeWidgetItem([
+                str(self.sl_no_counter), 
+                task_id, 
+                model_name, 
+                file_name, 
+                num_learnable_params, 
+                rms_error,
+                max_error,
+                mape,
+                r2
+            ])
 
             # Create "Plot" button
             plot_button = QPushButton("Plot Result")
-            plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")  # Purple background
-            plot_button.clicked.connect(lambda _, path=save_dir: self.plot_model_results(path))
+            plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")
+            # Use test_file path for plotting
+            test_file = task_data.get('test_file', '')
+            plot_button.clicked.connect(lambda _, path=test_file: self.plot_model_results(path))
 
             self.tree.addTopLevelItem(row)
-            self.tree.setItemWidget(row, 9, plot_button)  # Add plot button at the correct column
+            self.tree.setItemWidget(row, 9, plot_button)
+            self.sl_no_counter += 1
 
-
-    def plot_model_results(self, save_dir):
-        """
-        Plot all test results for a specific model by reading from all saved CSV files.
-        Opens multiple windows, one for each test file.
-        """
+    def plot_model_results(self, predictions_file):
+        """Plot test results from a predictions CSV file."""
         try:
-            if not os.path.exists(save_dir):
-                QMessageBox.critical(self, "Error", f"Model results folder not found: {save_dir}")
+            print(f"Plotting results for test file: {predictions_file}")
+            
+            if not os.path.exists(predictions_file):
+                QMessageBox.critical(self, "Error", f"Predictions file not found: {predictions_file}")
                 return
 
-            # Get all test result files for this model
-            test_files = [f for f in os.listdir(save_dir) if f.endswith("_predictions.csv")]
-
-            if not test_files:
-                QMessageBox.critical(self, "Error", f"No test result files found for model: {save_dir}")
-                return
-
-            # Iterate over each test file and open a new plot window
-            for test_file in test_files:
-                test_file_path = os.path.join(save_dir, test_file)
-                df = pd.read_csv(test_file_path)
-
-                if "True Values (V)" not in df.columns or "Predictions (V)" not in df.columns:
-                    print(f"Skipping {test_file} due to missing columns.")
-                    continue
-
-                # Create a new dialog window for each test file
-                plot_window = QDialog(self)
-                test_name = os.path.splitext(test_file)[0]
-                plot_window.setWindowTitle(f"Test Results: {test_name}")
-                plot_window.setGeometry(200, 100, 800, 600)
-
-                # Create a matplotlib figure
-                fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
-
-                # Plot true values vs predictions
-                ax.plot(df["True Values (V)"], label='True Values (V)', color='blue', marker='o', markersize=3, linestyle='-', linewidth=0.8)
-                ax.plot(df["Predictions (V)"], label='Predictions (V)', color='green', marker='x', markersize=3, linestyle='--', linewidth=0.8)
-
-                ax.set_xlabel('Index', fontsize=12)
-                ax.set_ylabel('Voltage (V)', fontsize=12)
-                ax.set_title(f"Test: {test_name}", fontsize=14, fontweight='bold')
-                ax.legend(loc='upper right', fontsize=10)
-                ax.grid(True, linestyle='--', alpha=0.6)
-                ax.tick_params(axis='both', which='major', labelsize=10)
-
-                # Embed the plot in the dialog window using FigureCanvas
-                canvas = FigureCanvas(fig)
-                layout = QVBoxLayout()
-                layout.addWidget(canvas)
-                plot_window.setLayout(layout)
-
-                # Add "Save Plot" button
-                save_button = QPushButton("Save Plot")
-                save_button.clicked.connect(lambda checked, f=fig, t=test_file_path: self.save_plot(f, t, save_dir))
-                layout.addWidget(save_button)
-
-                # Show the plot window (opens multiple windows)
-                plot_window.show()
+            # Read and plot predictions
+            df = pd.read_csv(predictions_file)
+            if 'True Values (V)' in df.columns and 'Predictions (V)' in df.columns:
+                self.plot_predictions(df['True Values (V)'], df['Predictions (V)'])
+            else:
+                QMessageBox.warning(self, "Warning", "Invalid predictions file format")
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"An error occurred while plotting results\n{str(e)}")
-
-
-    def save_plot(self, fig, test_file_path, save_dir):
-        """
-        Save the current plot as a PNG image.
-        
-        :param fig: The figure object of the plot.
-        :param model_name: The name of the model being plotted.
-        :param save_dir: The directory where the plot should be saved.
-        """
-        # Create the file path for the saved image
-        #plot_file = os.path.join(save_dir, test_file_path, f"{test_file_path}_test_results_plot.png")
-        # Remove .csv from the filename
-        test_file_name = os.path.splitext(os.path.basename(test_file_path))[0]  
-        # Construct the correct plot file path inside save_dir
-        plot_file = os.path.join(save_dir, f"{test_file_name}_test_results_plot.png")
-
-        # Save the figure as a PNG image
-        fig.savefig(plot_file, format='png', dpi=300, bbox_inches='tight')
-        QMessageBox.information(self, "Saved", f"Plot saved as: {plot_file}")
-        print(f"Plot saved as: {plot_file}")
+            QMessageBox.critical(self, "Error", f"Error plotting results: {str(e)}")
 
     def start_testing(self):
         print("Starting testing...")
