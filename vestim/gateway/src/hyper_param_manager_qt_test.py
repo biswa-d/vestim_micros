@@ -37,22 +37,24 @@ class VEstimHyperParamManager:
 
         for key, value in params.items():
             if isinstance(value, str):
-                # Split the string into a list, allowing for comma or space separation
-                value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
-
-                # ✅ Ensure integer type for specific keys
+                # Keep the original string for parameters that might be comma-separated
                 if key in ['LAYERS', 'HIDDEN_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD', 
                         'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS']:
+                    # Validate that all values are valid integers
+                    value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
                     try:
-                        validated_params[key] = int(value) if len(value_list) == 1 else [int(v) for v in value_list]
+                        [int(v) for v in value_list]  # Just validate, don't convert
+                        validated_params[key] = value  # Keep as string
                     except ValueError:
                         self.logger.error(f"Invalid integer value for {key}: {value}")
                         raise ValueError(f"Invalid value for {key}: Expected integers, got {value}")
 
-                # ✅ Ensure float type for specific keys
                 elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB', 'TRAIN_VAL_SPLIT']:
+                    # Validate that all values are valid floats
+                    value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
                     try:
-                        validated_params[key] = float(value) if len(value_list) == 1 else [float(v) for v in value_list]
+                        [float(v) for v in value_list]  # Just validate, don't convert
+                        validated_params[key] = value  # Keep as string
                     except ValueError:
                         self.logger.error(f"Invalid float value for {key}: {value}")
                         raise ValueError(f"Invalid value for {key}: Expected floats, got {value}")
@@ -62,7 +64,7 @@ class VEstimHyperParamManager:
                     validated_params[key] = value.lower() in ['true', '1', 'yes']
 
                 else:
-                    validated_params[key] = value  # Keep as string for other cases
+                    validated_params[key] = value
 
             elif isinstance(value, list):
                 # ✅ Ensure lists retain proper types

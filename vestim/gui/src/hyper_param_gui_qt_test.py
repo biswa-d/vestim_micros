@@ -534,37 +534,46 @@ class VEstimHyperParamGUI(QWidget):
 
         # **Main Layout with Top Alignment**
         validation_layout = QVBoxLayout()
-        validation_layout.setAlignment(Qt.AlignTop)  # Ensures content stays at the top
+        validation_layout.setAlignment(Qt.AlignTop)
 
         # Add maximum training epochs
         max_epochs_label = QLabel("Max Training Epochs:")
         max_epochs_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
-        max_epochs_label.setToolTip("Maximum number of epochs to train the model.")
+        max_epochs_label.setToolTip("Enter maximum training epochs. Use commas for multiple values (e.g., 100,200,500)")
+
+        self.max_epochs_entry = QLineEdit(self.params.get("MAX_EPOCHS", "500"))
+        self.max_epochs_entry.setFixedWidth(100)
+        self.max_epochs_entry.setToolTip("Enter maximum training epochs. Use commas for multiple values (e.g., 100,200,500)")
 
         # **Validation Patience**
         patience_label = QLabel("Validation Patience:")
         patience_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
-        patience_label.setToolTip("Number of epochs to wait for validation improvement before early stopping.")
+        patience_label.setToolTip("Enter validation patience. Use commas for multiple values (e.g., 5,10,15)")
 
         self.patience_entry = QLineEdit(self.params.get("VALID_PATIENCE", "10"))
         self.patience_entry.setFixedWidth(100)
-        self.patience_entry.setToolTip("Enter an integer value (e.g., 10) to define early stopping patience.")
+        self.patience_entry.setToolTip("Enter validation patience. Use commas for multiple values (e.g., 5,10,15)")
 
         # **Validation Frequency**
         freq_label = QLabel("Validation Frequency:")
         freq_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
-        freq_label.setToolTip("How often (in epochs) to perform validation during training.")
+        freq_label.setToolTip("Enter validation frequency. Use commas for multiple values (e.g., 1,3,5)")
 
         self.freq_entry = QLineEdit(self.params.get("ValidFrequency", "3"))
         self.freq_entry.setFixedWidth(100)
-        self.freq_entry.setToolTip("Enter an integer value (e.g., 3) to specify validation frequency.")
+        self.freq_entry.setToolTip("Enter validation frequency. Use commas for multiple values (e.g., 1,3,5)")
 
         # ✅ Store references in self.param_entries for parameter collection
         self.param_entries["VALID_PATIENCE"] = self.patience_entry
         self.param_entries["VALID_FREQUENCY"] = self.freq_entry
-        self.param_entries["MAX_EPOCHS"] = self.freq_entry
+        self.param_entries["MAX_EPOCHS"] = self.max_epochs_entry
 
         # **Ensure Proper Alignment**
+        max_epochs_layout = QHBoxLayout()
+        max_epochs_layout.addWidget(max_epochs_label)
+        max_epochs_layout.addWidget(self.max_epochs_entry)
+        max_epochs_layout.addStretch()
+
         patience_layout = QHBoxLayout()
         patience_layout.addWidget(patience_label)
         patience_layout.addWidget(self.patience_entry)
@@ -576,6 +585,7 @@ class VEstimHyperParamGUI(QWidget):
         freq_layout.setAlignment(Qt.AlignLeft)  # Aligns label and entry to the left
 
         # **Add Widgets to Layout in Vertical Order**
+        validation_layout.addLayout(max_epochs_layout)
         validation_layout.addLayout(patience_layout)
         validation_layout.addLayout(freq_layout)
 

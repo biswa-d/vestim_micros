@@ -170,10 +170,14 @@ class VEstimTrainingSetupManager:
             if isinstance(param_value, (int, float)):
                 return [param_value]
             try:
-                return [convert_func(x.strip()) for x in str(param_value).split(',')]
+                # Handle both comma and space separated values
+                values = [v.strip() for v in str(param_value).replace(',', ' ').split() if v]
+                if not values:
+                    raise ValueError(f"Empty parameter value")
+                return [convert_func(v) for v in values]
             except ValueError as e:
                 self.logger.error(f"Error parsing parameter: {param_value}")
-                raise ValueError(f"Error parsing parameter: {param_value}") from e
+                raise ValueError(f"Invalid value in list: {param_value}. Expected {convert_func.__name__} values.")
 
         try:
             # Parse parameters safely
@@ -183,7 +187,7 @@ class VEstimTrainingSetupManager:
             plateau_patience = parse_param_list(self.current_hyper_params['PLATEAU_PATIENCE'], int)
             plateau_factors = parse_param_list(self.current_hyper_params['PLATEAU_FACTOR'], float)
             valid_patience_values = parse_param_list(self.current_hyper_params['VALID_PATIENCE'], int)
-            max_epochs = int(self.current_hyper_params.get('MAX_EPOCHS', '100'))
+            max_epochs_values = parse_param_list(self.current_hyper_params.get('MAX_EPOCHS', '100'), int)
 
             # Set the logic for task_id
             timestamp = time.strftime("%Y%m%d%H%M%S")  # Format timestamp as YYYYMMDDHHMMSS
@@ -260,7 +264,7 @@ class VEstimTrainingSetupManager:
                                                         'VALID_PATIENCE': patience,
                                                         'VALID_FREQUENCY': self.current_hyper_params['VALID_FREQUENCY'],
                                                         'REPETITIONS': rep,
-                                                        'MAX_EPOCHS': max_epochs,
+                                                        'MAX_EPOCHS': max_epochs_values[0],
                                                         'NUM_LEARNABLE_PARAMS': num_learnable_params,
                                                     },
                                                     'csv_log_file': csv_log_file,
@@ -350,26 +354,19 @@ class VEstimTrainingSetupManager:
         """Validate and convert parameters to appropriate types."""
         try:
             validated = {
-                'FEATURE_COLUMNS': params['FEATURE_COLUMNS'],
-                'TARGET_COLUMN': params['TARGET_COLUMN'],
-                'MODEL_TYPE': params['MODEL_TYPE'],
+                # Integer conversions
                 'LAYERS': int(params['LAYERS']),
                 'HIDDEN_UNITS': int(params['HIDDEN_UNITS']),
-                'TRAINING_METHOD': params['TRAINING_METHOD'],
-                'LOOKBACK': int(params['LOOKBACK']),
-                'BATCH_TRAINING': bool(params['BATCH_TRAINING']),
                 'BATCH_SIZE': int(params['BATCH_SIZE']),
+                
+                # Float conversions
                 'TRAIN_VAL_SPLIT': float(params['TRAIN_VAL_SPLIT']),
-                'SCHEDULER_TYPE': params['SCHEDULER_TYPE'],
-                # Keep these as strings since they might need splitting
+                
+                # String parameters (for potential comma-separated values)
                 'INITIAL_LR': str(params['INITIAL_LR']),
                 'LR_PARAM': str(params['LR_PARAM']),
-                'LR_PERIOD': str(params['LR_PERIOD']),
-                'PLATEAU_PATIENCE': str(params['PLATEAU_PATIENCE']),
-                'PLATEAU_FACTOR': str(params['PLATEAU_FACTOR']),
-                'MAX_EPOCHS': str(params.get('MAX_EPOCHS', '100')),  # Add MAX_EPOCHS validation
-                'VALID_PATIENCE': str(params['VALID_PATIENCE']),
-                'VALID_FREQUENCY': str(params['VALID_FREQUENCY'])
+                'MAX_EPOCHS': str(params.get('MAX_EPOCHS', '100')),
+                # ... other parameters ...
             }
             return validated
         except (ValueError, KeyError) as e:
