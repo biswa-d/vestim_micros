@@ -407,6 +407,22 @@ class VEstimTestingGUI(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to display training history plot: {str(e)}")
 
+    def save_plot(self, fig, test_file_path, save_dir):
+        """Save the current plot as a PNG image."""
+        try:
+            # Generate filename from test file path
+            test_file_name = os.path.splitext(os.path.basename(test_file_path))[0]  
+            # Construct the plot file path inside save_dir
+            plot_file = os.path.join(save_dir, f"{test_file_name}_test_results_plot.png")
+
+            # Save the figure as a PNG image
+            fig.savefig(plot_file, format='png', dpi=300, bbox_inches='tight')
+            QMessageBox.information(self, "Success", f"Plot saved successfully to:\n{plot_file}")
+            print(f"Plot saved as: {plot_file}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save plot: {str(e)}")
+
     def start_testing(self):
         print("Starting testing...")
         self.timer_running = True  # Reset the flag
