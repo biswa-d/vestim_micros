@@ -306,7 +306,7 @@ class VEstimTestingGUI(QMainWindow):
             plot_button.clicked.connect(lambda _, path=save_dir: self.plot_model_results(path))
 
             self.tree.addTopLevelItem(row)
-            self.tree.setItemWidget(row, 9, plot_button)  # Adjusted column index for plot button
+            self.tree.setItemWidget(row, 9, plot_button)  # Adjusted column index
 
             # Adjust column widths to content
             for i in range(self.tree.columnCount()):
