@@ -307,8 +307,11 @@ class VEstimTrainingSetupManager:
         logs_dir = os.path.join(task_dir, 'logs')
         os.makedirs(logs_dir, exist_ok=True)
 
+        # Create unique task ID
+        task_id = f"task_{timestamp}_{task_counter}_rep_{repetition}"
+
         return {
-            'task_id': f"task_{timestamp}_{task_counter}_rep_{repetition}",
+            'task_id': task_id,
             'model': model_task['model'],
             'model_dir': task_dir,
             'model_path': os.path.join(task_dir, 'model.pth'),
@@ -341,6 +344,7 @@ class VEstimTrainingSetupManager:
                 'num_workers': 4  # Make this configurable if needed
             },
             'csv_log_file': os.path.join(logs_dir, 'training_progress.csv'),
+            'db_log_file': os.path.join(logs_dir, f'{task_id}_training.db'),
             'model_metadata': {  # Add metadata for easier task management
                 'model_type': model_task.get('model_type', 'LSTM'),
                 'num_learnable_params': self.calculate_learnable_parameters(
