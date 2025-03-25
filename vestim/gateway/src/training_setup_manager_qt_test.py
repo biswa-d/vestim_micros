@@ -4,6 +4,7 @@ from vestim.gateway.src.hyper_param_manager_qt_test import VEstimHyperParamManag
 from vestim.services.model_training.src.LSTM_model_service_test import LSTMModelService
 from vestim.gateway.src.job_manager_qt import JobManager
 import logging
+import torch
 
 class VEstimTrainingSetupManager:
     _instance = None
@@ -310,11 +311,17 @@ class VEstimTrainingSetupManager:
         # Create unique task ID
         task_id = f"task_{timestamp}_{task_counter}_rep_{repetition}"
 
-        # Calculate num_learnable_params once to use in both places
+        # Get model architecture parameters
+        hidden_units = model_task['hyperparams']['HIDDEN_UNITS']
+        layers = model_task['hyperparams']['LAYERS']
+        input_size = model_task['hyperparams']['INPUT_SIZE']
+        output_size = model_task['hyperparams']['OUTPUT_SIZE']
+
+        # Calculate num_learnable_params
         num_learnable_params = self.calculate_learnable_parameters(
-            model_task['hyperparams']['LAYERS'],
-            model_task['hyperparams']['INPUT_SIZE'],
-            model_task['hyperparams']['HIDDEN_UNITS']
+            layers,
+            input_size,
+            hidden_units
         )
 
         return {
@@ -324,12 +331,20 @@ class VEstimTrainingSetupManager:
             'task_dir': task_dir,
             'model_path': os.path.join(task_dir, 'model.pth'),
             'logs_dir': logs_dir,
+            'model_metadata': {
+                'model_type': model_task.get('model_type', 'LSTM'),
+                'num_learnable_params': num_learnable_params,
+                'hidden_units': hidden_units,
+                'num_layers': layers,
+                'input_size': input_size,
+                'output_size': output_size,
+                'device': 'cuda' if torch.cuda.is_available() else 'cpu'
+            },
             'hyperparams': {
-                # Ensure all required hyperparameters are explicitly included
-                'LAYERS': model_task['hyperparams']['LAYERS'],
-                'HIDDEN_UNITS': model_task['hyperparams']['HIDDEN_UNITS'],
-                'INPUT_SIZE': model_task['hyperparams']['INPUT_SIZE'],
-                'OUTPUT_SIZE': model_task['hyperparams']['OUTPUT_SIZE'],
+                'LAYERS': layers,
+                'HIDDEN_UNITS': hidden_units,
+                'INPUT_SIZE': input_size,
+                'OUTPUT_SIZE': output_size,
                 'BATCH_SIZE': hyperparams['BATCH_SIZE'],
                 'MAX_EPOCHS': hyperparams['MAX_EPOCHS'],
                 'INITIAL_LR': hyperparams['INITIAL_LR'],
@@ -337,7 +352,6 @@ class VEstimTrainingSetupManager:
                 'ValidFrequency': hyperparams['ValidFrequency'],
                 'LOOKBACK': hyperparams['LOOKBACK'],
                 'SCHEDULER_TYPE': hyperparams['SCHEDULER_TYPE'],
-                # Scheduler-specific parameters
                 'LR_PERIOD': hyperparams.get('LR_PERIOD'),
                 'LR_PARAM': hyperparams.get('LR_PARAM'),
                 'PLATEAU_PATIENCE': hyperparams.get('PLATEAU_PATIENCE'),
@@ -351,14 +365,26 @@ class VEstimTrainingSetupManager:
                 'feature_columns': model_task['FEATURE_COLUMNS'],
                 'target_column': model_task['TARGET_COLUMN'],
                 'train_val_split': hyperparams['TRAIN_VAL_SPLIT'],
-                'num_workers': 4  # Make this configurable if needed
+                'num_workers': 4,
+                'shuffle': True,
+                'drop_last': True
+            },
+            'training_params': {
+                'early_stopping': True,
+                'early_stopping_patience': hyperparams['VALID_PATIENCE'],
+                'save_best_model': True,
+                'checkpoint_dir': os.path.join(logs_dir, 'checkpoints'),
+                'best_model_path': os.path.join(task_dir, 'best_model.pth')
+            },
+            'results': {
+                'best_val_loss': float('inf'),
+                'best_epoch': 0,
+                'training_time': 0,
+                'early_stopped': False,
+                'completed': False
             },
             'csv_log_file': os.path.join(logs_dir, 'training_progress.csv'),
-            'db_log_file': os.path.join(logs_dir, f'{task_id}_training.db'),
-            'model_metadata': {  # Add metadata for easier task management
-                'model_type': model_task.get('model_type', 'LSTM'),
-                'num_learnable_params': num_learnable_params
-            }
+            'db_log_file': os.path.join(logs_dir, f'{task_id}_training.db')
         }
 
     def calculate_learnable_parameters(self, layers, input_size, hidden_units):
