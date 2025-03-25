@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QHBoxLayout, QVBoxLayout, QPushButton, QWidget, QFrame, QTextEdit, QGridLayout
+    QApplication, QMainWindow, QLabel, QHBoxLayout, QVBoxLayout, QPushButton, QWidget, QFrame, QTextEdit, QGridLayout, QGroupBox
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 import torch
@@ -111,13 +111,13 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Title Label
         title_label = QLabel("Training LSTM Model with Hyperparameters")
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")  # Increase font size and make it bold
+        title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
         self.main_layout.addWidget(title_label)
 
         # Display hyperparameters
         # Initialize the hyperparameter frame
         self.hyperparam_frame = QFrame(self)
-        self.hyperparam_frame.setLayout(QVBoxLayout())  # Set a default layout for the frame
+        self.hyperparam_frame.setLayout(QVBoxLayout())
         self.main_layout.addWidget(self.hyperparam_frame)
         self.display_hyperparameters(task['hyperparams'])
 
@@ -126,50 +126,69 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.status_label.setAlignment(Qt.AlignCenter)
         self.main_layout.addWidget(self.status_label)
 
-        # Time Frame, Plot Setup, and Log Window
+        # Time Frame and Plot Setup
         self.setup_time_and_plot(task)
-        self.setup_log_window(task)
+
+        # Add log window
+        log_group = QGroupBox("Training Log")
+        log_group.setStyleSheet("QGroupBox { font-weight: bold; font-size: 12px; }")
+        log_layout = QVBoxLayout()
+        
+        # Create the log text widget
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.log_text.setStyleSheet("""
+            QTextEdit {
+                font-size: 10pt;
+                background-color: #f0f0f0;
+                border: 1px solid #ccc;
+                padding: 10px;
+            }
+        """)
+        self.log_text.setMinimumHeight(150)  # Set minimum height for better visibility
+        
+        # Add initial log entry
+        self.log_text.append(f"Repetition: {task['hyperparams']['REPETITIONS']}\n")
+        
+        # Add log widget to layout
+        log_layout.addWidget(self.log_text)
+        log_group.setLayout(log_layout)
+        self.main_layout.addWidget(log_group)
 
         # Stop button (centered and styled)
         self.stop_button = QPushButton("Stop Training")
         self.stop_button.setStyleSheet("background-color: red; color: white; font-size: 12pt; font-weight: bold;")
-        self.stop_button.setFixedWidth(150)  # Set a fixed width for the button
+        self.stop_button.setFixedWidth(150)
         self.stop_button.clicked.connect(self.stop_training)
 
         # Layout for stop button
         stop_button_layout = QHBoxLayout()
-        stop_button_layout.addStretch(1)  # Push the button to the center
+        stop_button_layout.addStretch(1)
         stop_button_layout.addWidget(self.stop_button)
-        stop_button_layout.addStretch(1)  # Push the button to the center
-        self.main_layout.addLayout(stop_button_layout)  # Add this layout to the main layout
+        stop_button_layout.addStretch(1)
+        self.main_layout.addLayout(stop_button_layout)
 
         # Initialize the Proceed to Testing button
         self.proceed_button = QPushButton("Proceed to Testing")
         self.proceed_button.setStyleSheet("""
-            background-color: #0b6337; 
-            color: white; 
-            font-size: 12pt; 
-            font-weight: bold; 
+            background-color: #0b6337;
+            color: white;
+            font-size: 12pt;
+            font-weight: bold;
             padding: 10px 20px;
         """)
-        self.proceed_button.setVisible(False)  # Initially hidden
+        self.proceed_button.hide()
         self.proceed_button.clicked.connect(self.transition_to_testing_gui)
-
+        
         # Layout for proceed button
         proceed_button_layout = QHBoxLayout()
         proceed_button_layout.addStretch(1)
-        proceed_button_layout.addWidget(self.proceed_button, alignment=Qt.AlignCenter)
+        proceed_button_layout.addWidget(self.proceed_button)
         proceed_button_layout.addStretch(1)
-        self.main_layout.addLayout(proceed_button_layout)  # Add this layout to the main layout
+        self.main_layout.addLayout(proceed_button_layout)
 
-
-        # Progress Label (initially hidden)
-        self.progress_label = QLabel("Processing...")
-        self.progress_label.setAlignment(Qt.AlignCenter)
-        self.progress_label.hide()
-        self.main_layout.addWidget(self.progress_label)
-
-        # Attach the layout to the central widget
+        # Set the layout
         container.setLayout(self.main_layout)
 
     def display_hyperparameters(self, params):
