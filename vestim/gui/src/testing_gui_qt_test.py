@@ -147,14 +147,14 @@ class VEstimTestingGUI(QMainWindow):
         # Set optimized column widths
         self.tree.setColumnWidth(0, 50)   # Sl.No column
         self.tree.setColumnWidth(1, 100)  # Task ID column
-        self.tree.setColumnWidth(2, 230)  # Model name column (Wider)
-        self.tree.setColumnWidth(3, 220)  # File name column (Wider)
+        self.tree.setColumnWidth(2, 200)  # Model name column (Wider)
+        self.tree.setColumnWidth(3, 200)  # File name column (Wider)
         self.tree.setColumnWidth(4, 70)   # Number of learnable parameters
-        self.tree.setColumnWidth(5, 120)   # RMS Error column
-        self.tree.setColumnWidth(6, 120)   # Max Error column
-        self.tree.setColumnWidth(7, 80)   # MAPE column
-        self.tree.setColumnWidth(8, 80)   # R² column
-        self.tree.setColumnWidth(9, 50)   # Plot button column (Narrow)
+        self.tree.setColumnWidth(5, 100)   # RMS Error column
+        self.tree.setColumnWidth(6, 100)   # Max Error column
+        self.tree.setColumnWidth(7, 70)   # MAPE column
+        self.tree.setColumnWidth(8, 60)   # R² column
+        self.tree.setColumnWidth(9, 100)   # Plot button column (Narrow)
 
         self.main_layout.addWidget(self.tree)
 
