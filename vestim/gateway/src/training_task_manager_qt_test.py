@@ -9,6 +9,12 @@ from vestim.services.model_training.src.data_loader_service_test import DataLoad
 from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
 import logging, wandb
 
+def format_time(seconds):
+    """Convert seconds to mm:ss format."""
+    minutes = int(seconds // 60)
+    seconds = int(seconds % 60)
+    return f"{minutes:02d}:{seconds:02d}"
+
 class TrainingTaskManager:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
