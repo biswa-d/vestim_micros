@@ -115,38 +115,48 @@ class VEstimTestingManager:
                 file_name = os.path.splitext(test_file)[0]
                 test_file_path = os.path.join(test_folder, test_file)
                 
+                # Load and process test data
+                X_test, y_test = self.test_data_service.load_and_process_data(test_file_path)
+                
                 # Run test for single file
-                file_results = self.testing_service.test_single_file(
+                results = self.testing_service.run_testing(
                     task, 
                     model_path, 
-                    test_file_path
+                    X_test,
+                    y_test,
+                    test_results_dir
                 )
                 
                 # Calculate max error
-                errors = np.abs(file_results['y_test'] - file_results['predictions'])
+                errors = np.abs(results['y_test'] - results['predictions'])
                 max_error = np.max(errors)
 
                 # Save predictions with correct column names for plotting
                 predictions_file = os.path.join(test_results_dir, f"{file_name}_predictions.csv")
                 pd.DataFrame({
-                    'True Values (V)': file_results['y_test'],
-                    'Predictions (V)': file_results['predictions'],
+                    'True Values (V)': results['y_test'],
+                    'Predictions (V)': results['predictions'],
                     'Error (mV)': errors * 1000  # Convert to mV
                 }).to_csv(predictions_file, index=False)
                 
-                file_results['max_error_mv'] = max_error * 1000  # Convert to mV
+                file_results = {
+                    'rms_error_mv': results['rms_error_mv'],
+                    'max_error_mv': max_error * 1000,  # Convert to mV
+                    'mape': results['mape'],
+                    'r2': results['r2'],
+                    'file_name': test_file
+                }
                 all_results.append(file_results)
 
             # Save test summary
             summary_file = os.path.join(task_dir, 'test_summary.csv')
             with open(summary_file, 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['File', 'RMS Error (mV)', 'MAE (mV)', 'Max Error (mV)', 'MAPE (%)', 'R2'])
-                for test_file, result in zip(test_files, all_results):
+                writer.writerow(['File', 'RMS Error (mV)', 'Max Error (mV)', 'MAPE (%)', 'R2'])
+                for result in all_results:
                     writer.writerow([
-                        test_file,
+                        result['file_name'],
                         result['rms_error_mv'],
-                        result['mae_mv'],
                         result['max_error_mv'],
                         result['mape'],
                         result['r2']
@@ -155,7 +165,6 @@ class VEstimTestingManager:
             # Calculate average metrics
             avg_results = {
                 'rms_error_mv': np.mean([r['rms_error_mv'] for r in all_results]),
-                'mae_mv': np.mean([r['mae_mv'] for r in all_results]),
                 'max_error_mv': np.max([r['max_error_mv'] for r in all_results]),
                 'mape': np.mean([r['mape'] for r in all_results]),
                 'r2': np.mean([r['r2'] for r in all_results])
@@ -168,15 +177,15 @@ class VEstimTestingManager:
             print(f"Results for model {shorthand_name}: {avg_results}")
             self.queue.put({
                 'task_completed': {
-                    'saved_dir': test_results_dir,  # Directory containing predictions
+                    'saved_dir': test_results_dir,  # Use test_results_dir for plotting
                     'task_id': task_id,
                     'model': shorthand_name,
-                    'file_name': test_file,  # Name of the test file
+                    'file_name': test_files[0],  # Use first test file name
                     '#params': learnable_params,
-                    'rms_error_mv': avg_results['rms_error_mv'],  # Already in mV
-                    'max_error_mv': avg_results['max_error_mv'],  # Already in mV
-                    'mape': avg_results['mape'],  # In percentage
-                    'r2': avg_results['r2']  # R-squared value
+                    'rms_error_mv': avg_results['rms_error_mv'],
+                    'max_error_mv': avg_results['max_error_mv'],
+                    'mape': avg_results['mape'],
+                    'r2': avg_results['r2']
                 }
             })
 
