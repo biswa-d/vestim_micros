@@ -496,8 +496,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.ax.clear()
             
             # Plot the data using actual epoch numbers
-            self.ax.plot(self.epoch_points, self.train_loss_values, label='Train RMS', color='blue', marker='.')
-            self.ax.plot(self.epoch_points, self.valid_loss_values, label='Validation RMS', color='red', marker='.')
+            self.ax.plot(self.epoch_points, self.train_loss_values, label='Training', color='blue', marker='.')
+            self.ax.plot(self.epoch_points, self.valid_loss_values, label='Validation', color='red', marker='.')
             
             # Set y-axis to log scale
             self.ax.set_yscale('log')
