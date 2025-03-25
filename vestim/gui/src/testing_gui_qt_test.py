@@ -67,15 +67,13 @@ class TestingThread(QThread):
 
 
 class VEstimTestingGUI(QMainWindow):
-    def __init__(self,progress_history=None):
+    def __init__(self, progress_histories=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
         self.testing_manager = VEstimTestingManager()
         self.hyper_param_manager = VEstimHyperParamManager()
         self.training_setup_manager = VEstimTrainingSetupManager()
-        self.progress_history = progress_history if progress_history is not None else []
-        self.job_dir = self.job_manager.get_job_folder()
 
         self.param_labels = {
             "LAYERS": "Layers",
@@ -98,7 +96,8 @@ class VEstimTestingGUI(QMainWindow):
         self.results_list = []  # List to store results
         self.hyper_params = {}  # Placeholder for hyperparameters
         self.sl_no_counter = 1  # Counter for sequential Sl.No
-
+        self.progress_histories = progress_histories if progress_histories is not None else {}
+        self.job_dir = self.job_manager.get_job_folder()
 
         self.initUI()
         self.start_testing()
@@ -171,26 +170,6 @@ class VEstimTestingGUI(QMainWindow):
         self.progress.setValue(0)
         self.main_layout.addWidget(self.progress)
 
-        # Button to show training history
-        self.show_history_button = QPushButton("Show Training History", self)
-        self.show_history_button.setStyleSheet("""
-            background-color: #004d99;  /* Dark blue */
-            font-weight: bold; 
-            padding: 10px 20px;  
-            color: white;  /* White text */
-        """)
-        self.show_history_button.setFixedHeight(40)
-        self.show_history_button.setMinimumWidth(200)
-        self.show_history_button.clicked.connect(self.show_training_history)
-
-        # Center the button
-        history_button_layout = QHBoxLayout()
-        history_button_layout.addStretch(1)
-        history_button_layout.addWidget(self.show_history_button, alignment=Qt.AlignCenter)
-        history_button_layout.addStretch(1)
-
-        self.main_layout.addLayout(history_button_layout)
-
         # Button to open results folder
         self.open_results_button = QPushButton("Open Job Folder", self)
         self.open_results_button.setStyleSheet("""
@@ -217,7 +196,8 @@ class VEstimTestingGUI(QMainWindow):
 
         # Initially hide the button
         self.open_results_button.hide()
-        
+
+
     def display_hyperparameters(self, params):
         print(f"Displaying hyperparameters: {params}")
         
@@ -275,7 +255,7 @@ class VEstimTestingGUI(QMainWindow):
         self.status_label.setText(message)
 
     def add_result_row(self, result):
-        """Add each test result as a row in the QTreeWidget (showing Task ID, Model, File Name, etc.)."""
+        """Add each test result as a row in the QTreeWidget."""
         print(f"Adding result row: {result}")
         self.logger.info(f"Adding result row: {result}")
 
@@ -309,6 +289,10 @@ class VEstimTestingGUI(QMainWindow):
 
             self.tree.addTopLevelItem(row)
             self.tree.setItemWidget(row, 9, plot_button)  # Add plot button at the correct column
+
+            # If we have training history for this task, save its plot
+            if task_id in self.progress_histories:
+                self.save_training_history_plot(task_id, self.progress_histories[task_id], save_dir)
 
 
     def plot_model_result(self, test_file_path, save_dir):
@@ -364,21 +348,31 @@ class VEstimTestingGUI(QMainWindow):
 
             # Embed the plot in the dialog window using FigureCanvas
             canvas = FigureCanvas(fig)
-            layout = QVBoxLayout()
-            layout.addWidget(canvas)
-            plot_window.setLayout(layout)
 
+            # Create button layout
+            button_layout = QHBoxLayout()
+            
             # Add "Save Plot" button
             save_button = QPushButton("Save Plot")
+            save_button.setStyleSheet("""
+                background-color: #0b6337;
+                color: white;
+                padding: 5px;
+                font-weight: bold;
+            """)
             save_button.clicked.connect(lambda checked, f=fig, t=test_file_path: self.save_plot(f, t, save_dir))
-            layout.addWidget(save_button)
+            button_layout.addWidget(save_button)
 
-            # Show the plot window
+            # Create main layout and add widgets
+            layout = QVBoxLayout()
+            layout.addWidget(canvas)
+            layout.addLayout(button_layout)  # Add button layout
+            plot_window.setLayout(layout)
+
             plot_window.show()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while plotting results\n{str(e)}")
-
 
 
     def save_plot(self, fig, test_file_path, save_dir):
@@ -474,62 +468,6 @@ class VEstimTestingGUI(QMainWindow):
             # Continue checking the queue if tasks are not yet complete
             QTimer.singleShot(100, self.process_queue)
 
-
-    def show_training_history(self):
-        """ Opens a new window to plot training and validation loss over epochs and saves the plot. """
-
-        if not self.progress_history:
-            QMessageBox.warning(self, "No Data", "Training history is empty.")
-            return
-
-        # Extract epoch numbers, train losses, and validation losses
-        epochs = [entry["epoch"] for entry in self.progress_history]
-        train_losses = [entry["train_loss"] for entry in self.progress_history]
-        val_losses = [entry["val_loss"] for entry in self.progress_history]
-
-        # Identify best validation loss and epoch
-        min_val_loss = min(val_losses)
-        best_epoch = epochs[val_losses.index(min_val_loss)]
-
-        # Ensure the job directory exists
-        os.makedirs(self.job_dir, exist_ok=True)
-        plot_path = os.path.join(self.job_dir, "training_history.png")
-
-        # Create a new dialog window for the plot
-        plot_window = QDialog(self)
-        plot_window.setWindowTitle("Training History")
-        plot_window.setGeometry(300, 200, 800, 600)
-
-        # Create a matplotlib figure
-        fig, ax = plt.subplots(figsize=(8, 5))
-        
-        # Plot train and validation loss on a log scale
-        ax.plot(epochs, train_losses, label="Train Loss", color="blue", linestyle="-", marker="o", markersize=3)
-        ax.plot(epochs, val_losses, label="Validation Loss", color="red", linestyle="--", marker="x", markersize=3)
-        ax.scatter(best_epoch, min_val_loss, color="black", s=100, marker="*", label=f"Best Val Loss: {min_val_loss:.4f} (Epoch {best_epoch})")
-
-        # Log-scale for better visualization
-        ax.set_yscale("log")
-
-        # Customize plot appearance
-        ax.set_xlabel("Epoch", fontsize=12)
-        ax.set_ylabel("Loss [% MSE]", fontsize=12)
-        ax.set_title("Training and Validation Loss (Log Scale)", fontsize=14, fontweight="bold")
-        ax.legend(loc="upper right", fontsize=10)
-        ax.grid(True, linestyle="--", alpha=0.6)
-
-        # Save the plot
-        fig.savefig(plot_path, dpi=300, bbox_inches="tight")
-        print(f"Training history plot saved at: {plot_path}")
-
-        # Embed the plot in the dialog window
-        canvas = FigureCanvas(fig)
-        layout = QVBoxLayout()
-        layout.addWidget(canvas)
-        plot_window.setLayout(layout)
-
-        plot_window.exec_()
-
     
     def all_tests_completed(self):
         # Update the status label to indicate completion
@@ -540,7 +478,6 @@ class VEstimTestingGUI(QMainWindow):
         
         # Show the button to open the results folder
         self.open_results_button.show()
-        self.show_training_history()
         
         # Stop the timer
         self.timer_running = False
@@ -560,6 +497,45 @@ class VEstimTestingGUI(QMainWindow):
             QDesktopServices.openUrl(QUrl.fromLocalFile(job_folder))
         else:
             QMessageBox.critical(self, "Error", f"Results folder not found: {job_folder}")
+
+    def save_training_history_plot(self, task_id, history, save_dir):
+        """Save training history plot for a specific task."""
+        try:
+            # Extract data
+            epochs = [entry["epoch"] for entry in history]
+            train_losses = [entry["train_loss"] for entry in history]
+            val_losses = [entry["val_loss"] for entry in history]
+
+            # Find best validation loss
+            min_val_loss = min(val_losses)
+            best_epoch = epochs[val_losses.index(min_val_loss)]
+
+            # Create figure
+            fig, ax = plt.subplots(figsize=(8, 5))
+            
+            # Plot with log scale
+            ax.plot(epochs, train_losses, label="Train Loss", color="blue", linestyle="-", marker="o", markersize=3)
+            ax.plot(epochs, val_losses, label="Validation Loss", color="red", linestyle="--", marker="x", markersize=3)
+            ax.scatter(best_epoch, min_val_loss, color="black", s=100, marker="*", 
+                      label=f"Best Val Loss: {min_val_loss:.4f} (Epoch {best_epoch})")
+
+            ax.set_yscale("log")
+            ax.set_xlabel("Epoch", fontsize=12)
+            ax.set_ylabel("Loss [% MSE]", fontsize=12)
+            ax.set_title(f"Training History - Task {task_id}", fontsize=14, fontweight="bold")
+            ax.legend(loc="upper right", fontsize=10)
+            ax.grid(True, linestyle="--", alpha=0.6)
+
+            # Save the plot in the task's directory
+            plot_file = os.path.join(save_dir, f"training_history_task_{task_id}.png")
+            fig.savefig(plot_file, format='png', dpi=300, bbox_inches='tight')
+            print(f"Training history plot saved for task {task_id} at: {plot_file}")
+            
+            # Close the figure to free memory
+            plt.close(fig)
+
+        except Exception as e:
+            print(f"Failed to save training history plot for task {task_id}: {str(e)}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

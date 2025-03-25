@@ -24,7 +24,6 @@ class TrainingThread(QThread):
     update_epoch_signal = pyqtSignal(dict)  # Signal to send progress data (e.g., after each epoch)
     task_completed_signal = pyqtSignal()  # Signal when the task is completed
     task_error_signal = pyqtSignal(str)  # Signal for any error during the task
-    
 
     def __init__(self, task, training_task_manager):
         super().__init__()
@@ -68,7 +67,6 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.params = params
 
         # Initialize variables
-        self.progress_history = []
         self.train_loss_values = []
         self.valid_loss_values = []
         self.valid_x_values = []
@@ -78,6 +76,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.training_process_stopped = False
         self.task_completed_flag = False
         self.current_task_index = 0
+        self.progress_history = []  # Add this to store training progress
 
         self.param_labels = {
             "LAYERS": "Layers",
@@ -447,16 +446,6 @@ class VEstimTrainingTaskGUI(QMainWindow):
             learning_rate = progress_data.get('learning_rate', None)
             best_val_loss = progress_data.get('best_val_loss', None) * 100
 
-            # Store in progress history
-            self.progress_history.append({
-                'epoch': epoch,
-                'train_loss': train_loss,
-                'val_loss': val_loss,
-                'delta_t_epoch': delta_t_epoch,
-                'learning_rate': learning_rate,
-                'best_val_loss': best_val_loss
-            })
-
             # Format the log message using HTML for bold text
             log_message = (
                 f"Epoch: <b>{epoch}</b>, "
@@ -500,32 +489,22 @@ class VEstimTrainingTaskGUI(QMainWindow):
             #New section for updating the plot
             # Dynamically adjust the y-axis based on the last 30 loss values
             #commenting out to check log plot issues
-            # Get last 30 train and validation losses
-            last_30_train_losses = [x for x in self.train_loss_values[-30:] if np.isfinite(x)]
-            last_30_val_losses = [x for x in self.valid_loss_values[-30:] if np.isfinite(x)]
+            last_30_train_losses = self.train_loss_values[-30:]  # Get last 30 train losses
+            last_30_val_losses = self.valid_loss_values[-30:]  # Get last 30 validation losses
+            last_30_losses = last_30_train_losses + last_30_val_losses  # Combine last 30 train and validation losses
 
-            # Combine only valid losses
-            last_30_losses = last_30_train_losses + last_30_val_losses 
+            # Get minimum and maximum from these last 30 values
+            min_loss = min(last_30_losses) if last_30_losses else 1e-5  # Fallback to a small value if empty
+            max_loss = max(last_30_losses) if last_30_losses else 1e-3  # Fallback to a small value if empty
 
-            # Ensure we have valid values, otherwise set safe defaults
-            if not last_30_losses:  # If empty after filtering
-                min_loss, max_loss = 1e-5, 1e-3  # Safe default range
-            else:
-                min_loss, max_loss = min(last_30_losses), max(last_30_losses)
-
-            # Add a small margin to prevent collapsing the y-axis
+            # Add a small margin to the y-axis limits (10% of the range)
             margin = (max_loss - min_loss) * 0.1 if max_loss - min_loss > 0 else 1e-5
-
-            # Prevent invalid axis limits
-            if np.isnan(min_loss) or np.isnan(max_loss) or np.isinf(min_loss) or np.isinf(max_loss):
-                print(f"Warning: Invalid loss detected - min_loss: {min_loss}, max_loss: {max_loss}")
-            else:
-                self.ax.set_ylim(min_loss - margin, max_loss + margin)  # Set y-axis limits dynamically
+            self.ax.set_ylim(min_loss - margin, max_loss + margin)  # Set y-axis limits dynamically
+            # New section ends here
 
             # Update plot lines with the new data
             self.train_line.set_data(self.valid_x_values, self.train_loss_values)
             self.valid_line.set_data(self.valid_x_values, self.valid_loss_values)
-
 
             # Commented out the following lines for testing new plot logic, uncomment if needed
             # # Adjust y-axis limits dynamically based on the new data
@@ -541,6 +520,13 @@ class VEstimTrainingTaskGUI(QMainWindow):
             #print("Redrawing the plot")
             # Redraw the plot
             self.canvas.draw_idle()
+
+            # Store progress data
+            self.progress_history.append({
+                'epoch': progress_data['epoch'],
+                'train_loss': progress_data['train_loss'] * 100,
+                'val_loss': progress_data['val_loss'] * 100
+            })
 
     def stop_training(self):
         print("Stop training button clicked")
@@ -672,9 +658,18 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.proceed_button.show()
 
     def transition_to_testing_gui(self):
-        self.close()  # Close the current window
-        self.testing_gui = VEstimTestingGUI(self.progress_history)  # Initialize the testing GUI
-        self.testing_gui.show()  # Show the testing GUI
+        """Transition to testing GUI with training histories."""
+        self.close()
+        # Create a dictionary mapping task IDs to their training histories
+        histories = {}
+        for task_idx, task in enumerate(self.task_list):
+            task_id = task.get('task_id', f'Task_{task_idx + 1}')
+            if hasattr(self, 'progress_history'):
+                histories[task_id] = self.progress_history
+
+        # Pass the histories dictionary to the testing GUI
+        self.testing_gui = VEstimTestingGUI(progress_histories=histories)
+        self.testing_gui.show()
 
 if __name__ == "__main__":
     import sys
