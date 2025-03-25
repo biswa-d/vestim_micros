@@ -156,21 +156,16 @@ class VEstimTrainingSetupManager:
             self.logger.error(f"Error during model building: {e}")
             raise
 
-
     def create_training_tasks(self):
-        """
-        Create a list of training tasks by combining models and relevant training hyperparameters.
-        This method will also save the task information to disk for future use.
-        """
+        """Create training tasks based on hyperparameters and selected scheduler."""
         self.logger.info("Creating training tasks...")
-        task_list = []  # Initialize a list to store tasks
+        task_list = []
 
         def parse_param_list(param_value, convert_func=float):
             """Safely parse parameter that might be comma-separated."""
             if isinstance(param_value, (int, float)):
                 return [param_value]
             try:
-                # Handle both comma and space separated values
                 values = [v.strip() for v in str(param_value).replace(',', ' ').split() if v]
                 if not values:
                     raise ValueError(f"Empty parameter value")
@@ -180,124 +175,116 @@ class VEstimTrainingSetupManager:
                 raise ValueError(f"Invalid value in list: {param_value}. Expected {convert_func.__name__} values.")
 
         try:
-            # Parse parameters safely
+            # Common parameters for both schedulers
             learning_rates = parse_param_list(self.current_hyper_params['INITIAL_LR'], float)
-            lr_params = parse_param_list(self.current_hyper_params['LR_PARAM'], float)
-            lr_periods = parse_param_list(self.current_hyper_params['LR_PERIOD'], int)
-            plateau_patience = parse_param_list(self.current_hyper_params['PLATEAU_PATIENCE'], int)
-            plateau_factors = parse_param_list(self.current_hyper_params['PLATEAU_FACTOR'], float)
-            valid_patience_values = parse_param_list(self.current_hyper_params['VALID_PATIENCE'], int)
-            max_epochs_values = parse_param_list(self.current_hyper_params.get('MAX_EPOCHS', '100'), int)
+            train_val_splits = [float(self.current_hyper_params['TRAIN_VAL_SPLIT'])]
+            lookbacks = parse_param_list(self.current_hyper_params['LOOKBACK'], int)
+            batch_sizes = parse_param_list(self.current_hyper_params['BATCH_SIZE'], int)
+            max_epochs = parse_param_list(self.current_hyper_params.get('MAX_EPOCHS', '100'), int)
+            valid_patience = parse_param_list(self.current_hyper_params['VALID_PATIENCE'], int)
+            repetitions = int(self.current_hyper_params['REPETITIONS'])
+            
+            # Get scheduler type
+            scheduler_type = self.current_hyper_params.get('SCHEDULER_TYPE', 'StepLR')
 
-            # Set the logic for task_id
-            timestamp = time.strftime("%Y%m%d%H%M%S")  # Format timestamp as YYYYMMDDHHMMSS
-            task_counter = 1
+            # Parse scheduler-specific parameters
+            if scheduler_type == 'StepLR':
+                # StepLR parameters
+                lr_periods = parse_param_list(self.current_hyper_params['LR_PERIOD'], int)
+                lr_factors = parse_param_list(self.current_hyper_params['LR_PARAM'], float)
+            else:  # ReduceLROnPlateau
+                # Plateau scheduler parameters
+                plateau_patience = parse_param_list(self.current_hyper_params['PLATEAU_PATIENCE'], int)
+                plateau_factors = parse_param_list(self.current_hyper_params['PLATEAU_FACTOR'], float)
 
-            # Iterate through each model and create tasks
+            # Create tasks for each model
             for model_task in self.models:
-                model = model_task['model']  # Define model once per model_task
-                model_metadata = {
-                    'model_type': model_task['model_type'],
-                    'input_size': model_task['hyperparams']['INPUT_SIZE'],
-                    'hidden_units': model_task['hyperparams']['HIDDEN_UNITS'],
-                    'num_layers': model_task['hyperparams']['LAYERS'],
-                }
-                num_learnable_params = self.calculate_learnable_parameters(
-                    model_task['hyperparams']['LAYERS'],  
-                    model_task['hyperparams']['INPUT_SIZE'],  
-                    model_task['hyperparams']['HIDDEN_UNITS']
-                )
                 feature_columns = model_task['FEATURE_COLUMNS']
                 target_column = model_task['TARGET_COLUMN']
-
-                # Iterate through hyperparameters (excluding weight decay & dropout)
+                model = model_task['model']
+                
+                # Base nested loops for common parameters
                 for lr in learning_rates:
-                    for tv in lr_params:
-                        for drop_period in lr_periods:
-                            for drop_factor in plateau_factors:
-                                for patience in plateau_patience:
-                                    for lookback in range(1, 11):
-                                        for batch_size in range(10, 101, 10):
-                                            for rep in range(1, 6):
-
-                                                # Create a unique task_id
-                                                task_id = f"task_{timestamp}_{task_counter}"
-                                                task_counter += 1  # Increment for each subsequent task
-
-                                                # Create a unique directory for each task based on all parameters
-                                                task_dir = os.path.join(
-                                                    model_task['model_dir'],
-                                                    f'lr_{lr}_drop_{drop_period}_patience_{patience}_rep_{rep}_lookback_{lookback}_batch_{batch_size}'
-                                                )
-                                                os.makedirs(task_dir, exist_ok=True)
-
-                                                # Create the log files at this stage
-                                                csv_log_file = os.path.join(task_dir, f"{task_id}_train_log.csv")
-                                                db_log_file = os.path.join(task_dir, f"{task_id}_train_log.db")
-
-                                                # Define task information
-                                                task_info = {
-                                                    'task_id': task_id,
-                                                    "task_dir": task_dir,
-                                                    'model_type': model_metadata['model_type'],
-                                                    'model': model,
-                                                    'model_metadata': model_metadata,  # Use metadata instead of the full model
-                                                    'data_loader_params': {
-                                                        'lookback': lookback,
-                                                        'batch_size': batch_size,
-                                                        'feature_columns': feature_columns,
-                                                        'target_column': target_column,
-                                                        'train_val_split': tv,
-                                                    },
-                                                    'model_dir': task_dir,
-                                                    'model_path': os.path.join(task_dir, 'model.pth'),
-                                                    'hyperparams': {
-                                                        'LAYERS': model_metadata['num_layers'],
-                                                        'HIDDEN_UNITS': model_metadata['hidden_units'],
-                                                        'BATCH_SIZE': batch_size,
-                                                        'LOOKBACK': lookback,
+                    for train_val_split in train_val_splits:
+                        for lookback in lookbacks:
+                            for batch_size in batch_sizes:
+                                for vp in valid_patience:
+                                    # Branch based on scheduler type
+                                    if scheduler_type == 'StepLR':
+                                        # StepLR specific combinations
+                                        for period in lr_periods:
+                                            for factor in lr_factors:
+                                                task_info = self._create_task_info(
+                                                    model_task=model_task,
+                                                    hyperparams={
                                                         'INITIAL_LR': lr,
-                                                        'LR_PARAM': tv,
-                                                        'LR_PERIOD': drop_period,
-                                                        'PLATEAU_PATIENCE': patience,
-                                                        'PLATEAU_FACTOR': drop_factor,
-                                                        'VALID_PATIENCE': patience,
-                                                        'VALID_FREQUENCY': self.current_hyper_params['VALID_FREQUENCY'],
-                                                        'REPETITIONS': rep,
-                                                        'MAX_EPOCHS': max_epochs_values[0],
-                                                        'NUM_LEARNABLE_PARAMS': num_learnable_params,
-                                                    },
-                                                    'csv_log_file': csv_log_file,
-                                                    'db_log_file': db_log_file  # Set log files here
-                                                }
-
-                                                # Append the task to the task list
+                                                        'TRAIN_VAL_SPLIT': train_val_split,
+                                                        'LOOKBACK': lookback,
+                                                        'BATCH_SIZE': batch_size,
+                                                        'VALID_PATIENCE': vp,
+                                                        'MAX_EPOCHS': max_epochs[0],
+                                                        'SCHEDULER_TYPE': 'StepLR',
+                                                        'LR_PERIOD': period,
+                                                        'LR_PARAM': factor,
+                                                    }
+                                                )
+                                                task_list.append(task_info)
+                                    else:
+                                        # ReduceLROnPlateau specific combinations
+                                        for p_patience in plateau_patience:
+                                            for p_factor in plateau_factors:
+                                                task_info = self._create_task_info(
+                                                    model_task=model_task,
+                                                    hyperparams={
+                                                        'INITIAL_LR': lr,
+                                                        'TRAIN_VAL_SPLIT': train_val_split,
+                                                        'LOOKBACK': lookback,
+                                                        'BATCH_SIZE': batch_size,
+                                                        'VALID_PATIENCE': vp,
+                                                        'MAX_EPOCHS': max_epochs[0],
+                                                        'SCHEDULER_TYPE': 'ReduceLROnPlateau',
+                                                        'PLATEAU_PATIENCE': p_patience,
+                                                        'PLATEAU_FACTOR': p_factor,
+                                                    }
+                                                )
                                                 task_list.append(task_info)
 
-                                                # Save the task info to disk as a JSON file
-                                                task_info_file = os.path.join(task_dir, 'task_info.json')
-                                                with open(task_info_file, 'w') as f:
-                                                    json.dump({k: v for k, v in task_info.items() if k != 'model'}, f, indent=4)
-
-            # Replace the existing training tasks with the newly created task list
             self.training_tasks = task_list
-
-            # Optionally, save the entire task list for future reference at the root level
-            tasks_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
-            with open(tasks_summary_file, 'w') as f:
-                json.dump([{k: v for k, v in task.items() if k != 'model'} for task in self.training_tasks], f, indent=4)
-
-            # Emit progress signal to notify the GUI
-            task_count = len(self.training_tasks)
-            if self.progress_signal:
-                self.logger.info(f"Created {len(self.training_tasks)} training tasks.")
-                print(f"Created {len(self.training_tasks)} training tasks.")
-                self.progress_signal.emit(f"Created {task_count} training tasks and saved to disk.", self.job_manager.get_job_folder(), task_count)
+            self.logger.info(f"Created {len(task_list)} training tasks.")
+            return task_list
 
         except Exception as e:
-            self.logger.error(f"Error during task creation: {str(e)}")
+            self.logger.error(f"Error creating training tasks: {e}")
             raise
 
+    def _create_task_info(self, model_task, hyperparams):
+        """Helper method to create a task info dictionary."""
+        timestamp = time.strftime("%Y%m%d%H%M%S")
+        task_counter = getattr(self, '_task_counter', 0) + 1
+        self._task_counter = task_counter
+        
+        # Create task directory with relevant parameters
+        scheduler_type = hyperparams['SCHEDULER_TYPE']
+        if scheduler_type == 'StepLR':
+            task_dir_name = f'lr_{hyperparams["INITIAL_LR"]}_period_{hyperparams["LR_PERIOD"]}_factor_{hyperparams["LR_PARAM"]}'
+        else:
+            task_dir_name = f'lr_{hyperparams["INITIAL_LR"]}_plat_pat_{hyperparams["PLATEAU_PATIENCE"]}_factor_{hyperparams["PLATEAU_FACTOR"]}'
+        
+        task_dir = os.path.join(
+            model_task['model_dir'],
+            f'{task_dir_name}_vp_{hyperparams["VALID_PATIENCE"]}_lb_{hyperparams["LOOKBACK"]}_bs_{hyperparams["BATCH_SIZE"]}'
+        )
+        os.makedirs(task_dir, exist_ok=True)
+
+        return {
+            'task_id': f"task_{timestamp}_{task_counter}",
+            'model': model_task['model'],
+            'model_dir': task_dir,
+            'model_path': os.path.join(task_dir, 'model.pth'),
+            'hyperparams': hyperparams,
+            'csv_log_file': os.path.join(task_dir, 'training_log.csv'),
+            'db_log_file': os.path.join(task_dir, 'training_log.db')
+        }
 
     def calculate_learnable_parameters(self, layers, input_size, hidden_units):
         """
