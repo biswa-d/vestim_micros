@@ -373,8 +373,10 @@ class VEstimTestingGUI(QMainWindow):
             layout = QVBoxLayout()
             layout.addWidget(canvas)
 
-            save_button = QPushButton("Save Plot")
-            save_button.clicked.connect(lambda checked, f=fig, t=test_file_path: self.save_plot(f, t, save_dir))
+            # Create save button with simpler lambda
+            save_button = QPushButton('Save Plot')
+            save_button.setStyleSheet('background-color: #4CAF50; color: white;')
+            save_button.clicked.connect(lambda: self.save_plot(fig, test_file_path, save_dir))
             layout.addWidget(save_button)
 
             plot_window.setLayout(layout)
