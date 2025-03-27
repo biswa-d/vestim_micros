@@ -306,6 +306,7 @@ class TrainingTaskManager:
                         'delta_t_epoch': formatted_epoch_time,
                         'learning_rate': current_lr,
                         'best_val_loss': best_validation_loss,
+                        'patience_counter': patience_counter,
                     }
                     # Emit progress after validation
                     update_progress_callback.emit(progress_data) 

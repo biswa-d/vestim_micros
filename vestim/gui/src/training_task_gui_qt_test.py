@@ -461,6 +461,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             epoch = progress_data['epoch']
             train_loss = progress_data['train_loss'] * 100
             val_loss = progress_data['val_loss'] * 100
+            patience_counter = progress_data.get('patience_counter', None)
             
             # Calculate RMS error in mV
             train_rms_mv = np.sqrt(train_loss) * 1000
@@ -479,6 +480,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 f"Best Val RMS: <b>{best_val_rms_mv:.2f}</b> mV, "
                 f"Time Per Epoch (ΔT): <b>{delta_t_epoch}s</b>, "
                 f"LR: <b>{learning_rate:.1e}</b><br>"
+                f"Patience Counter: <b>{patience_counter}</b><br>"
             )
 
             # Append the log message to the log text widget using rich text format
