@@ -483,7 +483,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 f"Patience Counter: <b>{patience_counter}</b><br>"
             )
 
-            # Append the log message to the log text widget using rich text format
+            # Append the log message to the log text widget using rich text
             self.log_text.append(log_message)
 
             # Ensure the log scrolls to the bottom
