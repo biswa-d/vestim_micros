@@ -274,7 +274,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         fig = Figure(figsize=(6, 2.5), dpi=100)
         self.ax = fig.add_subplot(111)
         self.ax.set_xlabel("Epoch", labelpad=0)
-        self.ax.set_ylabel("Loss [% MSE]")
+        self.ax.set_ylabel("RMS Error [mV]")
         self.ax.set_xlim(1, max_epochs)
 
         
