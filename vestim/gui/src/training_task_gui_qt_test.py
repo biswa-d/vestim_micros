@@ -479,7 +479,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 f"Val RMS: <b>{val_rms_mv:.2f}</b> mV, "
                 f"Best Val RMS: <b>{best_val_rms_mv:.2f}</b> mV, "
                 f"Time Per Epoch (ΔT): <b>{delta_t_epoch}s</b>, "
-                f"LR: <b>{learning_rate:.1e}</b><br>"
+                f"LR: <b>{learning_rate:.1e}</b>, "
                 f"Patience Counter: <b>{patience_counter}</b><br>"
             )
 

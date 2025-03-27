@@ -291,7 +291,7 @@ class TrainingTaskManager:
                     current_lr = optimizer.param_groups[0]['lr']
                     
                     if val_loss < best_validation_loss:
-                        print(f"Validation loss improved from {best_validation_loss:.6f} to {val_loss:.6f}. Saving model...")
+                        print(f"Epoch: {epoch}, Validation loss improved from {best_validation_loss:.6f} to {val_loss:.6f}. Saving model...")
                         best_validation_loss = val_loss
                         self.save_model(task)
                         patience_counter = 0
@@ -437,7 +437,7 @@ class TrainingTaskManager:
 
             # Save full model for internal use (current workflow)
             torch.save(model, model_path)
-            print(f"Full model saved to {model_path}")
+            print(f"Full model saved")
 
             # Save portable version
             task_dir = os.path.dirname(model_path)
@@ -504,7 +504,7 @@ class LSTMModel(nn.Module):
 
             # Save portable version
             torch.save(export_dict, export_path)
-            print(f"Portable model saved to {export_path}")
+            print(f"Portable model saved!")
 
             # Create a README file with multiple loading options
             readme_path = os.path.join(task_dir, 'MODEL_LOADING_INSTRUCTIONS.md')
@@ -605,7 +605,7 @@ with torch.no_grad():
             
             with open(readme_path, 'w') as f:
                 f.write(readme_content)
-            print(f"Loading instructions saved to {readme_path}")
+            #print(f"Loading instructions saved to {readme_path}")
 
         except Exception as e:
             self.logger.error(f"Error saving model: {str(e)}")
