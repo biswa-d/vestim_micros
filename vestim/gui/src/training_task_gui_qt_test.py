@@ -405,7 +405,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.ax.clear()
             self.ax.set_title("Training and Validation Loss", fontsize=12, fontweight='normal', color='#0f0c0c')
             self.ax.set_xlabel("Epoch")
-            self.ax.set_ylabel("Loss [% MSE]")
+            self.ax.set_ylabel("RMS Error [mV]")
 
             # Reinitialize plot lines
             self.train_line, = self.ax.plot([], [], label='Train Loss')
