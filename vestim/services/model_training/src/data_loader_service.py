@@ -25,8 +25,8 @@ class DataLoaderService:
         # Process each CSV file individually
         for file in csv_files:
             df = pd.read_csv(file)
-            X_data = df[['SOC', 'Current', 'Temp']].values
-            Y_data = df['Voltage'].values
+            X_data = df[['SOC', 'Current', 'Temp']].values # Hardcoded features
+            Y_data = df['Voltage'].values                 # Hardcoded target
             X, y = self.create_data_sequence(X_data, Y_data, lookback)
             
             # Append the sequences
@@ -63,7 +63,7 @@ class DataLoaderService:
 
         return np.array(X_sequences), np.array(y_sequences)
 
-    def create_data_loaders(self, folder_path, lookback, batch_size, num_workers, train_split=0.7, seed=None):
+    def create_data_loaders(self, folder_path, lookback, batch_size, num_workers, train_split=0.7, seed=None, feature_cols=None, target_col=None): # Added feature_cols, target_col for compatibility with reverted TrainingTaskManager but they are not used internally here.
         """
         Creates DataLoaders for training and validation data.
 
@@ -80,7 +80,7 @@ class DataLoaderService:
             seed = int(datetime.now().timestamp())
         
         # Load and process data
-        X, y = self.load_and_process_data(folder_path, lookback)
+        X, y = self.load_and_process_data(folder_path, lookback) # Uses hardcoded columns
 
         # Convert to PyTorch tensors
         X_tensor = torch.tensor(X, dtype=torch.float32)
@@ -97,7 +97,7 @@ class DataLoaderService:
 
         # Train-validation split
         train_size = int(dataset_size * train_split)
-        valid_size = dataset_size - train_size
+        # valid_size = dataset_size - train_size # Not used
 
         np.random.seed(seed)
         np.random.shuffle(indices)

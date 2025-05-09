@@ -199,9 +199,9 @@ class TrainingTaskManager:
         train_loader, val_loader = self.data_loader_service.create_data_loaders(
             folder_path=self.job_manager.get_train_folder(),  # Adjusted to use the correct folder
             lookback=lookback,
-            feature_cols=feature_cols,
-            target_col=target_col, 
-            batch_size=batch_size, 
+            feature_cols=feature_cols, # Reverted keyword argument
+            target_col=target_col,   # Reverted keyword argument
+            batch_size=batch_size,
             num_workers=4,
             train_split=train_val_split
         )

@@ -1,16 +1,17 @@
 # ---------------------------------------------------------------------------------
 # Author: Biswanath Dehury
-# Date: `{{date:2025-03-01}}`
-# Version: 1.0.0
+# Date: `2025-04-14`
+# Version: 1.1.0
 # Description: 
 # Entry file for the program and gives the user an UI and to choose folders to select train and test data from.
 # Now it has Digatron, Tesla and Pouch data sources to choose from from the dropdown menu
-#Shows the progress bar for file conversion and the Tesla and Digatron data processors are used to convert the files from mat to csv amd organize them
-#The job folder is created and the files are copied and converted to the respective folders s train raw and processed and similar for test files
+# Shows the progress bar for file conversion and the Tesla and Digatron data processors are used to convert the files from mat to csv and organize them
+# The job folder is created and the files are copied and converted to the respective folders as train raw and processed and similar for test files
 # 
 # Next Steps:
-# 1. Resamling of data to 1hz (Done)
-# 2. Letting the user to select features and targets from the data [ TO DO ] -> To be implemented in the hyperparameter GUI
+# 1. Resampling moved to data_augment_gui_qt_test.py (Done)
+# 2. Letting the user to create new columns from the existing columns (Done in data_augment_gui_qt_test.py)
+# 3. Letting the user to select features and targets from the data (To be implemented in the hyperparameter GUI)
 # ---------------------------------------------------------------------------------
 
 
@@ -18,7 +19,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 
 import os, sys
-from vestim.gui.src.hyper_param_gui_qt_test import VEstimHyperParamGUI  # Adjust this import based on your actual path
+from vestim.gui.src.data_augment_gui_qt_test import DataAugmentGUI  # Import the new data augmentation GUI
 from vestim.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
 from vestim.services.data_processor.src.data_processor_qt_tesla import DataProcessorTesla
 from vestim.services.data_processor.src.data_processor_qt_pouch import DataProcessorPouch
@@ -41,8 +42,7 @@ class DataImportGUI(QMainWindow):
         self.data_processor_tesla = DataProcessorTesla()  # Initialize DataProcessor
         self.data_processor_pouch = DataProcessorPouch()
 
-        self.sampling_frequency = None  # Default sampling frequency
-
+        # Resampling moved to data augmentation GUI
         self.organizer_thread = None
         self.organizer = None
 
@@ -123,13 +123,12 @@ class DataImportGUI(QMainWindow):
         # Add the testing section to the main layout
         self.main_layout.addLayout(test_layout)
 
-        #Adding the option to select the data processor (Version 2.0 VEstim)
         # Main layout for data source selection and organize button
         combined_layout = QHBoxLayout()
 
         # Data source label with color change, bold text, and padding
         data_source_label = QLabel("Data Source:")
-        data_source_label.setStyleSheet("color: purple; font-weight: bold; font-size: 14px; padding-right: 10px;")  # Set text color to purple, bold, and larger size
+        data_source_label.setStyleSheet("color: purple; font-weight: bold; font-size: 14px; padding-right: 10px;")
         combined_layout.addWidget(data_source_label)
 
         # Data source selection with consistent height and styling
@@ -137,23 +136,9 @@ class DataImportGUI(QMainWindow):
         self.data_source_combo.addItems(["Digatron", "Tesla", "Pouch"])  # Add the data sources
         self.data_source_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
         self.data_source_combo.setFixedWidth(120)  # Set a specific width for the ComboBox
-        self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")  # Bold text and larger font size
+        self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
         combined_layout.addWidget(self.data_source_combo)
         self.data_source_combo.currentIndexChanged.connect(self.update_file_display)
-
-        # Add amptjer label to select the sampling frequency
-        sampling_frequency_label = QLabel("Resampling Freq:")
-        sampling_frequency_label.setStyleSheet("color: purple; font-weight: bold; font-size: 14px; padding-right: 10px;")  # Set text color to purple, bold, and larger size
-        combined_layout.addWidget(sampling_frequency_label)
-
-        # Sampling frequency selection with consistent height and styling
-        self.sampling_frequency_combo = QComboBox(self)
-        self.sampling_frequency_combo.addItems(["None", "0.1Hz", "0.5Hz", "1Hz", "5Hz", "10Hz"])  # Add the data sources
-        self.sampling_frequency_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
-        self.sampling_frequency_combo.setFixedWidth(110)  # Set a specific width for the ComboBox
-        self.sampling_frequency_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")  # Bold text and larger font size
-        combined_layout.addWidget(self.sampling_frequency_combo)
-        self.sampling_frequency_combo.currentIndexChanged.connect(self.update_sampling_frequency)
 
         # Add stretchable space between the dropdown and the button
         combined_layout.addStretch(1)  # Push the button to the right
@@ -192,7 +177,7 @@ class DataImportGUI(QMainWindow):
 
     def update_file_display(self):
         selected_source = self.data_source_combo.currentText()
-        if selected_source == "Digatron" or selected_source == "Tesla":
+        if (selected_source == "Digatron" or selected_source == "Tesla"):
             # Show only .mat files
             self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".mat")
             self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".mat")
@@ -200,27 +185,6 @@ class DataImportGUI(QMainWindow):
             # Show only .csv files
             self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".csv")
             self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".csv")
-    
-    def update_sampling_frequency(self):
-        selected_value = self.sampling_frequency_combo.currentText().strip()
-
-        if selected_value.lower() == "none":  # Check if "None" is selected
-            self.sampling_frequency = None
-        else:
-            try:
-                frequency_hz = float(selected_value.replace("Hz", "").strip())  # Convert "1Hz" → 1.0
-                
-                if frequency_hz <= 0:
-                    self.sampling_frequency = None  # Invalid values default to None
-                else:
-                    interval_ms = int(1000 / frequency_hz)  # Convert Hz to milliseconds
-                    self.sampling_frequency = f"{interval_ms}L" if interval_ms < 1000 else f"{interval_ms // 1000}S"
-
-            except ValueError:
-                self.sampling_frequency = None  # Fallback in case of errors
-
-        self.logger.info(f"Updated resampling frequency: {self.sampling_frequency}")  # Logging for debugging
-
 
     def select_train_folder(self):
         self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder")
@@ -290,7 +254,8 @@ class DataImportGUI(QMainWindow):
             return
 
         # Create and start the file organizer thread with the selected data processor
-        self.organizer = FileOrganizer(train_files, test_files, data_processor, sampling_frequency=self.sampling_frequency)
+        # Removed sampling_frequency parameter as this is now handled in the data augmentation GUI
+        self.organizer = FileOrganizer(train_files, test_files, data_processor)
         self.organizer_thread = QThread()
 
         # Connect signals and slots
@@ -312,26 +277,26 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(False)
         
         # Change the button label to indicate next step and enable it
-        self.organize_button.setText("Select Hyperparameters")
+        self.organize_button.setText("Continue to Data Augmentation")
         self.organize_button.setStyleSheet("""
             background-color: #1f8b4c; 
             font-weight: bold;
             padding: 10px 20px;
             color: white;
             font-size: 14px;
-                                           
         """)
-        self.organize_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # Allow the button to expand horizontally
+        self.organize_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.organize_button.setEnabled(True)
         
         # Update the button action to move to the next screen
-        self.organize_button.clicked.disconnect()  # Disconnect the previous function
-        self.organize_button.clicked.connect(lambda: self.move_to_next_screen(job_folder))  # Connect new function
+        self.organize_button.clicked.disconnect()
+        self.organize_button.clicked.connect(lambda: self.move_to_next_screen(job_folder))
 
     def move_to_next_screen(self, job_folder):
+        # Changed to open the Data Augmentation GUI instead of Hyperparameter GUI
         self.close()
-        self.hyper_param_gui = VEstimHyperParamGUI()
-        self.hyper_param_gui.show()
+        self.data_augment_gui = DataAugmentGUI(job_folder=job_folder)
+        self.data_augment_gui.show()
 
     def show_error(self, message):
         # Display error message
@@ -346,7 +311,7 @@ class FileOrganizer(QObject):
         self.train_files = train_files
         self.test_files = test_files
         self.data_processor = data_processor
-        self.sampling_frequency = sampling_frequency
+        self.sampling_frequency = sampling_frequency  # Keep for backwards compatibility with existing code
 
     def run(self):
         if not self.train_files or not self.test_files:
@@ -355,7 +320,14 @@ class FileOrganizer(QObject):
 
         try:
             # Call the backend method from DataProcessor to organize and convert files
-            job_folder = self.data_processor.organize_and_convert_files(self.train_files, self.test_files, progress_callback=self.update_progress, sampling_frequency=self.sampling_frequency)
+            # Note: We'll need to update the data processor methods to not use sampling_frequency
+            # in the future, but for now we'll pass None to maintain compatibility
+            job_folder = self.data_processor.organize_and_convert_files(
+                self.train_files, 
+                self.test_files, 
+                progress_callback=self.update_progress, 
+                sampling_frequency=None  # Remove resampling here as it's moved to data augmentation
+            )
             logger.info(f"Job folder created: {job_folder}")
             # Emit success message with job folder details
             self.job_folder_signal.emit(job_folder)
