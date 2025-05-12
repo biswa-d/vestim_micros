@@ -4,6 +4,16 @@ import sys
 
 def setup_logger(log_file='default.log'):
     logger = logging.getLogger()
+    # If the root logger already has handlers, assume it's configured and return it.
+    # This prevents adding duplicate handlers if setup_logger is called multiple times.
+    if logger.hasHandlers():
+        # Optionally, you could check if the level needs to be reset or if specific handlers are present,
+        # but for now, just preventing duplicates is the main goal.
+        # You might also want to ensure the level is at least INFO if it was set lower by another call.
+        if logger.level > logging.INFO or logger.level == 0: # level 0 means NOTSET
+             logger.setLevel(logging.INFO)
+        return logger
+
     logger.setLevel(logging.INFO)
 
     # Console Handler
