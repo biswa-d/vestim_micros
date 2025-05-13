@@ -4,8 +4,8 @@
 # Version: 1.1.0
 # Description: 
 # Entry file for the program and gives the user an UI and to choose folders to select train and test data from.
-# Now it has Digatron, Tesla and Pouch data sources to choose from from the dropdown menu
-# Shows the progress bar for file conversion and the Tesla and Digatron data processors are used to convert the files from mat to csv and organize them
+# Now it has Arbin, STLA and Digatron data sources to choose from from the dropdown menu
+# Shows the progress bar for file conversion and the STLA and Arbin data processors are used to convert the files from mat to csv and organize them
 # The job folder is created and the files are copied and converted to the respective folders as train raw and processed and similar for test files
 # 
 # Next Steps:
@@ -20,9 +20,9 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 
 import os, sys
 from vestim.gui.src.data_augment_gui_qt_test import DataAugmentGUI  # Import the new data augmentation GUI
+from vestim.services.data_processor.src.data_processor_qt_arbin import DataProcessorArbin
+from vestim.services.data_processor.src.data_processor_qt_stla import DataProcessorSTLA
 from vestim.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
-from vestim.services.data_processor.src.data_processor_qt_tesla import DataProcessorTesla
-from vestim.services.data_processor.src.data_processor_qt_pouch import DataProcessorPouch
 
 import logging
 
@@ -38,9 +38,9 @@ class DataImportGUI(QMainWindow):
         self.test_folder_path = ""
         self.selected_train_files = []
         self.selected_test_files = []
-        self.data_processor_digatron = DataProcessorDigatron()  # Initialize DataProcessor
-        self.data_processor_tesla = DataProcessorTesla()  # Initialize DataProcessor
-        self.data_processor_pouch = DataProcessorPouch()
+        self.data_processor_arbin = DataProcessorArbin()  # Initialize DataProcessor
+        self.data_processor_stla = DataProcessorSTLA()  # Initialize DataProcessor
+        self.data_processor_digatron = DataProcessorDigatron()
 
         # Resampling moved to data augmentation GUI
         self.organizer_thread = None
@@ -133,7 +133,7 @@ class DataImportGUI(QMainWindow):
 
         # Data source selection with consistent height and styling
         self.data_source_combo = QComboBox(self)
-        self.data_source_combo.addItems(["Digatron", "Tesla", "Pouch"])  # Add the data sources
+        self.data_source_combo.addItems(["Arbin", "STLA", "Digatron"])  # Add the data sources
         self.data_source_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
         self.data_source_combo.setFixedWidth(120)  # Set a specific width for the ComboBox
         self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
@@ -177,11 +177,11 @@ class DataImportGUI(QMainWindow):
 
     def update_file_display(self):
         selected_source = self.data_source_combo.currentText()
-        if (selected_source == "Digatron" or selected_source == "Tesla"):
+        if (selected_source == "Arbin" or selected_source == "STLA"):
             # Show only .mat files
             self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".mat")
             self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".mat")
-        elif selected_source == "Pouch":
+        elif selected_source == "Digatron":
             # Show only .csv files
             self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".csv")
             self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".csv")
@@ -243,12 +243,12 @@ class DataImportGUI(QMainWindow):
 
         # Determine which data processor to use based on the selected data source
         selected_source = self.data_source_combo.currentText()
-        if selected_source == "Digatron":
+        if selected_source == "Arbin":
+            data_processor = self.data_processor_arbin
+        elif selected_source == "STLA":
+            data_processor = self.data_processor_stla
+        elif selected_source == "Digatron":
             data_processor = self.data_processor_digatron
-        elif selected_source == "Tesla":
-            data_processor = self.data_processor_tesla
-        elif selected_source == "Pouch":
-            data_processor = self.data_processor_pouch
         else:
             self.show_error("Invalid data source selected.")
             return
