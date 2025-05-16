@@ -1,12 +1,10 @@
-
-import os, uuid
+import os, uuid, time
 import json
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
-from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
-from vestim.services.model_training.src.FNN_model_service import FNNModelService
-from vestim.services.model_training.src.GRU_model_service import GRUModelService
+from vestim.services.model_training.src.LSTM_model_service_test import LSTMModelService
 from vestim.gateway.src.job_manager_qt import JobManager
 import logging
+import torch
 
 class VEstimTrainingSetupManager:
     _instance = None
@@ -22,9 +20,7 @@ class VEstimTrainingSetupManager:
             self.params = None
             self.current_hyper_params = None
             self.hyper_param_manager = VEstimHyperParamManager()  # Initialize your hyperparameter manager here
-            self.lstm_model_service = LSTMModelService()
-            self.fnn_model_service = FNNModelService()
-            self.gru_model_service = GRUModelService()
+            self.lstm_model_service = LSTMModelService()  # Initialize your model service here
             self.job_manager = job_manager  # JobManager should be passed in or initialized separately
             self.models = []  # Store model information
             self.training_tasks = []  # Store created tasks
@@ -71,259 +67,296 @@ class VEstimTrainingSetupManager:
             if self.progress_signal:
                 self.progress_signal.emit(f"Error during setup: {str(e)}", "", 0)
 
+    def create_selected_model(self, model_type, model_params, model_path):
+        """Creates and saves the selected model based on the dropdown selection."""
+        
+        model_map = {
+            "LSTM": self.lstm_model_service.create_and_save_lstm_model,
+            #"LSTM Batch Norm": self.lstm_model_service.create_and_save_lstm_model_with_BN,
+            "LSTM Layer Norm": self.lstm_model_service.create_and_save_lstm_model_with_LN,
+            #"Transformer": self.transformer_model_service.create_and_save_transformer_model,
+            #"FCNN": self.fcnn_model_service.create_and_save_fcnn_model,
+            #"GRU": self.gru_model_service.create_and_save_gru_model,
+        }
+
+        # Call the function from the dictionary or raise an error if not found
+        if model_type in model_map:
+            return model_map[model_type](model_params, model_path)
+        
+        raise ValueError(f"Unsupported model type: {model_type}")
+
     def build_models(self):
-        """Build and store models based on hyperparameters."""
-        self.models = [] # Clear previous models
-        
-        # self.params is from hyper_param_manager.get_hyper_params() and should be clean for the current MODEL_TYPE
-        # due to changes in VEstimHyperParamManager.update_params
-        current_model_params = self.params
-        self.logger.info(f"Starting build_models with current_model_params: {current_model_params}")
-
-        model_type_str = current_model_params.get('MODEL_TYPE', 'LSTM').upper()
-        self.logger.info(f"Determined MODEL_TYPE for build: {model_type_str}")
-
-        feature_cols_str = current_model_params.get('FEATURE_COLS', 'SOC,Current,Temp')
+        """Build and store the LSTM models based on hyperparameters."""
         try:
-            feature_cols_list = [col.strip() for col in feature_cols_str.split(',')]
-            input_size = len(feature_cols_list)
-            if input_size == 0:
-                raise ValueError("FEATURE_COLS cannot be empty.")
-        except Exception as e:
-            self.logger.error(f"Error parsing FEATURE_COLS '{feature_cols_str}': {e}. Using default input_size=3.")
-            input_size = 3 # Fallback
+            # Ensure HIDDEN_UNITS and LAYERS are properly formatted
+            hidden_units_value = str(self.params['HIDDEN_UNITS'])  # Convert to string if it's an integer
+            layers_value = str(self.params['LAYERS'])  # Convert to string if it's an integer
 
-        if model_type_str == 'LSTM':
-            # Directly get LSTM specific params from current_model_params, expecting them to be present and correct
-            hidden_units_list_str = current_model_params.get('HIDDEN_UNITS', '64') # Should be present if MODEL_TYPE is LSTM
-            layers_list_str = current_model_params.get('LAYERS', '1')
-            dropout_prob_list_str = current_model_params.get('DROPOUT_PROB', '0.0')
+            hidden_units_list = [int(h) for h in hidden_units_value.split(',')]  # Parse hidden units
+            layers_list = [int(l) for l in layers_value.split(',')]  # Parse layers
 
-            hidden_units_list = [int(h.strip()) for h in hidden_units_list_str.split(',')]
-            layers_list = [int(l.strip()) for l in layers_list_str.split(',')]
-            dropout_prob_list = [float(d.strip()) for d in dropout_prob_list_str.split(',')]
+            # **Get input and output feature sizes**
+            feature_columns = self.params.get("FEATURE_COLUMNS", [])
+            target_column = self.params.get("TARGET_COLUMN", "")
+            model_type = self.params.get("MODEL_TYPE", "")
 
+            if not feature_columns or not target_column:
+                raise ValueError("Feature columns or target column not set in hyperparameters.")
+
+            input_size = len(feature_columns)  # Number of input features
+            output_size = 1  # Assuming a single target variable for regression
+
+            self.logger.info(f"Building {model_type} models with INPUT_SIZE={input_size}, OUTPUT_SIZE={output_size}")
+
+            # Iterate over all combinations of hidden_units and layers
             for hidden_units in hidden_units_list:
                 for layers in layers_list:
-                    for dropout_prob in dropout_prob_list:
-                        model_identifier = f"model_lstm_hu_{hidden_units}_layers_{layers}_dropout_{dropout_prob}"
-                        model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', model_identifier)
-                        os.makedirs(model_dir, exist_ok=True)
-                        model_path = os.path.join(model_dir, "model.pth")
-                        model_build_params = {
-                            "INPUT_SIZE": input_size, "HIDDEN_UNITS": hidden_units,
-                            "LAYERS": layers, "DROPOUT_PROB": dropout_prob
-                        }
-                        model = self.lstm_model_service.create_and_save_lstm_model(model_build_params, model_path)
-                        self.models.append({'model': model, 'model_type': 'LSTM', 'model_dir': model_dir,
-                                            'model_path': model_path, 'build_params': model_build_params})
-        
-        elif model_type_str == 'FNN':
-            # Directly get FNN specific params from current_model_params
-            fnn_hidden_layers_configs_str = current_model_params.get('FNN_HIDDEN_LAYERS', '128,64') # Should be present
-            fnn_dropout_list_str = current_model_params.get('FNN_DROPOUT_PROB', '0.0') # Should be present
+                    self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
 
-            fnn_hidden_layers_configs = fnn_hidden_layers_configs_str.split(';')
-            fnn_dropout_list = [float(d.strip()) for d in fnn_dropout_list_str.split(',')]
-
-            for config_str in fnn_hidden_layers_configs:
-                hidden_layer_sizes = [int(s.strip()) for s in config_str.split(',')]
-                for dropout_prob in fnn_dropout_list:
-                    layers_str = "_".join(map(str, hidden_layer_sizes))
-                    model_identifier = f"model_fnn_layers_{layers_str}_dropout_{dropout_prob}"
-                    model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', model_identifier)
+                    # Create model directory
+                    model_dir = os.path.join(
+                        self.job_manager.get_job_folder(),
+                        'models',
+                        f'model_{model_type}_hu_{hidden_units}_layers_{layers}'
+                    )
                     os.makedirs(model_dir, exist_ok=True)
-                    model_path = os.path.join(model_dir, "model.pth")
-                    model_build_params = {
-                        "INPUT_SIZE": input_size, "HIDDEN_LAYER_SIZES": hidden_layer_sizes,
-                        "OUTPUT_SIZE": 1, "DROPOUT_PROB": dropout_prob
+
+                    model_name = f"model_lstm_hu_{hidden_units}_layers_{layers}.pth"
+                    model_path = os.path.join(model_dir, model_name)
+
+                    # Model parameters
+                    model_params = {
+                        "INPUT_SIZE": input_size,  # Dynamically set input size
+                        "OUTPUT_SIZE": output_size,  # Single target output
+                        "HIDDEN_UNITS": hidden_units,
+                        "LAYERS": layers
                     }
-                    if hasattr(self, 'fnn_model_service') and self.fnn_model_service is not None:
-                        model = self.fnn_model_service.create_and_save_fnn_model(model_build_params, model_path)
-                        self.models.append({'model': model, 'model_type': 'FNN', 'model_dir': model_dir,
-                                            'model_path': model_path, 'build_params': model_build_params})
-                    else:
-                        self.logger.warning("FNNModelService not available. Skipping FNN model creation.")
-                        self.models.append({'model': None, 'model_type': 'FNN', 'model_dir': model_dir,
-                                            'model_path': model_path, 'build_params': model_build_params})
 
-        elif model_type_str == 'GRU':
-            # Directly get GRU specific params
-            hidden_units_list_str = current_model_params.get('GRU_HIDDEN_UNITS', current_model_params.get('HIDDEN_UNITS', '64'))
-            layers_list_str = current_model_params.get('GRU_LAYERS', current_model_params.get('LAYERS', '1'))
-            dropout_prob_list_str = current_model_params.get('GRU_DROPOUT_PROB', current_model_params.get('DROPOUT_PROB', '0.0'))
+                    # Create and save the LSTM model
+                    model = self.create_selected_model(model_type, model_params, model_path)
 
-            hidden_units_list = [int(h.strip()) for h in hidden_units_list_str.split(',')]
-            layers_list = [int(l.strip()) for l in layers_list_str.split(',')]
-            dropout_prob_list = [float(d.strip()) for d in dropout_prob_list_str.split(',')]
-
-            for hidden_units in hidden_units_list:
-                for layers in layers_list:
-                    for dropout_prob in dropout_prob_list:
-                        model_identifier = f"model_gru_hu_{hidden_units}_layers_{layers}_dropout_{dropout_prob}"
-                        model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', model_identifier)
-                        os.makedirs(model_dir, exist_ok=True)
-                        model_path = os.path.join(model_dir, "model.pth")
-                        model_build_params = {
-                            "INPUT_SIZE": input_size, "HIDDEN_UNITS": hidden_units,
-                            "NUM_LAYERS": layers, "OUTPUT_SIZE": 1, "DROPOUT_PROB": dropout_prob
+                    # Store model information
+                    self.models.append({
+                        'model': model,
+                        'model_type': model_type,
+                        'model_dir': model_dir,
+                        "FEATURE_COLUMNS": feature_columns,
+                        "TARGET_COLUMN": target_column,
+                        'hyperparams': {
+                            'INPUT_SIZE': input_size,
+                            'OUTPUT_SIZE': output_size,
+                            'LAYERS': layers,
+                            'HIDDEN_UNITS': hidden_units,
+                            'model_path': model_path
                         }
-                        if hasattr(self, 'gru_model_service') and self.gru_model_service is not None:
-                            model = self.gru_model_service.create_and_save_gru_model(model_build_params, model_path)
-                            self.models.append({'model': model, 'model_type': 'GRU', 'model_dir': model_dir,
-                                                'model_path': model_path, 'build_params': model_build_params})
-                        else:
-                            self.logger.warning("GRUModelService not available. Skipping GRU model creation.")
-                            self.models.append({'model': None, 'model_type': 'GRU', 'model_dir': model_dir,
-                                                'model_path': model_path, 'build_params': model_build_params})
-        else:
-            self.logger.error(f"Unsupported MODEL_TYPE: {model_type_str}")
-            raise ValueError(f"Unsupported MODEL_TYPE: {model_type_str}")
-        
-        if not self.models:
-            self.logger.warning("No models were built. Check hyperparameter configurations.")
-        self.logger.info(f"Model building complete. {len(self.models)} model configurations prepared.")
+                    })
+            
+            self.logger.info("Model building complete.")
 
+        except Exception as e:
+            self.logger.error(f"Error during model building: {e}")
+            raise
 
     def create_training_tasks(self):
-        """
-        Create a list of training tasks by combining models and relevant training hyperparameters.
-        This method will also save the task information to disk for future use.
-        """
-        self.logger.info("Creating training tasks...")
-        task_list = []  # Initialize a list to store tasks
-
-        # Retrieve relevant hyperparameters for training
-        # Data Loader related params from self.current_hyper_params
-        training_method = self.current_hyper_params.get('TRAINING_METHOD', 'SequenceRNN') # Default
-        feature_cols_str = self.current_hyper_params.get('FEATURE_COLS', 'SOC,Current,Temp')
-        feature_cols = [col.strip() for col in feature_cols_str.split(',')]
-        target_col = self.current_hyper_params.get('TARGET_COL', 'Voltage')
-        concatenate_raw_data = self.current_hyper_params.get('CONCATENATE_RAW_DATA', 'False').lower() == 'true'
-        
-        # Training loop related params
-        learning_rates = [float(lr.strip()) for lr in self.current_hyper_params.get('INITIAL_LR', '0.001').split(',')]
-        lr_drop_factors = [float(df.strip()) for df in self.current_hyper_params.get('LR_DROP_FACTOR', '0.1').split(',')]
-        lr_drop_periods = [int(dp.strip()) for dp in self.current_hyper_params.get('LR_DROP_PERIOD', '10').split(',')]
-        valid_patience_values = [int(vp.strip()) for vp in self.current_hyper_params.get('VALID_PATIENCE', '5').split(',')]
-        repetitions = int(self.current_hyper_params.get('REPETITIONS', '1'))
-        lookbacks = [int(lb.strip()) for lb in self.current_hyper_params.get('LOOKBACK', '50').split(',')] # Still relevant for SequenceRNN
-        batch_sizes = [int(bs.strip()) for bs in self.current_hyper_params.get('BATCH_SIZE', '32').split(',')]
-        max_epochs = int(self.current_hyper_params.get('MAX_EPOCHS', '100'))
-        valid_frequency = int(self.current_hyper_params.get('ValidFrequency', '1')) # Renamed from ValidFrequency for consistency
-        weight_decay_list = [float(wd.strip()) for wd in self.current_hyper_params.get('WEIGHT_DECAY', '0.0').split(',')]
-
-
-        for model_config in self.models: # model_config from self.build_models()
-            model_object = model_config['model'] # This can be None if FNN/GRU service is not ready
-            model_type = model_config['model_type']
-            model_build_params = model_config['build_params']
-
-            # Prepare model_metadata based on actual model_type and its parameters
-            model_metadata = {'model_type': model_type, **model_build_params}
+        """Create training tasks based on hyperparameters."""
+        task_list = []
+        try:
+            # Parse all comma-separated values
+            max_epochs_list = [int(e.strip()) for e in str(self.current_hyper_params['MAX_EPOCHS']).split(',')]
+            learning_rates = [float(lr.strip()) for lr in str(self.current_hyper_params['INITIAL_LR']).split(',')]
+            train_val_splits = [float(self.current_hyper_params['TRAIN_VAL_SPLIT'])]
+            lookbacks = [int(lb.strip()) for lb in str(self.current_hyper_params['LOOKBACK']).split(',')]
+            batch_sizes = [int(bs.strip()) for bs in str(self.current_hyper_params['BATCH_SIZE']).split(',')]
+            valid_patience = [int(vp.strip()) for vp in str(self.current_hyper_params['VALID_PATIENCE']).split(',')]
+            valid_frequency = int(self.current_hyper_params.get('VALID_FREQUENCY', '3'))
+            repetitions = int(self.current_hyper_params.get('REPETITIONS', '1'))
             
-            # Calculate learnable parameters (needs to be model-specific)
-            num_learnable_params = 0
-            if model_object: # Only if model was successfully built
-                if model_type in ['LSTM', 'GRU', 'FNN']:
-                    num_learnable_params = sum(p.numel() for p in model_object.parameters() if p.requires_grad)
-                # Add specific calculation if needed, or rely on PyTorch's sum(p.numel())
-            else:
-                self.logger.warning(f"Model object is None for a {model_type} config. num_learnable_params set to 0.")
+            # Get scheduler type
+            scheduler_type = self.current_hyper_params.get('SCHEDULER_TYPE', 'StepLR')
 
+            # Parse scheduler-specific parameters
+            if scheduler_type == 'StepLR':
+                lr_periods = [int(p.strip()) for p in str(self.current_hyper_params['LR_PERIOD']).split(',')]
+                lr_factors = [float(f.strip()) for f in str(self.current_hyper_params['LR_PARAM']).split(',')]
+            else:  # ReduceLROnPlateau
+                plateau_patience = [int(p.strip()) for p in str(self.current_hyper_params['PLATEAU_PATIENCE']).split(',')]
+                plateau_factors = [float(f.strip()) for f in str(self.current_hyper_params['PLATEAU_FACTOR']).split(',')]
 
-            # Iterate through training hyperparameters
-            for lr in learning_rates:
-                for wd in weight_decay_list:
-                    for drop_factor in lr_drop_factors:
-                        for drop_period in lr_drop_periods:
-                            for patience in valid_patience_values:
-                                # Lookback is only a varying param if training_method is SequenceRNN
-                                current_lookbacks = lookbacks if training_method == 'SequenceRNN' else [None] # Use None or a default if not applicable
-                                
-                                for lookback_val in current_lookbacks:
-                                    for batch_size in batch_sizes:
-                                        for rep in range(1, repetitions + 1):
-                                            task_id = str(uuid.uuid4())
-                                            
-                                            # Build task_dir name based on relevant varying params
-                                            param_name_parts = [
-                                                f"model_{model_type}",
-                                                f"lr_{lr}", f"wd_{wd}", f"bs_{batch_size}"
-                                            ]
-                                            if training_method == 'SequenceRNN' and lookback_val is not None:
-                                                param_name_parts.append(f"lb_{lookback_val}")
-                                            # Add parts from model_build_params to make dir unique for model architecture
-                                            for k,v in model_build_params.items():
-                                                if isinstance(v, list): # e.g. FNN_HIDDEN_LAYERS
-                                                    param_name_parts.append(f"{k}_{'_'.join(map(str,v))}")
-                                                else:
-                                                    param_name_parts.append(f"{k}_{v}")
-                                            param_name_parts.append(f"rep_{rep}")
+            # Create tasks for each model and combination of hyperparameters
+            for model_task in self.models:
+                for max_epochs in max_epochs_list:  # Add iteration over max_epochs
+                    for lr in learning_rates:
+                        for train_val_split in train_val_splits:
+                            for lookback in lookbacks:
+                                for batch_size in batch_sizes:
+                                    for vp in valid_patience:
+                                        if scheduler_type == 'StepLR':
+                                            for period in lr_periods:
+                                                for factor in lr_factors:
+                                                    for rep in range(1, repetitions + 1):
+                                                        task_info = self._create_task_info(
+                                                            model_task=model_task,
+                                                            hyperparams={
+                                                                'INITIAL_LR': lr,
+                                                                'TRAIN_VAL_SPLIT': train_val_split,
+                                                                'LOOKBACK': lookback,
+                                                                'BATCH_SIZE': batch_size,
+                                                                'VALID_PATIENCE': vp,
+                                                                'MAX_EPOCHS': max_epochs,  # Use the current max_epochs value
+                                                                'SCHEDULER_TYPE': 'StepLR',
+                                                                'LR_PERIOD': period,
+                                                                'LR_PARAM': factor,
+                                                                'REPETITIONS': rep,
+                                                                'ValidFrequency': valid_frequency,
+                                                            },
+                                                            repetition=rep
+                                                        )
+                                                        task_list.append(task_info)
+                                        else:  # ReduceLROnPlateau
+                                            for p_patience in plateau_patience:
+                                                for p_factor in plateau_factors:
+                                                    for rep in range(1, repetitions + 1):
+                                                        task_info = self._create_task_info(
+                                                            model_task=model_task,
+                                                            hyperparams={
+                                                                'INITIAL_LR': lr,
+                                                                'TRAIN_VAL_SPLIT': train_val_split,
+                                                                'LOOKBACK': lookback,
+                                                                'BATCH_SIZE': batch_size,
+                                                                'VALID_PATIENCE': vp,
+                                                                'MAX_EPOCHS': max_epochs,  # Use the current max_epochs value
+                                                                'SCHEDULER_TYPE': 'ReduceLROnPlateau',
+                                                                'PLATEAU_PATIENCE': p_patience,
+                                                                'PLATEAU_FACTOR': p_factor,
+                                                                'REPETITIONS': rep,
+                                                                'ValidFrequency': valid_frequency,
+                                                            },
+                                                            repetition=rep
+                                                        )
+                                                        task_list.append(task_info)
 
-                                            task_specific_name = "_".join(param_name_parts)
-                                            task_dir = os.path.join(model_config['model_dir'], task_specific_name)
-                                            os.makedirs(task_dir, exist_ok=True)
-                                            
-                                            csv_log_file = os.path.join(task_dir, f"{task_id}_train_log.csv")
-                                            db_log_file = os.path.join(task_dir, f"{task_id}_train_log.db")
+            # Save the task list and return
+            self.training_tasks = task_list
+            
+            # Save task info for each task
+            for task_info in task_list:
+                task_dir = task_info['model_dir']
+                task_info_file = os.path.join(task_dir, 'task_info.json')
+                serializable_info = {k: v for k, v in task_info.items() if k != 'model'}
+                with open(task_info_file, 'w') as f:
+                    json.dump(serializable_info, f, indent=4)
 
-                                            task_info = {
-                                                'task_id': task_id,
-                                                'model': model_object, # Can be None if FNN/GRU service not ready
-                                                'model_metadata': model_metadata,
-                                                'data_loader_params': {
-                                                    'training_method': training_method,
-                                                    'feature_cols': feature_cols,
-                                                    'target_col': target_col,
-                                                    'lookback': lookback_val if training_method == 'SequenceRNN' else None,
-                                                    'batch_size': batch_size,
-                                                    'concatenate_raw_data': concatenate_raw_data,
-                                                    # Add other DataLoader params like num_workers, train_split, seed if they vary per task or are global
-                                                    'num_workers': self.current_hyper_params.get('NUM_WORKERS', 4),
-                                                    'train_split': float(self.current_hyper_params.get('TRAIN_SPLIT', 0.7)),
-                                                    'seed': int(self.current_hyper_params.get('SEED', 42)) # Example seed
-                                                },
-                                                'model_dir': task_dir, # Specific task run dir
-                                                'model_path': os.path.join(task_dir, 'model.pth'), # Model will be saved here per task run
-                                                'hyperparams': { # These are for the training loop itself
-                                                    **model_build_params, # Include model architecture params
-                                                    'BATCH_SIZE': batch_size,
-                                                    'LOOKBACK': lookback_val if training_method == 'SequenceRNN' else None,
-                                                    'INITIAL_LR': lr,
-                                                    'WEIGHT_DECAY': wd,
-                                                    'LR_DROP_FACTOR': drop_factor,
-                                                    'LR_DROP_PERIOD': drop_period,
-                                                    'VALID_PATIENCE': patience,
-                                                    'ValidFrequency': valid_frequency,
-                                                    'REPETITIONS': rep,
-                                                    'MAX_EPOCHS': max_epochs,
-                                                    'NUM_LEARNABLE_PARAMS': num_learnable_params, # Calculated based on model
-                                                    # Pass model_type for TrainingTaskService to adapt model call
-                                                    'MODEL_TYPE': model_type
-                                                },
-                                                'csv_log_file': csv_log_file,
-                                                'db_log_file': db_log_file
-                                            }
-                                            task_list.append(task_info)
-                                            task_info_file = os.path.join(task_dir, 'task_info.json')
-                                            # Create a serializable version of task_info (model object cannot be directly dumped)
-                                            serializable_task_info = {k: v for k, v in task_info.items() if k != 'model'}
-                                            serializable_task_info['model_path_from_build'] = model_config['model_path'] # Path where initial model (if any) was saved
-                                            with open(task_info_file, 'w') as f:
-                                                json.dump(serializable_task_info, f, indent=4)
-        self.training_tasks = task_list
+            # Save tasks summary
+            tasks_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
+            serializable_tasks = [{k: v for k, v in task.items() if k != 'model'} for task in task_list]
+            with open(tasks_summary_file, 'w') as f:
+                json.dump(serializable_tasks, f, indent=4)
 
-        # Optionally, save the entire task list for future reference at the root level
-        tasks_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
-        with open(tasks_summary_file, 'w') as f:
-            json.dump([{k: v for k, v in task.items() if k != 'model'} for task in self.training_tasks], f, indent=4)
+            return task_list
 
-        # Emit progress signal to notify the GUI
-        task_count = len(self.training_tasks)
-        if self.progress_signal:
-            self.logger.info(f"Created {len(self.training_tasks)} training tasks.")
-            self.progress_signal.emit(f"Created {task_count} training tasks and saved to disk.", self.job_manager.get_job_folder(), task_count)
+        except Exception as e:
+            self.logger.error(f"Error creating training tasks: {e}")
+            raise
+
+    def _create_task_info(self, model_task, hyperparams, repetition):
+        """Helper method to create a task info dictionary."""
+        timestamp = time.strftime("%Y%m%d%H%M%S")
+        task_counter = getattr(self, '_task_counter', 0) + 1
+        self._task_counter = task_counter
+        # Create unique task ID
+        task_id = f"task_{timestamp}_{task_counter}_rep_{repetition}"
+        
+        # Create task directory with relevant parameters and repetition number
+        scheduler_type = hyperparams['SCHEDULER_TYPE']
+        if scheduler_type == 'StepLR':
+            task_dir_name = f'lr_{hyperparams["INITIAL_LR"]}_period_{hyperparams["LR_PERIOD"]}_factor_{hyperparams["LR_PARAM"]}'
+        else:
+            task_dir_name = f'lr_{hyperparams["INITIAL_LR"]}_plat_pat_{hyperparams["PLATEAU_PATIENCE"]}_factor_{hyperparams["PLATEAU_FACTOR"]}'
+        
+        task_dir = os.path.join(
+            model_task['model_dir'],
+            f'{task_id}'
+        )
+        os.makedirs(task_dir, exist_ok=True)
+
+        # Create logs directory within task directory
+        logs_dir = os.path.join(task_dir, 'logs')
+        os.makedirs(logs_dir, exist_ok=True)
+
+        
+        # Get model architecture parameters
+        hidden_units = model_task['hyperparams']['HIDDEN_UNITS']
+        layers = model_task['hyperparams']['LAYERS']
+        input_size = model_task['hyperparams']['INPUT_SIZE']
+        output_size = model_task['hyperparams']['OUTPUT_SIZE']
+
+        # Calculate num_learnable_params
+        num_learnable_params = self.calculate_learnable_parameters(
+            layers,
+            input_size,
+            hidden_units
+        )
+
+        return {
+            'task_id': task_id,
+            'model': model_task['model'],
+            'model_dir': task_dir,
+            'task_dir': task_dir,
+            'model_path': os.path.join(task_dir, 'model.pth'),
+            'logs_dir': logs_dir,
+            'model_metadata': {
+                'model_type': model_task.get('model_type', 'LSTM'),
+                'num_learnable_params': num_learnable_params,
+                'hidden_units': hidden_units,
+                'num_layers': layers,
+                'input_size': input_size,
+                'output_size': output_size
+            },
+            'hyperparams': {
+                'LAYERS': layers,
+                'HIDDEN_UNITS': hidden_units,
+                'INPUT_SIZE': input_size,
+                'OUTPUT_SIZE': output_size,
+                'BATCH_TRAINING': self.current_hyper_params.get('BATCH_TRAINING', True), # Propagate BATCH_TRAINING
+                'BATCH_SIZE': hyperparams['BATCH_SIZE'],
+                'MAX_EPOCHS': hyperparams['MAX_EPOCHS'],
+                'INITIAL_LR': hyperparams['INITIAL_LR'],
+                'VALID_PATIENCE': hyperparams['VALID_PATIENCE'],
+                'ValidFrequency': hyperparams['ValidFrequency'],
+                'LOOKBACK': hyperparams['LOOKBACK'],
+                'SCHEDULER_TYPE': hyperparams['SCHEDULER_TYPE'],
+                'LR_PERIOD': hyperparams.get('LR_PERIOD'),
+                'LR_PARAM': hyperparams.get('LR_PARAM'),
+                'PLATEAU_PATIENCE': hyperparams.get('PLATEAU_PATIENCE'),
+                'PLATEAU_FACTOR': hyperparams.get('PLATEAU_FACTOR'),
+                'REPETITIONS': hyperparams['REPETITIONS'],
+                'NUM_LEARNABLE_PARAMS': num_learnable_params,
+            },
+            'data_loader_params': {
+                'lookback': hyperparams['LOOKBACK'],
+                'batch_size': hyperparams['BATCH_SIZE'],
+                'feature_columns': model_task['FEATURE_COLUMNS'],
+                'target_column': model_task['TARGET_COLUMN'],
+                'train_val_split': hyperparams['TRAIN_VAL_SPLIT'],
+                'num_workers': 4
+            },
+            'training_params': {
+                'early_stopping': True,
+                'early_stopping_patience': hyperparams['VALID_PATIENCE'],
+                'save_best_model': True,
+                'checkpoint_dir': os.path.join(logs_dir, 'checkpoints'),
+                'best_model_path': os.path.join(task_dir, 'best_model.pth')
+            },
+            'results': {
+                'best_val_loss': float('inf'),
+                'best_epoch': 0,
+                'training_time': 0,
+                'early_stopped': False,
+                'completed': False
+            },
+            'csv_log_file': os.path.join(logs_dir, 'training_progress.csv'),
+            'db_log_file': os.path.join(logs_dir, f'{task_id}_training.db')
+        }
 
     def calculate_learnable_parameters(self, layers, input_size, hidden_units):
         """
@@ -338,19 +371,29 @@ class VEstimTrainingSetupManager:
         # Initialize the number of parameters
         learnable_params = 0
 
-        # Input to the first hidden layer (input_size + 1 for bias)
-        learnable_params += 4 * (input_size + 1) * hidden_units  # 4 comes from LSTM's gates
+        # Input-to-hidden weights for the first layer (4 * hidden_units * (input_size + hidden_units))
+        # We account for 4 gates (input, forget, output, and candidate gates)
+        input_layer_params = 4 * (input_size + hidden_units) * hidden_units
 
-        # Hidden layers (recurrent part: previous hidden layer to the next hidden layer)
+        # Add bias terms for each gate in the first layer
+        input_layer_bias = 4 * hidden_units
+
+        learnable_params += input_layer_params + input_layer_bias
+
+        # For each additional LSTM layer, it's hidden_units -> hidden_units
         for i in range(1, layers):
-            learnable_params += 4 * (hidden_units + 1) * hidden_units  # No need to index, it's a single value
+            hidden_layer_params = 4 * (hidden_units + hidden_units) * hidden_units
+            hidden_layer_bias = 4 * hidden_units
+            learnable_params += hidden_layer_params + hidden_layer_bias
 
-        # Last hidden layer to output (assuming 1 output)
+        # Output layer (assuming 1 output)
         output_size = 1
-        learnable_params += hidden_units * output_size
+        output_layer_params = hidden_units * output_size
+        output_layer_bias = output_size  # 1 bias for the output layer
+        learnable_params += output_layer_params + output_layer_bias
 
         return learnable_params
-    
+
     def update_task(self, task_id, db_log_file=None, csv_log_file=None):
         """Update a specific task in the manager."""
         for task in self.training_tasks:
@@ -362,10 +405,28 @@ class VEstimTrainingSetupManager:
                 # Additional fields can be updated similarly
                 break
 
-
-
     def get_task_list(self):
         """Returns the list of training tasks."""
         return self.training_tasks
 
-
+    def validate_parameters(self, params):
+        """Validate and convert parameters to appropriate types."""
+        try:
+            validated = {
+                # Integer conversions
+                'LAYERS': int(params['LAYERS']),
+                'HIDDEN_UNITS': int(params['HIDDEN_UNITS']),
+                'BATCH_SIZE': int(params['BATCH_SIZE']),
+                
+                # Float conversions
+                'TRAIN_VAL_SPLIT': float(params['TRAIN_VAL_SPLIT']),
+                
+                # String parameters (for potential comma-separated values)
+                'INITIAL_LR': str(params['INITIAL_LR']),
+                'LR_PARAM': str(params['LR_PARAM']),
+                'MAX_EPOCHS': str(params.get('MAX_EPOCHS', '100')),
+                # ... other parameters ...
+            }
+            return validated
+        except (ValueError, KeyError) as e:
+            raise ValueError(f"Parameter validation failed: {str(e)}")

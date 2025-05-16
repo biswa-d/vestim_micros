@@ -32,73 +32,82 @@ class VEstimHyperParamManager:
         return validated_params
 
     def validate_and_normalize_params(self, params):
-        """Validate the parameter values. Strings are generally kept as is, to be parsed by consuming components."""
+        """Validate and normalize the parameter values while ensuring type consistency."""
         validated_params = {}
-        
-        # Define categories of parameters for easier handling
-        # These are params that are expected to be comma-separated strings of numbers by VEstimTrainingSetupManager
-        numeric_string_list_params_int = [
-            'LAYERS', 'HIDDEN_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS',
-            'LR_DROP_PERIOD', 'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS',
-            'GRU_LAYERS', 'GRU_HIDDEN_UNITS' # Added GRU params
-        ]
-        # These are params that are expected to be comma-separated strings of floats
-        numeric_string_list_params_float = [
-            'INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB',
-            'FNN_DROPOUT_PROB', 'GRU_DROPOUT_PROB', # Added FNN/GRU dropout
-            'WEIGHT_DECAY' # Added WEIGHT_DECAY
-        ]
-        
-        # String parameters (some might be comma-separated lists of strings, like FEATURE_COLS or FNN_HIDDEN_LAYERS)
-        # FNN_HIDDEN_LAYERS can also be "128,64;100,50" - so it's a complex string.
-        string_params = [
-            'MODEL_TYPE', 'TRAINING_METHOD', 'FEATURE_COLS', 'TARGET_COL',
-            'CONCATENATE_RAW_DATA', # Expected "True" or "False"
-            'FNN_HIDDEN_LAYERS', # e.g., "128,64" or "100;50,20"
-            # Add any other new string-based params here
-        ]
 
         for key, value in params.items():
-            if not isinstance(value, str): # All params from GUI QLineEdit/QComboBox come as strings
-                self.logger.warning(f"Parameter '{key}' has value '{value}' of type {type(value)}, expected string. Will attempt to convert.")
-                # Attempt to convert to string, or handle as error if critical
-                try:
-                    value = str(value)
-                except Exception as e:
-                    self.logger.error(f"Could not convert parameter '{key}' to string: {e}")
-                    raise ValueError(f"Parameter '{key}' could not be converted to string.")
+            if isinstance(value, str):
+                # Keep the original string for parameters that might be comma-separated
+                if key in ['LAYERS', 'HIDDEN_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD', 
+                        'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS']:
+                    # Validate that all values are valid integers
+                    value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
+                    try:
+                        [int(v) for v in value_list]  # Just validate, don't convert
+                        validated_params[key] = value  # Keep as string
+                    except ValueError:
+                        self.logger.error(f"Invalid integer value for {key}: {value}")
+                        raise ValueError(f"Invalid value for {key}: Expected integers, got {value}")
 
-            validated_params[key] = value.strip() # Store stripped string value
+                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB', 'TRAIN_VAL_SPLIT']:
+                    # Validate that all values are valid floats
+                    value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
+                    try:
+                        [float(v) for v in value_list]  # Just validate, don't convert
+                        validated_params[key] = value  # Keep as string
+                    except ValueError:
+                        self.logger.error(f"Invalid float value for {key}: {value}")
+                        raise ValueError(f"Invalid value for {key}: Expected floats, got {value}")
 
-            # Optional: Basic validation for specific string formats if desired here,
-            # but detailed parsing is deferred to VEstimTrainingSetupManager.
-            if key == 'CONCATENATE_RAW_DATA' and value.lower() not in ['true', 'false', '']:
-                self.logger.warning(f"Parameter 'CONCATENATE_RAW_DATA' has value '{value}'. Expected 'True' or 'False'.")
-            
-            if key in numeric_string_list_params_int or key in numeric_string_list_params_float:
-                # For these, VEstimTrainingSetupManager will split by comma and convert.
-                # We can do a basic check here if they are empty or contain invalid characters
-                # if not value: # Allow empty strings, setup manager can use defaults
-                #     continue
-                # For example, check if they only contain numbers, commas, spaces, semicolons (for FNN_HIDDEN_LAYERS)
-                # This validation can be made more robust if needed.
-                pass
+                # ✅ Ensure boolean conversion for checkboxes (if applicable)
+                elif key in ['BATCH_TRAINING']:
+                    validated_params[key] = value.lower() in ['true', '1', 'yes']
 
+                else:
+                    validated_params[key] = value
 
-        self.logger.info("Parameter validation/normalization (keeping as strings) complete.")
+            elif isinstance(value, list):
+                # ✅ Ensure lists retain proper types
+                validated_params[key] = value
+
+            else:
+                validated_params[key] = value  # Keep as-is for other data types
+
+        # ✅ Feature & Target Columns (No validation needed, comes from UI dropdowns)
+        validated_params["FEATURE_COLUMNS"] = params.get("FEATURE_COLUMNS", [])
+        validated_params["TARGET_COLUMN"] = params.get("TARGET_COLUMN", "")
+        validated_params["MODEL_TYPE"] = params.get("MODEL_TYPE", "")
+
+        self.logger.info("Parameter validation and normalization completed successfully.")
         return validated_params
 
+
     def save_params(self):
-        """Save the current parameters to the job folder."""
+        """Save the current validated parameters to the job folder in a JSON file."""
         job_folder = self.job_manager.get_job_folder()
-        if job_folder and self.current_params:
-            params_file = os.path.join(job_folder, 'hyperparams.json')
+
+        if not job_folder:
+            self.logger.error("Job folder is not set. Cannot save parameters.")
+            raise ValueError("Job folder is not set or current parameters are unavailable.")
+
+        if not self.current_params:
+            self.logger.error("No parameters available to save.")
+            raise ValueError("No parameters available for saving.")
+
+        params_file = os.path.join(job_folder, 'hyperparams.json')
+
+        try:
+            # ✅ Validate before saving to avoid corrupt JSON
+            validated_params = self.validate_and_normalize_params(self.current_params)
+
             with open(params_file, 'w') as file:
-                json.dump(self.current_params, file, indent=4)
-                self.logger.info("Parameters successfully saved.")
-        else:
-            self.logger.error("Failed to save parameters: Job folder or current parameters are not set.")
-            raise ValueError("Job folder is not set or current parameters are not available.")
+                json.dump(validated_params, file, indent=4)
+
+            self.logger.info("Hyperparameters successfully saved to file.")
+
+        except Exception as e:
+            self.logger.error(f"Failed to save parameters: {e}")
+            raise ValueError(f"Error saving hyperparameters: {e}")
 
     def save_params_to_file(self, new_params, filepath):
         """Save new parameters to a specified file."""
@@ -109,11 +118,9 @@ class VEstimHyperParamManager:
     def update_params(self, new_params):
         """Update the current parameters with new values."""
         validated_params = self.validate_and_normalize_params(new_params)
-        # Set current_params to only the latest validated parameters from the GUI.
-        # This ensures that stale keys from previous model type selections are cleared.
-        self.current_params = validated_params
-        # self.param_sets.append(self.current_params) # If param_sets were for history, this logic might change
-        self.logger.info(f"Parameters successfully set to: {self.current_params}")
+        self.current_params.update(validated_params)
+        # self.param_sets.append(self.current_params)
+        self.logger.info("Parameters successfully updated.")
 
     def get_current_params(self):
         """Load the parameters from the saved JSON file in the job folder."""

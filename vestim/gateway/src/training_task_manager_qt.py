@@ -1,13 +1,19 @@
-import time, os, sys
+import time, os, sys, math
 import csv
 import sqlite3
 import torch
 from PyQt5.QtCore import QThread, pyqtSignal
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
-from vestim.services.model_training.src.data_loader_service import DataLoaderService
-from vestim.services.model_training.src.training_task_service import TrainingTaskService
+from vestim.services.model_training.src.data_loader_service_test import DataLoaderService
+from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
 import logging, wandb
+
+def format_time(seconds):
+    """Convert seconds to mm:ss format."""
+    minutes = int(seconds // 60)
+    seconds = int(seconds % 60)
+    return f"{minutes:02d}:{seconds:02d}"
 
 class TrainingTaskManager:
     def __init__(self):
@@ -49,18 +55,19 @@ class TrainingTaskManager:
                 'Train Time Per Epoch': delta_t_epoch
             })
 
-    def log_to_sqlite(self, task, epoch, train_loss, val_loss, best_val_loss, elapsed_time, avg_batch_time, early_stopping, model_memory_usage):
-        """Log epoch-level data to a SQLite database."""
+    def log_to_sqlite(self, task, epoch, train_loss, val_loss, best_val_loss, elapsed_time, avg_batch_time, early_stopping, model_memory_usage, current_lr):
+        """Log epoch-level data to a SQLite database with the updated learning rate."""
         sqlite_db_file = task['db_log_file']
         conn = sqlite3.connect(sqlite_db_file)
         cursor = conn.cursor()
 
+        # Insert data with updated learning rate
         cursor.execute('''INSERT INTO task_logs (task_id, epoch, train_loss, val_loss, elapsed_time, avg_batch_time, learning_rate, 
                         best_val_loss, num_learnable_params, batch_size, lookback, max_epochs, early_stopping, model_memory_usage, device)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                    (task['task_id'], epoch, train_loss, val_loss, elapsed_time, avg_batch_time, task['hyperparams']['INITIAL_LR'], best_val_loss,
-                        task['hyperparams']['NUM_LEARNABLE_PARAMS'], task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'],task['hyperparams']['MAX_EPOCHS'],
-                        early_stopping, model_memory_usage, self.device.type))
+                    (task['task_id'], epoch, train_loss, val_loss, elapsed_time, avg_batch_time, current_lr, best_val_loss,
+                    task['hyperparams']['NUM_LEARNABLE_PARAMS'], task['hyperparams']['BATCH_SIZE'], task['hyperparams']['LOOKBACK'], 
+                    task['hyperparams']['MAX_EPOCHS'], early_stopping, model_memory_usage, self.device.type))
 
         conn.commit()
         conn.close()
@@ -88,11 +95,12 @@ class TrainingTaskManager:
             # Create data loaders for the task
             train_loader, val_loader = self.create_data_loaders(task)
             self.logger.info(f"DataLoader configured for task: {task['hyperparams']}")
+            print(f" dataloader size, Train: {len(train_loader)} | Validation: {len(val_loader)}")
 
             # Update progress for starting training
             update_progress_callback.emit({'status': f'Training LSTM model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
 
-            # Call the training method and pass logging information (task_id, db path)
+            # Run training with all necessary parameters
             self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
 
         except Exception as e:
@@ -181,44 +189,50 @@ class TrainingTaskManager:
 
     def create_data_loaders(self, task):
         """Create data loaders for the current task."""
-        dl_params = task.get('data_loader_params', {})
+        feature_cols = task['data_loader_params']['feature_columns']
+        target_col = task['data_loader_params']['target_column']
+        train_val_split = float(task['data_loader_params'].get('train_val_split', 0.7))
+        num_workers = int(task['hyperparams'].get('NUM_WORKERS', 4))
+        seed = int(task['hyperparams'].get('SEED', 2000))
         
-        # Essential parameters from the task
-        training_method = dl_params.get('training_method', 'SequenceRNN') # Default to existing behavior
-        feature_cols = dl_params.get('feature_cols') # Should be set by VEstimTrainingSetupManager
-        target_col = dl_params.get('target_col')   # Should be set by VEstimTrainingSetupManager
-        
-        if feature_cols is None or target_col is None:
-            # Fallback to old hardcoded values if not provided, with a warning.
-            # Ideally, VEstimTrainingSetupManager should always provide these.
-            self.logger.warning("feature_cols or target_col not found in data_loader_params. Falling back to defaults.")
-            self.logger.warning("This may lead to errors if the data doesn't match ['SOC', 'Current', 'Temp'] and 'Voltage'.")
-            feature_cols = dl_params.get('feature_cols', ['SOC', 'Current', 'Temp']) # Example fallback
-            target_col = dl_params.get('target_col', 'Voltage') # Example fallback
+        training_method = task['hyperparams'].get('TRAINING_METHOD', 'Sequence-to-Sequence') # Default if not present
+        model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM') # Default if not present
 
-        lookback = dl_params.get('lookback', 50) # Default lookback if not specified, adjust as needed
-        batch_size = dl_params.get('batch_size', 32) # Default batch_size
-        concatenate_raw_data = dl_params.get('concatenate_raw_data', False) # Default for SequenceRNN
-        
-        num_workers = dl_params.get('num_workers', 4) # Or a global default
-        train_split = dl_params.get('train_split', 0.7)
-        seed = dl_params.get('seed', None)
+        self.logger.info(f"Selected Training Method: {training_method}, Model Type: {model_type}")
 
+        if training_method == 'Whole Sequence' and model_type in ['LSTM', 'GRU']: # Check for RNN types
+            self.logger.info("Using concatenated whole sequence loader for RNN.")
+            train_loader, val_loader = self.data_loader_service.create_concatenated_whole_sequence_loaders(
+                folder_path=self.job_manager.get_train_folder(),
+                feature_cols=feature_cols,
+                target_col=target_col,
+                num_workers=num_workers,
+                train_split=train_val_split,
+                seed=seed
+            )
+        else: # Default to lookback-based sequence loading
+            if training_method == 'Whole Sequence' and model_type not in ['LSTM', 'GRU']:
+                 self.logger.info(f"Training method is 'Whole Sequence' but model type is {model_type}. Using standard sequence loader (this path is typically for FNNs with whole_sequence_fnn_data_handler or similar).")
+            
+            lookback = int(task['data_loader_params'].get('lookback', 50)) # Default lookback
+            user_batch_size = int(task['data_loader_params'].get('batch_size', 32))
+            
+            batch_training_enabled = task['hyperparams'].get('BATCH_TRAINING', True)
+            use_full_train_batch_flag = not batch_training_enabled
 
-        self.logger.info(f"Creating data loaders with method: {training_method}, features: {feature_cols}, target: {target_col}, lookback: {lookback}")
-        
-        train_loader, val_loader = self.data_loader_service.create_data_loaders(
-            folder_path=self.job_manager.get_train_folder(),
-            training_method=training_method,
-            feature_cols=feature_cols,
-            target_col=target_col,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            lookback=lookback if training_method == "SequenceRNN" else None, # Pass lookback only if relevant
-            concatenate_raw_data=concatenate_raw_data if training_method == "SequenceRNN" else False,
-            train_split=train_split,
-            seed=seed
-        )
+            self.logger.info(f"Using standard sequence loader. Batch training enabled: {batch_training_enabled}, User batch size: {user_batch_size}, Use full train batch flag: {use_full_train_batch_flag}, Lookback: {lookback}")
+            
+            train_loader, val_loader = self.data_loader_service.create_data_loaders(
+                folder_path=self.job_manager.get_train_folder(),
+                lookback=lookback,
+                feature_cols=feature_cols,
+                target_col=target_col,
+                batch_size=user_batch_size,
+                num_workers=num_workers,
+                use_full_train_batch=use_full_train_batch_flag,
+                train_split=train_val_split,
+                seed=seed
+            )
 
         return train_loader, val_loader
 
@@ -226,97 +240,98 @@ class TrainingTaskManager:
         """Run the training process for a single task."""
         try:
             self.logger.info("Starting training loop")
-            hyperparams = self.convert_hyperparams(task['hyperparams']) # Ensures types are correct
-            model = task['model']
-            if model is None:
-                self.logger.error(f"Task {task.get('task_id')} has a None model. Skipping training.")
-                update_progress_callback.emit({'task_error': f"Model for task {task.get('task_id')} is None."})
-                return # Skip this task if model is None (e.g. FNN/GRU service not ready)
+            hyperparams = self.convert_hyperparams(task['hyperparams']) # This ensures BATCH_SIZE is int if it exists
+            model = task['model'].to(device)
             
-            model = model.to(device)
+            # Ensure BATCH_SIZE from hyperparams (which might be the string from QLineEdit) is correctly converted and available
+            # The actual batch size used by train_loader is now determined by DataLoaderService based on use_full_train_batch_flag
+            # However, other parts of the code might still refer to hyperparams['BATCH_SIZE']
+            # For logging or other purposes, ensure it's an int.
+            # The convert_hyperparams method already handles BATCH_SIZE if it's a direct hyperparam.
+            # If BATCH_SIZE is under data_loader_params, it's handled in create_data_loaders above.
             
-            model_type = hyperparams.get('MODEL_TYPE', 'LSTM').upper() # Get model type, default LSTM
-            self.logger.info(f"Preparing to train model of type: {model_type}")
-
             max_epochs = hyperparams['MAX_EPOCHS']
-            valid_freq = hyperparams['ValidFrequency'] # This was from old params, ensure it's 'VALID_FREQUENCY' or similar from new
+            valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
+            #patience_threshold = int(valid_patience * 0.5) 
+            current_lr = hyperparams['INITIAL_LR']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
-            lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.1) # Default if not in hyperparams
-            weight_decay = hyperparams.get('WEIGHT_DECAY', 0.0) # Default if not in hyperparams
-            batch_size = hyperparams['BATCH_SIZE'] # Needed for hidden state initialization
+            lr_drop_factor = hyperparams['LR_DROP_FACTOR']
+            # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
+            lr_drop_buffer = 50
+            last_lr_drop_epoch = 0  # Initialize the epoch of the last LR drop
+            # weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
 
             best_validation_loss = float('inf')
             patience_counter = 0
             start_time = time.time()
             last_validation_time = start_time
-            early_stopping = False
+            early_stopping = False  # Initialize early stopping flag
 
-            optimizer = self.training_service.get_optimizer(model, lr=hyperparams['INITIAL_LR'], weight_decay=weight_decay)
-            scheduler = self.training_service.get_scheduler(optimizer, step_size=lr_drop_period, gamma=lr_drop_factor)
+            self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
+            # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
+            #self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
+            self.scheduler = torch.optim.lr_scheduler.StepLR(
+                self.optimizer, 
+                step_size=lr_drop_period,  # Number of epochs between drops
+                gamma=lr_drop_factor       # Multiplicative factor for the drop
+            )
+            optimizer = self.optimizer
+            scheduler = self.scheduler
 
-            def format_time(seconds):
-                minutes = seconds // 60
-                seconds = seconds % 60
-                return f"{int(minutes)}:{int(seconds):02d}"
+            # Initialize CSV logging
+            csv_log_file = task['csv_log_file']
+            with open(csv_log_file, 'w') as f:
+                f.write("epoch,train_loss,val_loss,learning_rate\n")  # CSV header
 
+            # Training loop
             for epoch in range(1, max_epochs + 1):
-                if self.stop_requested:
+                if self.stop_requested:  # Ensure thread safety here
                     self.logger.info("Training stopped by user")
+                    print("Stopping training...")
                     break
 
-                h_s_initial, h_c_initial = None, None
-                if model_type in ["LSTM", "GRU"]: # Check if model is RNN type
-                    # These should come from the model's actual attributes or build_params
-                    # For LSTM: model.num_layers, model.hidden_units
-                    # For GRU: model.num_layers, model.hidden_units
-                    # For FNN: these are not applicable.
-                    # Assuming these are stored in hyperparams or accessible via model attributes
-                    # For safety, get from hyperparams if available, else try model attributes
-                    num_layers = hyperparams.get('LAYERS', getattr(model, 'num_layers', 1)) # Default to 1 if not found
-                    hidden_units = hyperparams.get('HIDDEN_UNITS', getattr(model, 'hidden_units', 0)) # Default to 0 if not found
-                    
-                    if hidden_units > 0 : # Only initialize if hidden_units is meaningful
-                        h_s_initial = torch.zeros(num_layers, batch_size, hidden_units, device=device)
-                        if model_type == "LSTM":
-                            h_c_initial = torch.zeros(num_layers, batch_size, hidden_units, device=device)
-                    else:
-                        self.logger.warning(f"Hidden units is 0 or not found for {model_type}. Hidden states not initialized.")
-                
+                # Initialize hidden states for training phase
+                # Use the actual batch size from the train_loader
+                actual_train_batch_size = train_loader.batch_size
+                if actual_train_batch_size is None:
+                    self.logger.warning(f"train_loader.batch_size is None. Falling back to hyperparams BATCH_SIZE ({hyperparams.get('BATCH_SIZE', 'N/A')}) for training hidden state init.")
+                    actual_train_batch_size = int(hyperparams.get('BATCH_SIZE', 32)) # Default if all else fails
+
+                self.logger.info(f"Initializing training hidden state with batch size: {actual_train_batch_size}")
+                h_s = torch.zeros(model.num_layers, actual_train_batch_size, model.hidden_units).to(device)
+                h_c = torch.zeros(model.num_layers, actual_train_batch_size, model.hidden_units).to(device)
+
+                # Measure time for the training loop
                 epoch_start_time = time.time()
 
-                avg_batch_time, train_loss = self.training_service.train_epoch(
-                    model, model_type, train_loader, optimizer,
-                    h_s_initial, h_c_initial,
-                    epoch, device, self.stop_requested, task
-                )
+                # Train the model for one epoch
+                avg_batch_time, train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task)
 
                 epoch_end_time = time.time()
                 epoch_duration = epoch_end_time - epoch_start_time
-                formatted_epoch_time = format_time(epoch_duration)
+                formatted_epoch_time = format_time(epoch_duration)  # Convert epoch time to mm:ss format
 
                 if self.stop_requested:
-                    self.logger.info("Training stopped by user after training epoch.")
+                    self.logger.info("Training stopped by user")
+                    print("Training stopped after training phase.")
+                    self.logger.info("Training stopped after training phase.")
                     break
-                
-                val_loss = float('nan') # Default val_loss if not validated this epoch
+
+                # Only validate at specified frequency
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
-                    # Re-initialize hidden states for validation if RNN
-                    h_s_val_initial, h_c_val_initial = None, None
-                    if model_type in ["LSTM", "GRU"]:
-                        num_layers = hyperparams.get('LAYERS', getattr(model, 'num_layers', 1))
-                        hidden_units = hyperparams.get('HIDDEN_UNITS', getattr(model, 'hidden_units', 0))
-                        if hidden_units > 0:
-                            h_s_val_initial = torch.zeros(num_layers, batch_size, hidden_units, device=device)
-                            if model_type == "LSTM":
-                                h_c_val_initial = torch.zeros(num_layers, batch_size, hidden_units, device=device)
+                    # Initialize hidden states for validation phase
+                    # Use the actual batch size from the val_loader
+                    actual_val_batch_size = val_loader.batch_size
+                    if actual_val_batch_size is None:
+                        self.logger.warning(f"val_loader.batch_size is None. Falling back to hyperparams BATCH_SIZE ({hyperparams.get('BATCH_SIZE', 'N/A')}) for validation hidden state init.")
+                        actual_val_batch_size = int(hyperparams.get('BATCH_SIZE', 32)) # Default if all else fails
                     
-                    val_loss = self.training_service.validate_epoch(
-                        model, model_type, val_loader,
-                        h_s_val_initial, h_c_val_initial,
-                        epoch, device, self.stop_requested, task
-                    )
-                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | Epoch Time: {formatted_epoch_time}")
+                    self.logger.info(f"Initializing validation hidden state with batch size: {actual_val_batch_size}")
+                    h_s_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
+                    h_c_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
+
+                    val_loss = self.training_service.validate_epoch(model, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task)
 
                     current_time = time.time()
                     elapsed_time = current_time - start_time
@@ -324,26 +339,59 @@ class TrainingTaskManager:
                     last_validation_time = current_time
 
                     current_lr = optimizer.param_groups[0]['lr']
+                    
+                    if val_loss < best_validation_loss:
+                        print(f"Epoch: {epoch}, Validation loss improved from {best_validation_loss:.6f} to {val_loss:.6f}. Saving model...")
+                        best_validation_loss = val_loss
+                        self.save_model(task)
+                        patience_counter = 0
+                    else:
+                        patience_counter += 1
+                    # Determine target variable specifics for error reporting
+                    target_column = task['data_loader_params']['target_column']
+                    error_unit_label = "RMS Error"  # Default
+                    multiplier = 1.0
 
+                    if "voltage" in target_column.lower():
+                        error_unit_label = "RMS Error [mV]"
+                        multiplier = 1000.0
+                    elif "soc" in target_column.lower():
+                        error_unit_label = "RMS Error [% SOC]"
+                        multiplier = 100.0
+                    elif "temperature" in target_column.lower() or "temp" in target_column.lower(): # Check for "temperature" or "temp"
+                        error_unit_label = "RMS Error [Deg C]"
+                        multiplier = 1.0
+                    
+                    # Calculate scaled RMSE values, handling potential NaN or None for losses
+                    train_rmse_scaled = float('nan')
+                    if train_loss is not None and not math.isnan(train_loss):
+                        train_rmse_scaled = math.sqrt(max(0, train_loss)) * multiplier
+
+                    val_rmse_scaled = float('nan')
+                    if val_loss is not None and not math.isnan(val_loss):
+                        val_rmse_scaled = math.sqrt(max(0, val_loss)) * multiplier
+                    
+                    best_val_rmse_scaled = float('inf') # Default if best_validation_loss is inf
+                    if best_validation_loss != float('inf') and not math.isnan(best_validation_loss):
+                         best_val_rmse_scaled = math.sqrt(max(0, best_validation_loss)) * multiplier
+
+                    self.logger.info(f"Epoch {epoch} | Train Loss (MSE): {train_loss:.6f} | Val Loss (MSE): {val_loss:.6f} | {error_unit_label} (Train): {train_rmse_scaled:.4f} | {error_unit_label} (Val): {val_rmse_scaled:.4f} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss (MSE): {best_validation_loss:.6f} | Best {error_unit_label}: {best_val_rmse_scaled:.4f} | Patience Counter: {patience_counter}")
                     progress_data = {
                         'epoch': epoch,
-                        'train_loss': train_loss,
-                        'val_loss': val_loss,
+                        'train_loss': train_loss,  # Original MSE for logging or other non-display purposes
+                        'val_loss': val_loss,      # Original MSE
+                        'train_rmse_scaled': train_rmse_scaled,
+                        'val_rmse_scaled': val_rmse_scaled,
+                        'error_unit_label': error_unit_label,
                         'elapsed_time': elapsed_time,
                         'delta_t_epoch': formatted_epoch_time,
                         'learning_rate': current_lr,
-                        'best_val_loss': best_validation_loss,
+                        'best_val_loss': best_validation_loss, # Original MSE
+                        'best_val_rmse_scaled': best_val_rmse_scaled,
+                        'patience_counter': patience_counter,
                     }
-
                     # Emit progress after validation
-                    update_progress_callback.emit(progress_data)
-
-                    if val_loss < best_validation_loss:
-                        best_validation_loss = val_loss
-                        patience_counter = 0
-                        self.save_model(task)
-                    else:
-                        patience_counter += 1
+                    update_progress_callback.emit(progress_data) 
 
                     if patience_counter > valid_patience:
                         early_stopping = True
@@ -362,36 +410,69 @@ class TrainingTaskManager:
                             best_val_loss=best_validation_loss,
                             elapsed_time=elapsed_time,
                             avg_batch_time=avg_batch_time,
-                            early_stopping=early_stopping,  # Mark the early stopping in the log
-                            model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB, rounded to 2 decimal places
+                            early_stopping=early_stopping,
+                            model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
+                            current_lr=current_lr  # Pass updated learning rate here
                         )
+
                         break
 
                 # Log data to CSV and SQLite after each epoch (whether validated or not)
-                print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
+                #print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
 
                 # Save log data to CSV and SQLite
                 # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
                 model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                 model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
-                self.log_to_sqlite(
-                    task=task,
-                    epoch=epoch,
-                    train_loss=train_loss,
-                    val_loss=val_loss,
-                    best_val_loss=best_validation_loss,
-                    elapsed_time=elapsed_time,
-                    avg_batch_time=avg_batch_time,
-                    early_stopping=early_stopping,
-                    model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB, rounded to 2 decimal places
-                )
-
+                
                 scheduler.step()
 
+                new_lr = optimizer.param_groups[0]['lr']
+                if new_lr != current_lr:
+                    print(f"Learning rate changed from {current_lr:.8f} to {new_lr:.8f} at epoch {epoch}")
+                    logging.info(f"Learning rate changed from {current_lr:.8f} to {new_lr:.8f} at epoch {epoch}")
+                    current_lr = new_lr
+
+                # Scheduler step condition: Either when lr_drop_period is reached or patience_counter exceeds the threshold
+                # Scheduler step condition: Check for drop period or patience_counter with buffer consideration
+                # if (epoch % lr_drop_period == 0 or patience_counter > patience_threshold) and (epoch - last_lr_drop_epoch > lr_drop_buffer):
+                #     print(f"Learning rate before scheduler step: {optimizer.param_groups[0]['lr']: .8f}\n")
+                #     scheduler.step()
+                #     current_lr = optimizer.param_groups[0]['lr']
+                #     print(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
+                #     logging.info(f"Current learning rate updated at epoch {epoch}: {current_lr: .8f}\n")
+                #     last_lr_drop_epoch = epoch
+                # else:
+                #     print(f"Epoch {epoch}: No LR drop. patience_counter={patience_counter}, patience_threshold={patience_threshold}\n")
+    
+                # Log data to SQLite
+                #commented out for testing db error
+                # self.log_to_sqlite(
+                #     task=task,
+                #     epoch=epoch,
+                #     train_loss=train_loss,
+                #     val_loss=val_loss,
+                #     best_val_loss=best_validation_loss,
+                #     elapsed_time=elapsed_time,
+                #     avg_batch_time=avg_batch_time,
+                #     early_stopping=early_stopping,
+                #     model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
+                #     current_lr=current_lr  # Pass updated learning rate here
+                # )
+
             if self.stop_requested:
-                print("Training was stopped early. Saving Model...")
-                self.logger.info("Training was stopped early. Saving Model...")
-                self.save_model(task)
+                print("Training was stopped early. Exiting...")
+                self.logger.info("Training was stopped early. Exiting...")
+
+            # Final save and cleanup
+            self.save_model(task)
+            
+            # Log final summary
+            with open(os.path.join(task['model_dir'], 'training_summary.txt'), 'w') as f:
+                f.write(f"Training completed\n")
+                f.write(f"Best validation loss: {best_validation_loss:.6f}\n")
+                f.write(f"Final learning rate: {optimizer.param_groups[0]['lr']:.8f}\n")
+                f.write(f"Stopped at epoch: {epoch}/{max_epochs}\n")
 
             update_progress_callback.emit({'task_completed': True})
             self.logger.info("Training task completed")
@@ -401,129 +482,215 @@ class TrainingTaskManager:
             update_progress_callback.emit({'task_error': str(e)})
 
 
-    def convert_hyperparams(self, hyperparams_orig: dict) -> dict:
-        """
-        Converts hyperparameters to their correct types based on MODEL_TYPE.
-        Ensures that only relevant keys for the specific model type are present
-        or correctly formatted for downstream services.
-        The input `hyperparams_orig` is expected to be `task['hyperparams']`
-        which is populated by VEstimTrainingSetupManager.
-        """
-        hyperparams = hyperparams_orig.copy()  # Work on a copy
-        model_type = hyperparams.get('MODEL_TYPE', 'LSTM').upper() # Default to LSTM if not specified
-        self.logger.info(f"Starting hyperparameter conversion for MODEL_TYPE: {model_type}.")
-        self.logger.debug(f"Original hyperparams for conversion: {json.dumps(hyperparams_orig, indent=2)}")
-
-        # --- Common Parameter Conversions (ensure correct types) ---
-        # These parameters are expected to be present in task['hyperparams']
-        # and should have been processed to some extent by VEstimTrainingSetupManager.
+    def convert_hyperparams(self, hyperparams):
+        """Converts all relevant hyperparameters to the correct types."""
+        hyperparams['LAYERS'] = int(hyperparams['LAYERS'])
+        hyperparams['HIDDEN_UNITS'] = int(hyperparams['HIDDEN_UNITS'])
+        hyperparams['BATCH_SIZE'] = int(hyperparams['BATCH_SIZE'])
+        hyperparams['MAX_EPOCHS'] = int(hyperparams['MAX_EPOCHS'])
+        hyperparams['INITIAL_LR'] = float(hyperparams['INITIAL_LR'])
         
-        # BATCH_SIZE is critical and should be an int.
-        if 'BATCH_SIZE' in hyperparams:
-            hyperparams['BATCH_SIZE'] = int(hyperparams['BATCH_SIZE'])
+        # Update scheduler parameter names to match task info
+        if hyperparams['SCHEDULER_TYPE'] == 'StepLR':
+            hyperparams['LR_DROP_PERIOD'] = int(hyperparams['LR_PERIOD'])  # Map LR_PERIOD to LR_DROP_PERIOD
+            hyperparams['LR_DROP_FACTOR'] = float(hyperparams['LR_PARAM'])  # Map LR_PARAM to LR_DROP_FACTOR
         else:
-            self.logger.error("'BATCH_SIZE' not found in hyperparams during conversion.")
-            raise KeyError("'BATCH_SIZE' is required in hyperparams.")
-
-        hyperparams['MAX_EPOCHS'] = int(hyperparams.get('MAX_EPOCHS', 100))
-        hyperparams['INITIAL_LR'] = float(hyperparams.get('INITIAL_LR', 0.001))
-        hyperparams['LR_DROP_PERIOD'] = int(hyperparams.get('LR_DROP_PERIOD', 10))
-        hyperparams['LR_DROP_FACTOR'] = float(hyperparams.get('LR_DROP_FACTOR', 0.1))
-        hyperparams['VALID_PATIENCE'] = int(hyperparams.get('VALID_PATIENCE', 5))
-        
-        # Consolidate VALID_FREQUENCY handling
-        valid_freq_val = hyperparams.get('VALID_FREQUENCY', hyperparams.get('ValidFrequency'))
-        if valid_freq_val is not None:
-            hyperparams['VALID_FREQUENCY'] = int(valid_freq_val)
-            if 'ValidFrequency' in hyperparams and 'VALID_FREQUENCY' in hyperparams and 'ValidFrequency' != 'VALID_FREQUENCY':
-                del hyperparams['ValidFrequency'] # Remove old key if new one is used
-        else:
-            hyperparams['VALID_FREQUENCY'] = 1 # Default if neither key is found
-            self.logger.warning("'VALID_FREQUENCY' or 'ValidFrequency' not found, defaulting to 1.")
-
-        hyperparams['REPETITIONS'] = int(hyperparams.get('REPETITIONS', 1)) # Should be set by TrainingSetupManager
-        hyperparams['WEIGHT_DECAY'] = float(hyperparams.get('WEIGHT_DECAY', 0.0))
-        
-        # NUM_LEARNABLE_PARAMS is added by TrainingSetupManager
-        if 'NUM_LEARNABLE_PARAMS' in hyperparams:
-             hyperparams['NUM_LEARNABLE_PARAMS'] = int(hyperparams['NUM_LEARNABLE_PARAMS'])
-        else:
-            self.logger.warning("'NUM_LEARNABLE_PARAMS' not found in hyperparams.")
-            hyperparams['NUM_LEARNABLE_PARAMS'] = 0 # Default to 0 if not found
-
-
-        # --- Model-Specific Conversions and Cleanup ---
-        if model_type in ['LSTM', 'GRU']:
-            self.logger.info(f"Processing {model_type}-specific parameters.")
-            if 'LAYERS' not in hyperparams: raise KeyError(f"LAYERS is required for {model_type} but not found. Keys: {list(hyperparams.keys())}")
-            hyperparams['LAYERS'] = int(hyperparams['LAYERS'])
-            
-            if 'HIDDEN_UNITS' not in hyperparams: raise KeyError(f"HIDDEN_UNITS is required for {model_type} but not found. Keys: {list(hyperparams.keys())}")
-            hyperparams['HIDDEN_UNITS'] = int(hyperparams['HIDDEN_UNITS'])
-            
-            # DROPOUT_PROB for RNNs (should be float, set by TrainingSetupManager from model_build_params)
-            hyperparams['DROPOUT_PROB'] = float(hyperparams.get('DROPOUT_PROB', 0.0))
-            
-            # LOOKBACK is relevant for RNNs, especially with SequenceRNN training method
-            if 'LOOKBACK' in hyperparams and hyperparams['LOOKBACK'] is not None:
-                 hyperparams['LOOKBACK'] = int(hyperparams['LOOKBACK'])
-            elif 'LOOKBACK' not in hyperparams and hyperparams.get('TRAINING_METHOD') == 'SequenceRNN':
-                 self.logger.warning(f"LOOKBACK not found for {model_type} with SequenceRNN training method.")
-            
-            # Remove FNN specific keys if they were somehow included
-            fnn_keys_to_remove = ['HIDDEN_LAYER_SIZES', 'FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB']
-            for key_to_remove in fnn_keys_to_remove:
-                if key_to_remove in hyperparams:
-                    self.logger.debug(f"For {model_type}, removing FNN key '{key_to_remove}'.")
-                    del hyperparams[key_to_remove]
-
-        elif model_type == 'FNN':
-            self.logger.info("Processing FNN-specific parameters.")
-            # VEstimTrainingSetupManager should have placed 'HIDDEN_LAYER_SIZES' (list of int)
-            # and 'DROPOUT_PROB' (float) into task['hyperparams'] from model_build_params.
-            if 'HIDDEN_LAYER_SIZES' not in hyperparams or \
-               not isinstance(hyperparams['HIDDEN_LAYER_SIZES'], list) or \
-               not all(isinstance(x, int) for x in hyperparams['HIDDEN_LAYER_SIZES']):
-                self.logger.error(f"FNN model expects 'HIDDEN_LAYER_SIZES' as a list of int. Got: {hyperparams.get('HIDDEN_LAYER_SIZES')}")
-                raise ValueError("FNN 'HIDDEN_LAYER_SIZES' is missing or malformed in task hyperparams.")
-
-            # DROPOUT_PROB for FNN (should be float, set by TrainingSetupManager from model_build_params)
-            if 'DROPOUT_PROB' not in hyperparams or not isinstance(hyperparams['DROPOUT_PROB'], float):
-                self.logger.error(f"FNN model expects 'DROPOUT_PROB' as a float. Got: {hyperparams.get('DROPOUT_PROB')}")
-                hyperparams['DROPOUT_PROB'] = float(hyperparams.get('DROPOUT_PROB', 0.0)) # Ensure float
-
-            # Explicitly remove keys not relevant for FNN to prevent any downstream misuse
-            rnn_and_gru_keys_to_remove = [
-                'LOOKBACK', 'LAYERS', 'HIDDEN_UNITS', # General RNN
-                'FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB', # Original string versions from GUI, should not be here
-                'GRU_LAYERS', 'GRU_HIDDEN_UNITS', 'GRU_DROPOUT_PROB' # GRU specific
-            ]
-            for key in rnn_and_gru_keys_to_remove:
-                if key in hyperparams:
-                    self.logger.info(f"For FNN model, removing irrelevant key '{key}' from hyperparams during conversion.")
-                    del hyperparams[key]
-        else:
-            self.logger.error(f"Unsupported MODEL_TYPE '{model_type}' encountered in convert_hyperparams.")
-            raise ValueError(f"Unsupported MODEL_TYPE: {model_type}")
-
-        self.logger.info(f"Successfully converted hyperparameters for {model_type}.")
-        self.logger.debug(f"Final converted hyperparams: {json.dumps(hyperparams, indent=2)}")
+            hyperparams['PLATEAU_PATIENCE'] = int(hyperparams['PLATEAU_PATIENCE'])
+            hyperparams['PLATEAU_FACTOR'] = float(hyperparams['PLATEAU_FACTOR'])
+        hyperparams['VALID_PATIENCE'] = int(hyperparams['VALID_PATIENCE'])
+        hyperparams['ValidFrequency'] = int(hyperparams['ValidFrequency'])
+        hyperparams['LOOKBACK'] = int(hyperparams['LOOKBACK'])
+        hyperparams['REPETITIONS'] = int(hyperparams['REPETITIONS'])
         return hyperparams
 
     def save_model(self, task):
-        """Save the trained model to disk."""
-        model_path = task.get('model_path', None)
-        if model_path is None:
-            self.logger.error("Model path not found in task.")
-            raise ValueError("Model path not found in task.")
+        """Save the trained model to disk in both internal and portable formats."""
+        try:
+            model_path = task.get('model_path', None)
+            if model_path is None:
+                self.logger.error("Model path not found in task.")
+                raise ValueError("Model path not found in task.")
 
-        model = task['model']
-        if model is None:
-            self.logger.error("No model instance found in task.")
-            raise ValueError("No model instance found in task.")
+            model = task['model']
+            if model is None:
+                self.logger.error("No model instance found in task.")
+                raise ValueError("No model instance found in task.")
 
-        torch.save(model.state_dict(), model_path)
-        print(f"Model saved to {model_path}")
+            # Save full model for internal use (current workflow)
+            torch.save(model, model_path)
+            print(f"Full model saved")
+
+            # Save portable version
+            task_dir = os.path.dirname(model_path)
+            export_path = os.path.join(task_dir, 'model_export.pt')
+            
+            # Get model definition code
+            model_def = """
+import torch
+import torch.nn as nn
+
+class LSTMModel(nn.Module):
+    def __init__(self, input_size, hidden_units, num_layers, output_size=1, device='cpu'):
+        super(LSTMModel, self).__init__()
+        self.input_size = input_size
+        self.hidden_units = hidden_units
+        self.num_layers = num_layers
+        self.output_size = output_size
+        self.device = device
+
+        # LSTM layer
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_units,
+            num_layers=num_layers,
+            batch_first=True
+        )
+        
+        # Fully connected layer
+        self.fc = nn.Linear(hidden_units, output_size)
+    
+    def forward(self, x, h_s=None, h_c=None):
+        # Initialize hidden state and cell state if not provided
+        if h_s is None or h_c is None:
+            h_s = torch.zeros(self.num_layers, x.size(0), self.hidden_units).to(self.device)
+            h_c = torch.zeros(self.num_layers, x.size(0), self.hidden_units).to(self.device)
+        
+        # Forward pass through LSTM
+        out, (h_s, h_c) = self.lstm(x, (h_s, h_c))
+        
+        # Get output from last time step
+        out = self.fc(out[:, -1, :])
+        return out, (h_s, h_c)
+"""
+
+            # Create export dictionary with all necessary information
+            export_dict = {
+                'state_dict': model.state_dict(),
+                'model_definition': model_def,
+                'model_metadata': task['model_metadata'],
+                'hyperparams': {
+                    'input_size': task['hyperparams']['INPUT_SIZE'],
+                    'hidden_size': task['hyperparams']['HIDDEN_UNITS'],
+                    'num_layers': task['hyperparams']['LAYERS'],
+                    'output_size': task['hyperparams']['OUTPUT_SIZE']
+                },
+                'data_config': {
+                    'feature_columns': task['data_loader_params']['feature_columns'],
+                    'target_column': task['data_loader_params']['target_column'],
+                    'lookback': task['data_loader_params']['lookback']
+                },
+                'model_type': task['model_metadata']['model_type'],
+                'export_timestamp': time.strftime("%Y%m%d-%H%M%S")
+            }
+
+            # Save portable version
+            torch.save(export_dict, export_path)
+            print(f"Portable model saved!")
+
+            # Create a README file with multiple loading options
+            readme_path = os.path.join(task_dir, 'MODEL_LOADING_INSTRUCTIONS.md')
+            readme_content = f"""# Model Loading Instructions
+
+## Model Details
+- Model Type: {task['model_metadata']['model_type']}
+- Input Size: {task['hyperparams']['INPUT_SIZE']}
+- Hidden Units: {task['hyperparams']['HIDDEN_UNITS']}
+- Layers: {task['hyperparams']['LAYERS']}
+- Output Size: {task['hyperparams']['OUTPUT_SIZE']}
+- Lookback: {task['data_loader_params']['lookback']}
+
+## Feature Configuration
+- Input Features: {', '.join(task['data_loader_params']['feature_columns'])}
+- Target Variable: {task['data_loader_params']['target_column']}
+
+## Loading Options
+
+### Option 1: Using VEstim Environment
+```python
+import torch
+from vestim.services.model_training.src.LSTM_model_service_test import LSTMModelService
+
+# Load the exported model
+checkpoint = torch.load('model_export.pt')
+
+# Create model instance
+model_service = LSTMModelService()
+model = model_service.create_model(
+    input_size=checkpoint['hyperparams']['input_size'],
+    hidden_size=checkpoint['hyperparams']['hidden_size'],
+    num_layers=checkpoint['hyperparams']['num_layers'],
+    output_size=checkpoint['hyperparams']['output_size']
+)
+
+# Load state dict
+model.load_state_dict(checkpoint['state_dict'])
+model.eval()  # Set to evaluation mode
+```
+
+### Option 2: Standalone Usage (No VEstim Required)
+```python
+import torch
+import torch.nn as nn
+
+# Load the checkpoint
+checkpoint = torch.load('model_export.pt')
+
+# Execute the model definition code (included in the checkpoint)
+exec(checkpoint['model_definition'])
+
+# Create model instance
+model = LSTMModel(
+    input_size=checkpoint['hyperparams']['input_size'],
+    hidden_units=checkpoint['hyperparams']['hidden_size'],
+    num_layers=checkpoint['hyperparams']['num_layers'],
+    output_size=checkpoint['hyperparams']['output_size']
+)
+
+# Load state dict
+model.load_state_dict(checkpoint['state_dict'])
+model.eval()
+
+# Example usage:
+def predict(model, input_data):
+    with torch.no_grad():
+        output, _ = model(input_data)
+    return output
+```
+
+## Input Data Format
+- Input shape should be: (batch_size, lookback, input_size)
+- Features should be in order: {', '.join(task['data_loader_params']['feature_columns'])}
+- All inputs should be normalized using the same scaling as training data
+
+## Example Preprocessing
+```python
+import numpy as np
+
+def preprocess_data(data, lookback={task['data_loader_params']['lookback']}):
+    # Ensure data is normalized using the same scaling as training
+    # Create sequences of length 'lookback'
+    sequences = []
+    for i in range(len(data) - lookback + 1):
+        sequences.append(data[i:(i + lookback)])
+    return torch.FloatTensor(np.array(sequences))
+```
+
+## Making Predictions
+```python
+# Example prediction
+input_sequence = preprocess_data(your_data)  # Shape: (1, lookback, input_size)
+with torch.no_grad():
+    prediction, _ = model(input_sequence)
+```
+"""
+            
+            with open(readme_path, 'w') as f:
+                f.write(readme_content)
+            #print(f"Loading instructions saved to {readme_path}")
+
+        except Exception as e:
+            self.logger.error(f"Error saving model: {str(e)}")
+            raise
 
     def stop_task(self):
         self.stop_requested = True  # Set the flag to request a stop

@@ -7,33 +7,36 @@
 # This is the batchtesting without padding implementation for the unscaled data where the batch-size is used for testloader preparation but the model is tested
 # one sequence at a time like a running window. The first part of the test file is padded with data to avoid the size mismatch and get the final prediction the same
 # shape as the test file.
-
+#
 # Copyright (c) 2024 Biswanath Dehury, Dr. Phil Kollmeyer's Battery Lab at McMaster University
 # ---------------------------------------------------------------------------------
 
-
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QDialog, QMessageBox, QGridLayout
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, 
+    QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QDialog, QMessageBox, 
+    QGridLayout
+)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
-from PyQt5.QtGui import QFont, QDesktopServices
+from PyQt5.QtGui import QFont, QDesktopServices, QPixmap
 import os, sys, time
 import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from queue import Queue, Empty
-import logging  
+import logging
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Import your services
 from vestim.gateway.src.testing_manager_qt import VEstimTestingManager
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gateway.src.training_setup_manager_qt_test import VEstimTrainingSetupManager
-from vestim.gateway.src.hyper_param_manager_qt_test import VEstimHyperParamManager
+from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 
 class TestingThread(QThread):
-    # Define the signals at the class level
-    update_status_signal = pyqtSignal(str)  # Signal to send status messages
-    result_signal = pyqtSignal(dict)        # Signal to send test results
-    testing_complete_signal = pyqtSignal()  # Signal to indicate all tasks are complete
+    update_status_signal = pyqtSignal(str)
+    result_signal = pyqtSignal(dict)
+    testing_complete_signal = pyqtSignal()
 
     def __init__(self, testing_manager, queue):
         super().__init__()
@@ -44,25 +47,23 @@ class TestingThread(QThread):
 
     def run(self):
         try:
-            self.testing_manager.start_testing(self.queue)  # Pass the queue to the manager
+            self.testing_manager.start_testing(self.queue)
             while not self.stop_flag:
                 try:
-                    result = self.queue.get(timeout=1)  # Non-blocking queue retrieval
+                    result = self.queue.get(timeout=1)
                     if result:
-                        # Check for the special completion message
                         if 'all_tasks_completed' in result:
-                            self.testing_complete_signal.emit()  # Emit signal to inform the GUI
-                            self.stop_flag = True  # Stop the thread loop
+                            self.testing_complete_signal.emit()
+                            self.stop_flag = True
                         else:
                             self.result_signal.emit(result)
                 except Empty:
-                    continue  # Continue checking until the thread finishes testing
+                    continue
         except Exception as e:
             self.update_status_signal.emit(f"Error: {str(e)}")
         finally:
             print("Testing thread is stopping...")
-            self.quit()  # Ensure the thread stops properly
-            # self.wait()  # Make sure all operations are completed before exiting
+            self.quit()
 
 
 class VEstimTestingGUI(QMainWindow):
@@ -139,17 +140,21 @@ class VEstimTestingGUI(QMainWindow):
 
         # TreeWidget to display results
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(8)
-        self.tree.setHeaderLabels(["Sl.No", "Model","#W&Bs", "RMS Error (mV)", "MAE (mV)", "MAPE (%)", "R²", "Plot"])
-        # Set the column widths once in initUI to make them persistent
+        self.tree.setColumnCount(9)
+        self.tree.setHeaderLabels(["Sl.No", "Task ID", "Model", "File Name", "#W&Bs", "RMS Error (mV)", "Max Error (mV)", "MAPE (%)", "R²", "Plot"])
+
+        # Set optimized column widths
         self.tree.setColumnWidth(0, 50)   # Sl.No column
-        self.tree.setColumnWidth(1, 300)  # Model name column
-        self.tree.setColumnWidth(2, 50)   # Number of learnable parameters
-        self.tree.setColumnWidth(3, 90)   # RMS Error column
-        self.tree.setColumnWidth(4, 70)   # MAE column
-        self.tree.setColumnWidth(5, 70)   # MAPE column
-        self.tree.setColumnWidth(6, 70)   # R² column
-        self.tree.setColumnWidth(7, 20)   # Plot button column
+        self.tree.setColumnWidth(1, 100)  # Task ID column
+        self.tree.setColumnWidth(2, 200)  # Model name column (Wider)
+        self.tree.setColumnWidth(3, 200)  # File name column (Wider)
+        self.tree.setColumnWidth(4, 70)   # Number of learnable parameters
+        self.tree.setColumnWidth(5, 100)   # RMS Error column
+        self.tree.setColumnWidth(6, 100)   # Max Error column
+        self.tree.setColumnWidth(7, 70)   # MAPE column
+        self.tree.setColumnWidth(8, 60)   # R² column
+        self.tree.setColumnWidth(9, 100)   # Plot button column (Narrow)
+
         self.main_layout.addWidget(self.tree)
 
         # Status Label (below the tree view)
@@ -249,128 +254,174 @@ class VEstimTestingGUI(QMainWindow):
         self.status_label.setText(message)
 
     def add_result_row(self, result):
-        """Add each result as a row in the QTreeWidget with a Plot button."""
+        """Add each test result as a row in the QTreeWidget."""
         print(f"Adding result row: {result}")
         self.logger.info(f"Adding result row: {result}")
+
+        if 'task_error' in result:
+            print(f"Error in task: {result['task_error']}")
+            return
+
         task_data = result.get('task_completed')
 
         if task_data:
-            save_dir = task_data.get("saved_dir", "")  # Ensure it's not None
+            save_dir = task_data.get("saved_dir", "")  
+            task_id = task_data.get("task_id", "N/A")
             model_name = task_data.get("model", "Unknown Model")
-            num_learnable_params = str(task_data.get("#params", "N/A"))  # Default to "N/A" if missing
+            file_name = task_data.get("file_name", "Unknown File")
+            num_learnable_params = str(task_data.get("#params", "N/A"))
 
-            # Extract correct keys for metrics
-            rms_error = f"{task_data.get('avg_rms_error_mv', 0):.4f}"
-            mae = f"{task_data.get('avg_mae_mv', 0):.4f}"
-            mape = f"{task_data.get('avg_mape', 0):.4f}"
-            r2 = f"{task_data.get('avg_r2', 0):.4f}"
+            # Extract metrics - handle both formats
+            rms_error = task_data.get('rms_error_mv', 0)
+            if isinstance(rms_error, str):
+                rms_error = float(rms_error)
+            
+            max_error = task_data.get('max_error_mv', 0)
+            if isinstance(max_error, str):
+                max_error = float(max_error)
 
-            # Manually increment Sl.No counter
-            sl_no = self.sl_no_counter
-            self.sl_no_counter += 1
+            mape = task_data.get('mape', 0)
+            if isinstance(mape, str):
+                mape = float(mape)
+
+            r2 = task_data.get('r2', 0)
+            if isinstance(r2, str):
+                r2 = float(r2)
+
+            # Format metrics for display
+            rms_error_str = f"{rms_error:.2f}"
+            max_error_str = f"{max_error:.2f}"
+            mape_str = f"{mape:.2f}"
+            r2_str = f"{r2:.4f}"
+
+            test_file_path = task_data.get("test_file", "Unknown Test File")
 
             # Add row data to QTreeWidget
-            row = QTreeWidgetItem([str(sl_no), model_name, num_learnable_params, rms_error, mae, mape, r2])
+            row = QTreeWidgetItem([
+                str(self.sl_no_counter), 
+                task_id, 
+                model_name, 
+                file_name, 
+                num_learnable_params, 
+                rms_error_str,
+                max_error_str,
+                mape_str,
+                r2_str
+            ])
+            self.sl_no_counter += 1
 
-            # Get model directory where test results are saved
-            model_dir = os.path.join(save_dir, model_name)
+            # Create button layout widget
+            button_widget = QWidget()
+            button_layout = QHBoxLayout(button_widget)
+            button_layout.setContentsMargins(4, 0, 4, 0)  # Reduce margins
 
-            # Create the "Plot" button with styling
+            # Create "Plot Result" button
             plot_button = QPushButton("Plot Result")
-            plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")  # Purple background
-            
-            # Fix lambda function to correctly pass model_dir (for plotting all test files)
-            plot_button.clicked.connect(lambda _, path=save_dir: self.plot_model_results(path))
+            plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")
+            plot_button.clicked.connect(lambda _, path=save_dir: self.plot_model_result(test_file_path, save_dir))
+            button_layout.addWidget(plot_button)
 
+            # Add row to tree widget
             self.tree.addTopLevelItem(row)
+            self.tree.setItemWidget(row, 9, button_widget)
 
-            # Set widget for the "Plot" column
-            self.tree.setItemWidget(row, 7, plot_button)
+            # Automatically show training history plot if it exists
+            training_history_path = os.path.join(save_dir, f'training_history_{task_id}.png')
+            if os.path.exists(training_history_path):
+                self.show_training_history_plot(training_history_path, task_id)
 
-
-    def plot_model_results(self, save_dir):
-        """
-        Plot all test results for a specific model by reading from all saved CSV files.
-        Opens multiple windows, one for each test file.
-        """
+    def plot_model_result(self, test_file_path, save_dir):
+        """Plot test results for a specific model."""
         try:
-            if not os.path.exists(save_dir):
-                QMessageBox.critical(self, "Error", f"Model results folder not found: {save_dir}")
+            print(f"Plotting results for test file: {test_file_path}")
+            if not os.path.exists(test_file_path):
+                QMessageBox.critical(self, "Error", f"Test file not found: {test_file_path}")
                 return
 
-            # Get all test result files for this model
-            test_files = [f for f in os.listdir(save_dir) if f.endswith("_predictions.csv")]
 
-            if not test_files:
-                QMessageBox.critical(self, "Error", f"No test result files found for model: {save_dir}")
+            df = pd.read_csv(test_file_path)
+            if "True Values (V)" not in df.columns or "Predictions (V)" not in df.columns:
+                QMessageBox.critical(self, "Error", f"Required columns not found in the file: {test_file_path}")
                 return
 
-            # Iterate over each test file and open a new plot window
-            for test_file in test_files:
-                test_file_path = os.path.join(save_dir, test_file)
-                df = pd.read_csv(test_file_path)
+            errors = df["Difference (mV)"]
+            rms_error = np.sqrt(np.mean(errors**2))
+            max_error = np.max(np.abs(errors))
 
-                if "True Values (V)" not in df.columns or "Predictions (V)" not in df.columns:
-                    print(f"Skipping {test_file} due to missing columns.")
-                    continue
+            # Create plot window and display results
+            plot_window = QDialog(self)
+            test_name = os.path.splitext(os.path.basename(test_file_path))[0]
+            plot_window.setWindowTitle(f"Test Results: {test_name}")
+            plot_window.setGeometry(200, 100, 800, 600)
 
-                # Create a new dialog window for each test file
-                plot_window = QDialog(self)
-                test_name = os.path.splitext(test_file)[0]
-                plot_window.setWindowTitle(f"Test Results: {test_name}")
-                plot_window.setGeometry(200, 100, 800, 600)
+            fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
+            ax.plot(df["True Values (V)"], label='True Values (V)', color='blue', marker='o', markersize=5, linestyle='-', linewidth=1)
+            ax.plot(df["Predictions (V)"], label='Predictions (V)', color='red', marker='x', markersize=5, linestyle='--', linewidth=1)
 
-                # Create a matplotlib figure
-                fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
+            text_str = f"RMS Error: {rms_error:.4f} V\nMax Error: {max_error:.4f} V"
+            ax.text(0.02, 0.98, text_str, transform=ax.transAxes, fontsize=12, verticalalignment='top', 
+                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
-                # Plot true values vs predictions
-                ax.plot(df["True Values (V)"], label='True Values (V)', color='blue', marker='o', markersize=3, linestyle='-', linewidth=0.8)
-                ax.plot(df["Predictions (V)"], label='Predictions (V)', color='green', marker='x', markersize=3, linestyle='--', linewidth=0.8)
+            ax.set_xlabel('Index', fontsize=12)
+            ax.set_ylabel('Voltage (V)', fontsize=12)
+            ax.set_title(f"Test: {test_name}", fontsize=14, fontweight='bold')
+            ax.legend(loc='upper right', fontsize=10)
+            ax.grid(True, linestyle='--', alpha=0.6)
+            ax.tick_params(axis='both', which='major', labelsize=10)
 
-                ax.set_xlabel('Index', fontsize=12)
-                ax.set_ylabel('Voltage (V)', fontsize=12)
-                ax.set_title(f"Test: {test_name}", fontsize=14, fontweight='bold')
-                ax.legend(loc='upper right', fontsize=10)
-                ax.grid(True, linestyle='--', alpha=0.6)
-                ax.tick_params(axis='both', which='major', labelsize=10)
+            canvas = FigureCanvas(fig)
+            layout = QVBoxLayout()
+            layout.addWidget(canvas)
 
-                # Embed the plot in the dialog window using FigureCanvas
-                canvas = FigureCanvas(fig)
-                layout = QVBoxLayout()
-                layout.addWidget(canvas)
-                plot_window.setLayout(layout)
+            # Create save button with the working lambda syntax
+            save_button = QPushButton("Save Plot")
+            save_button.setStyleSheet('background-color: #4CAF50; color: white;')
+            save_button.clicked.connect(lambda checked, f=fig, t=test_file_path: self.save_plot(f, t, save_dir))
+            layout.addWidget(save_button)
 
-                # Add "Save Plot" button
-                save_button = QPushButton("Save Plot")
-                save_button.clicked.connect(lambda checked, f=fig, t=test_file_path: self.save_plot(f, t, save_dir))
-                layout.addWidget(save_button)
-
-                # Show the plot window (opens multiple windows)
-                plot_window.show()
+            plot_window.setLayout(layout)
+            plot_window.show()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while plotting results\n{str(e)}")
 
-
     def save_plot(self, fig, test_file_path, save_dir):
-        """
-        Save the current plot as a PNG image.
-        
-        :param fig: The figure object of the plot.
-        :param model_name: The name of the model being plotted.
-        :param save_dir: The directory where the plot should be saved.
-        """
-        # Create the file path for the saved image
-        #plot_file = os.path.join(save_dir, test_file_path, f"{test_file_path}_test_results_plot.png")
-        # Remove .csv from the filename
-        test_file_name = os.path.splitext(os.path.basename(test_file_path))[0]  
-        # Construct the correct plot file path inside save_dir
-        plot_file = os.path.join(save_dir, f"{test_file_name}_test_results_plot.png")
+        """Save the current plot as a PNG image."""
+        try:
+            # Generate filename from test file path
+            test_file_name = os.path.splitext(os.path.basename(test_file_path))[0]  
+            # Construct the plot file path inside save_dir
+            plot_file = os.path.join(save_dir, f"{test_file_name}_test_results_plot.png")
 
-        # Save the figure as a PNG image
-        fig.savefig(plot_file, format='png', dpi=300, bbox_inches='tight')
-        QMessageBox.information(self, "Saved", f"Plot saved as: {plot_file}")
-        print(f"Plot saved as: {plot_file}")
+            # Save the figure as a PNG image
+            fig.savefig(plot_file, format='png', dpi=300, bbox_inches='tight')
+            QMessageBox.information(self, "Success", f"Plot saved successfully to:\n{plot_file}")
+            print(f"Plot saved as: {plot_file}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save plot: {str(e)}")
+
+    def show_training_history_plot(self, plot_path, task_id):
+        """Display the training history plot in a new window."""
+        try:
+            plot_window = QDialog(self)
+            plot_window.setWindowTitle(f"Training History - Task {task_id}")
+            plot_window.setGeometry(200, 100, 800, 600)
+
+            # Create QLabel to display the image
+            image_label = QLabel()
+            pixmap = QPixmap(plot_path)
+            scaled_pixmap = pixmap.scaled(780, 580, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            image_label.setPixmap(scaled_pixmap)
+
+            # Create layout
+            layout = QVBoxLayout()
+            layout.addWidget(image_label)
+            plot_window.setLayout(layout)
+            plot_window.show()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to display training history plot: {str(e)}")
 
     def start_testing(self):
         print("Starting testing...")
@@ -393,6 +444,7 @@ class VEstimTestingGUI(QMainWindow):
 
         # Start processing the queue after the thread starts
         self.process_queue()
+    
     
     def update_elapsed_time(self):
         """Update the elapsed time label."""

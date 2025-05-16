@@ -18,7 +18,7 @@ from PyQt5.QtGui import QIcon
 import pandas as pd
 
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gateway.src.hyper_param_manager_qt_test import VEstimHyperParamManager
+from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.gui.src.training_setup_gui_qt_test import VEstimTrainSetupGUI
 
 # Initialize the JobManager
