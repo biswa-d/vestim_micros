@@ -358,7 +358,7 @@ class TrainingTaskManager:
                     elif "soc" in target_column.lower():
                         error_unit_label = "RMS Error [% SOC]"
                         multiplier = 100.0
-                    elif "temperature" in target_column.lower(): # Check for "temperature"
+                    elif "temperature" in target_column.lower() or "temp" in target_column.lower(): # Check for "temperature" or "temp"
                         error_unit_label = "RMS Error [Deg C]"
                         multiplier = 1.0
                     

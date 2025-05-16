@@ -152,7 +152,7 @@ class VEstimHyperParamGUI(QWidget):
         column_names = self.load_column_names()
 
         # **Feature Selection**
-        feature_label = QLabel("Feature Columns:")
+        feature_label = QLabel("Feature Columns (Input):")
         feature_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
         feature_label.setToolTip("Select one or more columns as input features for training.")
 
@@ -164,7 +164,7 @@ class VEstimHyperParamGUI(QWidget):
         self.feature_list.setToolTip("Select multiple features.")
 
         # **Target Selection**
-        target_label = QLabel("Target Column:")
+        target_label = QLabel("Target Column (Output):")
         target_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
         target_label.setToolTip("<html><body><span style='font-weight: normal;'>Select the output column for the model to predict.</span></body></html>")
 
