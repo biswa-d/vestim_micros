@@ -189,22 +189,50 @@ class TrainingTaskManager:
 
     def create_data_loaders(self, task):
         """Create data loaders for the current task."""
-        lookback = task['data_loader_params']['lookback']
-        batch_size = task['data_loader_params']['batch_size']
         feature_cols = task['data_loader_params']['feature_columns']
         target_col = task['data_loader_params']['target_column']
-        train_val_split = task['data_loader_params']['train_val_split']
+        train_val_split = float(task['data_loader_params'].get('train_val_split', 0.7))
+        num_workers = int(task['hyperparams'].get('NUM_WORKERS', 4))
+        seed = int(task['hyperparams'].get('SEED', 2000))
+        
+        training_method = task['hyperparams'].get('TRAINING_METHOD', 'Sequence-to-Sequence') # Default if not present
+        model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM') # Default if not present
 
-        self.logger.info("Creating data loaders")
-        train_loader, val_loader = self.data_loader_service.create_data_loaders(
-            folder_path=self.job_manager.get_train_folder(),  # Adjusted to use the correct folder
-            lookback=lookback,
-            feature_cols=feature_cols, # Reverted keyword argument
-            target_col=target_col,   # Reverted keyword argument
-            batch_size=batch_size,
-            num_workers=4,
-            train_split=train_val_split
-        )
+        self.logger.info(f"Selected Training Method: {training_method}, Model Type: {model_type}")
+
+        if training_method == 'Whole Sequence' and model_type in ['LSTM', 'GRU']: # Check for RNN types
+            self.logger.info("Using concatenated whole sequence loader for RNN.")
+            train_loader, val_loader = self.data_loader_service.create_concatenated_whole_sequence_loaders(
+                folder_path=self.job_manager.get_train_folder(),
+                feature_cols=feature_cols,
+                target_col=target_col,
+                num_workers=num_workers,
+                train_split=train_val_split,
+                seed=seed
+            )
+        else: # Default to lookback-based sequence loading
+            if training_method == 'Whole Sequence' and model_type not in ['LSTM', 'GRU']:
+                 self.logger.info(f"Training method is 'Whole Sequence' but model type is {model_type}. Using standard sequence loader (this path is typically for FNNs with whole_sequence_fnn_data_handler or similar).")
+            
+            lookback = int(task['data_loader_params'].get('lookback', 50)) # Default lookback
+            user_batch_size = int(task['data_loader_params'].get('batch_size', 32))
+            
+            batch_training_enabled = task['hyperparams'].get('BATCH_TRAINING', True)
+            use_full_train_batch_flag = not batch_training_enabled
+
+            self.logger.info(f"Using standard sequence loader. Batch training enabled: {batch_training_enabled}, User batch size: {user_batch_size}, Use full train batch flag: {use_full_train_batch_flag}, Lookback: {lookback}")
+            
+            train_loader, val_loader = self.data_loader_service.create_data_loaders(
+                folder_path=self.job_manager.get_train_folder(),
+                lookback=lookback,
+                feature_cols=feature_cols,
+                target_col=target_col,
+                batch_size=user_batch_size,
+                num_workers=num_workers,
+                use_full_train_batch=use_full_train_batch_flag,
+                train_split=train_val_split,
+                seed=seed
+            )
 
         return train_loader, val_loader
 
@@ -212,8 +240,15 @@ class TrainingTaskManager:
         """Run the training process for a single task."""
         try:
             self.logger.info("Starting training loop")
-            hyperparams = self.convert_hyperparams(task['hyperparams'])
+            hyperparams = self.convert_hyperparams(task['hyperparams']) # This ensures BATCH_SIZE is int if it exists
             model = task['model'].to(device)
+            
+            # Ensure BATCH_SIZE from hyperparams (which might be the string from QLineEdit) is correctly converted and available
+            # The actual batch size used by train_loader is now determined by DataLoaderService based on use_full_train_batch_flag
+            # However, other parts of the code might still refer to hyperparams['BATCH_SIZE']
+            # For logging or other purposes, ensure it's an int.
+            # The convert_hyperparams method already handles BATCH_SIZE if it's a direct hyperparam.
+            # If BATCH_SIZE is under data_loader_params, it's handled in create_data_loaders above.
             
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
@@ -257,8 +292,15 @@ class TrainingTaskManager:
                     break
 
                 # Initialize hidden states for training phase
-                h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
-                h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
+                # Use the actual batch size from the train_loader
+                actual_train_batch_size = train_loader.batch_size
+                if actual_train_batch_size is None:
+                    self.logger.warning(f"train_loader.batch_size is None. Falling back to hyperparams BATCH_SIZE ({hyperparams.get('BATCH_SIZE', 'N/A')}) for training hidden state init.")
+                    actual_train_batch_size = int(hyperparams.get('BATCH_SIZE', 32)) # Default if all else fails
+
+                self.logger.info(f"Initializing training hidden state with batch size: {actual_train_batch_size}")
+                h_s = torch.zeros(model.num_layers, actual_train_batch_size, model.hidden_units).to(device)
+                h_c = torch.zeros(model.num_layers, actual_train_batch_size, model.hidden_units).to(device)
 
                 # Measure time for the training loop
                 epoch_start_time = time.time()
@@ -278,10 +320,18 @@ class TrainingTaskManager:
 
                 # Only validate at specified frequency
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
-                    h_s = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
-                    h_c = torch.zeros(model.num_layers, hyperparams['BATCH_SIZE'], model.hidden_units).to(device)
+                    # Initialize hidden states for validation phase
+                    # Use the actual batch size from the val_loader
+                    actual_val_batch_size = val_loader.batch_size
+                    if actual_val_batch_size is None:
+                        self.logger.warning(f"val_loader.batch_size is None. Falling back to hyperparams BATCH_SIZE ({hyperparams.get('BATCH_SIZE', 'N/A')}) for validation hidden state init.")
+                        actual_val_batch_size = int(hyperparams.get('BATCH_SIZE', 32)) # Default if all else fails
+                    
+                    self.logger.info(f"Initializing validation hidden state with batch size: {actual_val_batch_size}")
+                    h_s_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
+                    h_c_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
 
-                    val_loss = self.training_service.validate_epoch(model, val_loader, h_s, h_c, epoch, device, self.stop_requested, task)
+                    val_loss = self.training_service.validate_epoch(model, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task)
 
                     current_time = time.time()
                     elapsed_time = current_time - start_time
@@ -297,15 +347,47 @@ class TrainingTaskManager:
                         patience_counter = 0
                     else:
                         patience_counter += 1
-                    self.logger.info(f"Epoch {epoch} | Train Loss: {train_loss} | Val Loss: {val_loss} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss: {best_validation_loss} | Patience Counter: {patience_counter}")
+                    # Determine target variable specifics for error reporting
+                    target_column = task['data_loader_params']['target_column']
+                    error_unit_label = "RMS Error"  # Default
+                    multiplier = 1.0
+
+                    if "voltage" in target_column.lower():
+                        error_unit_label = "RMS Error [mV]"
+                        multiplier = 1000.0
+                    elif "soc" in target_column.lower():
+                        error_unit_label = "RMS Error [% SOC]"
+                        multiplier = 100.0
+                    elif "temperature" in target_column.lower(): # Check for "temperature"
+                        error_unit_label = "RMS Error [Deg C]"
+                        multiplier = 1.0
+                    
+                    # Calculate scaled RMSE values, handling potential NaN or None for losses
+                    train_rmse_scaled = float('nan')
+                    if train_loss is not None and not math.isnan(train_loss):
+                        train_rmse_scaled = math.sqrt(max(0, train_loss)) * multiplier
+
+                    val_rmse_scaled = float('nan')
+                    if val_loss is not None and not math.isnan(val_loss):
+                        val_rmse_scaled = math.sqrt(max(0, val_loss)) * multiplier
+                    
+                    best_val_rmse_scaled = float('inf') # Default if best_validation_loss is inf
+                    if best_validation_loss != float('inf') and not math.isnan(best_validation_loss):
+                         best_val_rmse_scaled = math.sqrt(max(0, best_validation_loss)) * multiplier
+
+                    self.logger.info(f"Epoch {epoch} | Train Loss (MSE): {train_loss:.6f} | Val Loss (MSE): {val_loss:.6f} | {error_unit_label} (Train): {train_rmse_scaled:.4f} | {error_unit_label} (Val): {val_rmse_scaled:.4f} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss (MSE): {best_validation_loss:.6f} | Best {error_unit_label}: {best_val_rmse_scaled:.4f} | Patience Counter: {patience_counter}")
                     progress_data = {
                         'epoch': epoch,
-                        'train_loss': train_loss,
-                        'val_loss': val_loss,
+                        'train_loss': train_loss,  # Original MSE for logging or other non-display purposes
+                        'val_loss': val_loss,      # Original MSE
+                        'train_rmse_scaled': train_rmse_scaled,
+                        'val_rmse_scaled': val_rmse_scaled,
+                        'error_unit_label': error_unit_label,
                         'elapsed_time': elapsed_time,
                         'delta_t_epoch': formatted_epoch_time,
                         'learning_rate': current_lr,
-                        'best_val_loss': best_validation_loss,
+                        'best_val_loss': best_validation_loss, # Original MSE
+                        'best_val_rmse_scaled': best_val_rmse_scaled,
                         'patience_counter': patience_counter,
                     }
                     # Emit progress after validation

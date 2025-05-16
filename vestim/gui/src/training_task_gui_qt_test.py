@@ -79,7 +79,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.training_process_stopped = False
         self.task_completed_flag = False
         self.current_task_index = 0
-
+        self.current_error_unit_label = "RMS Error" # Default error label
+ 
         self.param_labels = {
             "LAYERS": "Layers",
             "HIDDEN_UNITS": "Hidden Units",
@@ -274,9 +275,9 @@ class VEstimTrainingTaskGUI(QMainWindow):
         fig = Figure(figsize=(6, 2.5), dpi=100)
         self.ax = fig.add_subplot(111)
         self.ax.set_xlabel("Epoch", labelpad=0)
-        self.ax.set_ylabel("RMS Error [mV]")
+        self.ax.set_ylabel(self.current_error_unit_label) # Use dynamic label
         self.ax.set_xlim(1, max_epochs)
-
+ 
         
         # Set x-ticks to ensure a maximum of 10 parts or based on validation frequency
         max_ticks = 10
@@ -405,8 +406,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.ax.clear()
             self.ax.set_title("Training and Validation Loss", fontsize=12, fontweight='normal', color='#0f0c0c')
             self.ax.set_xlabel("Epoch")
-            self.ax.set_ylabel("RMS Error [mV]")
-
+            self.ax.set_ylabel(self.current_error_unit_label) # Use dynamic label
+ 
             # Reinitialize plot lines
             self.train_line, = self.ax.plot([], [], label='Train Loss')
             self.valid_line, = self.ax.plot([], [], label='Validation Loss')
@@ -459,25 +460,23 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Handle log updates
         if 'epoch' in progress_data:
             epoch = progress_data['epoch']
-            train_loss = progress_data['train_loss'] * 100
-            val_loss = progress_data['val_loss'] * 100
+            # Use the new scaled RMSE values and error label from progress_data
+            train_rmse_scaled = progress_data.get('train_rmse_scaled', float('nan'))
+            val_rmse_scaled = progress_data.get('val_rmse_scaled', float('nan'))
+            best_val_rmse_scaled = progress_data.get('best_val_rmse_scaled', float('nan'))
+            error_unit_label = progress_data.get('error_unit_label', "RMS Error") # Default if not provided
+            self.current_error_unit_label = error_unit_label # Update instance variable
+
             patience_counter = progress_data.get('patience_counter', None)
-            
-            # Calculate RMS error in mV
-            train_rms_mv = np.sqrt(train_loss) * 1000
-            val_rms_mv = np.sqrt(val_loss) * 1000
-            
             delta_t_epoch = progress_data['delta_t_epoch']
             learning_rate = progress_data.get('learning_rate', None)
-            best_val_loss = progress_data.get('best_val_loss', None) * 100
-            best_val_rms_mv = np.sqrt(best_val_loss) * 1000 if best_val_loss is not None else None
 
             # Format the log message using HTML for bold text
             log_message = (
                 f"Epoch: <b>{epoch}</b>, "
-                f"Train RMS: <b>{train_rms_mv:.2f}</b> mV, "
-                f"Val RMS: <b>{val_rms_mv:.2f}</b> mV, "
-                f"Best Val RMS: <b>{best_val_rms_mv:.2f}</b> mV, "
+                f"Train {error_unit_label.split('[')[0].strip()}: <b>{train_rmse_scaled:.2f}</b> {error_unit_label.split('[')[-1].replace(']','').strip()}, "
+                f"Val {error_unit_label.split('[')[0].strip()}: <b>{val_rmse_scaled:.2f}</b> {error_unit_label.split('[')[-1].replace(']','').strip()}, "
+                f"Best Val {error_unit_label.split('[')[0].strip()}: <b>{best_val_rmse_scaled:.2f}</b> {error_unit_label.split('[')[-1].replace(']','').strip()}, "
                 f"Time Per Epoch (ΔT): <b>{delta_t_epoch}s</b>, "
                 f"LR: <b>{learning_rate:.1e}</b>, "
                 f"Patience Counter: <b>{patience_counter}</b><br>"
@@ -493,8 +492,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
             if not hasattr(self, 'epoch_points'):
                 self.epoch_points = []
             self.epoch_points.append(epoch)
-            self.train_loss_values.append(train_rms_mv)
-            self.valid_loss_values.append(val_rms_mv)
+            self.train_loss_values.append(train_rmse_scaled if not np.isnan(train_rmse_scaled) else 0) # Plot 0 for NaN to avoid issues
+            self.valid_loss_values.append(val_rmse_scaled if not np.isnan(val_rmse_scaled) else 0) # Plot 0 for NaN
 
             # Update the plot
             self.ax.clear()
@@ -528,7 +527,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             
             # Update labels and title
             self.ax.set_xlabel('Epoch')
-            self.ax.set_ylabel('RMS Error [mV]')
+            self.ax.set_ylabel(self.current_error_unit_label) # Use dynamic label
             self.ax.set_title('Training Progress')
             self.ax.legend()
             self.ax.grid(True, which="both", ls="-", alpha=0.2)
@@ -616,7 +615,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             
             # Set labels and title
             ax.set_xlabel('Epoch')
-            ax.set_ylabel('RMS Error [mV]')
+            ax.set_ylabel(self.current_error_unit_label) # Use dynamic label for saved plot
             ax.set_title(f'Training History - Task {task_id}')
             ax.legend()
             ax.grid(True, which="both", ls="-", alpha=0.2)

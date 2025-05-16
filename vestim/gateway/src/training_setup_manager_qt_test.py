@@ -317,6 +317,7 @@ class VEstimTrainingSetupManager:
                 'HIDDEN_UNITS': hidden_units,
                 'INPUT_SIZE': input_size,
                 'OUTPUT_SIZE': output_size,
+                'BATCH_TRAINING': self.current_hyper_params.get('BATCH_TRAINING', True), # Propagate BATCH_TRAINING
                 'BATCH_SIZE': hyperparams['BATCH_SIZE'],
                 'MAX_EPOCHS': hyperparams['MAX_EPOCHS'],
                 'INITIAL_LR': hyperparams['INITIAL_LR'],

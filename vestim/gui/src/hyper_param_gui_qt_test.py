@@ -217,16 +217,16 @@ class VEstimHyperParamGUI(QWidget):
 
         # **Batch Training Option (Checkbox)**
         self.batch_training_checkbox = QCheckBox("Enable Batch Training")
-        self.batch_training_checkbox.setChecked(False)  # Default is unchecked
-        self.batch_training_checkbox.setToolTip("Enable mini-batch training instead of full-sequence training.")
+        self.batch_training_checkbox.setChecked(True)  # Default is now checked
+        self.batch_training_checkbox.setToolTip("Enable mini-batch training for sequence-based methods. Uncheck for full-batch of sequences. Irrelevant if 'Whole Sequence' is chosen for RNNs.")
         self.batch_training_checkbox.stateChanged.connect(self.update_batch_size_visibility)
 
-        # **Batch Size Entry (Initially Disabled)**
-        batch_size_label = QLabel("Batch Size:")
-        batch_size_label.setToolTip("Number of samples per batch during training.")
-        self.batch_size_entry = QLineEdit(self.params.get("BATCH_SIZE", "100"))
+        # **Batch Size Entry (Initially Enabled as checkbox is checked by default)**
+        self.batch_size_label = QLabel("Batch Size:") # Made it an instance variable to hide/show
+        self.batch_size_label.setToolTip("Number of samples per batch (if batch training is enabled and not 'Whole Sequence' RNN).")
+        self.batch_size_entry = QLineEdit(self.params.get("BATCH_SIZE", "100")) # Default value 100
         self.batch_size_entry.setFixedWidth(150)
-        self.batch_size_entry.setEnabled(False)  # Initially disabled
+        self.batch_size_entry.setEnabled(True)  # Initially enabled
 
         # **Train-Validation Split**
         train_val_split_label = QLabel("Train-Valid Split:")
@@ -257,7 +257,7 @@ class VEstimHyperParamGUI(QWidget):
         training_layout.addWidget(self.lookback_label)
         training_layout.addWidget(self.lookback_entry)
         training_layout.addWidget(self.batch_training_checkbox)
-        training_layout.addWidget(batch_size_label)
+        training_layout.addWidget(self.batch_size_label) # Use instance variable
         training_layout.addWidget(self.batch_size_entry)
         training_layout.addWidget(train_val_split_label)
         training_layout.addWidget(self.train_val_split_entry)
@@ -267,14 +267,45 @@ class VEstimHyperParamGUI(QWidget):
 
 
     def update_training_method(self):
-        """Toggle lookback parameter visibility based on training method selection."""
-        is_seq_to_seq = self.training_method_combo.currentText() == "Sequence-to-Sequence"
-        self.lookback_label.setVisible(is_seq_to_seq)
-        self.lookback_entry.setVisible(is_seq_to_seq)
+        """Toggle lookback, batch training checkbox, and batch size visibility based on training method and model type."""
+        current_training_method = self.training_method_combo.currentText()
+        current_model_type = self.model_combo.currentText() # Assuming self.model_combo exists and is accessible
+
+        is_rnn_model = current_model_type in ["LSTM", "GRU"]
+        is_whole_sequence_rnn = (current_training_method == "Whole Sequence" and is_rnn_model)
+        is_sequence_to_sequence = (current_training_method == "Sequence-to-Sequence")
+
+        # Lookback visibility (only for Sequence-to-Sequence)
+        self.lookback_label.setVisible(is_sequence_to_sequence)
+        self.lookback_entry.setVisible(is_sequence_to_sequence)
+        self.lookback_entry.setEnabled(is_sequence_to_sequence)
+
+
+        # Batch training checkbox and Batch size field visibility/state
+        if is_whole_sequence_rnn:
+            self.batch_training_checkbox.setVisible(False)
+            self.batch_training_checkbox.setChecked(False) # Effectively disabled
+            self.batch_training_checkbox.setEnabled(False)
+            self.batch_size_label.setVisible(False)
+            self.batch_size_entry.setVisible(False)
+            self.batch_size_entry.setEnabled(False)
+        else: # Sequence-to-Sequence or FNN with Whole Sequence (where batching might still apply)
+            self.batch_training_checkbox.setVisible(True)
+            self.batch_training_checkbox.setEnabled(True)
+            # Batch size visibility depends on the checkbox state if the checkbox itself is visible
+            self.update_batch_size_visibility() # Call this to set batch_size_entry based on checkbox
 
     def update_batch_size_visibility(self):
-        """Enable or disable batch size input based on batch training checkbox."""
-        self.batch_size_entry.setEnabled(self.batch_training_checkbox.isChecked())
+        """Enable or disable batch size input based on batch training checkbox, only if checkbox is visible."""
+        if self.batch_training_checkbox.isVisible():
+            is_checked = self.batch_training_checkbox.isChecked()
+            self.batch_size_label.setVisible(True) # Show label if checkbox is visible
+            self.batch_size_entry.setVisible(True) # Show entry if checkbox is visible
+            self.batch_size_entry.setEnabled(is_checked)
+        else: # If checkbox is not visible (e.g. Whole Sequence RNN), hide batch size too
+            self.batch_size_label.setVisible(False)
+            self.batch_size_entry.setVisible(False)
+            self.batch_size_entry.setEnabled(False)
 
 
     def add_model_selection(self, layout):
@@ -290,7 +321,7 @@ class VEstimHyperParamGUI(QWidget):
         model_label.setToolTip("Select a model architecture for training.")
 
         self.model_combo = QComboBox()
-        model_options = ["LSTM", "CNN", "GRU", "Transformer"]
+        model_options = ["LSTM", "FNN", "GRU"]
         self.model_combo.addItems(model_options)
         self.model_combo.setFixedWidth(180)
         self.model_combo.setToolTip("LSTM for time-series, CNN for feature extraction, GRU for memory-efficient training, Transformer for advanced architectures.")
@@ -303,6 +334,7 @@ class VEstimHyperParamGUI(QWidget):
 
         # Connect Dropdown to Update Parameters
         self.model_combo.currentIndexChanged.connect(self.update_model_params)
+        self.model_combo.currentIndexChanged.connect(self.update_training_method) # Also trigger training method updates
 
         # **Add Widgets in Order**
         model_layout.addWidget(model_label)
@@ -321,6 +353,21 @@ class VEstimHyperParamGUI(QWidget):
         """Dynamically updates parameter fields based on selected model and stores them in param_entries."""
         selected_model = self.model_combo.currentText()
 
+        # --- Clear previous model-specific QLineEdit entries from self.param_entries ---
+        # Define keys for model-specific parameters that might exist from a previous selection
+        lstm_specific_keys = ["LAYERS", "HIDDEN_UNITS"] # Add any other LSTM specific QLineEdit keys
+        gru_specific_keys = ["GRU_LAYERS"] # Add any other GRU specific QLineEdit keys
+        fnn_specific_keys = ["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB"] # Add FNN specific QLineEdit keys
+        
+        all_model_specific_keys = lstm_specific_keys + gru_specific_keys + fnn_specific_keys
+        
+        for key_to_remove in all_model_specific_keys:
+            if key_to_remove in self.param_entries:
+                # We don't delete the widget here as it's handled by clearing model_param_container
+                # Just remove the reference from param_entries
+                del self.param_entries[key_to_remove]
+        # --- End clearing stale entries ---
+
         # **Clear only dynamic parameter widgets (Keep Label & Dropdown)**
         while self.model_param_container.count():
             item = self.model_param_container.takeAt(0)
@@ -329,9 +376,9 @@ class VEstimHyperParamGUI(QWidget):
                 widget.deleteLater()
 
         # **Ensure Param Entries Are Tracked**
-        model_params = {}
+        model_params = {} # This will hold QLineEdit widgets for the current model
 
-        # **Model-Specific Parameters (Default to LSTM)**
+        # **Model-Specific Parameters**
         if selected_model == "LSTM" or selected_model == "":
             lstm_layers_label = QLabel("LSTM Layers:")
             lstm_layers_label.setToolTip("Number of LSTM layers in the model.")
@@ -356,31 +403,6 @@ class VEstimHyperParamGUI(QWidget):
             model_params["LAYERS"] = self.lstm_layers_entry
             model_params["HIDDEN_UNITS"] = self.hidden_units_entry
 
-        # **CNN Parameters**
-        elif selected_model == "CNN":
-            cnn_layers_label = QLabel("CNN Layers:")
-            cnn_layers_label.setToolTip("Number of convolutional layers.")
-
-            self.cnn_layers_entry = QLineEdit(self.params.get("CNN_LAYERS", "3"))
-            self.cnn_layers_entry.setFixedWidth(100)
-            self.cnn_layers_entry.setToolTip("Enter the number of CNN layers.")
-
-            kernel_size_label = QLabel("Kernel Size:")
-            kernel_size_label.setToolTip("Size of the convolutional filter.")
-
-            self.kernel_size_entry = QLineEdit(self.params.get("KERNEL_SIZE", "3"))
-            self.kernel_size_entry.setFixedWidth(100)
-            self.kernel_size_entry.setToolTip("Enter the kernel size for convolution.")
-
-            self.model_param_container.addWidget(cnn_layers_label)
-            self.model_param_container.addWidget(self.cnn_layers_entry)
-            self.model_param_container.addWidget(kernel_size_label)
-            self.model_param_container.addWidget(self.kernel_size_entry)
-
-            # ✅ Store in param_entries
-            model_params["CNN_LAYERS"] = self.cnn_layers_entry
-            model_params["KERNEL_SIZE"] = self.kernel_size_entry
-
         # **GRU Parameters**
         elif selected_model == "GRU":
             gru_layers_label = QLabel("GRU Layers:")
@@ -396,22 +418,30 @@ class VEstimHyperParamGUI(QWidget):
             # ✅ Store in param_entries
             model_params["GRU_LAYERS"] = self.gru_layers_entry
 
-        # **Transformer Parameters**
-        elif selected_model == "Transformer":
-            attention_heads_label = QLabel("Attention Heads:")
-            attention_heads_label.setToolTip("Number of attention heads in the transformer model.")
+        elif selected_model == "FNN":
+            fnn_hidden_layers_label = QLabel("FNN Hidden Layers:")
+            fnn_hidden_layers_label.setToolTip("Define FNN hidden layer sizes. Use commas for layers in one config (e.g., 128,64,32). Use semicolons to separate multiple configs (e.g., 128,64;100,50).")
+            self.fnn_hidden_layers_entry = QLineEdit(self.params.get("FNN_HIDDEN_LAYERS", "128,64"))
+            self.fnn_hidden_layers_entry.setFixedWidth(200) # Increased width for longer strings
+            self.fnn_hidden_layers_entry.setToolTip("E.g., '128,64,32' for one config. '128,64;100,50,25' for two configs.")
+            
+            fnn_dropout_label = QLabel("FNN Dropout Prob:")
+            fnn_dropout_label.setToolTip("Dropout probability for FNN layers (0.0 to 1.0).")
+            self.fnn_dropout_entry = QLineEdit(self.params.get("FNN_DROPOUT_PROB", "0.1"))
+            self.fnn_dropout_entry.setFixedWidth(100)
+            self.fnn_dropout_entry.setToolTip("e.g., 0.1 for 10% dropout")
 
-            self.attn_heads_entry = QLineEdit(self.params.get("ATTN_HEADS", "4"))
-            self.attn_heads_entry.setFixedWidth(100)
-            self.attn_heads_entry.setToolTip("Enter the number of attention heads.")
+            self.model_param_container.addWidget(fnn_hidden_layers_label)
+            self.model_param_container.addWidget(self.fnn_hidden_layers_entry)
+            self.model_param_container.addWidget(fnn_dropout_label)
+            self.model_param_container.addWidget(self.fnn_dropout_entry)
 
-            self.model_param_container.addWidget(attention_heads_label)
-            self.model_param_container.addWidget(self.attn_heads_entry)
+            # ✅ Store in model_params for later update to self.param_entries
+            model_params["FNN_HIDDEN_LAYERS"] = self.fnn_hidden_layers_entry
+            model_params["FNN_DROPOUT_PROB"] = self.fnn_dropout_entry
 
-            # ✅ Store in param_entries
-            model_params["ATTN_HEADS"] = self.attn_heads_entry
-
-        # ✅ Register model-specific parameters in param_entries
+        # ✅ Register current model-specific QLineEdit parameters in self.param_entries
+        # This ensures self.param_entries only contains widgets relevant to the *current* model type
         self.param_entries.update(model_params)
 
 
@@ -740,11 +770,30 @@ class VEstimHyperParamGUI(QWidget):
             model_index = self.model_combo.findText(self.params["MODEL_TYPE"])
             if model_index != -1:
                 self.model_combo.setCurrentIndex(model_index)
-                self.update_model_params()  # Refresh model-specific parameters
+                # self.update_model_params() # This will be called by the signal connection if index actually changes
+                                          # If loading params and index doesn't change, manually call if needed,
+                                          # but update_training_method will also be called by its own connection.
 
         # ✅ Ensure Scheduler Parameters Update Correctly
         if "SCHEDULER_TYPE" in self.params:
-            self.update_scheduler_settings()  # Refresh visibility of LR scheduler params
+            scheduler_index = self.scheduler_combo.findText(self.params["SCHEDULER_TYPE"])
+            if scheduler_index != -1:
+                self.scheduler_combo.setCurrentIndex(scheduler_index)
+            # self.update_scheduler_settings() # Called by signal if index changes
+
+        # ✅ Ensure Training Method and dependent fields update correctly
+        if "TRAINING_METHOD" in self.params:
+            method_index = self.training_method_combo.findText(self.params["TRAINING_METHOD"])
+            if method_index != -1:
+                self.training_method_combo.setCurrentIndex(method_index)
+            # self.update_training_method() # Called by signal if index changes
+        
+        # Explicitly call update methods after setting combo boxes to ensure UI consistency
+        # especially if loaded params match current combo box text (so currentIndexChanged doesn't fire)
+        self.update_model_params()
+        self.update_scheduler_settings()
+        self.update_training_method()
+
 
         self.logger.info("GUI successfully updated with loaded parameters.")
 

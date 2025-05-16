@@ -2,9 +2,9 @@ import os
 import json
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, 
-    QLineEdit, QFileDialog, QMessageBox, QDialog
+    QLineEdit, QFileDialog, QMessageBox, QDialog, QComboBox
 )
-from PyQt5.QtCore import Qt, QPropertyAnimation
+from PyQt5.QtCore import Qt, QPropertyAnimation, pyqtSignal
 from PyQt5.QtGui import QIcon
 
 from vestim.gateway.src.job_manager_qt import JobManager
@@ -41,7 +41,7 @@ class VEstimHyperParamGUI(QWidget):
         layout = QVBoxLayout()
 
         # Title Label
-        title_label = QLabel("Select Hyperparameters for LSTM Model")
+        title_label = QLabel("Select Hyperparameters for Model Training")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
         layout.addWidget(title_label)
@@ -102,47 +102,206 @@ class VEstimHyperParamGUI(QWidget):
 
 
     def add_param_widgets(self, layout):
-        # Increase size of labels and entry boxes
-        hyperparameters = [
-            {"label": "Layers:", "default": self.params.get("LAYERS", "1"), "tooltip": "Number of LSTM layers in the model", "param": "LAYERS"},
-            {"label": "Hidden Units:", "default": self.params.get("HIDDEN_UNITS", "10"), "tooltip": "Number of units in each LSTM layer", "param": "HIDDEN_UNITS"},
-            {"label": "Mini-batches:", "default": self.params.get("BATCH_SIZE", "100"), "tooltip": "Number of mini-batches to use during training", "param": "BATCH_SIZE"},
-            {"label": "Max Epochs:", "default": self.params.get("MAX_EPOCHS", "5000"), "tooltip": "Maximum number of epochs to train the model", "param": "MAX_EPOCHS"},
-            {"label": "Initial LR:", "default": self.params.get("INITIAL_LR", "0.00001"), "tooltip": "The starting learning rate for the optimizer", "param": "INITIAL_LR"},
-            {"label": "LR Drop Factor:", "default": self.params.get("LR_DROP_FACTOR", "0.5"), "tooltip": "Factor by which the learning rate is reduced after Drop Period", "param": "LR_DROP_FACTOR"},
-            {"label": "LR Drop Period:", "default": self.params.get("LR_DROP_PERIOD", "10"), "tooltip": "The number of epochs after which the learning rate drops", "param": "LR_DROP_PERIOD"},
-            {"label": "Validation Patience:", "default": self.params.get("VALID_PATIENCE", "10"), "tooltip": "Number of epochs to wait for validation improvement before early stopping", "param": "VALID_PATIENCE"},
-            {"label": "Validation Freq:", "default": self.params.get("ValidFrequency", "3"), "tooltip": "How often (in epochs) to perform validation", "param": "ValidFrequency"},
-            {"label": "Lookback:", "default": self.params.get("LOOKBACK", "400"), "tooltip": "Number of previous time steps to consider for each timestep", "param": "LOOKBACK"},
-            {"label": "Repetitions:", "default": self.params.get("REPETITIONS", "1"), "tooltip": "Number of times to repeat the entire training process with randomized initial parameters", "param": "REPETITIONS"},
+        self.param_entries = {} # Resetting to ensure clean state for dynamic widgets
+        
+        # --- Model Type Selection ---
+        model_type_label = QLabel("Model Type:")
+        model_type_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        self.model_type_combo = QComboBox()
+        self.model_type_combo.addItems(["LSTM", "FNN", "GRU"]) # Add more as they are supported
+        self.model_type_combo.setFixedHeight(30)
+        self.model_type_combo.setStyleSheet("font-size: 12pt;")
+        self.model_type_combo.currentTextChanged.connect(self.on_model_type_changed)
+        layout.addWidget(model_type_label, 0, 0)
+        layout.addWidget(self.model_type_combo, 0, 1, 1, 3) # Span 3 columns for the combo box
+        self.param_entries["MODEL_TYPE"] = self.model_type_combo # Store combo box itself
+
+        # --- Training Method Selection ---
+        training_method_label = QLabel("Training Method:")
+        training_method_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        self.training_method_combo = QComboBox()
+        self.training_method_combo.addItems(["SequenceRNN", "WholeSequenceFNN"])
+        self.training_method_combo.setFixedHeight(30)
+        self.training_method_combo.setStyleSheet("font-size: 12pt;")
+        self.training_method_combo.currentTextChanged.connect(self.on_training_method_changed)
+        layout.addWidget(training_method_label, 1, 0)
+        layout.addWidget(self.training_method_combo, 1, 1, 1, 3)
+        self.param_entries["TRAINING_METHOD"] = self.training_method_combo
+
+        # --- Feature and Target Columns ---
+        self.add_line_edit_param(layout, 2, "Feature Columns (Input):", "FEATURE_COLS", "e.g., SOC,Current,Temp", "Comma-separated list of input feature column names.")
+        self.add_line_edit_param(layout, 3, "Target Column (Output):", "TARGET_COL", "e.g., Voltage", "Name of the single target column.")
+ 
+        # --- Common Hyperparameters ---
+        common_params_start_row = 4
+        common_hyperparameters = [
+            {"label": "Mini-batches:", "param": "BATCH_SIZE", "default": "32", "tooltip": "Number of samples per gradient update."},
+            {"label": "Max Epochs:", "param": "MAX_EPOCHS", "default": "100", "tooltip": "Maximum number of training epochs."},
+            {"label": "Initial LR:", "param": "INITIAL_LR", "default": "0.001", "tooltip": "Initial learning rate."},
+            {"label": "LR Drop Factor:", "param": "LR_DROP_FACTOR", "default": "0.1", "tooltip": "Factor to reduce LR by."},
+            {"label": "LR Drop Period:", "param": "LR_DROP_PERIOD", "default": "10", "tooltip": "Epochs before LR drop."},
+            {"label": "Weight Decay:", "param": "WEIGHT_DECAY", "default": "0.0", "tooltip": "Weight decay (L2 penalty)."},
+            {"label": "Validation Patience:", "param": "VALID_PATIENCE", "default": "10", "tooltip": "Epochs to wait for val_loss improvement before early stopping."},
+            {"label": "Validation Freq:", "param": "ValidFrequency", "default": "1", "tooltip": "Frequency (in epochs) to perform validation."},
+            {"label": "Repetitions:", "param": "REPETITIONS", "default": "1", "tooltip": "Number of times to repeat the training run."},
+            {"label": "Num Workers:", "param": "NUM_WORKERS", "default": "4", "tooltip": "Number of workers for DataLoader."},
+            {"label": "Train Split:", "param": "TRAIN_SPLIT", "default": "0.7", "tooltip": "Fraction of data for training (0.0 to 1.0)."},
+            {"label": "Random Seed:", "param": "SEED", "default": "42", "tooltip": "Seed for reproducibility."}
         ]
+        for idx, p_info in enumerate(common_hyperparameters):
+            self.add_line_edit_param(layout, common_params_start_row + idx, p_info["label"], p_info["param"], p_info["default"], p_info["tooltip"])
+        
+        current_row = common_params_start_row + len(common_hyperparameters)
 
-        # Set bigger sizes for labels and entry boxes
-        for idx, param in enumerate(hyperparameters):
-            label_text = param["label"]
-            default_value = param["default"]
-            tooltip_text = param["tooltip"]
-            param_name = param["param"]
+        # --- Model Specific Hyperparameters ---
+        # These will be shown/hidden based on model_type_combo selection
+        # LSTM / GRU specific
+        self.lstm_gru_widgets = []
+        self.lookback_entry = self._add_specific_param(layout, current_row, "Lookback:", "LOOKBACK", "50", "Window size for RNNs (LSTM/GRU).")
+        self.lstm_gru_widgets.append(self.lookback_entry)
+        self.param_entries["LOOKBACK"] = self.lookback_entry # Ensure it's in param_entries
 
-            label = QLabel(label_text)
-            label.setStyleSheet("font-size: 12pt; font-weight: bold;")  # Bigger label
-            entry = QLineEdit(default_value)
-            entry.setFixedHeight(30)  # Bigger entry box
-            entry.setStyleSheet("font-size: 12pt;")  # Bigger text in the entry
+        self.layers_entry = self._add_specific_param(layout, current_row + 1, "RNN Layers:", "LAYERS", "1", "Number of LSTM/GRU layers.") # Used by LSTM/GRU
+        self.lstm_gru_widgets.append(self.layers_entry)
+        self.param_entries["LAYERS"] = self.layers_entry # For LSTM/GRU
 
-            # Tooltip on hover
-            label.setToolTip(tooltip_text)
+        self.hidden_units_entry = self._add_specific_param(layout, current_row + 2, "RNN Hidden Units:", "HIDDEN_UNITS", "64", "Number of hidden units in LSTM/GRU layers.")
+        self.lstm_gru_widgets.append(self.hidden_units_entry)
+        self.param_entries["HIDDEN_UNITS"] = self.hidden_units_entry # For LSTM/GRU
 
-            layout.addWidget(label, idx // 2, (idx % 2) * 2)
-            layout.addWidget(entry, idx // 2, (idx % 2) * 2 + 1)
+        self.rnn_dropout_entry = self._add_specific_param(layout, current_row + 3, "RNN Dropout Prob:", "DROPOUT_PROB", "0.0", "Dropout probability for LSTM/GRU layers.")
+        self.lstm_gru_widgets.append(self.rnn_dropout_entry)
+        self.param_entries["DROPOUT_PROB"] = self.rnn_dropout_entry # For LSTM/GRU
+        
+        self.concatenate_raw_data_entry = self._add_specific_param(layout, current_row + 4, "Concat Raw (RNN):", "CONCATENATE_RAW_DATA", "False", "For SequenceRNN: True to concat raw data before sequencing, False otherwise.")
+        self.lstm_gru_widgets.append(self.concatenate_raw_data_entry)
+        self.param_entries["CONCATENATE_RAW_DATA"] = self.concatenate_raw_data_entry
 
-            self.param_entries[param_name] = entry
+
+        # FNN specific
+        self.fnn_widgets = []
+        self.fnn_hidden_layers_entry = self._add_specific_param(layout, current_row, "FNN Hidden Layers:", "FNN_HIDDEN_LAYERS", "128,64", "Comma-sep list of FNN hidden layer sizes. Use ';' for multiple configs.")
+        self.fnn_widgets.append(self.fnn_hidden_layers_entry)
+        self.param_entries["FNN_HIDDEN_LAYERS"] = self.fnn_hidden_layers_entry
+        
+        self.fnn_dropout_entry = self._add_specific_param(layout, current_row + 1, "FNN Dropout Prob:", "FNN_DROPOUT_PROB", "0.0", "Dropout probability for FNN layers.")
+        self.fnn_widgets.append(self.fnn_dropout_entry)
+        self.param_entries["FNN_DROPOUT_PROB"] = self.fnn_dropout_entry
+
+        # Initial UI state based on default model type
+        self.on_model_type_changed(self.model_type_combo.currentText())
+        self.on_training_method_changed(self.training_method_combo.currentText())
+
+
+    def add_line_edit_param(self, grid_layout, row, label_text, param_name, default_value, tooltip_text):
+        label = QLabel(label_text)
+        label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        label.setToolTip(tooltip_text)
+        
+        entry = QLineEdit(str(self.params.get(param_name, default_value)))
+        entry.setFixedHeight(30)
+        entry.setStyleSheet("font-size: 12pt;")
+        
+        grid_layout.addWidget(label, row, 0)
+        grid_layout.addWidget(entry, row, 1, 1, 3) # Span 3 columns
+        self.param_entries[param_name] = entry
+        return entry
+
+    def _add_specific_param(self, grid_layout, row, label_text, param_name, default_value, tooltip_text):
+        """Helper to add a parameter that might be shown/hidden."""
+        # This creates the widgets but doesn't add them to layout yet.
+        # The on_model_type_changed will handle adding/removing from layout.
+        label = QLabel(label_text)
+        label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        label.setToolTip(tooltip_text)
+        
+        entry = QLineEdit(str(self.params.get(param_name, default_value)))
+        entry.setFixedHeight(30)
+        entry.setStyleSheet("font-size: 12pt;")
+        
+        # Store them for easy access, actual adding to layout is conditional
+        # For now, just return the entry. The calling function will manage visibility.
+        return entry # We return the entry, label is implicitly handled by add_line_edit_param if we refactor to use it
+
+    def on_model_type_changed(self, model_type):
+        self.logger.info(f"Model type changed to: {model_type}")
+        is_rnn = model_type in ["LSTM", "GRU"]
+        is_fnn = model_type == "FNN"
+
+        # Manage visibility of LSTM/GRU specific widgets
+        # Assuming self.layers_entry, self.hidden_units_entry, self.rnn_dropout_entry are QLineEdit created by _add_specific_param
+        # And their labels are also created there. We need a way to show/hide both.
+        # For simplicity, let's assume _add_specific_param returns a tuple (label_widget, entry_widget)
+        # Or, we manage them as pairs.
+        
+        # For now, a simpler approach: just enable/disable entry. Proper show/hide of label+entry is better.
+        # This requires _add_specific_param to add them to layout and then we show/hide.
+        # Let's adjust _add_specific_param and how it's called.
+
+        # Simplified: just manage entry visibility for now.
+        # A more robust solution would involve storing (label, entry) pairs.
+        
+        # LSTM/GRU specific fields
+        self.layers_entry.setVisible(is_rnn)
+        self.layers_entry.parent().findChild(QLabel, self.layers_entry.objectName().replace("_entry", "_label")).setVisible(is_rnn) if self.layers_entry.objectName() else None # Crude way to find label
+        
+        self.hidden_units_entry.setVisible(is_rnn)
+        self.hidden_units_entry.parent().findChild(QLabel, self.hidden_units_entry.objectName().replace("_entry", "_label")).setVisible(is_rnn) if self.hidden_units_entry.objectName() else None
+
+        self.rnn_dropout_entry.setVisible(is_rnn)
+        self.rnn_dropout_entry.parent().findChild(QLabel, self.rnn_dropout_entry.objectName().replace("_entry", "_label")).setVisible(is_rnn) if self.rnn_dropout_entry.objectName() else None
+        
+        # FNN specific fields
+        self.fnn_hidden_layers_entry.setVisible(is_fnn)
+        self.fnn_hidden_layers_entry.parent().findChild(QLabel, self.fnn_hidden_layers_entry.objectName().replace("_entry", "_label")).setVisible(is_fnn) if self.fnn_hidden_layers_entry.objectName() else None
+        
+        self.fnn_dropout_entry.setVisible(is_fnn)
+        self.fnn_dropout_entry.parent().findChild(QLabel, self.fnn_dropout_entry.objectName().replace("_entry", "_label")).setVisible(is_fnn) if self.fnn_dropout_entry.objectName() else None
+
+        # Training method and lookback interaction
+        self.on_training_method_changed(self.training_method_combo.currentText())
+
+
+    def on_training_method_changed(self, training_method):
+        self.logger.info(f"Training method changed to: {training_method}")
+        is_sequence_rnn = training_method == "SequenceRNN"
+        
+        # Lookback is relevant for SequenceRNN
+        self.lookback_entry.setEnabled(is_sequence_rnn)
+        self.lookback_entry.setVisible(is_sequence_rnn) # Also hide if not relevant
+        self.lookback_entry.parent().findChild(QLabel, self.lookback_entry.objectName().replace("_entry", "_label")).setVisible(is_sequence_rnn) if self.lookback_entry.objectName() else None
+
+
+        # Concatenate_raw_data is relevant for SequenceRNN
+        self.concatenate_raw_data_entry.setEnabled(is_sequence_rnn)
+        self.concatenate_raw_data_entry.setVisible(is_sequence_rnn)
+        self.concatenate_raw_data_entry.parent().findChild(QLabel, self.concatenate_raw_data_entry.objectName().replace("_entry", "_label")).setVisible(is_sequence_rnn) if self.concatenate_raw_data_entry.objectName() else None
+
+
+        # If model is FNN, training method should ideally be WholeSequenceFNN
+        current_model_type = self.model_type_combo.currentText()
+        if current_model_type == "FNN" and training_method != "WholeSequenceFNN":
+            self.logger.warning("FNN model type is selected, but Training Method is not WholeSequenceFNN. This might be unintended.")
+            # Optionally, force training_method_combo to "WholeSequenceFNN" or show a warning.
+        elif current_model_type != "FNN" and training_method == "WholeSequenceFNN":
+            self.logger.warning("WholeSequenceFNN training method is selected, but model type is not FNN. This might be unintended.")
+            # Optionally, force training_method_combo to "SequenceRNN" or show a warning.
 
 
     def proceed_to_training(self):
         try:
             # Validate parameters and save them if valid
-            new_params = {param: entry.text() for param, entry in self.param_entries.items()}
+            new_params = {}
+            for param_name, widget in self.param_entries.items():
+                if isinstance(widget, QLineEdit):
+                    new_params[param_name] = widget.text()
+                elif isinstance(widget, QComboBox):
+                    new_params[param_name] = widget.currentText()
+            
+            # Ensure all expected params are present, even if from non-visible fields, using defaults if needed
+            # This part needs to be robust, perhaps by iterating over a predefined list of all possible params
+            # For now, this captures visible and combo box values.
+            # VEstimHyperParamManager.update_params should handle defaults for missing keys if that's the design.
             self.logger.info(f"Proceeding to training with params: {new_params}")
             self.update_params(new_params)
             if self.job_manager.get_job_folder():
@@ -190,10 +349,36 @@ class VEstimHyperParamGUI(QWidget):
         self.update_gui_with_loaded_params()
 
     def update_gui_with_loaded_params(self):
-        for param_name, entry in self.param_entries.items():
+        # This needs to handle QComboBox as well
+        for param_name, widget in self.param_entries.items():
             if param_name in self.params:
-                value = ', '.join(map(str, self.params[param_name])) if isinstance(self.params[param_name], list) else str(self.params[param_name])
-                entry.setText(value)
+                value_from_params = self.params[param_name]
+                if isinstance(widget, QLineEdit):
+                    # If the param value is a list (e.g. from old JSON format for HIDDEN_UNITS), join it.
+                    # New params like FNN_HIDDEN_LAYERS might be stored as "128,64" string.
+                    text_value = ""
+                    if isinstance(value_from_params, list):
+                        text_value = ','.join(map(str, value_from_params))
+                    else:
+                        text_value = str(value_from_params)
+                    widget.setText(text_value)
+                elif isinstance(widget, QComboBox):
+                    index = widget.findText(str(value_from_params), Qt.MatchFixedString)
+                    if index >= 0:
+                        widget.setCurrentIndex(index)
+                    else:
+                        self.logger.warning(f"Value '{value_from_params}' for param '{param_name}' not found in QComboBox. Using default.")
+                        widget.setCurrentIndex(0) # Default to first item if not found
+            # else: # If param not in loaded self.params, QLineEdit already has default from add_line_edit_param
+                  # For QComboBox, ensure a default is selected if not in params
+                # if isinstance(widget, QComboBox):
+                #    widget.setCurrentIndex(0) # Or load a default from a defaults map
+        
+        # Trigger the change handlers to set initial visibility correctly after loading params
+        if "MODEL_TYPE" in self.param_entries:
+            self.on_model_type_changed(self.model_type_combo.currentText())
+        if "TRAINING_METHOD" in self.param_entries:
+            self.on_training_method_changed(self.training_method_combo.currentText())
 
     def open_guide(self):
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
