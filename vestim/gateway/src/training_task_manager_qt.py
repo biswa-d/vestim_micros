@@ -5,8 +5,8 @@ import torch
 from PyQt5.QtCore import QThread, pyqtSignal
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
-from vestim.services.model_training.src.data_loader_service_test import DataLoaderService
-from vestim.services.model_training.src.training_task_service_test import TrainingTaskService
+from vestim.services.model_training.src.data_loader_service import DataLoaderService
+from vestim.services.model_training.src.training_task_service import TrainingTaskService
 import logging, wandb
 
 def format_time(seconds):
@@ -224,12 +224,13 @@ class TrainingTaskManager:
             
             train_loader, val_loader = self.data_loader_service.create_data_loaders(
                 folder_path=self.job_manager.get_train_folder(),
+                training_method=training_method,
                 lookback=lookback,
                 feature_cols=feature_cols,
                 target_col=target_col,
                 batch_size=user_batch_size,
                 num_workers=num_workers,
-                use_full_train_batch=use_full_train_batch_flag,
+                # use_full_train_batch=use_full_train_batch_flag, # Removed as it's not an accepted arg by production DataLoaderService
                 train_split=train_val_split,
                 seed=seed
             )
@@ -306,7 +307,8 @@ class TrainingTaskManager:
                 epoch_start_time = time.time()
 
                 # Train the model for one epoch
-                avg_batch_time, train_loss = self.training_service.train_epoch(model, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task)
+                model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM')) # Get model_type
+                avg_batch_time, train_loss = self.training_service.train_epoch(model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task)
 
                 epoch_end_time = time.time()
                 epoch_duration = epoch_end_time - epoch_start_time
@@ -331,7 +333,8 @@ class TrainingTaskManager:
                     h_s_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
                     h_c_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
 
-                    val_loss = self.training_service.validate_epoch(model, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task)
+                    model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM')) # Get model_type
+                    val_loss = self.training_service.validate_epoch(model, model_type, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task)
 
                     current_time = time.time()
                     elapsed_time = current_time - start_time

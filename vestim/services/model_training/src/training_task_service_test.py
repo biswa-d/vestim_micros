@@ -4,9 +4,10 @@ import torch.optim as optim
 import json, csv, sqlite3, os
 import time
 
+
 class TrainingTaskService:
     def __init__(self):
-        self.criterion = nn.MSELoss()  #Mean Squared Error Loss for regression tasks
+        self.criterion = nn.MSELoss()  # Assuming you're using Mean Squared Error Loss for regression tasks
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
     
@@ -44,100 +45,130 @@ class TrainingTaskService:
         conn.close()
 
         
-    def train_epoch(self, model, train_loader, optimizer, h_s, h_c, epoch, device, stop_requested, task):
-        """Train the model for a single epoch."""
+    def train_epoch(self, model, model_type, train_loader, optimizer, h_s_initial, h_c_initial, epoch, device, stop_requested, task):
+        """Train the model for a single epoch, adapting to model type."""
         model.train()
         total_train_loss = []
-        batch_times = []  # Store time per batch
-        log_freq = 1000  # Define how often to log batches
-        device_str = str(device)  # Convert torch.device to string
+        batch_times = []
+        log_freq = task.get('log_frequency', 100)
+        
+        # Make copies of initial hidden states to be used and modified in the loop if RNN
+        h_s, h_c = None, None
+        if model_type in ["LSTM", "GRU"]: # Or any other RNN type needing hidden states
+            if h_s_initial is not None:
+                h_s = h_s_initial.detach().clone() # Detach and clone for each epoch start
+            if model_type == "LSTM" and h_c_initial is not None:
+                h_c = h_c_initial.detach().clone()
 
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
-            if stop_requested:  # Check if a stop has been requested
+            if stop_requested:
                 print("Stop requested during training")
-                break  # Exit the loop if stop is requested
+                break
 
-            start_batch_time = time.time()  # Start timing for this batch
-
-            h_s, h_c = torch.zeros_like(h_s), torch.zeros_like(h_c)
+            start_batch_time = time.time()
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-
             optimizer.zero_grad()
-            y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
-            # y_pred = y_pred.squeeze(-1)
 
-            loss = self.criterion(y_pred[:, -1, :], y_batch)
+            if model_type == "LSTM":
+                current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
+                current_h_c = h_c_initial.detach().clone() if h_c_initial is not None else None
+                y_pred, (h_s_out, h_c_out) = model(X_batch, current_h_s, current_h_c) 
+            elif model_type == "GRU":
+                current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
+                y_pred, h_s_out = model(X_batch, current_h_s)
+            elif model_type == "FNN":
+                y_pred = model(X_batch)
+            else:
+                raise ValueError(f"Unsupported model_type in train_epoch: {model_type}")
+
+            if y_pred.ndim > y_batch.ndim and y_pred.shape[-1] == 1 and y_batch.ndim == 1 : 
+                 y_pred = y_pred.squeeze(-1)
+            elif y_pred.ndim > y_batch.ndim and y_pred.shape[0] == y_batch.shape[0] and y_pred.shape[-1] == y_batch.shape[-1]: 
+                 pass
+
+
+            if y_batch.ndim == 1 and y_pred.ndim == 2 and y_pred.shape[1] == 1: 
+                y_batch = y_batch.unsqueeze(1)
+
+
+            loss = self.criterion(y_pred, y_batch)
             loss.backward()
             optimizer.step()
-
             total_train_loss.append(loss.item())
             
-            end_batch_time = time.time()  # End timing for this batch
+            end_batch_time = time.time()
             batch_time = end_batch_time - start_batch_time
             batch_times.append(batch_time)
 
-            # Log less frequently
-            # if batch_idx % log_freq == 0:
-            #     batch_freq_time = sum(batch_times) / len(batch_times)
-            #     self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='train', device=device)
-            #     self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='train', device=device_str)
+            if batch_idx % log_freq == 0 and batch_times:
+                avg_recent_batch_time = sum(batch_times[-log_freq:]) / len(batch_times[-log_freq:])
+                # self.log_to_csv(task, epoch, batch_idx, avg_recent_batch_time, phase='train') 
+                # self.log_to_sqlite(task, epoch, batch_idx, avg_recent_batch_time, phase='train', device=str(device))
+                print(f"Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}, Input: {X_batch.shape}, Pred: {y_pred.shape}")
 
-            # Log progress every 150 batches
-            #if batch_idx % log_freq == 0:
-                #print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
-                #print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
-            
-            # Clear unused memory
-            del X_batch, y_batch, y_pred  # Explicitly clear tensors
-
-        avg_batch_time = sum(batch_times) / len(batch_times)  # Average batch time
-        return avg_batch_time, sum(total_train_loss) / len(total_train_loss)
+            del X_batch, y_batch, y_pred, loss
+            if model_type == "LSTM": del current_h_s, current_h_c, h_s_out, h_c_out
+            elif model_type == "GRU": del current_h_s, h_s_out
+            torch.cuda.empty_cache() if device.type == 'cuda' else None
 
 
-    def validate_epoch(self, model, val_loader, h_s, h_c, epoch, device, stop_requested, task):
-        """Validate the model for a single epoch."""
+        avg_epoch_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0
+        return avg_epoch_batch_time, sum(total_train_loss) / len(total_train_loss) if total_train_loss else float('nan')
+
+
+    def validate_epoch(self, model, model_type, val_loader, h_s_initial, h_c_initial, epoch, device, stop_requested, task):
+        """Validate the model for a single epoch, adapting to model type."""
         model.eval()
-        total_loss = 0
-        total_samples = 0
-        batch_times = []  # Track validation time for each batch
-        log_freq = 1000  # Define how often to log batches
-        device_str = str(device)  # Convert torch.device to string
+        total_val_loss = 0
+        log_freq = task.get('log_frequency', 100)
+        
+        h_s, h_c = None, None
+        if model_type in ["LSTM", "GRU"]:
+            if h_s_initial is not None:
+                h_s = h_s_initial.detach().clone()
+            if model_type == "LSTM" and h_c_initial is not None:
+                h_c = h_c_initial.detach().clone()
 
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
-                if stop_requested:  # Check if a stop has been requested
+                if stop_requested:
                     print("Stop requested during validation")
-                    break  # Exit the loop if stop is requested
-
-                start_batch_time = time.time()  # Start timing for this batch
+                    break
+                
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-                y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
-                # y_pred = y_pred.squeeze(-1)
 
-                # loss = self.criterion(y_pred, y_batch)
-                loss = self.criterion(y_pred[:, -1, :], y_batch)
-                total_loss += loss.item() * X_batch.size(0)
-                total_samples += X_batch.size(0)
+                if model_type == "LSTM":
+                    current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
+                    current_h_c = h_c_initial.detach().clone() if h_c_initial is not None else None
+                    y_pred, (_, _) = model(X_batch, current_h_s, current_h_c) 
+                elif model_type == "GRU":
+                    current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
+                    y_pred, _ = model(X_batch, current_h_s)
+                elif model_type == "FNN":
+                    y_pred = model(X_batch)
+                else:
+                    raise ValueError(f"Unsupported model_type in validate_epoch: {model_type}")
 
-                end_batch_time = time.time()  # End timing for this batch
-                batch_time = end_batch_time - start_batch_time
-                batch_times.append(batch_time)
-                
-                # Log less frequently
+                if y_pred.ndim > y_batch.ndim and y_pred.shape[-1] == 1 and y_batch.ndim == 1 :
+                     y_pred = y_pred.squeeze(-1)
+                elif y_pred.ndim > y_batch.ndim and y_pred.shape[0] == y_batch.shape[0] and y_pred.shape[-1] == y_batch.shape[-1]:
+                     pass 
+
+                if y_batch.ndim == 1 and y_pred.ndim == 2 and y_pred.shape[1] == 1:
+                    y_batch = y_batch.unsqueeze(1)
+
+                loss = self.criterion(y_pred, y_batch)
+                total_val_loss += loss.item() * X_batch.size(0) 
+
                 if batch_idx % log_freq == 0:
-                    batch_freq_time = sum(batch_times) / len(batch_times)
-                    # self.log_to_csv(task, epoch, batch_idx, batch_freq_time, phase='validate')
-                    # self.log_to_sqlite(task, epoch, batch_idx, batch_freq_time, phase='validate', device=device_str)
+                     print(f"Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")
 
-                # Log progress every 150 batches
-                # if batch_idx % log_freq == 0:
-                #     print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Input shape: {X_batch.shape}")
-                #     print(f"Task ID: {task['task_id']}, Epoch: {epoch}, Batch: {batch_idx}, Output shape after LSTM: {y_pred.shape}")
-                
-                # Clear unused memory
-                del X_batch, y_batch, y_pred  # Explicitly clear tensors
-
-        return  total_loss / total_samples
+                del X_batch, y_batch, y_pred, loss
+                if model_type == "LSTM": del current_h_s, current_h_c
+                elif model_type == "GRU": del current_h_s
+                torch.cuda.empty_cache() if device.type == 'cuda' else None
+        
+        return total_val_loss / len(val_loader.dataset) if len(val_loader.dataset) > 0 else float('nan')
 
     def save_model(self, model, model_path):
         """Save the model to disk."""
@@ -147,12 +178,11 @@ class TrainingTaskService:
         with open(model_path + '_hyperparams.json', 'w') as f:
             json.dump(model.hyperparams, f, indent=4)
 
-    def get_optimizer(self, model, lr, weight_decay=0):
-
+    def get_optimizer(self, model, lr):
         """Initialize the optimizer for the model."""
-        return optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+        return optim.Adam(model.parameters(), lr=lr)
 
-    def get_scheduler(self, optimizer, gamma=0.1):
-        """Initialize the learning rate scheduler with step size and gamma."""
-        return torch.optim.lr_scheduler.StepLR(optimizer, gamma=gamma)
-
+    def get_scheduler(self, optimizer, lr_drop_period):
+        """Initialize the learning rate scheduler."""
+        # Create a learning rate scheduler that reduces the LR by 10% every lr_drop_period epochs
+        return optim.lr_scheduler.StepLR(optimizer, step_size=lr_drop_period, gamma=0.1)

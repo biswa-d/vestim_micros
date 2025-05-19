@@ -21,8 +21,8 @@ import pandas as pd
 import numpy as np
 
 from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.services.model_testing.src.testing_service_test import VEstimTestingService
-from vestim.services.model_testing.src.test_data_service_test_digatron_csv import VEstimTestDataService
+from vestim.services.model_testing.src.testing_service import VEstimTestingService # Corrected import
+from vestim.services.model_testing.src.test_data_service import VEstimTestDataService # Corrected import
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 import logging
 
@@ -124,84 +124,162 @@ class VEstimTestingManager:
             print(f"Found {len(test_files)} test files. Running tests...")
             
             # Process each test file
-            all_results = []
-            for test_file in test_files:
+            for test_file_index, test_file in enumerate(test_files):
                 file_name = os.path.splitext(test_file)[0]
                 test_file_path = os.path.join(test_folder, test_file)
                 
-                # Run test for single file
-                file_results = self.testing_service.test_single_file(
-                    task, 
-                    model_path, 
-                    test_file_path
+                # Create test loader for the current file
+                data_loader_params = task.get('data_loader_params', {})
+                feature_cols = data_loader_params.get('feature_columns')
+                target_col = data_loader_params.get('target_column')
+                # LOOKBACK and BATCH_SIZE for test loader might come from task hyperparams or a specific test config
+                # Using hyperparams for now, ensure these are appropriate for test data creation
+                lookback_val = task.get('hyperparams', {}).get('LOOKBACK', 200) # Default if not found
+                batch_size_val = task.get('hyperparams', {}).get('BATCH_SIZE', 100) # Default if not found
+
+                if not feature_cols or not target_col:
+                    self.logger.error(f"Missing feature_cols or target_col in task for {test_file_path}")
+                    # Optionally, put an error in the queue or skip this file
+                    continue
+
+                test_loader = self.test_data_service.create_test_file_loader(
+                    test_file_path=test_file_path,
+                    lookback=int(lookback_val),
+                    batch_size=int(batch_size_val),
+                    feature_cols=feature_cols,
+                    target_col=target_col
+                )
+
+                # Run test for single file using the created loader
+                file_results = self.testing_service.run_testing(
+                    task=task,
+                    model_path=model_path,
+                    test_loader=test_loader,
+                    test_file_path=test_file_path
                 )
                 
-                # Calculate max error
-                errors = np.abs(file_results['y_test'] - file_results['predictions'])
-                max_error = np.max(errors)
-                file_results['max_error_mv'] = max_error
+                if file_results is None: # Handle case where testing service run_testing fails
+                    self.logger.error(f"Testing failed for {test_file_path}, skipping results processing for this file.")
+                    continue
+
+                # The VEstimTestingService.test_model (called by run_testing) now returns results with dynamic keys
+                # e.g., 'rms_error_mv', 'rms_error_percent', 'mae_degC'
+                # It also returns 'predictions' and 'true_values'
+
+                target_column_name = task.get('data_loader_params', {}).get('target_column', 'value')
+                unit_suffix = ""
+                csv_unit_display = "" # For CSV column names like "True Values (V)"
+                error_unit_display = "" # For error column names like "RMS Error (mV)"
+
+                if "voltage" in target_column_name.lower():
+                    unit_suffix = "_mv"
+                    csv_unit_display = "(V)"
+                    error_unit_display = "(mV)"  # Consistent with training GUI - errors in mV
+                elif "soc" in target_column_name.lower():
+                    unit_suffix = "_percent"
+                    csv_unit_display = "(% SOC)"   # Match training GUI format
+                    error_unit_display = "(% SOC)" # Consistent with training GUI
+                elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
+                    unit_suffix = "_degC"
+                    csv_unit_display = "(Deg C)"   # Match training GUI format
+                    error_unit_display = "(Deg C)" # Consistent with training GUI
                 
-                # Save predictions with correct column names for plotting
+                # Define dynamic metric keys based on the unit suffix
+                rms_key = f"rms_error{unit_suffix}"
+                mae_key = f"mae{unit_suffix}"
+                max_error_key = f"max_abs_error{unit_suffix}"
+                
+                # Calculate difference for CSV
+                # Predictions and true values are in their original scale from file_results
+                y_true_scaled = file_results['true_values']
+                y_pred_scaled = file_results['predictions']
+                
+                difference = y_true_scaled - y_pred_scaled
+                # Apply appropriate multiplier based on target type for consistent error reporting
+                if "voltage" in target_column_name.lower():
+                    difference *= 1000  # Convert V difference to mV for CSV display consistency with error metrics
+                elif "soc" in target_column_name.lower() and np.max(np.abs(y_true_scaled)) <= 1.0:  
+                    # Check if SOC is in 0-1 range and needs percentage conversion
+                    difference *= 100  # Convert 0-1 difference to percentage for CSV display
+                
+                # Save predictions with dynamic column names - matching training GUI conventions
                 predictions_file = os.path.join(test_results_dir, f"{file_name}_predictions.csv")
                 pd.DataFrame({
-                    'True Values (V)': file_results['y_test'],
-                    'Predictions (V)': file_results['predictions'],
-                    'Error (mV)': errors
+                    f'True Values {csv_unit_display}': y_true_scaled,
+                    f'Predictions {csv_unit_display}': y_pred_scaled,
+                    f'Difference {error_unit_display}': difference
                 }).to_csv(predictions_file, index=False)
                 
-                # Add results to summary file
+                # Add results to summary file with dynamic headers matching training GUI
                 summary_file = os.path.join(task_dir, 'test_summary.csv')
-                if not os.path.exists(summary_file):
-                    with open(summary_file, 'w', newline='') as f:
-                        writer = csv.writer(f)
-                        writer.writerow(['File', 'RMS Error (mV)', 'MAE (mV)', 'Max Error (mV)', 'MAPE (%)', 'R2'])
+                header = ['File', f'RMS Error {error_unit_display}', f'MAE {error_unit_display}', f'Max Abs Error {error_unit_display}', f'MAPE (%)', 'R2']
                 
+                # Calculate max absolute error with appropriate scaling
+                max_abs_error_val = np.max(np.abs(difference)) if difference.size > 0 else 0
+
+                write_header = not os.path.exists(summary_file) or os.path.getsize(summary_file) == 0
                 with open(summary_file, 'a', newline='') as f:
                     writer = csv.writer(f)
+                    if write_header:
+                        writer.writerow(header)
                     writer.writerow([
                         test_file,
-                        file_results['rms_error_mv'],
-                        file_results['mae_mv'],
-                        max_error,
-                        file_results['mape'],
-                        file_results['r2']
+                        f"{file_results.get(rms_key, float('nan')):.2f}",
+                        f"{file_results.get(mae_key, float('nan')):.2f}",
+                        f"{max_abs_error_val:.2f}", # Log calculated max_abs_error_val
+                        f"{file_results.get('mape_percent', float('nan')):.2f}",
+                        f"{file_results.get('r2', float('nan')):.4f}"
                     ])
                 
-                all_results.append(file_results)
-
-            # Calculate average metrics across all files
-            avg_results = {
-                'rms_error_mv': np.mean([r['rms_error_mv'] for r in all_results]),
-                'mae_mv': np.mean([r['mae_mv'] for r in all_results]),
-                'max_error_mv': np.max([r['max_error_mv'] for r in all_results]),
-                'mape': np.mean([r['mape'] for r in all_results]),
-                'r2': np.mean([r['r2'] for r in all_results])
-            }
-
-            # Generate shorthand name
-            shorthand_name = self.generate_shorthand_name(task)
-            
-            # Put the results in the queue for the GUI
-            self.queue.put({
-                'task_completed': {
-                    'saved_dir': test_results_dir,  # Changed to test_results_dir for plotting
+                # Generate shorthand name for the model task
+                shorthand_name = self.generate_shorthand_name(task)
+                
+                # Data to send to GUI for this specific test file
+                gui_result_data = {
+                    'saved_dir': test_results_dir,
                     'task_id': task['task_id'],
-                    'sl_no': idx + 1,
+                    'sl_no': f"{idx + 1}.{test_file_index + 1}", # Unique Sl.No for GUI based on task and test file
                     'model': shorthand_name,
-                    'file_name': test_file,  # Add filename to display
+                    'file_name': test_file, # Current test file name
                     '#params': num_learnable_params,
-                    'rms_error_mv': avg_results['rms_error_mv'],
-                    'mae_mv': avg_results['mae_mv'],
-                    'max_error_mv': avg_results['max_error_mv'],
-                    'mape': avg_results['mape'],
-                    'r2': avg_results['r2']
+                    'task_info': task, # Pass the whole task dictionary for context
+                    'target_column': target_column_name, # Add target column for plotting
+                    'predictions_file': predictions_file, # Correct path to the predictions file for plotting
+                    'unit_display': error_unit_display, # Pass error unit display for GUI consistency
+                    'csv_unit_display': csv_unit_display # Pass value unit display for GUI consistency
                 }
-            })
+                
+                # Add dynamic metrics from file_results directly with better error handling
+                gui_result_data[rms_key] = file_results.get(rms_key, 'N/A')
+                gui_result_data[mae_key] = file_results.get(mae_key, 'N/A')
+                gui_result_data[f'max_abs_error{unit_suffix}'] = max_abs_error_val
+                gui_result_data['mape_percent'] = file_results.get('mape_percent', 'N/A')
+                gui_result_data['r2'] = file_results.get('r2', 'N/A')
+                
+                # Include the unit suffix directly for GUI use
+                gui_result_data['unit_suffix'] = unit_suffix
+                gui_result_data['unit_display'] = error_unit_display
+                
+                # For backward compatibility with GUI
+                if unit_suffix == "_mv":
+                    gui_result_data['rms_error_mv'] = file_results.get(rms_key, 'N/A')
+                    gui_result_data['mae_mv'] = file_results.get(mae_key, 'N/A')
+                    gui_result_data['max_error_mv'] = max_abs_error_val
+                
+                # Print debug information to help with troubleshooting
+                print(f"Sending results for test file: {test_file}")
+                print(f"Predictions file path: {predictions_file}")
+                print(f"Target column: {target_column_name}")
+                
+                # Send results to GUI for this specific test file
+                self.queue.put({'task_completed': gui_result_data})
+
+            # The overall task completion signal (all_tasks_completed) is sent after the outer loop in _run_testing_tasks
 
         except Exception as e:
             print(f"Error testing model {model_path}: {str(e)}")
+            self.logger.error(f"Error testing model {model_path}: {str(e)}", exc_info=True)
             self.queue.put({'task_error': str(e)})
-
 
     @staticmethod
     def generate_shorthand_name(task):
@@ -236,38 +314,57 @@ class VEstimTestingManager:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS test_logs (
                 task_id TEXT,
+                file_name TEXT,
                 model TEXT,
-                rms_error_mv REAL,
-                mae_mv REAL,
+                rms_error REAL,
+                mae REAL,
+                max_error REAL,
                 mape REAL,
                 r2 REAL,
-                PRIMARY KEY(task_id)
+                PRIMARY KEY(task_id, file_name)
             )
         ''')
 
-        # Insert test results
+        # Insert test results with file name to track individual file results
         cursor.execute('''
-            INSERT OR REPLACE INTO test_logs (task_id, model, rms_error_mv, mae_mv, mape, r2)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (task['task_id'], task['model_path'], results['rms_error_mv'], results['mae_mv'], results['mape'], results['r2']))
+            INSERT OR REPLACE INTO test_logs (task_id, file_name, model, rms_error, mae, max_error, mape, r2)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            task['task_id'], 
+            results.get('file_name', 'unknown'), 
+            task['model_path'], 
+            results.get('rms_error_mv', results.get('rms_error_percent', results.get('rms_error_degC', 0))),
+            results.get('mae_mv', results.get('mae_percent', results.get('mae_degC', 0))),
+            results.get('max_abs_error_mv', results.get('max_abs_error_percent', results.get('max_abs_error_degC', 0))),
+            results.get('mape_percent', 0),
+            results.get('r2', 0)
+        ))
 
         conn.commit()
         conn.close()
 
     def log_test_to_csv(self, task, results, csv_log_file):
         """Log test results to CSV file."""
-        fieldnames = ['Task ID', 'Model', 'RMS Error (mV)', 'MAE (mV)', 'MAPE', 'R2']
+        fieldnames = ['Task ID', 'File Name', 'Model', 'RMS Error', 'MAE', 'Max Error', 'MAPE', 'R2', 'Units']
         file_exists = os.path.isfile(csv_log_file)
+        
+        # Determine units based on task target
+        target_column = task.get('data_loader_params', {}).get('target_column', '')
+        units = 'mV' if 'voltage' in target_column.lower() else '%' if 'soc' in target_column.lower() else '°C' if ('temperature' in target_column.lower() or 'temp' in target_column.lower()) else ''
 
         with open(csv_log_file, 'a', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             if not file_exists:
                 writer.writeheader()  # Write header only once
+            
             writer.writerow({
                 'Task ID': task['task_id'],
+                'File Name': results.get('file_name', 'unknown'),
                 'Model': task['model_path'],
-                'RMS Error (mV)': results['rms_error_mv'],
-                'MAE (mV)': results['mae_mv'],
-                'MAPE': results['mape'],
-                'R2': results['r2']
+                'RMS Error': results.get('rms_error_mv', results.get('rms_error_percent', results.get('rms_error_degC', 'N/A'))),
+                'MAE': results.get('mae_mv', results.get('mae_percent', results.get('mae_degC', 'N/A'))),
+                'Max Error': results.get('max_abs_error_mv', results.get('max_abs_error_percent', results.get('max_abs_error_degC', 'N/A'))),
+                'MAPE': results.get('mape_percent', 'N/A'),
+                'R2': results.get('r2', 'N/A'),
+                'Units': units
             })

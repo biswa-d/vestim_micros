@@ -40,7 +40,7 @@ class DataLoaderService:
         self.logger.info(f"Feature columns: {feature_cols}, Target column: {target_col}")
 
         handler_kwargs = {}
-        if training_method == "SequenceRNN":
+        if training_method == "Sequence-to-Sequence": # Corrected string comparison
             if lookback is None or lookback <= 0:
                 self.logger.error("Lookback must be a positive integer for SequenceRNN training method.")
                 raise ValueError("Lookback must be a positive integer for SequenceRNN training method.")

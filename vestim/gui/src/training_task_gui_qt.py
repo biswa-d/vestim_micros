@@ -1,21 +1,26 @@
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QHBoxLayout, QVBoxLayout, QPushButton, QWidget, QFrame, QTextEdit, QGridLayout
+    QApplication, QMainWindow, QLabel, QHBoxLayout, QVBoxLayout, QPushButton, QWidget, QFrame, QTextEdit, QGridLayout, QGroupBox
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 import torch
 import json, time
+import numpy as np
 from matplotlib.figure import Figure
+import matplotlib.ticker as ticker
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from queue import Queue, Empty
 from threading import Thread
 import logging, wandb
+import os
+import matplotlib.pyplot as plt
 
 # Import local services
-from vestim.services.model_training.src.training_task_service import TrainingTaskService
+from vestim.services.model_training.src.training_task_service import TrainingTaskService # Production import
 from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gui.src.testing_gui_qt import VEstimTestingGUI
+
 
 class TrainingThread(QThread):
     # Custom signals to emit data back to the main GUI
@@ -67,18 +72,19 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Initialize variables
         self.train_loss_values = []
         self.valid_loss_values = []
-        self.valid_x_values = []
+        # self.valid_x_values = [] # Replaced by epoch_points
         self.start_time = None
         self.queue = Queue()
         self.timer_running = True
         self.training_process_stopped = False
         self.task_completed_flag = False
         self.current_task_index = 0
-
+        self.current_error_unit_label = "RMS Error" # Default error label
+        self.epoch_points = [] # For storing actual epoch numbers for plotting
+ 
         self.param_labels = {
             "LAYERS": "Layers",
             "HIDDEN_UNITS": "Hidden Units",
-            # "DROPOUT_PROB": "Dropout Probability",
             "BATCH_SIZE": "Batch Size",
             "MAX_EPOCHS": "Max Epochs",
             "INITIAL_LR": "Initial Learning Rate",
@@ -89,7 +95,6 @@ class VEstimTrainingTaskGUI(QMainWindow):
             "LOOKBACK": "Lookback Sequence Length",
             "REPETITIONS": "Repetitions",
             "NUM_LEARNABLE_PARAMS": "Number of Learnable Parameters",
-
         }
 
         self.initUI()
@@ -111,13 +116,13 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Title Label
         title_label = QLabel("Training LSTM Model with Hyperparameters")
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")  # Increase font size and make it bold
+        title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
         self.main_layout.addWidget(title_label)
 
         # Display hyperparameters
         # Initialize the hyperparameter frame
         self.hyperparam_frame = QFrame(self)
-        self.hyperparam_frame.setLayout(QVBoxLayout())  # Set a default layout for the frame
+        self.hyperparam_frame.setLayout(QVBoxLayout())
         self.main_layout.addWidget(self.hyperparam_frame)
         self.display_hyperparameters(task['hyperparams'])
 
@@ -126,50 +131,69 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.status_label.setAlignment(Qt.AlignCenter)
         self.main_layout.addWidget(self.status_label)
 
-        # Time Frame, Plot Setup, and Log Window
+        # Time Frame and Plot Setup
         self.setup_time_and_plot(task)
-        self.setup_log_window(task)
+
+        # Add log window
+        log_group = QGroupBox("Training Log")
+        log_group.setStyleSheet("QGroupBox { font-weight: bold; font-size: 12px; }")
+        log_layout = QVBoxLayout()
+        
+        # Create the log text widget
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.log_text.setStyleSheet("""
+            QTextEdit {
+                font-size: 10pt;
+                background-color: #f0f0f0;
+                border: 1px solid #ccc;
+                padding: 10px;
+            }
+        """)
+        self.log_text.setMinimumHeight(150)  # Set minimum height for better visibility
+        
+        # Add initial log entry
+        self.log_text.append(f"Repetition: {task['hyperparams']['REPETITIONS']}\n")
+        
+        # Add log widget to layout
+        log_layout.addWidget(self.log_text)
+        log_group.setLayout(log_layout)
+        self.main_layout.addWidget(log_group)
 
         # Stop button (centered and styled)
         self.stop_button = QPushButton("Stop Training")
         self.stop_button.setStyleSheet("background-color: red; color: white; font-size: 12pt; font-weight: bold;")
-        self.stop_button.setFixedWidth(150)  # Set a fixed width for the button
+        self.stop_button.setFixedWidth(150)
         self.stop_button.clicked.connect(self.stop_training)
 
         # Layout for stop button
         stop_button_layout = QHBoxLayout()
-        stop_button_layout.addStretch(1)  # Push the button to the center
+        stop_button_layout.addStretch(1)
         stop_button_layout.addWidget(self.stop_button)
-        stop_button_layout.addStretch(1)  # Push the button to the center
-        self.main_layout.addLayout(stop_button_layout)  # Add this layout to the main layout
+        stop_button_layout.addStretch(1)
+        self.main_layout.addLayout(stop_button_layout)
 
         # Initialize the Proceed to Testing button
         self.proceed_button = QPushButton("Proceed to Testing")
         self.proceed_button.setStyleSheet("""
-            background-color: #0b6337; 
-            color: white; 
-            font-size: 12pt; 
-            font-weight: bold; 
+            background-color: #0b6337;
+            color: white;
+            font-size: 12pt;
+            font-weight: bold;
             padding: 10px 20px;
         """)
-        self.proceed_button.setVisible(False)  # Initially hidden
+        self.proceed_button.hide() # Use hide() as in _test.py
         self.proceed_button.clicked.connect(self.transition_to_testing_gui)
-
+        
         # Layout for proceed button
         proceed_button_layout = QHBoxLayout()
         proceed_button_layout.addStretch(1)
-        proceed_button_layout.addWidget(self.proceed_button, alignment=Qt.AlignCenter)
+        proceed_button_layout.addWidget(self.proceed_button)
         proceed_button_layout.addStretch(1)
-        self.main_layout.addLayout(proceed_button_layout)  # Add this layout to the main layout
+        self.main_layout.addLayout(proceed_button_layout)
 
-
-        # Progress Label (initially hidden)
-        self.progress_label = QLabel("Processing...")
-        self.progress_label.setAlignment(Qt.AlignCenter)
-        self.progress_label.hide()
-        self.main_layout.addWidget(self.progress_label)
-
-        # Attach the layout to the central widget
+        # Set the layout
         container.setLayout(self.main_layout)
 
     def display_hyperparameters(self, params):
@@ -241,23 +265,21 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Add the time layout to the main layout
         self.main_layout.addLayout(time_layout)
 
-        # Add time layout to the main layout
-        self.main_layout.addLayout(time_layout)
+        # Add time layout to the main layout (This line was duplicated in original, kept for now, can be removed if redundant)
+        # self.main_layout.addLayout(time_layout) # Removed duplicate
 
         # Plot Setup
         max_epochs = int(task['hyperparams']['MAX_EPOCHS'])
-        valid_frequency = int(task['hyperparams']['ValidFrequency'])
+        # valid_frequency = int(task['hyperparams']['ValidFrequency']) # Not used in _test.py version of this method
 
         # Matplotlib figure setup
         fig = Figure(figsize=(6, 2.5), dpi=100)
         self.ax = fig.add_subplot(111)
         self.ax.set_xlabel("Epoch", labelpad=0)
-        self.ax.set_ylabel("Loss [% RMSE]")
+        self.ax.set_ylabel(self.current_error_unit_label) # Use dynamic label
         self.ax.set_xlim(1, max_epochs)
-
-        # **Set Y-axis to Log Scale**
-        self.ax.set_yscale('log')  # <-- Converts the y-axis to log scale
-
+ 
+        
         # Set x-ticks to ensure a maximum of 10 parts or based on validation frequency
         max_ticks = 10
         if max_epochs <= max_ticks:
@@ -295,32 +317,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Adjust margins for the plot
         fig.subplots_adjust(bottom=0.2)
 
-    def setup_log_window(self, task):
-        # Create a QTextEdit widget for the log window
-        self.log_text = QTextEdit()
-
-        # Set properties of the log window (read-only and word-wrapping)
-        self.log_text.setReadOnly(True)  # Log should not be editable by the user
-        self.log_text.setLineWrapMode(QTextEdit.WidgetWidth)  # Word wrap
-
-        # Add some padding/margins to make the text more readable
-        self.log_text.setStyleSheet("""
-            QTextEdit {
-                font-size: 10pt;
-                background-color: #f0f0f0;
-                border: 1px solid #ccc;
-                padding: 10px;
-            }
-        """)
-
-        # Insert initial logs with task repetition details
-        self.log_text.append(f"Repetition: {task['hyperparams']['REPETITIONS']}\n")
-
-        # Automatically scroll to the bottom of the log window
-        self.log_text.moveCursor(self.log_text.textCursor().End)
-
-        # Add the log window to the main layout
-        self.main_layout.addWidget(self.log_text)
+    # setup_log_window is now part of build_gui in the _test.py version's structure
+    # def setup_log_window(self, task): ... (This method is integrated into build_gui)
 
     def clear_layout(self):
         # Clear the current layout to rebuild it for new tasks
@@ -377,7 +375,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Reset the data values for a fresh plot
         self.train_loss_values = []
         self.valid_loss_values = []
-        self.valid_x_values = []
+        self.epoch_points = [] # From _test.py
 
         # Ensure the plot axis 'ax' exists (for new tasks or when reinitializing)
         if hasattr(self, 'ax'):
@@ -385,8 +383,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.ax.clear()
             self.ax.set_title("Training and Validation Loss", fontsize=12, fontweight='normal', color='#0f0c0c')
             self.ax.set_xlabel("Epoch")
-            self.ax.set_ylabel("Loss [% RMSE]")
-
+            self.ax.set_ylabel(self.current_error_unit_label) # Use dynamic label from _test.py
+ 
             # Reinitialize plot lines
             self.train_line, = self.ax.plot([], [], label='Train Loss')
             self.valid_line, = self.ax.plot([], [], label='Validation Loss')
@@ -427,8 +425,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Hide the stop button since the task encountered an error
         self.stop_button.hide()
 
-
-    def update_gui_after_epoch(self, progress_data):
+    def update_gui_after_epoch(self, progress_data): # Merged from _test.py
         # Task index and dynamic status for the status label
         task_info = f"Task {self.current_task_index + 1}/{len(self.task_list)}"
 
@@ -440,78 +437,81 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Handle log updates
         if 'epoch' in progress_data:
             epoch = progress_data['epoch']
-            train_loss = progress_data['train_loss']
-            val_loss = progress_data['val_loss']
+            # Use the new scaled RMSE values and error label from progress_data
+            train_rmse_scaled = progress_data.get('train_rmse_scaled', float('nan'))
+            val_rmse_scaled = progress_data.get('val_rmse_scaled', float('nan'))
+            best_val_rmse_scaled = progress_data.get('best_val_rmse_scaled', float('nan'))
+            error_unit_label = progress_data.get('error_unit_label', "RMS Error") # Default if not provided
+            self.current_error_unit_label = error_unit_label # Update instance variable
+
+            patience_counter = progress_data.get('patience_counter', None)
             delta_t_epoch = progress_data['delta_t_epoch']
             learning_rate = progress_data.get('learning_rate', None)
-            best_val_loss = progress_data.get('best_val_loss', None)
 
             # Format the log message using HTML for bold text
             log_message = (
                 f"Epoch: <b>{epoch}</b>, "
-                f"Train Loss: <b>{train_loss:.10f}</b>, "
-                f"Val Loss: <b>{val_loss:.10f}</b>, "
-                f"Best Val Loss: <b>{best_val_loss:.10f}</b>, "
+                f"Train {error_unit_label.split('[')[0].strip()}: <b>{train_rmse_scaled:.2f}</b> {error_unit_label.split('[')[-1].replace(']','').strip()}, "
+                f"Val {error_unit_label.split('[')[0].strip()}: <b>{val_rmse_scaled:.2f}</b> {error_unit_label.split('[')[-1].replace(']','').strip()}, "
+                f"Best Val {error_unit_label.split('[')[0].strip()}: <b>{best_val_rmse_scaled:.2f}</b> {error_unit_label.split('[')[-1].replace(']','').strip()}, "
                 f"Time Per Epoch (ΔT): <b>{delta_t_epoch}s</b>, "
-                f"LR: <b>{learning_rate:.1e}</b><br>"
+                f"LR: <b>{learning_rate:.1e}</b>, "
+                f"Patience Counter: <b>{patience_counter}</b><br>"
             )
-           # WandB logging (only if enabled)
-            # if self.wandb_enabled:
-            #     try:
-            #         wandb.log({
-            #             'train_loss': progress_data['train_loss'],
-            #             'val_loss': progress_data['val_loss'],
-            #             'epoch': progress_data['epoch']
-            #         })
-            #     except Exception as e:
-            #         self.logger.error(f"Failed to log to WandB: {e}")
-            #self.logger.info(f"Epoch {progress_data['epoch']} | Train Loss: {progress_data['train_loss']} | Val Loss: {progress_data['val_loss']}")
 
-            # Append the log message to the log text widget using rich text format
+            # Append the log message to the log text widget using rich text
             self.log_text.append(log_message)
 
             # Ensure the log scrolls to the bottom
             self.log_text.moveCursor(self.log_text.textCursor().End)
-            # print(f"Epoch: {epoch}, Train Loss: {train_loss}, Validation Loss: {val_loss}")
-            # Update the plot with the new data
-            self.train_loss_values.append(train_loss)
-            self.valid_loss_values.append(val_loss)
-            self.valid_x_values.append(epoch)
-            # print(f"Valid X Values: {self.valid_x_values}")
-            # print(f"Train Loss Values: {self.train_loss_values}")
-            # print(f"Valid Loss Values: {self.valid_loss_values}")
 
-            #New section for updating the plot
-            # Dynamically adjust the y-axis based on the last 30 loss values
-            last_30_train_losses = self.train_loss_values[-30:]  # Get last 30 train losses
-            last_30_val_losses = self.valid_loss_values[-30:]  # Get last 30 validation losses
-            last_30_losses = last_30_train_losses + last_30_val_losses  # Combine last 30 train and validation losses
+            # Update the plot data with actual epoch numbers
+            # self.epoch_points was initialized in __init__ or clear_plot
+            self.epoch_points.append(epoch)
+            self.train_loss_values.append(train_rmse_scaled if not np.isnan(train_rmse_scaled) else 0) # Plot 0 for NaN
+            self.valid_loss_values.append(val_rmse_scaled if not np.isnan(val_rmse_scaled) else 0) # Plot 0 for NaN
 
-            # Get minimum and maximum from these last 30 values
-            min_loss = min(last_30_losses) if last_30_losses else 1e-5  # Fallback to a small value if empty
-            max_loss = max(last_30_losses) if last_30_losses else 1e-3  # Fallback to a small value if empty
-
-            # Add a small margin to the y-axis limits (10% of the range)
-            margin = (max_loss - min_loss) * 0.1 if max_loss - min_loss > 0 else 1e-5
-            self.ax.set_ylim(min_loss - margin, max_loss + margin)  # Set y-axis limits dynamically
-            # New section ends here
-
-            # Update plot lines with the new data
-            self.train_line.set_data(self.valid_x_values, self.train_loss_values)
-            self.valid_line.set_data(self.valid_x_values, self.valid_loss_values)
-
-            # Commented out the following lines for testing new plot logic, uncomment if needed
-            # # Adjust y-axis limits dynamically based on the new data
-            # self.ax.relim()  # Recompute the limits
-            # self.ax.autoscale_view(scalex=False, scaley=True)  # Autoscale y-axis only
-
-            # Set fixed x-limits to ensure they remain constant
+            # Update the plot
+            self.ax.clear()
+            
+            # Plot the data using actual epoch numbers
+            self.ax.plot(self.epoch_points, self.train_loss_values, label='Training', color='blue', marker='.')
+            self.ax.plot(self.epoch_points, self.valid_loss_values, label='Validation', color='red', marker='.')
+            
+            # Set y-axis to log scale
+            self.ax.set_yscale('log')
+            
+            # Keep x-axis fixed to max_epochs
             max_epochs = int(self.task_list[self.current_task_index]['hyperparams']['MAX_EPOCHS'])
             self.ax.set_xlim(1, max_epochs)
+            
+            # Set x-ticks to be integers
+            num_ticks = min(10, max_epochs)  # Show at most 10 ticks
+            step = max(1, max_epochs // num_ticks)
+            ticks = list(range(1, max_epochs + 1, step))
+            if max_epochs not in ticks:
+                ticks.append(max_epochs)
+            self.ax.set_xticks(ticks)
+            self.ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+            
+            # Dynamically adjust only y-axis limits
+            all_values = [v for v in self.train_loss_values + self.valid_loss_values if v > 0] # Filter out non-positive for log scale
+            if all_values:
+                y_min_plot = min(all_values) * 0.8  # Give some padding below
+                y_max_plot = max(all_values) * 1.2  # Give some padding above
+                if y_min_plot > 0 : # Ensure y_min is positive for log scale
+                     self.ax.set_ylim(y_min_plot, y_max_plot)
+            
+            # Update labels and title
+            self.ax.set_xlabel('Epoch')
+            self.ax.set_ylabel(self.current_error_unit_label) # Use dynamic label
+            self.ax.set_title('Training Progress')
+            self.ax.legend()
+            self.ax.grid(True, which="both", ls="-", alpha=0.2)
+            
+            # Add minor gridlines for log scale
+            self.ax.grid(True, which="minor", ls=":", alpha=0.1)
 
-            # Redraw the plot
-            # self.canvas.draw_idle()
-            print("Redrawing the plot")
             # Redraw the plot
             self.canvas.draw_idle()
 
@@ -541,7 +541,6 @@ class VEstimTrainingTaskGUI(QMainWindow):
         QTimer.singleShot(100, self.check_if_stopped)
 
 
-
     def check_if_stopped(self):
         if self.training_thread and self.training_thread.isRunning():
             # Keep checking until the thread has stopped
@@ -567,12 +566,47 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 print("task_completed() was already called, skipping.")
 
 
-    def task_completed(self):
+    def task_completed(self): # Merged from _test.py
         if self.task_completed_flag:
             return  # Exit if this method has already been called for this task
         self.task_completed_flag = True  # Set the flag to True on the first call
 
         self.timer_running = False
+
+        # Save the training plot for the current task
+        try:
+            task_id = self.task_list[self.current_task_index].get('task_id', f'task_{self.current_task_index + 1}')
+            save_dir = self.task_list[self.current_task_index].get('saved_dir', self.job_manager.get_job_folder())
+            
+            # Create a new figure for saving
+            fig_save = Figure(figsize=(8, 5), dpi=300) # Use fig_save to avoid conflict with self.fig
+            ax_save = fig_save.add_subplot(111) # Use ax_save
+            
+            # Plot the data using actual epoch numbers
+            ax_save.plot(self.epoch_points, self.train_loss_values, label='Training', color='blue', marker='.')
+            ax_save.plot(self.epoch_points, self.valid_loss_values, label='Validation', color='red', marker='.')
+            
+            # Set y-axis to log scale
+            ax_save.set_yscale('log')
+            
+            # Set labels and title
+            ax_save.set_xlabel('Epoch')
+            ax_save.set_ylabel(self.current_error_unit_label) # Use dynamic label for saved plot
+            ax_save.set_title(f'Training History - Task {task_id}')
+            ax_save.legend()
+            ax_save.grid(True, which="both", ls="-", alpha=0.2)
+            ax_save.grid(True, which="minor", ls=":", alpha=0.1)
+            
+            # Save the plot
+            plot_file = os.path.join(save_dir, f'training_history_{task_id}.png')
+            fig_save.savefig(plot_file, bbox_inches='tight')
+            plt.close(fig_save) # Close the figure used for saving
+            
+            print(f"Saved training history plot for task {task_id} at: {plot_file}")
+        except Exception as e:
+            print(f"Failed to save training history plot: {str(e)}")
+            self.logger.error(f"Failed to save training history plot: {str(e)}", exc_info=True)
+
 
         if self.isVisible():  # Check if the window still exists
             total_training_time = time.time() - self.start_time
@@ -607,7 +641,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             print(f"Completed task {self.current_task_index + 1}/{len(self.task_list)}.")
             self.current_task_index += 1
             self.task_completed_flag = False  # Reset the flag for the next task
-            self.build_gui(self.task_list[self.current_task_index])
+            self.build_gui(self.task_list[self.current_task_index]) # Rebuild GUI for next task
             self.start_task_processing()
         else:
             # Handle the case when all tasks are completed
@@ -623,7 +657,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.show_proceed_to_testing_button()
 
     def wait_for_thread_to_stop(self):
-        if self.worker and self.worker.isRunning():
+        if self.training_thread and self.training_thread.isRunning(): # Check self.training_thread
             # Continue checking until the thread has stopped
             QTimer.singleShot(100, self.wait_for_thread_to_stop)
         else:
@@ -631,11 +665,11 @@ class VEstimTrainingTaskGUI(QMainWindow):
             print("Training thread has stopped, now closing the window.")
             self.close()  # Close the window
 
-    def on_closing(self):
-        if self.worker and self.worker.isRunning():
+    def on_closing(self): # Renamed from closeEvent to avoid overriding QMainWindow's method if not intended
+        if self.training_thread and self.training_thread.isRunning(): # Check self.training_thread
             print("Stopping training before closing...")
             self.stop_training()  # Stop the training thread
-            QTimer.singleShot(100, self.wait_for_thread_to_stop)
+            QTimer.singleShot(100, self.wait_for_thread_to_stop) # Use wait_for_thread_to_stop
         else:
             self.close()  # Close the window
     
@@ -652,6 +686,25 @@ class VEstimTrainingTaskGUI(QMainWindow):
 if __name__ == "__main__":
     import sys
     app = QApplication(sys.argv)
-    task_list = []  # Replace with actual task list
-    params = {}  # Replace with actual parameters
+    # Example task list and params for testing
+    sample_task = {
+        'task_id': 'sample_1',
+        'hyperparams': {
+            "LAYERS": "1", "HIDDEN_UNITS": "50", "BATCH_SIZE": "32", 
+            "MAX_EPOCHS": "10", "INITIAL_LR": "0.001", "LR_DROP_FACTOR": "0.1", 
+            "LR_DROP_PERIOD": "5", "VALID_PATIENCE": "3", "ValidFrequency": "1", 
+            "LOOKBACK": "10", "REPETITIONS": "1", "NUM_LEARNABLE_PARAMS": "N/A"
+        },
+        'saved_dir': '.' 
+    }
+    task_list = [sample_task] 
+    params = {"MODEL_TYPE": "LSTM"} # Minimal params for testing
+    
+    # Ensure JobManager has a job_folder for plot saving logic
+    JobManager().set_job_folder("./temp_job_folder")
+    if not os.path.exists("./temp_job_folder"):
+        os.makedirs("./temp_job_folder")
+
+    gui = VEstimTrainingTaskGUI(task_list, params)
+    gui.show()
     sys.exit(app.exec_())

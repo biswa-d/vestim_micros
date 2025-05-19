@@ -127,7 +127,8 @@ class LSTMModel(nn.Module):
         #y = self.layer_norm(y)
 
         # Pass through Linear layer (FC)
-        y = self.linear(y)
+        # We only want the output of the last time step for sequence-to-one prediction
+        y = self.linear(y[:, -1, :])
 
         # Activation functions (comment/uncomment based on need)
         # y = torch.clamp(y, 0, 1)    # Clipped ReLU layer

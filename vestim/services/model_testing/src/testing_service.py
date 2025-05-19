@@ -27,13 +27,15 @@ class VEstimTestingService:
         model.eval()  # Set the model to evaluation mode
         return model
 
-    def test_model(self, model, test_loader, hidden_units, num_layers):
+    def test_model(self, model, test_loader, hidden_units, num_layers, target_column_name: str):
         """
-        Tests the model on the provided test data and calculates multiple evaluation metrics in millivolts (mV).
+        Tests the model on the provided test data and calculates multiple evaluation metrics with dynamic units.
 
         :param model: The loaded model.
-        :param X_test: Input sequences for testing.
-        :param y_test: True output values.
+        :param test_loader: DataLoader for the test set.
+        :param hidden_units: Number of hidden units in the model.
+        :param num_layers: Number of layers in the model.
+        :param target_column_name: Name of the target column to determine units.
         :return: A dictionary containing the predictions and evaluation metrics.
         """
         all_predictions, y_test = [], []
@@ -69,21 +71,43 @@ class VEstimTestingService:
             print(f"DEBUG: Trimmed y_pred shape: {y_pred.shape}, y_actual shape: {y_test.shape}")
 
             # Compute evaluation metrics
-            rms_error = np.sqrt(mean_squared_error(y_test, y_pred)) * 1000  # Convert to mV
-            mae = mean_absolute_error(y_test, y_pred) * 1000  # Convert to mV
-            mape = np.mean(np.abs((y_test - y_pred) / y_test)) * 100  # MAPE in percentage
+            # Determine multiplier and unit based on target_column_name
+            unit_suffix = ""
+            multiplier = 1.0
+            unit_display = ""
+            
+            if "voltage" in target_column_name.lower():
+                unit_suffix = "_mv"
+                unit_display = "mV"
+                multiplier = 1000.0  # Match training task part - V to mV conversion
+            elif "soc" in target_column_name.lower():
+                unit_suffix = "_percent"
+                unit_display = "% SOC"  # Match training task GUI format
+                multiplier = 100.0  # Match training task part - 0-1 to percentage conversion
+            elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
+                unit_suffix = "_degC"
+                unit_display = "Deg C"  # Match training task GUI format
+                multiplier = 1.0  # Temperature already in the correct scale
+            
+            # Calculate error metrics with appropriate multipliers
+            rms_error_val = np.sqrt(mean_squared_error(y_test, y_pred)) * multiplier
+            mae_val = mean_absolute_error(y_test, y_pred) * multiplier
+            mape = np.mean(np.abs((y_test - y_pred) / np.maximum(1e-10, np.abs(y_test)))) * 100  # MAPE in percentage with safeguard against division by zero
             r2 = r2_score(y_test, y_pred)
 
-            print(f"RMS Error: {rms_error}, MAE: {mae}, MAPE: {mape}, R²: {r2}")
+            print(f"RMS Error: {rms_error_val} {unit_display}, MAE: {mae_val} {unit_display}, MAPE: {mape}%, R²: {r2}")
 
-            return {
+            results_dict = {
                 'predictions': y_pred,
                 'true_values': y_test,
-                'rms_error_mv': rms_error,  # Error in mV
-                'mae_mv': mae,  # Error in mV
-                'mape': mape,  # MAPE remains a percentage
-                'r2': r2
+                f'rms_error{unit_suffix}': rms_error_val,
+                f'mae{unit_suffix}': mae_val,
+                'mape_percent': mape, # Explicitly state mape is percent
+                'r2': r2,
+                'unit_display': unit_display,  # Add the unit display string for consistent labeling
+                'multiplier': multiplier  # Store the multiplier for potential reuse
             }
+            return results_dict
  
     def run_testing(self, task, model_path, test_loader, test_file_path):
         """Runs testing for a given model and test file, returning results without saving."""
@@ -95,11 +119,13 @@ class VEstimTestingService:
             model.eval()  # Set the model to evaluation mode
 
             # Run the testing process (returns results but does NOT save them)
+            target_column = task['data_loader_params'].get('target_column', 'unknown_target')
             results = self.test_model(
                 model,
                 test_loader,
                 task['model_metadata']["hidden_units"],
-                task['model_metadata']["num_layers"]
+                task['model_metadata']["num_layers"],
+                target_column_name=target_column
             )
 
             print(f"Model testing completed for file: {test_file_path}")
