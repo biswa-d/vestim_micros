@@ -207,7 +207,7 @@ class VEstimTestingManager:
                 pd.DataFrame({
                     f'True Values {csv_unit_display}': y_true_scaled,
                     f'Predictions {csv_unit_display}': y_pred_scaled,
-                    f'Difference {error_unit_display}': difference
+                    f'Error {error_unit_display}': difference
                 }).to_csv(predictions_file, index=False)
                 
                 # Add results to summary file with dynamic headers matching training GUI
