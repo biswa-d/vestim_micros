@@ -27,6 +27,7 @@ class DataProcessorArbin:
     def organize_and_convert_files(self, train_files, test_files, progress_callback=None, sampling_frequency=None):
         # Ensure `total_files` is calculated upfront and is non-zero
         self.logger.info("Starting file organization and conversion.")
+        # Count initial files for copying
         self.total_files = len(train_files) + len(test_files)
 
         if self.total_files == 0:
@@ -59,11 +60,12 @@ class DataProcessorArbin:
         self._copy_files(train_files, train_raw_folder, progress_callback)
         self._copy_files(test_files, test_raw_folder, progress_callback)
 
-        # Increment total file count for .mat files for conversion
-        self.total_files += len([f for f in os.listdir(train_raw_folder) if f.endswith('.mat')])
-        self.total_files += len([f for f in os.listdir(test_raw_folder) if f.endswith('.mat')])
+        # Increment total file count for files that need conversion
+        supported_extensions = ('.mat', '.csv', '.xlsx', '.xls')
+        self.total_files += len([f for f in os.listdir(train_raw_folder) if f.lower().endswith(supported_extensions)])
+        self.total_files += len([f for f in os.listdir(test_raw_folder) if f.lower().endswith(supported_extensions)])
 
-        self.logger.info(f"Starting file conversion for {self.total_files} .mat files.")
+        self.logger.info(f"Starting file conversion for relevant files.")
 
         # **Check if resampling is needed**
         if sampling_frequency is None:
@@ -108,38 +110,54 @@ class DataProcessorArbin:
             self._update_progress(progress_callback)
 
     def _convert_files(self, input_folder, output_folder, progress_callback=None, sampling_frequency=1):
-        """ Convert files from .mat to .csv and resample to the appropriate frequency and update progress. """
+        """ Convert files from .mat, .csv, .xlsx to .csv and update progress. """
         for root, _, files in os.walk(input_folder):
-            total_files = len(files)  # Get the total number of files
-            processed_files = 0  # Track processed files
             
             self.logger.info(f"Converting files in folder: {input_folder} to .csv")
             for file in tqdm(files, desc="Converting files"):
-                if file.endswith('.mat'):
-                    file_path = os.path.join(root, file)
+                file_path = os.path.join(root, file)
+                if file.lower().endswith('.mat'):
                     self._convert_mat_to_csv(file_path, output_folder)
                     self.logger.info(f"Converted {file_path} to CSV")
-                    processed_files += 1
-                    self.processed_files += 1  # Update the overall processed files count
+                    self.processed_files += 1
+                    self._update_progress(progress_callback)
+                elif file.lower().endswith('.csv'):
+                    self._convert_csv_to_csv(file_path, output_folder)
+                    self.logger.info(f"Converted {file_path} to CSV")
+                    self.processed_files += 1
+                    self._update_progress(progress_callback)
+                elif file.lower().endswith(('.xlsx', '.xls')):
+                    self._convert_excel_to_csv(file_path, output_folder)
+                    self.logger.info(f"Converted {file_path} to CSV")
+                    self.processed_files += 1
                     self._update_progress(progress_callback)
 
                 # Explicitly clear memory after each conversion
                 gc.collect()  # Explicit garbage collection after processing each file
 
     def _convert_and_resample_files(self, input_folder, output_folder, progress_callback=None, sampling_frequency='1S'):
-        """ Convert files from .mat to .csv and resample to the appropriate frequency and update progress. """
+        """ Convert files from .mat, .csv, .xlsx to .csv, resample, and update progress. """
         for root, _, files in os.walk(input_folder):
-            total_files = len(files)  # Get the total number of files
-            processed_files = 0  # Track processed files
             
-            self.logger.info(f"Converting files in folder: {input_folder} to .csv")
-            for file in tqdm(files, desc="Converting files"):
-                if file.endswith('.mat'):
-                    file_path = os.path.join(root, file)
+            self.logger.info(f"Converting and resampling files in folder: {input_folder} to .csv")
+            for file in tqdm(files, desc="Converting and resampling files"):
+                file_path = os.path.join(root, file)
+                if file.lower().endswith('.mat'):
                     self._convert_mat_to_csv_resampled(file_path, output_folder, sampling_frequency)
-                    self.logger.info(f"Converted {file_path} to CSV")
-                    processed_files += 1
-                    self.processed_files += 1  # Update the overall processed files count
+                    self.logger.info(f"Converted and resampled {file_path} to CSV")
+                    self.processed_files += 1
+                    self._update_progress(progress_callback)
+                elif file.lower().endswith('.csv'):
+                    # Assuming CSVs might also need resampling
+                    self._convert_csv_to_csv_resampled(file_path, output_folder, sampling_frequency)
+                    self.logger.info(f"Converted and resampled {file_path} to CSV")
+                    self.processed_files += 1
+                    self._update_progress(progress_callback)
+                elif file.lower().endswith(('.xlsx', '.xls')):
+                    # Assuming Excels might also need resampling
+                    self._convert_excel_to_csv_resampled(file_path, output_folder, sampling_frequency)
+                    self.logger.info(f"Converted and resampled {file_path} to CSV")
+                    self.processed_files += 1
                     self._update_progress(progress_callback)
 
                 # Explicitly clear memory after each conversion
@@ -162,6 +180,75 @@ class DataProcessorArbin:
         del df
         gc.collect()  # Force garbage collection
         self.logger.info(f"Converted mat file to CSV and saved in processed folder.")
+
+    def _convert_csv_to_csv(self, csv_file_path, output_folder):
+        """Convert CSV file to a standardized CSV format."""
+        try:
+            df = pd.read_csv(csv_file_path)
+            
+            # Define potential column names and their standard mappings
+            column_mapping = {
+                'Time': 'Timestamp', 'timestamp': 'Timestamp', 'Record Time': 'Timestamp',
+                'Voltage': 'Voltage', 'voltage': 'Voltage', 'Voltage(V)': 'Voltage',
+                'Current': 'Current', 'current': 'Current', 'Current(A)': 'Current',
+                'Temperature': 'Temp', 'temperature': 'Temp', 'Battery_Temp_degC': 'Temp', 'Aux_Temperature_1(C)': 'Temp',
+                'SOC': 'SOC', 'soc': 'SOC', 'SOC(%)': 'SOC'
+            }
+            
+            # Rename columns based on the mapping
+            df.rename(columns=column_mapping, inplace=True)
+            
+            # Select only the standard columns, if they exist
+            standard_columns = ['Timestamp', 'Voltage', 'Current', 'Temp', 'SOC']
+            df_processed = df[[col for col in standard_columns if col in df.columns]]
+
+            # Ensure all standard columns are present, fill with NaN if not
+            for col in standard_columns:
+                if col not in df_processed.columns:
+                    df_processed[col] = np.nan
+            
+            csv_file_name = os.path.join(output_folder, os.path.splitext(os.path.basename(csv_file_path))[0] + '.csv')
+            df_processed.to_csv(csv_file_name, index=False)
+            self.logger.info(f"Successfully converted {csv_file_path} to {csv_file_name}")
+
+        except Exception as e:
+            self.logger.error(f"Error converting CSV file {csv_file_path}: {e}")
+        finally:
+            del df
+            gc.collect()
+
+    def _convert_excel_to_csv(self, excel_file_path, output_folder):
+        """Convert Excel file to a standardized CSV format."""
+        try:
+            # Reading the first sheet by default
+            df = pd.read_excel(excel_file_path, sheet_name=0) 
+
+            column_mapping = {
+                'Time': 'Timestamp', 'timestamp': 'Timestamp', 'Record Time': 'Timestamp',
+                'Voltage': 'Voltage', 'voltage': 'Voltage', 'Voltage(V)': 'Voltage',
+                'Current': 'Current', 'current': 'Current', 'Current(A)': 'Current',
+                'Temperature': 'Temp', 'temperature': 'Temp', 'Battery_Temp_degC': 'Temp', 'Aux_Temperature_1(C)': 'Temp',
+                'SOC': 'SOC', 'soc': 'SOC', 'SOC(%)': 'SOC'
+            }
+            
+            df.rename(columns=column_mapping, inplace=True)
+            
+            standard_columns = ['Timestamp', 'Voltage', 'Current', 'Temp', 'SOC']
+            df_processed = df[[col for col in standard_columns if col in df.columns]]
+
+            for col in standard_columns:
+                if col not in df_processed.columns:
+                    df_processed[col] = np.nan
+
+            csv_file_name = os.path.join(output_folder, os.path.splitext(os.path.basename(excel_file_path))[0] + '.csv')
+            df_processed.to_csv(csv_file_name, index=False)
+            self.logger.info(f"Successfully converted {excel_file_path} to {csv_file_name}")
+
+        except Exception as e:
+            self.logger.error(f"Error converting Excel file {excel_file_path}: {e}")
+        finally:
+            del df
+            gc.collect()
 
     def _convert_mat_to_csv_resampled(self, mat_file, output_folder, sampling_frequency=1):
         """
@@ -197,6 +284,109 @@ class DataProcessorArbin:
         gc.collect()  # Force garbage collection
         self.logger.info(f"Converted mat file to CSV and saved in processed folder.")
         
+    def _convert_csv_to_csv_resampled(self, csv_file_path, output_folder, sampling_frequency='1S'):
+        """Converts a CSV file to a standardized, resampled CSV file."""
+        try:
+            df = pd.read_csv(csv_file_path)
+
+            column_mapping = {
+                'Time': 'Timestamp', 'timestamp': 'Timestamp', 'Record Time': 'Timestamp',
+                'Voltage': 'Voltage', 'voltage': 'Voltage', 'Voltage(V)': 'Voltage',
+                'Current': 'Current', 'current': 'Current', 'Current(A)': 'Current',
+                'Temperature': 'Temp', 'temperature': 'Temp', 'Battery_Temp_degC': 'Temp', 'Aux_Temperature_1(C)': 'Temp',
+                'SOC': 'SOC', 'soc': 'SOC', 'SOC(%)': 'SOC'
+            }
+            df.rename(columns=column_mapping, inplace=True)
+
+            # Ensure 'Timestamp' column exists for resampling
+            if 'Timestamp' not in df.columns:
+                self.logger.error(f"'Timestamp' column not found in {csv_file_path} after mapping. Skipping resampling.")
+                # Save as is, or handle error differently
+                self._convert_csv_to_csv(csv_file_path, output_folder) # Fallback to non-resampled conversion
+                return
+
+            # Select standard columns
+            standard_columns = ['Timestamp', 'Voltage', 'Current', 'Temp', 'SOC']
+            df_processed = df[[col for col in standard_columns if col in df.columns]]
+            for col in standard_columns: # Ensure all standard columns exist
+                if col not in df_processed.columns:
+                    df_processed[col] = np.nan
+            
+            # Rename 'Timestamp' to 'Time' for _resample_data compatibility if needed, or adapt _resample_data
+            # For now, let's assume _resample_data can handle 'Timestamp' or we adapt it.
+            # If _resample_data strictly expects 'Time', uncomment below:
+            # df_processed.rename(columns={'Timestamp': 'Time'}, inplace=True)
+
+            df_resampled = self._resample_data(df_processed.copy(), sampling_frequency) # Pass a copy to avoid SettingWithCopyWarning
+            if df_resampled is None:
+                self.logger.error(f"Failed to resample data from {csv_file_path}. Saving non-resampled.")
+                # Fallback: save the processed but non-resampled data
+                csv_file_name = os.path.join(output_folder, os.path.splitext(os.path.basename(csv_file_path))[0] + '_processed.csv')
+                df_processed.to_csv(csv_file_name, index=False)
+                return
+
+            # If 'Time' was used for resampling and needs to be 'Timestamp' in output:
+            # df_resampled.rename(columns={'Time': 'Timestamp'}, inplace=True)
+
+            csv_file_name = os.path.join(output_folder, os.path.splitext(os.path.basename(csv_file_path))[0] + '.csv')
+            df_resampled.to_csv(csv_file_name, index=False)
+            self.logger.info(f"Successfully converted and resampled {csv_file_path} to {csv_file_name}")
+
+        except Exception as e:
+            self.logger.error(f"Error converting and resampling CSV file {csv_file_path}: {e}")
+        finally:
+            if 'df' in locals(): del df
+            if 'df_processed' in locals(): del df_processed
+            if 'df_resampled' in locals(): del df_resampled
+            gc.collect()
+
+    def _convert_excel_to_csv_resampled(self, excel_file_path, output_folder, sampling_frequency='1S'):
+        """Converts an Excel file to a standardized, resampled CSV file."""
+        try:
+            df = pd.read_excel(excel_file_path, sheet_name=0)
+
+            column_mapping = {
+                'Time': 'Timestamp', 'timestamp': 'Timestamp', 'Record Time': 'Timestamp',
+                'Voltage': 'Voltage', 'voltage': 'Voltage', 'Voltage(V)': 'Voltage',
+                'Current': 'Current', 'current': 'Current', 'Current(A)': 'Current',
+                'Temperature': 'Temp', 'temperature': 'Temp', 'Battery_Temp_degC': 'Temp', 'Aux_Temperature_1(C)': 'Temp',
+                'SOC': 'SOC', 'soc': 'SOC', 'SOC(%)': 'SOC'
+            }
+            df.rename(columns=column_mapping, inplace=True)
+
+            if 'Timestamp' not in df.columns:
+                self.logger.error(f"'Timestamp' column not found in {excel_file_path} after mapping. Skipping resampling.")
+                self._convert_excel_to_csv(excel_file_path, output_folder) # Fallback
+                return
+
+            standard_columns = ['Timestamp', 'Voltage', 'Current', 'Temp', 'SOC']
+            df_processed = df[[col for col in standard_columns if col in df.columns]]
+            for col in standard_columns:
+                if col not in df_processed.columns:
+                    df_processed[col] = np.nan
+            
+            # df_processed.rename(columns={'Timestamp': 'Time'}, inplace=True) # If _resample_data needs 'Time'
+
+            df_resampled = self._resample_data(df_processed.copy(), sampling_frequency)
+            if df_resampled is None:
+                self.logger.error(f"Failed to resample data from {excel_file_path}. Saving non-resampled.")
+                csv_file_name = os.path.join(output_folder, os.path.splitext(os.path.basename(excel_file_path))[0] + '_processed.csv')
+                df_processed.to_csv(csv_file_name, index=False)
+                return
+            
+            # df_resampled.rename(columns={'Time': 'Timestamp'}, inplace=True) # If 'Timestamp' is preferred output
+
+            csv_file_name = os.path.join(output_folder, os.path.splitext(os.path.basename(excel_file_path))[0] + '.csv')
+            df_resampled.to_csv(csv_file_name, index=False)
+            self.logger.info(f"Successfully converted and resampled {excel_file_path} to {csv_file_name}")
+
+        except Exception as e:
+            self.logger.error(f"Error converting and resampling Excel file {excel_file_path}: {e}")
+        finally:
+            if 'df' in locals(): del df
+            if 'df_processed' in locals(): del df_processed
+            if 'df_resampled' in locals(): del df_resampled
+            gc.collect()
 
     def extract_data_from_matfile(self, file_path):
         """
@@ -241,32 +431,45 @@ class DataProcessorArbin:
         
     def _resample_data(self, df, sampling_frequency='1S'):
         """
-        Resamples the DataFrame to a specified frequency based on the Time column.
-
-        Parameters:
-        df (pd.DataFrame): Input DataFrame with a 'Time' column.
-        target_freq (str): Target frequency (e.g., '1S' for 1Hz, '100ms' for 10Hz).
-
-        Returns:
-        pd.DataFrame: Resampled DataFrame.
+        Resamples the DataFrame to a specified frequency based on the Time or Timestamp column.
         """
         try:
-            # Ensure 'Time' is present in the dataset
-            if 'Time' not in df.columns:
-                print("No 'Time' column found in the dataset.")
+            time_col = None
+            if 'Timestamp' in df.columns:
+                time_col = 'Timestamp'
+            elif 'Time' in df.columns: # Fallback for existing MAT file processing
+                time_col = 'Time'
+
+            if time_col is None:
+                self.logger.error("No 'Time' or 'Timestamp' column found in the dataset for resampling.")
                 return None
             
-            # Convert 'Time' to seconds (if not already datetime)
-            if not pd.api.types.is_datetime64_any_dtype(df['Time']):
-                df['Time'] = pd.to_datetime(df['Time'], unit='s')
+            # Convert time column to datetime objects
+            if not pd.api.types.is_datetime64_any_dtype(df[time_col]):
+                # Attempt to infer datetime format, or assume seconds if it's numeric
+                try:
+                    df[time_col] = pd.to_datetime(df[time_col])
+                except ValueError: # If direct conversion fails, try assuming it's seconds from epoch or similar
+                    df[time_col] = pd.to_datetime(df[time_col], unit='s', errors='coerce')
+
+            if df[time_col].isnull().any():
+                self.logger.warning(f"Null values found in '{time_col}' column after conversion. Resampling might be affected.")
+                df.dropna(subset=[time_col], inplace=True) # Drop rows where time is NaT
+
+            if df.empty:
+                self.logger.error(f"DataFrame is empty after handling NaT in '{time_col}'. Cannot resample.")
+                return None
 
             # Set time as index for resampling
-            df.set_index('Time', inplace=True)
+            df.set_index(time_col, inplace=True)
 
             # Resample using the specified frequency, interpolating missing values
-            df_resampled = df.resample(sampling_frequency).mean(numeric_only=True).interpolate()
+            # Ensure only numeric columns are aggregated
+            numeric_cols = df.select_dtypes(include=np.number).columns
+            df_resampled = df[numeric_cols].resample(sampling_frequency).mean().interpolate()
 
-            # Reset index to keep 'Time' as a column
+
+            # Reset index to keep time column
             df_resampled.reset_index(inplace=True)
 
             return df_resampled
@@ -274,7 +477,7 @@ class DataProcessorArbin:
             self.logger.error(f"Error resampling data: {e}")
             return None
     
-    def _extract_data_from_matfile(file_path):
+    def _extract_data_from_matfile(file_path): # This seems to be a duplicate static method definition. Should be removed or be self.extract_data_from_matfile
         """
         Extracts specific fields from a .mat file and returns them as a DataFrame.
         
@@ -326,5 +529,4 @@ class DataProcessorArbin:
             progress_value = int((self.processed_files / self.total_files) * 100)
             self.logger.debug(f"Progress: {progress_value}%")
             progress_callback(progress_value)
-            
-    
+
