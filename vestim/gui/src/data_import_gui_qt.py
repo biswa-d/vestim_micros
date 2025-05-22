@@ -140,7 +140,7 @@ class DataImportGUI(QMainWindow):
         self.data_source_combo.setFixedWidth(120)  # Set a specific width for the ComboBox
         self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
         combined_layout.addWidget(self.data_source_combo)
-        self.data_source_combo.currentIndexChanged.connect(self.update_file_display)
+        self.data_source_combo.currentIndexChanged.connect(self.on_data_source_selection_changed) # Renamed slot
 
         # Add stretchable space between the dropdown and the button
         combined_layout.addStretch(1)  # Push the button to the right
@@ -177,9 +177,13 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(False)  # Initially hidden
         self.main_layout.addWidget(self.progress_bar)
 
-    def update_file_display(self):
+    def _filter_files_by_selected_source(self): # Renamed method, made "private"
         selected_source = self.data_source_combo.currentText()
-        if (selected_source == "Arbin" or selected_source == "STLA"):
+        logger.info(f"Data source changed to: {selected_source}. Filtering file display.") # Added log
+
+        # Repopulate both lists based on the new source
+        # If folder paths are not set, populate_file_list will handle it gracefully (clear list or do nothing)
+        if selected_source == "Arbin" or selected_source == "STLA":
             # Show only .mat files
             self.populate_file_list(self.train_folder_path, self.train_list_widget, specific_extension=".mat")
             self.populate_file_list(self.test_folder_path, self.test_list_widget, specific_extension=".mat")
@@ -192,8 +196,23 @@ class DataImportGUI(QMainWindow):
             self.populate_file_list(self.train_folder_path, self.train_list_widget, specific_extension=".mpt") # Or .mpr, .mpt
             self.populate_file_list(self.test_folder_path, self.test_list_widget, specific_extension=".mpt") # Or .mpr, .mpt
         else: # Default or unknown, show all supported
-            self.populate_file_list(self.train_folder_path, self.train_list_widget)
-            self.populate_file_list(self.test_folder_path, self.test_list_widget)
+            self.populate_file_list(self.train_folder_path, self.train_list_widget) # Fallback to default extensions
+            self.populate_file_list(self.test_folder_path, self.test_list_widget)   # Fallback to default extensions
+
+    def on_data_source_selection_changed(self, index=None): # New slot method
+        """Handles the currentIndexChanged signal from the data_source_combo."""
+        # This method is called when the user manually changes the data source.
+        # It will then filter the already displayed files (if a folder is selected)
+        # or ensure the correct filter is applied if a folder is selected later.
+        if self.train_folder_path: # Only update if a folder has been selected
+            self._filter_files_by_selected_source()
+        elif self.test_folder_path: # Also consider if only test folder is selected
+             self._filter_files_by_selected_source()
+        # If no folder is selected yet, _filter_files_by_selected_source will be called by update_file_display
+        # which in turn is called by select_folder after a folder is chosen.
+        # No, the above comment is wrong. _filter_files_by_selected_source should just run.
+        # populate_file_list handles empty folder_path.
+        self._filter_files_by_selected_source()
 
 
     def select_train_folder(self):
