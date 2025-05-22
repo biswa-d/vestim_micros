@@ -47,6 +47,7 @@ class DataImportGUI(QMainWindow):
         # Resampling moved to data augmentation GUI
         self.organizer_thread = None
         self.organizer = None
+        # self.is_selecting_folder_flag = False # Removed flag, will use blockSignals
 
         self.initUI()
 
@@ -199,34 +200,34 @@ class DataImportGUI(QMainWindow):
             self.populate_file_list(self.train_folder_path, self.train_list_widget) # Fallback to default extensions
             self.populate_file_list(self.test_folder_path, self.test_list_widget)   # Fallback to default extensions
 
-    def on_data_source_selection_changed(self, index=None): # New slot method
+    def on_data_source_selection_changed(self, index=None):
         """Handles the currentIndexChanged signal from the data_source_combo."""
-        # This method is called when the user manually changes the data source.
-        # It will then filter the already displayed files (if a folder is selected)
-        # or ensure the correct filter is applied if a folder is selected later.
-        if self.train_folder_path: # Only update if a folder has been selected
-            self._filter_files_by_selected_source()
-        elif self.test_folder_path: # Also consider if only test folder is selected
-             self._filter_files_by_selected_source()
-        # If no folder is selected yet, _filter_files_by_selected_source will be called by update_file_display
-        # which in turn is called by select_folder after a folder is chosen.
-        # No, the above comment is wrong. _filter_files_by_selected_source should just run.
-        # populate_file_list handles empty folder_path.
+        # This is now only triggered by genuine user changes or explicit programmatic changes
+        # where signals were not blocked.
+        logger.info("on_data_source_selection_changed: Source selection changed by user/event. Filtering files.")
         self._filter_files_by_selected_source()
 
 
     def select_train_folder(self):
         self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder")
         if self.train_folder_path:
-            self.populate_file_list(self.train_folder_path, self.train_list_widget)
-            logger.info(f"Selected training folder: {self.train_folder_path}")
+            self.data_source_combo.blockSignals(True)
+            try:
+                self.populate_file_list(self.train_folder_path, self.train_list_widget, specific_extension=None) # Show all default types
+                logger.info(f"Selected training folder: {self.train_folder_path}. Populated with default extensions.")
+            finally:
+                self.data_source_combo.blockSignals(False)
         self.check_folders_selected()
 
     def select_test_folder(self):
         self.test_folder_path = QFileDialog.getExistingDirectory(self, "Select Testing Folder")
         if self.test_folder_path:
-            self.populate_file_list(self.test_folder_path, self.test_list_widget)
-            logger.info(f"Selected testing folder: {self.test_folder_path}")
+            self.data_source_combo.blockSignals(True)
+            try:
+                self.populate_file_list(self.test_folder_path, self.test_list_widget, specific_extension=None) # Show all default types
+                logger.info(f"Selected testing folder: {self.test_folder_path}. Populated with default extensions.")
+            finally:
+                self.data_source_combo.blockSignals(False)
         self.check_folders_selected()
 
     def populate_file_list(self, folder_path, list_widget, specific_extension=None):
