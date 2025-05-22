@@ -66,7 +66,7 @@ class VEstimTestingService:
 
                     # Store the last timestep prediction and corresponding true value
                     all_predictions.append(y_out[:, -1].cpu().numpy())
-                    y_test.append(y_true.cpu().numpy())
+                    y_test_normalized_list.append(y_true.cpu().numpy())
 
             # Convert all batch predictions to a single array
             y_pred_normalized = np.concatenate(all_predictions).flatten()

@@ -30,6 +30,8 @@ from vestim.logger_config import setup_logger  # Assuming you have logger_config
 # Set up initial logging to a default log file
 logger = setup_logger(log_file='default.log')  # Log everything to 'default.log' initially
 
+DEFAULT_DATA_EXTENSIONS = [".csv", ".txt", ".mat", ".xls", ".xlsx", ".RES"] # Added .RES for Biologic, expand as needed
+
 class DataImportGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -133,7 +135,7 @@ class DataImportGUI(QMainWindow):
 
         # Data source selection with consistent height and styling
         self.data_source_combo = QComboBox(self)
-        self.data_source_combo.addItems(["Arbin", "STLA", "Digatron"])  # Add the data sources
+        self.data_source_combo.addItems(["Arbin", "STLA", "Digatron", "Biologic"])  # Added Biologic
         self.data_source_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
         self.data_source_combo.setFixedWidth(120)  # Set a specific width for the ComboBox
         self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
@@ -179,12 +181,20 @@ class DataImportGUI(QMainWindow):
         selected_source = self.data_source_combo.currentText()
         if (selected_source == "Arbin" or selected_source == "STLA"):
             # Show only .mat files
-            self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".mat")
-            self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".mat")
+            self.populate_file_list(self.train_folder_path, self.train_list_widget, specific_extension=".mat")
+            self.populate_file_list(self.test_folder_path, self.test_list_widget, specific_extension=".mat")
         elif selected_source == "Digatron":
             # Show only .csv files
-            self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extension=".csv")
-            self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extension=".csv")
+            self.populate_file_list(self.train_folder_path, self.train_list_widget, specific_extension=".csv")
+            self.populate_file_list(self.test_folder_path, self.test_list_widget, specific_extension=".csv")
+        elif selected_source == "Biologic":
+            # Show only .res files (example, assuming .res is common for Biologic raw data)
+            self.populate_file_list(self.train_folder_path, self.train_list_widget, specific_extension=".mpt") # Or .mpr, .mpt
+            self.populate_file_list(self.test_folder_path, self.test_list_widget, specific_extension=".mpt") # Or .mpr, .mpt
+        else: # Default or unknown, show all supported
+            self.populate_file_list(self.train_folder_path, self.train_list_widget)
+            self.populate_file_list(self.test_folder_path, self.test_list_widget)
+
 
     def select_train_folder(self):
         self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder")
@@ -200,13 +210,31 @@ class DataImportGUI(QMainWindow):
             logger.info(f"Selected testing folder: {self.test_folder_path}")
         self.check_folders_selected()
 
-    def populate_file_list(self, folder_path, list_widget, file_extension=".mat"):
-        """ Populate the list widget with specified file extension. """
+    def populate_file_list(self, folder_path, list_widget, specific_extension=None):
+        """
+        Populate the list widget with files.
+        If specific_extension is provided, filters by that extension.
+        Otherwise, shows files with any of the DEFAULT_DATA_EXTENSIONS.
+        """
         list_widget.clear()
-        for root, _, files in os.walk(folder_path):
-            for file in files:
-                if file.endswith(file_extension):  # Filter files by the selected extension
-                    list_widget.addItem(os.path.join(root, file))
+        if not folder_path or not os.path.isdir(folder_path): # Check if folder_path is valid
+            # self.logger.warning(f"populate_file_list: Invalid folder_path: {folder_path}") # Optional logging
+            return
+
+        extensions_to_check = []
+        if specific_extension:
+            extensions_to_check = [specific_extension.lower()]
+        else:
+            extensions_to_check = [ext.lower() for ext in DEFAULT_DATA_EXTENSIONS]
+
+        try:
+            for root, _, files in os.walk(folder_path):
+                for file in files:
+                    if any(file.lower().endswith(ext) for ext in extensions_to_check):
+                        list_widget.addItem(os.path.join(root, file))
+        except Exception as e:
+            logger.error(f"Error populating file list for {folder_path}: {e}", exc_info=True)
+            # Optionally show a message to the user if os.walk fails (e.g. permissions)
 
     def check_folders_selected(self):
         if self.train_folder_path and self.test_folder_path:
