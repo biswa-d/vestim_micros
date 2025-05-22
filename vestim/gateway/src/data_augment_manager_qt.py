@@ -29,8 +29,12 @@ from vestim.logger_config import setup_logger
 from vestim.services.data_processor.src.data_augment_service import DataAugmentService
 from vestim.gateway.src.job_manager_qt import JobManager # Corrected import
 from vestim.services import normalization_service # Added for normalization
+import pandas as pd # Added for pd.api.types
+
 # Set up logging
 logger = setup_logger(log_file='data_augment_manager.log')
+
+DEFAULT_NORM_EXCLUDE_COLS = ['time', 'Time', 'timestamp', 'Timestamp', 'datetime', 'Epoch', 'Cycle_Index', 'Step_Index', 'File_Index']
 
 class DataAugmentManager(QObject): # Inherit from QObject
     """Manager class for data augmentation operations"""
@@ -135,65 +139,62 @@ class DataAugmentManager(QObject): # Inherit from QObject
            if normalize_data:
                 if not train_files_for_stats_calc:
                     self.logger.warning("Normalization requested, but no training files found to calculate statistics. Skipping normalization.")
-                    normalize_data = False # Disable normalization if no training data for stats
-                elif not normalization_feature_columns:
-                    self.logger.warning("Normalization requested, but no feature columns specified. Skipping normalization.")
-                    normalize_data = False
+                    normalize_data = False # This is the mutable processing flag
                 else:
+                    # All checks passed so far for initial conditions, proceed with pre-processing for stats
                     self.logger.info("Preparing for normalization: performing preliminary processing on training files to gather data for stats.")
                     dataframes_for_stats = []
-                    # Temporarily apply resampling and column creation to training files to get data for stats
                     for train_file_path_for_stats in train_files_for_stats_calc:
                         try:
-                            df_temp_for_stats = pd.read_csv(train_file_path_for_stats) # TODO: Consider a more generic data loader if not always CSV
-                            
-                            # Apply resampling if enabled (using parameters passed to apply_augmentations)
+                            df_temp_for_stats = pd.read_csv(train_file_path_for_stats)
                             if resampling_frequency and not df_temp_for_stats.empty:
                                 df_temp_for_stats = self.service.resample_data(df_temp_for_stats, resampling_frequency)
-                            
-                            # Apply column creation if enabled
                             if column_formulas and df_temp_for_stats is not None and not df_temp_for_stats.empty:
                                 df_temp_for_stats = self.service.create_columns(df_temp_for_stats, column_formulas)
                             
                             if df_temp_for_stats is not None and not df_temp_for_stats.empty:
                                 dataframes_for_stats.append(df_temp_for_stats)
                             else:
-                                self.logger.warning(f"Temporary DataFrame for stats from {train_file_path_for_stats} became empty/None after pre-processing. Skipping for stats.")
+                                self.logger.warning(f"Temp DataFrame for stats from {train_file_path_for_stats} became empty/None. Skipping for stats.")
                         except Exception as e_preproc:
-                            self.logger.error(f"Error during preliminary processing of {train_file_path_for_stats} for stats: {e_preproc}. Skipping this file for stats calculation.")
+                            self.logger.error(f"Error during preliminary processing of {train_file_path_for_stats} for stats: {e_preproc}. Skipping.")
                             continue
                     
                     if not dataframes_for_stats:
-                        self.logger.error("No valid DataFrames generated from training files for stats calculation after preliminary processing. Skipping normalization.")
+                        self.logger.error("No valid DataFrames generated from training files for stats calculation. Skipping normalization.")
                         normalize_data = False
                     else:
-                        # Determine actual columns to normalize
-                        # If normalization_feature_columns is None, infer from the first processed DataFrame
-                        inferred_feature_columns = []
-                        if not normalization_feature_columns and dataframes_for_stats:
+                        # Determine feature columns for the scaler
+                        feature_columns_for_scaler_basis = []
+                        if normalization_feature_columns: # User explicitly provided columns
+                            feature_columns_for_scaler_basis = list(normalization_feature_columns)
+                            self.logger.info(f"Using user-provided feature columns for normalization basis: {feature_columns_for_scaler_basis}")
+                        else: # Infer numeric columns from the first (processed) training DataFrame
                             first_df_for_cols = dataframes_for_stats[0]
-                            inferred_feature_columns = [col for col in first_df_for_cols.columns if pd.api.types.is_numeric_dtype(first_df_for_cols[col])]
-                            self.logger.info(f"Inferred numeric feature columns for normalization: {inferred_feature_columns}")
-                            if not inferred_feature_columns:
-                                self.logger.warning("Could not infer any numeric columns for normalization. Skipping normalization.")
-                                normalize_data = False
-                        
-                        current_feature_columns_source = normalization_feature_columns if normalization_feature_columns else inferred_feature_columns
+                            feature_columns_for_scaler_basis = [col for col in first_df_for_cols.columns if pd.api.types.is_numeric_dtype(first_df_for_cols[col])]
+                            self.logger.info(f"Inferred numeric columns for normalization basis: {feature_columns_for_scaler_basis}")
 
-                        if normalize_data: # Re-check as it might have been set to False above
-                            actual_columns_to_normalize = list(current_feature_columns_source) # Make a copy
-                            if normalization_exclude_columns:
-                                actual_columns_to_normalize = [col for col in actual_columns_to_normalize if col not in normalization_exclude_columns]
-                            
+                        if not feature_columns_for_scaler_basis:
+                            self.logger.warning("No basis feature columns (user-provided or inferred) for normalization. Skipping normalization.")
+                            normalize_data = False
+                        else:
+                            # Apply exclusions to get the final list of columns to normalize
+                            if normalization_exclude_columns: # User-defined exclusions
+                                actual_columns_to_normalize = [col for col in feature_columns_for_scaler_basis if col not in normalization_exclude_columns]
+                                self.logger.info(f"Applying user-defined exclusions: {normalization_exclude_columns}")
+                            else: # Default exclusions
+                                actual_columns_to_normalize = [col for col in feature_columns_for_scaler_basis if col not in DEFAULT_NORM_EXCLUDE_COLS]
+                                self.logger.info(f"Applying default exclusions: {DEFAULT_NORM_EXCLUDE_COLS}")
+
                             if not actual_columns_to_normalize:
                                 self.logger.warning("No columns remaining for normalization after exclusions. Skipping normalization.")
                                 normalize_data = False
                             else:
-                                self.logger.info(f"Actual columns to normalize after considering formulas and exclusions: {actual_columns_to_normalize}")
+                                self.logger.info(f"Final actual columns to normalize: {actual_columns_to_normalize}")
+                                # Now, calculate stats using these columns and the processed DataFrames
                                 stats = normalization_service.calculate_global_dataset_stats(
-                                    data_items=dataframes_for_stats, # Pass list of pre-processed DataFrames
+                                    data_items=dataframes_for_stats,
                                     feature_columns=actual_columns_to_normalize
-                                    # data_reading_func and read_kwargs are not used when data_items are DataFrames
                                 )
                                 if stats:
                                     global_scaler = normalization_service.create_scaler_from_stats(stats, actual_columns_to_normalize)
@@ -229,9 +230,9 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                     else:
                                         self.logger.error("Failed to create global scaler from stats. Normalization will be skipped.")
                                         normalize_data = False # Disable if scaler not created
-                        else:
-                            self.logger.error("Failed to calculate global stats for normalization. Normalization will be skipped.")
-                            normalize_data = False # Disable if stats calculation failed
+                                else:
+                                    self.logger.error("Failed to calculate global stats for normalization. Normalization will be skipped.")
+                                    normalize_data = False # Disable if stats calculation failed
             
             # If normalization was attempted but ultimately skipped, record this
            if normalize_data_initially_requested and not global_scaler: # Check if user wanted it AND it failed
