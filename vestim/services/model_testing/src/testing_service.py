@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN
+from vestim.services import normalization_service as norm_svc # Added for normalization
+import json # For potentially loading metadata
 
 class VEstimTestingService:
     def __init__(self, device='cpu'):
@@ -27,18 +29,21 @@ class VEstimTestingService:
         model.eval()  # Set the model to evaluation mode
         return model
 
-    def test_model(self, model, test_loader, hidden_units, num_layers, target_column_name: str):
+    def test_model(self, model, test_loader, hidden_units, num_layers, target_column_name: str,
+                   task_info: dict = None): # Added task_info to access scaler details
         """
-        Tests the model on the provided test data and calculates multiple evaluation metrics with dynamic units.
+        Tests the model on the provided test data and calculates multiple evaluation metrics.
+        If normalization was applied during training, attempts to inverse_transform predictions and true values.
 
         :param model: The loaded model.
         :param test_loader: DataLoader for the test set.
         :param hidden_units: Number of hidden units in the model.
         :param num_layers: Number of layers in the model.
         :param target_column_name: Name of the target column to determine units.
+        :param task_info: Dictionary containing task details, potentially including normalization info.
         :return: A dictionary containing the predictions and evaluation metrics.
         """
-        all_predictions, y_test = [], []
+        all_predictions, y_test_normalized_list = [], [] # y_test is initially normalized if data was normalized
     
         with torch.no_grad():
             # Initialize hidden states for the first sample (removing batch dimension)
@@ -64,13 +69,76 @@ class VEstimTestingService:
                     y_test.append(y_true.cpu().numpy())
 
             # Convert all batch predictions to a single array
-            y_pred = np.concatenate(all_predictions).flatten()  # Combine all stored predictions
-            y_test = np.concatenate([y.flatten() for y in y_test])  # Combine all stored true values
+            y_pred_normalized = np.concatenate(all_predictions).flatten()
+            y_test_normalized = np.concatenate([y.flatten() for y in y_test_normalized_list])
 
-            # Debug prints
-            print(f"DEBUG: Trimmed y_pred shape: {y_pred.shape}, y_actual shape: {y_test.shape}")
+            print(f"DEBUG: Normalized y_pred shape: {y_pred_normalized.shape}, Normalized y_actual shape: {y_test_normalized.shape}")
 
-            # Compute evaluation metrics
+            # --- Inverse Transform if normalization was applied ---
+            y_pred_original_scale = y_pred_normalized.copy()
+            y_test_original_scale = y_test_normalized.copy()
+            scaler_loaded = None
+            normalization_applied_during_training = False
+            normalized_columns_during_training = [] # Columns the scaler was fit on
+
+            if task_info:
+                # Предполагается, что task_info['job_metadata'] содержит данные из job_metadata.json
+                # или task_info напрямую содержит 'normalization_applied', 'scaler_path', 'normalized_columns'
+                # Это должно быть установлено на этапе настройки обучения и сохранено с артефактами модели.
+                job_metadata = task_info.get('job_metadata', {}) # Example: if job_metadata is nested
+                normalization_applied_during_training = job_metadata.get('normalization_applied', False)
+                scaler_path_relative = job_metadata.get('scaler_path')
+                normalized_columns_during_training = job_metadata.get('normalized_columns', [])
+                
+                # Example: Construct absolute scaler_path if job_folder is available in task_info
+                # This part needs to be robust based on how scaler_path is stored.
+                job_folder_for_scaler = task_info.get('job_folder_augmented_from') # Needs to be added to task_info
+                
+                if normalization_applied_during_training and scaler_path_relative and job_folder_for_scaler and normalized_columns_during_training:
+                    # Ensure scaler_path is absolute
+                    if not os.path.isabs(scaler_path_relative):
+                        scaler_path_absolute = os.path.join(job_folder_for_scaler, scaler_path_relative)
+                    else:
+                        scaler_path_absolute = scaler_path_relative
+                    
+                    print(f"Normalization was applied during training. Attempting to load scaler from: {scaler_path_absolute}")
+                    scaler_loaded = norm_svc.load_scaler(scaler_path_absolute)
+                    if scaler_loaded:
+                        print(f"Scaler loaded. Applying inverse transform to target '{target_column_name}' using original feature set: {normalized_columns_during_training}")
+                        
+                        # Prepare DataFrame for inverse transform (this is crucial)
+                        # Create a DataFrame with all columns the scaler was fit on
+                        # Fill with dummy values (e.g., 0) then place the target column's data
+                        
+                        # Inverse transform predictions
+                        temp_df_pred = pd.DataFrame(0, index=np.arange(len(y_pred_normalized)), columns=normalized_columns_during_training)
+                        if target_column_name in temp_df_pred.columns:
+                            temp_df_pred[target_column_name] = y_pred_normalized
+                            df_pred_inv = norm_svc.inverse_transform_data(temp_df_pred, scaler_loaded, normalized_columns_during_training)
+                            y_pred_original_scale = df_pred_inv[target_column_name].values
+                        else:
+                            print(f"Warning: Target column '{target_column_name}' not in scaler's known columns. Cannot inverse transform y_pred.")
+
+                        # Inverse transform true values
+                        temp_df_test = pd.DataFrame(0, index=np.arange(len(y_test_normalized)), columns=normalized_columns_during_training)
+                        if target_column_name in temp_df_test.columns:
+                            temp_df_test[target_column_name] = y_test_normalized
+                            df_test_inv = norm_svc.inverse_transform_data(temp_df_test, scaler_loaded, normalized_columns_during_training)
+                            y_test_original_scale = df_test_inv[target_column_name].values
+                        else:
+                            print(f"Warning: Target column '{target_column_name}' not in scaler's known columns. Cannot inverse transform y_test.")
+                        
+                        print("Inverse transform applied to y_pred and y_test.")
+                    else:
+                        print(f"Warning: Failed to load scaler from {scaler_path_absolute}. Metrics will be on normalized scale.")
+                elif normalization_applied_during_training:
+                    print("Warning: Normalization was applied during training, but scaler path or related info is missing. Metrics on normalized scale.")
+            
+            # Use y_test_original_scale and y_pred_original_scale for metrics
+            # The existing multiplier logic might need adjustment if inverse transform is successful.
+            # If inverse transform happened, data is in original units. 'soc' might be 0-1.
+            # The multiplier for 'soc' (100.0) would still apply to convert 0-1 to percentage for display.
+            
             # Determine multiplier and unit based on target_column_name
             unit_suffix = ""
             multiplier = 1.0
@@ -90,16 +158,31 @@ class VEstimTestingService:
                 multiplier = 1.0  # Temperature already in the correct scale
             
             # Calculate error metrics with appropriate multipliers
-            rms_error_val = np.sqrt(mean_squared_error(y_test, y_pred)) * multiplier
-            mae_val = mean_absolute_error(y_test, y_pred) * multiplier
-            mape = np.mean(np.abs((y_test - y_pred) / np.maximum(1e-10, np.abs(y_test)))) * 100  # MAPE in percentage with safeguard against division by zero
-            r2 = r2_score(y_test, y_pred)
+            # Metrics are calculated on the potentially original scale values
+            y_for_metrics_actual = y_test_original_scale
+            y_for_metrics_pred = y_pred_original_scale
 
+            # If normalization was applied and inverse transform was successful,
+            # the data is now in its original scale (e.g. SOC might be 0-1).
+            # The multiplier logic for display (e.g. *100 for SOC %) should still apply.
+            # If inverse transform failed, y_for_metrics will be the normalized values.
+
+            rms_error_val = np.sqrt(mean_squared_error(y_for_metrics_actual, y_for_metrics_pred)) * multiplier
+            mae_val = mean_absolute_error(y_for_metrics_actual, y_for_metrics_pred) * multiplier
+            # MAPE calculation should use the original scale if available, otherwise normalized.
+            # Ensure y_for_metrics_actual in MAPE denominator is not zero.
+            mape_denominator = np.maximum(1e-10, np.abs(y_for_metrics_actual))
+            mape = np.mean(np.abs((y_for_metrics_actual - y_for_metrics_pred) / mape_denominator)) * 100
+            r2 = r2_score(y_for_metrics_actual, y_for_metrics_pred)
+
+            print(f"Metrics calculated on (potentially) original scale values.")
             print(f"RMS Error: {rms_error_val} {unit_display}, MAE: {mae_val} {unit_display}, MAPE: {mape}%, R²: {r2}")
 
             results_dict = {
-                'predictions': y_pred,
-                'true_values': y_test,
+                'predictions_original_scale': y_pred_original_scale,
+                'true_values_original_scale': y_test_original_scale,
+                'predictions_normalized': y_pred_normalized if normalization_applied_during_training else None, # Store normalized if they differ
+                'true_values_normalized': y_test_normalized if normalization_applied_during_training else None, # Store normalized if they differ
                 f'rms_error{unit_suffix}': rms_error_val,
                 f'mae{unit_suffix}': mae_val,
                 'mape_percent': mape, # Explicitly state mape is percent
@@ -120,12 +203,14 @@ class VEstimTestingService:
 
             # Run the testing process (returns results but does NOT save them)
             target_column = task['data_loader_params'].get('target_column', 'unknown_target')
+            # Pass the whole 'task' dictionary as 'task_info'
             results = self.test_model(
-                model,
-                test_loader,
-                task['model_metadata']["hidden_units"],
-                task['model_metadata']["num_layers"],
-                target_column_name=target_column
+                model=model,
+                test_loader=test_loader,
+                hidden_units=task['model_metadata']["hidden_units"],
+                num_layers=task['model_metadata']["num_layers"],
+                target_column_name=target_column,
+                task_info=task # Pass the entire task dictionary
             )
 
             print(f"Model testing completed for file: {test_file_path}")

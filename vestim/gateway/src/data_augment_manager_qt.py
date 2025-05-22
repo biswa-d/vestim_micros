@@ -191,15 +191,47 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                 normalize_data = False
                             else:
                                 self.logger.info(f"Final actual columns to normalize: {actual_columns_to_normalize}")
+                                
+                                scaler_output_dir = os.path.join(job_folder, "scalers") # Define earlier for stats file
+                                try:
+                                    os.makedirs(scaler_output_dir, exist_ok=True)
+                                except OSError as e_mkdir:
+                                    self.logger.error(f"Could not create scaler directory {scaler_output_dir}: {e_mkdir}. Normalization may fail to save outputs.")
+                                    # Potentially set normalize_data = False here if dir creation is critical
+
                                 # Now, calculate stats using these columns and the processed DataFrames
                                 stats = normalization_service.calculate_global_dataset_stats(
                                     data_items=dataframes_for_stats,
                                     feature_columns=actual_columns_to_normalize
                                 )
                                 if stats:
+                                    # --- Save the calculated global min/max stats to a JSON file ---
+                                    global_min_series = stats.get('min')
+                                    global_max_series = stats.get('max')
+                                    stats_json_path = None # Initialize
+
+                                    if global_min_series is not None and global_max_series is not None:
+                                        stats_to_save_dict = {
+                                            'comment': f"Global min/max statistics used for scaler '{scaler_filename}' on job '{os.path.basename(job_folder)}'",
+                                            'normalized_columns_for_stats': actual_columns_to_normalize, # Columns these stats are for
+                                            'global_min': global_min_series.to_dict(),
+                                            'global_max': global_max_series.to_dict()
+                                        }
+                                        stats_json_path = os.path.join(scaler_output_dir, "scaler_global_stats.json")
+                                        try:
+                                            with open(stats_json_path, 'w') as f_stats:
+                                                json.dump(stats_to_save_dict, f_stats, indent=4)
+                                            self.logger.info(f"Saved global min/max stats to {stats_json_path}")
+                                        except Exception as e_stats_save:
+                                            self.logger.error(f"Failed to save global stats JSON to {stats_json_path}: {e_stats_save}")
+                                            stats_json_path = None # Indicate failure to save
+                                    else:
+                                        self.logger.warning("Stats dictionary from calculate_global_dataset_stats was missing 'min' or 'max' series.")
+                                    # --- End save global stats ---
+
                                     global_scaler = normalization_service.create_scaler_from_stats(stats, actual_columns_to_normalize)
                                     if global_scaler:
-                                        scaler_output_dir = os.path.join(job_folder, "scalers")
+                                        # scaler_output_dir is already defined and created
                                         saved_scaler_path = normalization_service.save_scaler(global_scaler, scaler_output_dir, filename=scaler_filename)
                                         if saved_scaler_path:
                                             self.logger.info(f"Global scaler saved to: {saved_scaler_path}")
@@ -216,6 +248,8 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                                 # Store path relative to the job_folder for portability
                                                 job_meta['scaler_path'] = os.path.relpath(saved_scaler_path, job_folder)
                                                 job_meta['normalized_columns'] = actual_columns_to_normalize
+                                                if stats_json_path: # Add path to the stats JSON if it was saved
+                                                    job_meta['scaler_stats_path'] = os.path.relpath(stats_json_path, job_folder)
                                                 
                                                 with open(metadata_file_path, 'w') as f_meta:
                                                     json.dump(job_meta, f_meta, indent=4)
