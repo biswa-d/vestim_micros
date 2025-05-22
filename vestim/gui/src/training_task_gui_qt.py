@@ -15,7 +15,7 @@ import os
 import matplotlib.pyplot as plt
 
 # Import local services
-from vestim.services.model_training.src.training_task_service import TrainingTaskService # Production import
+from vestim.services.model_training.src.training_task_service import TrainingTaskService
 from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from vestim.gateway.src.job_manager_qt import JobManager
@@ -72,7 +72,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Initialize variables
         self.train_loss_values = []
         self.valid_loss_values = []
-        # self.valid_x_values = [] # Replaced by epoch_points
+        self.valid_x_values = []
         self.start_time = None
         self.queue = Queue()
         self.timer_running = True
@@ -80,7 +80,6 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.task_completed_flag = False
         self.current_task_index = 0
         self.current_error_unit_label = "RMS Error" # Default error label
-        self.epoch_points = [] # For storing actual epoch numbers for plotting
  
         self.param_labels = {
             "LAYERS": "Layers",
@@ -183,7 +182,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             font-weight: bold;
             padding: 10px 20px;
         """)
-        self.proceed_button.hide() # Use hide() as in _test.py
+        self.proceed_button.hide()
         self.proceed_button.clicked.connect(self.transition_to_testing_gui)
         
         # Layout for proceed button
@@ -265,12 +264,12 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Add the time layout to the main layout
         self.main_layout.addLayout(time_layout)
 
-        # Add time layout to the main layout (This line was duplicated in original, kept for now, can be removed if redundant)
-        # self.main_layout.addLayout(time_layout) # Removed duplicate
+        # Add time layout to the main layout
+        self.main_layout.addLayout(time_layout)
 
         # Plot Setup
         max_epochs = int(task['hyperparams']['MAX_EPOCHS'])
-        # valid_frequency = int(task['hyperparams']['ValidFrequency']) # Not used in _test.py version of this method
+        valid_frequency = int(task['hyperparams']['ValidFrequency'])
 
         # Matplotlib figure setup
         fig = Figure(figsize=(6, 2.5), dpi=100)
@@ -317,8 +316,32 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Adjust margins for the plot
         fig.subplots_adjust(bottom=0.2)
 
-    # setup_log_window is now part of build_gui in the _test.py version's structure
-    # def setup_log_window(self, task): ... (This method is integrated into build_gui)
+    def setup_log_window(self, task):
+        # Create a QTextEdit widget for the log window
+        self.log_text = QTextEdit()
+
+        # Set properties of the log window (read-only and word-wrapping)
+        self.log_text.setReadOnly(True)  # Log should not be editable by the user
+        self.log_text.setLineWrapMode(QTextEdit.WidgetWidth)  # Word wrap
+
+        # Add some padding/margins to make the text more readable
+        self.log_text.setStyleSheet("""
+            QTextEdit {
+                font-size: 10pt;
+                background-color: #f0f0f0;
+                border: 1px solid #ccc;
+                padding: 10px;
+            }
+        """)
+
+        # Insert initial logs with task repetition details
+        self.log_text.append(f"Repetition: {task['hyperparams']['REPETITIONS']}\n")
+
+        # Automatically scroll to the bottom of the log window
+        self.log_text.moveCursor(self.log_text.textCursor().End)
+
+        # Add the log window to the main layout
+        self.main_layout.addWidget(self.log_text)
 
     def clear_layout(self):
         # Clear the current layout to rebuild it for new tasks
@@ -375,7 +398,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Reset the data values for a fresh plot
         self.train_loss_values = []
         self.valid_loss_values = []
-        self.epoch_points = [] # From _test.py
+        self.epoch_points = []
 
         # Ensure the plot axis 'ax' exists (for new tasks or when reinitializing)
         if hasattr(self, 'ax'):
@@ -383,7 +406,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.ax.clear()
             self.ax.set_title("Training and Validation Loss", fontsize=12, fontweight='normal', color='#0f0c0c')
             self.ax.set_xlabel("Epoch")
-            self.ax.set_ylabel(self.current_error_unit_label) # Use dynamic label from _test.py
+            self.ax.set_ylabel(self.current_error_unit_label) # Use dynamic label
  
             # Reinitialize plot lines
             self.train_line, = self.ax.plot([], [], label='Train Loss')
@@ -425,7 +448,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Hide the stop button since the task encountered an error
         self.stop_button.hide()
 
-    def update_gui_after_epoch(self, progress_data): # Merged from _test.py
+    def update_gui_after_epoch(self, progress_data):
         # Task index and dynamic status for the status label
         task_info = f"Task {self.current_task_index + 1}/{len(self.task_list)}"
 
@@ -466,9 +489,10 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.log_text.moveCursor(self.log_text.textCursor().End)
 
             # Update the plot data with actual epoch numbers
-            # self.epoch_points was initialized in __init__ or clear_plot
+            if not hasattr(self, 'epoch_points'):
+                self.epoch_points = []
             self.epoch_points.append(epoch)
-            self.train_loss_values.append(train_rmse_scaled if not np.isnan(train_rmse_scaled) else 0) # Plot 0 for NaN
+            self.train_loss_values.append(train_rmse_scaled if not np.isnan(train_rmse_scaled) else 0) # Plot 0 for NaN to avoid issues
             self.valid_loss_values.append(val_rmse_scaled if not np.isnan(val_rmse_scaled) else 0) # Plot 0 for NaN
 
             # Update the plot
@@ -499,212 +523,144 @@ class VEstimTrainingTaskGUI(QMainWindow):
             if all_values:
                 y_min_plot = min(all_values) * 0.8  # Give some padding below
                 y_max_plot = max(all_values) * 1.2  # Give some padding above
-                if y_min_plot > 0 : # Ensure y_min is positive for log scale
-                     self.ax.set_ylim(y_min_plot, y_max_plot)
+                self.ax.set_ylim(y_min_plot, y_max_plot)
             
-            # Update labels and title
-            self.ax.set_xlabel('Epoch')
-            self.ax.set_ylabel(self.current_error_unit_label) # Use dynamic label
-            self.ax.set_title('Training Progress')
             self.ax.legend()
-            self.ax.grid(True, which="both", ls="-", alpha=0.2)
-            
-            # Add minor gridlines for log scale
-            self.ax.grid(True, which="minor", ls=":", alpha=0.1)
-
-            # Redraw the plot
-            self.canvas.draw_idle()
+            self.canvas.draw()
 
     def stop_training(self):
-        print("Stop training button clicked")
+        # Set the flag to stop the training process
+        self.training_process_stopped = True
+        self.status_label.setText("Stopping training process...")
+        self.status_label.setStyleSheet("color: orange; font-weight: bold;")
+        self.stop_button.setEnabled(False) # Disable stop button after clicking
+
+        # Stop the current training task via the manager
+        if self.training_task_manager:
+            self.training_task_manager.stop_current_task()
 
         # Stop the timer
         self.timer_running = False
 
-        # Send stop request to the task manager
-        self.training_task_manager.stop_task()
-        print("Stop request sent to training task manager")
+        # Wait for the thread to finish if it's running
+        self.wait_for_thread_to_stop()
 
-        # Immediate GUI update to reflect the stopping state
-        self.status_label.setText("Stopping Training...")
-        self.status_label.setStyleSheet("color: #e75480; font-size: 16pt; font-weight: bold;")  # Pinkish-red text
-
-        # Change stop button appearance and text during the process
-        self.stop_button.setText("Stopping...")  # Update button text
-        self.stop_button.setStyleSheet("background-color: #ffcccb; color: white; font-size: 12pt; font-weight: bold;")  # Lighter red
-
-        # Set flag to prevent further tasks
-        self.training_process_stopped = True
-        print(f"Training process stopped flag is now {self.training_process_stopped}")
-
-        # Check if the training thread has finished
-        QTimer.singleShot(100, self.check_if_stopped)
+        # Show the proceed button after stopping
+        self.show_proceed_to_testing_button()
 
 
     def check_if_stopped(self):
-        if self.training_thread and self.training_thread.isRunning():
-            # Keep checking until the thread has stopped
-            QTimer.singleShot(100, self.check_if_stopped)
-        else:
-            # Once the thread is confirmed to be stopped, proceed to task completion
-            print("Training thread has stopped.")
-            
-            # Update status to indicate training has stopped early (if it was stopped manually)
-            if getattr(self, 'training_process_stopped', False):
-                self.status_label.setText("Training stopped early.")
-                self.status_label.setStyleSheet("color: #b22222; font-size: 14pt; font-weight: bold;")  # Subtle red color and larger font
-            else:
-                # In case training completed naturally
-                self.status_label.setText("Training completed.")
-                self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
+        # Check if the training process has been stopped
+        if self.training_process_stopped:
+            self.status_label.setText("Training process has been stopped.")
+            self.show_proceed_to_testing_button()
+            return True
+        return False
 
-            # Show the "Proceed to Testing" button once the training has stopped
-            if not self.task_completed_flag:
-                print("Calling task_completed() after training thread has stopped.")
-                self.task_completed()
-            else:
-                print("task_completed() was already called, skipping.")
+    def task_completed(self):
+        if self.task_completed_flag:  # Prevent multiple executions
+            return
+        self.task_completed_flag = True  # Set flag to true
 
-
-    def task_completed(self): # Merged from _test.py
-        if self.task_completed_flag:
-            return  # Exit if this method has already been called for this task
-        self.task_completed_flag = True  # Set the flag to True on the first call
-
+        # Stop the timer
         self.timer_running = False
 
-        # Save the training plot for the current task
-        try:
-            task_id = self.task_list[self.current_task_index].get('task_id', f'task_{self.current_task_index + 1}')
-            save_dir = self.task_list[self.current_task_index].get('saved_dir', self.job_manager.get_job_folder())
-            
-            # Create a new figure for saving
-            fig_save = Figure(figsize=(8, 5), dpi=300) # Use fig_save to avoid conflict with self.fig
-            ax_save = fig_save.add_subplot(111) # Use ax_save
-            
-            # Plot the data using actual epoch numbers
-            ax_save.plot(self.epoch_points, self.train_loss_values, label='Training', color='blue', marker='.')
-            ax_save.plot(self.epoch_points, self.valid_loss_values, label='Validation', color='red', marker='.')
-            
-            # Set y-axis to log scale
-            ax_save.set_yscale('log')
-            
-            # Set labels and title
-            ax_save.set_xlabel('Epoch')
-            ax_save.set_ylabel(self.current_error_unit_label) # Use dynamic label for saved plot
-            ax_save.set_title(f'Training History - Task {task_id}')
-            ax_save.legend()
-            ax_save.grid(True, which="both", ls="-", alpha=0.2)
-            ax_save.grid(True, which="minor", ls=":", alpha=0.1)
-            
-            # Save the plot
-            plot_file = os.path.join(save_dir, f'training_history_{task_id}.png')
-            fig_save.savefig(plot_file, bbox_inches='tight')
-            plt.close(fig_save) # Close the figure used for saving
-            
-            print(f"Saved training history plot for task {task_id} at: {plot_file}")
-        except Exception as e:
-            print(f"Failed to save training history plot: {str(e)}")
-            self.logger.error(f"Failed to save training history plot: {str(e)}", exc_info=True)
+        # Wait for the thread to finish
+        self.wait_for_thread_to_stop()
 
+        # Calculate total time taken for the task
+        elapsed_time = time.time() - self.start_time
+        hours, remainder = divmod(elapsed_time, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        total_time_taken = f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s"
 
-        if self.isVisible():  # Check if the window still exists
-            total_training_time = time.time() - self.start_time
-            total_hours, total_remainder = divmod(total_training_time, 3600)
-            total_minutes, total_seconds = divmod(total_remainder, 60)
-            formatted_total_time = f"{int(total_hours):02}h:{int(total_minutes):02}m:{int(total_seconds):02}s"
+        # Update status label with completion message
+        self.status_label.setText(
+            f"Task {self.current_task_index + 1}/{len(self.task_list)} completed in {total_time_taken}."
+        )
+        self.status_label.setStyleSheet("color: green; font-weight: bold;")
 
-            # Update time label
-            self.static_text_label.setText("Total Training Time:")
-            self.static_text_label.setStyleSheet("color: blue; font-size: 12pt; font-weight: bold;")
-            self.time_value_label.setText(formatted_total_time)
-            self.time_value_label.setStyleSheet("color: purple; font-size: 12pt; font-weight: bold;")
+        # Append completion message to the log
+        self.log_text.append(f"Task completed in {total_time_taken}.\n")
 
-            # Check if the training process was stopped early
-            if getattr(self, 'training_process_stopped', False):
-                self.status_label.setText("Training stopped early. Saving model to task folder...")
-                self.status_label.setStyleSheet("color: #b22222; font-size: 14pt; font-weight: bold;")  # Reddish color
-            else:
-                self.status_label.setText("All Training Tasks Completed!")
-                self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
-
-            # Ensure the "Proceed to Testing" button is displayed in both cases
-            self.stop_button.hide()
-            self.show_proceed_to_testing_button()
-
-        # Handle the case where the window has been destroyed
+        # Move to the next task or show the "Proceed to Testing" button
+        self.current_task_index += 1
+        if self.current_task_index < len(self.task_list):
+            self.task_completed_flag = False  # Reset for the next task
+            self.timer_running = True  # Restart timer for the next task
+            self.clear_layout()  # Clear the layout before rebuilding
+            self.build_gui(self.task_list[self.current_task_index])  # Rebuild GUI for the next task
+            self.start_task_processing()  # Start the next task
         else:
-            print("Task completed method was called after the window was destroyed.")
-
-        # Check if there are more tasks to process
-        if self.current_task_index < len(self.task_list) - 1:
-            print(f"Completed task {self.current_task_index + 1}/{len(self.task_list)}.")
-            self.current_task_index += 1
-            self.task_completed_flag = False  # Reset the flag for the next task
-            self.build_gui(self.task_list[self.current_task_index]) # Rebuild GUI for next task
-            self.start_task_processing()
-        else:
-            # Handle the case when all tasks are completed
-            total_training_time = time.time() - self.start_time
-            total_hours, total_remainder = divmod(total_training_time, 3600)
-            total_minutes, total_seconds = divmod(total_remainder, 60)
-            formatted_total_time = f"{int(total_hours):02}h:{int(total_minutes):02}m:{int(total_seconds):02}s"
-
-            self.static_text_label.setText("Total Training Time:")
-            self.time_value_label.setText(formatted_total_time)
-
-            self.status_label.setText("All Training Tasks Completed!")
+            # All tasks completed, show the "Proceed to Testing" button
             self.show_proceed_to_testing_button()
 
     def wait_for_thread_to_stop(self):
-        if self.training_thread and self.training_thread.isRunning(): # Check self.training_thread
-            # Continue checking until the thread has stopped
-            QTimer.singleShot(100, self.wait_for_thread_to_stop)
-        else:
-            # Once the thread is confirmed to be stopped
-            print("Training thread has stopped, now closing the window.")
-            self.close()  # Close the window
+        if self.training_thread and self.training_thread.isRunning():
+            self.training_thread.quit()  # Request the thread to quit
+            self.training_thread.wait(5000)  # Wait up to 5 seconds for the thread to finish
 
-    def on_closing(self): # Renamed from closeEvent to avoid overriding QMainWindow's method if not intended
-        if self.training_thread and self.training_thread.isRunning(): # Check self.training_thread
-            print("Stopping training before closing...")
-            self.stop_training()  # Stop the training thread
-            QTimer.singleShot(100, self.wait_for_thread_to_stop) # Use wait_for_thread_to_stop
-        else:
-            self.close()  # Close the window
-    
+    def on_closing(self):
+        # Ensure the training process is stopped when the window is closed
+        self.stop_training()
+        self.close()
+
     def show_proceed_to_testing_button(self):
-        # Ensure the button is shown
-        self.stop_button.hide()
-        self.proceed_button.show()
+        self.stop_button.hide()  # Hide the stop button
+        self.proceed_button.show()  # Show the proceed button
 
     def transition_to_testing_gui(self):
-        self.close()  # Close the current window
-        self.testing_gui = VEstimTestingGUI()  # Initialize the testing GUI
-        self.testing_gui.show()  # Show the testing GUI
+        self.testing_gui = VEstimTestingGUI(self.job_manager.get_job_folder())
+        self.testing_gui.show()
+        self.close()
 
-if __name__ == "__main__":
-    import sys
+# Example usage for testing this GUI directly
+if __name__ == '__main__':
     app = QApplication(sys.argv)
-    # Example task list and params for testing
-    sample_task = {
-        'task_id': 'sample_1',
-        'hyperparams': {
-            "LAYERS": "1", "HIDDEN_UNITS": "50", "BATCH_SIZE": "32", 
-            "MAX_EPOCHS": "10", "INITIAL_LR": "0.001", "LR_DROP_FACTOR": "0.1", 
-            "LR_DROP_PERIOD": "5", "VALID_PATIENCE": "3", "ValidFrequency": "1", 
-            "LOOKBACK": "10", "REPETITIONS": "1", "NUM_LEARNABLE_PARAMS": "N/A"
-        },
-        'saved_dir': '.' 
-    }
-    task_list = [sample_task] 
-    params = {"MODEL_TYPE": "LSTM"} # Minimal params for testing
     
-    # Ensure JobManager has a job_folder for plot saving logic
-    JobManager().set_job_folder("./temp_job_folder")
-    if not os.path.exists("./temp_job_folder"):
-        os.makedirs("./temp_job_folder")
+    # Create a dummy job folder and task list for testing
+    # This simulates what would be passed from the previous GUI (Training Setup)
+    
+    # Dummy job folder setup (replace with actual job folder logic if needed)
+    test_job_folder = "test_job_training_task_gui"
+    os.makedirs(test_job_folder, exist_ok=True)
+    
+    # Dummy hyperparameter data (replace with actual data)
+    dummy_hyperparams = {
+        "MODEL_TYPE": "LSTM",
+        "LAYERS": "2",
+        "HIDDEN_UNITS": "50",
+        "LOOKBACK": "100",
+        "BATCH_TRAINING": True,
+        "BATCH_SIZE": "32",
+        "TRAIN_VAL_SPLIT": "0.8",
+        "SCHEDULER_TYPE": "StepLR",
+        "INITIAL_LR": "0.001",
+        "LR_PARAM": "0.1", # Corresponds to LR_DROP_FACTOR for StepLR
+        "LR_PERIOD": "10",  # Corresponds to LR_DROP_PERIOD for StepLR
+        "PLATEAU_PATIENCE": "5",
+        "PLATEAU_FACTOR": "0.5",
+        "VALID_PATIENCE": "10",
+        "VALID_FREQUENCY": "1",
+        "MAX_EPOCHS": "50",
+        "REPETITIONS": "1", # Example repetition
+        "NUM_LEARNABLE_PARAMS": 12345 # Example value
+    }
 
-    gui = VEstimTrainingTaskGUI(task_list, params)
+    # Create a dummy task list (replace with actual task list logic)
+    dummy_task_list = [
+        {"task_id": "task_1_rep_1", "hyperparams": dummy_hyperparams, "status": "Pending"},
+        # Add more tasks if needed for testing multiple tasks
+    ]
+
+    # Simulate JobManager having the job folder set
+    # In a real scenario, JobManager's job_folder would be set by a previous GUI or process
+    # For this test, we can manually set it if needed by the GUI's logic (e.g., for loading data)
+    # job_manager = JobManager() # Already initialized globally if this script is run directly
+    job_manager.set_job_folder(test_job_folder)
+
+
+    # Initialize and show the GUI
+    gui = VEstimTrainingTaskGUI(task_list=dummy_task_list, params=dummy_hyperparams) # Pass dummy task_list and params
     gui.show()
     sys.exit(app.exec_())
