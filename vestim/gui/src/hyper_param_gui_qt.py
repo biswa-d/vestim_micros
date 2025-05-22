@@ -590,9 +590,9 @@ class VEstimHyperParamGUI(QWidget):
 
         # **Add Widgets to Layout**
         validation_form_layout = QFormLayout() # Use QFormLayout for better label-entry alignment
+        validation_form_layout.addRow(max_epochs_label, self.max_epochs_entry)
         validation_form_layout.addRow(valid_patience_label, self.valid_patience_entry)
         validation_form_layout.addRow(valid_frequency_label, self.valid_frequency_entry)
-        validation_form_layout.addRow(max_epochs_label, self.max_epochs_entry)
         
         validation_layout.addLayout(validation_form_layout)
         
@@ -647,8 +647,10 @@ class VEstimHyperParamGUI(QWidget):
                 QMessageBox.critical(self, "Error", "No active job folder found. Please start from Data Import.")
                 return
 
-            self.hyper_param_manager.save_hyperparameters(current_params, job_folder_path)
-            QMessageBox.information(self, "Success", f"Hyperparameters saved to {job_folder_path}")
+            # Construct the full path for the hyperparameters file
+            params_file_path = os.path.join(job_folder_path, 'hyperparams.json')
+            self.hyper_param_manager.save_params_to_file(current_params, params_file_path)
+            QMessageBox.information(self, "Success", f"Hyperparameters saved to {params_file_path}")
             
             self.show_training_setup_gui() # Proceed to the next screen
 
