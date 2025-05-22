@@ -95,8 +95,8 @@ class DataAugmentManager(QObject): # Inherit from QObject
                - Path to the root job folder.
                - A list of dictionaries, where each dictionary contains metadata about a processed file 
                  (including 'filepath', 'status', and 'error' if any).
-normalize_data_initially_requested = normalize_data # Store the initial request
        """
+       normalize_data_initially_requested = normalize_data # Store the initial request
        self.logger.info(f"Starting file-by-file augmentation for job: {job_folder}")
        self.logger.info(f"Normalization requested: {normalize_data}")
        if normalize_data:
