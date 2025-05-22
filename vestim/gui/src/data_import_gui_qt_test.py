@@ -30,6 +30,8 @@ from vestim.logger_config import setup_logger  # Assuming you have logger_config
 # Set up initial logging to a default log file
 logger = setup_logger(log_file='default.log')  # Log everything to 'default.log' initially
 
+DEFAULT_DATA_EXTENSIONS = [".csv", ".txt", ".mat", ".xls", ".xlsx", ".RES"] # Global list of default extensions
+
 class DataImportGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -133,12 +135,12 @@ class DataImportGUI(QMainWindow):
 
         # Data source selection with consistent height and styling
         self.data_source_combo = QComboBox(self)
-        self.data_source_combo.addItems(["Arbin", "STLA", "Digatron"])  # Add the data sources
+        self.data_source_combo.addItems(["Arbin", "STLA", "Digatron", "Biologic"])  # Added Biologic as an example source
         self.data_source_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
         self.data_source_combo.setFixedWidth(120)  # Set a specific width for the ComboBox
         self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
         combined_layout.addWidget(self.data_source_combo)
-        self.data_source_combo.currentIndexChanged.connect(self.update_file_display)
+        # self.data_source_combo.currentIndexChanged.connect(self.update_file_display) # Disconnected: ComboBox no longer filters display
 
         # Add stretchable space between the dropdown and the button
         combined_layout.addStretch(1)  # Push the button to the right
@@ -175,20 +177,20 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(False)  # Initially hidden
         self.main_layout.addWidget(self.progress_bar)
 
-    def update_file_display(self):
-        selected_source = self.data_source_combo.currentText()
-        if selected_source == "Arbin":
-            # Show .mat, .csv, .xlsx, and .xls files for Arbin
-            self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extensions=[".mat", ".csv", ".xlsx", ".xls"])
-            self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extensions=[".mat", ".csv", ".xlsx", ".xls"])
-        elif selected_source == "STLA":
-            # Show only .mat files for STLA
-            self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extensions=[".mat"])
-            self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extensions=[".mat"])
-        elif selected_source == "Digatron":
-            # Show only .csv files for Digatron
-            self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extensions=[".csv"])
-            self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extensions=[".csv"])
+    # def update_file_display(self): # Method removed as ComboBox no longer filters display
+    #     selected_source = self.data_source_combo.currentText()
+    #     if selected_source == "Arbin":
+    #         # Show .mat, .csv, .xlsx, and .xls files for Arbin
+    #         self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extensions=[".mat", ".csv", ".xlsx", ".xls"])
+    #         self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extensions=[".mat", ".csv", ".xlsx", ".xls"])
+    #     elif selected_source == "STLA":
+    #         # Show only .mat files for STLA
+    #         self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extensions=[".mat"])
+    #         self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extensions=[".mat"])
+    #     elif selected_source == "Digatron":
+    #         # Show only .csv files for Digatron
+    #         self.populate_file_list(self.train_folder_path, self.train_list_widget, file_extensions=[".csv"])
+    #         self.populate_file_list(self.test_folder_path, self.test_list_widget, file_extensions=[".csv"])
 
     def select_train_folder(self):
         self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder")
@@ -204,27 +206,30 @@ class DataImportGUI(QMainWindow):
             logger.info(f"Selected testing folder: {self.test_folder_path}")
         self.check_folders_selected()
 
-    def populate_file_list(self, folder_path, list_widget, file_extensions=None):
-        """ 
-        Populate the list widget with files matching specified extensions.
-        
-        Args:
-            folder_path: Path to the folder to scan
-            list_widget: QListWidget to populate
-            file_extensions: List of file extensions to filter (e.g., [\".mat\", \".csv\"])
+    def populate_file_list(self, folder_path, list_widget): # file_extensions parameter removed
         """
-        if file_extensions is None:
-            file_extensions = [".mat"]  # Default to .mat if no extensions are provided
-            
+        Populate the list widget with files matching DEFAULT_DATA_EXTENSIONS.
+        """
         list_widget.clear()
-        if not folder_path:
+        if not folder_path or not os.path.isdir(folder_path):
+            logger.warning(f"populate_file_list: Invalid or inaccessible folder_path: {folder_path}")
             return
-            
-        for root, _, files in os.walk(folder_path):
-            for file in files:
-                # Check if the file extension is in the list of allowed extensions
-                if any(file.lower().endswith(ext) for ext in file_extensions):
-                    list_widget.addItem(os.path.join(root, file))
+
+        extensions_to_check = [ext.lower() for ext in DEFAULT_DATA_EXTENSIONS]
+        logger.info(f"Populating list for '{folder_path}'. Scanning for extensions: {extensions_to_check}")
+        
+        items_added_count = 0
+        try:
+            for root, _, files in os.walk(folder_path):
+                for file in files:
+                    if any(file.lower().endswith(ext) for ext in extensions_to_check):
+                        list_widget.addItem(os.path.join(root, file))
+                        items_added_count +=1
+        except Exception as e:
+            logger.error(f"Error during file iteration or adding item for {folder_path}: {e}", exc_info=True)
+        
+        logger.info(f"Finished populating list for '{folder_path}'. Total items added: {items_added_count}. List widget current count: {list_widget.count()}")
+        list_widget.update() # Explicitly request a widget update
 
     def check_folders_selected(self):
         if self.train_folder_path and self.test_folder_path:
