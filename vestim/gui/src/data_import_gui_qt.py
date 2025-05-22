@@ -235,6 +235,11 @@ class DataImportGUI(QMainWindow):
         except Exception as e:
             logger.error(f"Error populating file list for {folder_path}: {e}", exc_info=True)
             # Optionally show a message to the user if os.walk fails (e.g. permissions)
+# Logging the result after the try-except block for os.walk
+        if specific_extension is None:
+            logger.info(f"Populated list for '{folder_path}' with DEFAULT extensions. Items found: {list_widget.count()}")
+        else:
+            logger.info(f"Populated list for '{folder_path}' with specific extension '{specific_extension}'. Items found: {list_widget.count()}")
 
     def check_folders_selected(self):
         if self.train_folder_path and self.test_folder_path:

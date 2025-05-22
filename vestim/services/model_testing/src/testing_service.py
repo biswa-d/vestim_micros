@@ -179,10 +179,10 @@ class VEstimTestingService:
             print(f"RMS Error: {rms_error_val} {unit_display}, MAE: {mae_val} {unit_display}, MAPE: {mape}%, R²: {r2}")
 
             results_dict = {
-                'predictions_original_scale': y_pred_original_scale,
-                'true_values_original_scale': y_test_original_scale,
-                'predictions_normalized': y_pred_normalized if normalization_applied_during_training else None, # Store normalized if they differ
-                'true_values_normalized': y_test_normalized if normalization_applied_during_training else None, # Store normalized if they differ
+                'predictions': y_pred_original_scale, # Renamed for compatibility, points to original scale
+                'true_values': y_test_original_scale, # Renamed for compatibility, points to original scale
+                'predictions_normalized': y_pred_normalized if normalization_applied_during_training else None,
+                'true_values_normalized': y_test_normalized if normalization_applied_during_training else None,
                 f'rms_error{unit_suffix}': rms_error_val,
                 f'mae{unit_suffix}': mae_val,
                 'mape_percent': mape, # Explicitly state mape is percent
