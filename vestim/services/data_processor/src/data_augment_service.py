@@ -24,6 +24,7 @@ from typing import List, Tuple, Dict, Optional, Union, Any
 
 from vestim.logger_config import setup_logger
 from vestim.gateway.src.job_manager_qt import JobManager # Import JobManager
+from vestim.services import normalization_service as norm_svc # For normalization
 
 # Set up logging
 logger = setup_logger(log_file='data_augment_service.log')
@@ -408,6 +409,51 @@ class DataAugmentService:
         self.logger.info(f"Padded DataFrame head:\n{padded_df.head(padding_length + 2).to_string()}") 
 
         return padded_df
+
+    def apply_normalization(self, df: pd.DataFrame, scaler: object, columns_to_normalize: List[str]) -> pd.DataFrame:
+        """
+        Applies normalization to the specified columns of the DataFrame using a pre-fitted scaler.
+
+        Args:
+            df (pd.DataFrame): The input DataFrame.
+            scaler (object): The pre-fitted scaler object.
+            columns_to_normalize (List[str]): List of column names to normalize.
+
+        Returns:
+            pd.DataFrame: The DataFrame with specified columns normalized.
+        """
+        self.logger.info(f"Applying normalization to {len(columns_to_normalize)} columns: {columns_to_normalize}")
+        if df.empty:
+            self.logger.warning("Input DataFrame to apply_normalization is empty. Returning empty DataFrame.")
+            return df
+        if not scaler:
+            self.logger.error("No scaler object provided for normalization. Returning original DataFrame.")
+            return df
+        if not columns_to_normalize:
+            self.logger.warning("No columns specified for normalization. Returning original DataFrame.")
+            return df
+
+        try:
+            # Ensure all specified columns exist in the DataFrame
+            missing_cols = [col for col in columns_to_normalize if col not in df.columns]
+            if missing_cols:
+                self.logger.warning(f"Columns not found in DataFrame for normalization and will be skipped: {missing_cols}")
+                # Filter columns_to_normalize to only include existing columns
+                valid_columns_to_normalize = [col for col in columns_to_normalize if col in df.columns]
+                if not valid_columns_to_normalize:
+                    self.logger.warning("No valid columns left for normalization after checking existence. Returning original DataFrame.")
+                    return df
+            else:
+                valid_columns_to_normalize = columns_to_normalize
+
+            transformed_df = norm_svc.transform_data(df, scaler, valid_columns_to_normalize)
+            self.logger.info("Normalization applied successfully.")
+            return transformed_df
+        except Exception as e:
+            self.logger.error(f"Error during data normalization in service: {e}", exc_info=True)
+            # Depending on desired behavior, could re-raise or return original df
+            # For now, returning original df on error to prevent process stoppage, error logged.
+            return df
     
     def save_single_augmented_file(self, augmented_df: pd.DataFrame, output_filepath: str):
         self.logger.info(f"Saving augmented DataFrame to: {output_filepath}")

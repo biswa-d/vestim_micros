@@ -135,13 +135,14 @@ class AugmentationWorker(QObject):
     # Keep an error signal for critical failures within the worker's run method itself.
     criticalError = pyqtSignal(str) 
 
-    def __init__(self, data_augment_manager, job_folder, padding_length, resampling_frequency, column_formulas): # Added padding_length
+    def __init__(self, data_augment_manager, job_folder, padding_length, resampling_frequency, column_formulas, normalize_data=False): # Added normalize_data
         super().__init__()
         self.data_augment_manager = data_augment_manager
         self.job_folder = job_folder
-        self.padding_length = padding_length # Store padding_length
+        self.padding_length = padding_length
         self.resampling_frequency = resampling_frequency
         self.column_formulas = column_formulas
+        self.normalize_data = normalize_data # Store normalization flag
         self.logger = logging.getLogger(__name__ + ".AugmentationWorker")
 
     def run(self):
@@ -152,10 +153,13 @@ class AugmentationWorker(QObject):
             # The return value (folder_path, metadata) is handled by the manager's finished signal.
             self.data_augment_manager.apply_augmentations(
                 job_folder=self.job_folder,
-                padding_length=self.padding_length, # Pass padding_length
+                padding_length=self.padding_length,
                 resampling_frequency=self.resampling_frequency,
-                column_formulas=self.column_formulas
-                # No progress_callback needed here
+                column_formulas=self.column_formulas,
+                normalize_data=self.normalize_data, # Pass to manager
+                # The manager will handle feature/exclude columns for now
+                # normalization_feature_columns=None,
+                # normalization_exclude_columns=None
             )
             # If apply_augmentations completes without raising an exception, the worker's job is done.
             # The manager's 'augmentationFinished' signal will notify the GUI.
@@ -275,6 +279,23 @@ class DataAugmentGUI(QMainWindow):
         augmentation_layout.addWidget(self.remove_formula_button)
         augmentation_group.setLayout(augmentation_layout)
         self.main_layout.addWidget(augmentation_group)
+
+        # Normalization Group
+        normalization_group = QGroupBox("Data Normalization")
+        normalization_layout = QVBoxLayout()
+        self.normalization_checkbox = QCheckBox("Enable data normalization (Min-Max scaling)")
+        self.normalization_checkbox.setToolTip("Applies Min-Max scaling to numeric columns, excluding time/timestamp and other common non-feature columns.")
+        # self.normalization_checkbox.stateChanged.connect(self.toggle_normalization_options) # Placeholder if options are added later
+        normalization_layout.addWidget(self.normalization_checkbox)
+        
+        # Optional: Display a note about automatic column handling
+        normalization_note_label = QLabel("Note: Numeric columns will be scaled. Time-related and ID-like columns are typically excluded automatically.")
+        normalization_note_label.setStyleSheet("font-style: italic; color: gray;")
+        normalization_note_label.setWordWrap(True)
+        normalization_layout.addWidget(normalization_note_label)
+
+        normalization_group.setLayout(normalization_layout)
+        self.main_layout.addWidget(normalization_group)
         
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
@@ -295,10 +316,12 @@ class DataAugmentGUI(QMainWindow):
             self.padding_checkbox.setEnabled(True) # Enable padding checkbox
             self.resampling_checkbox.setEnabled(True)
             self.column_creation_checkbox.setEnabled(True)
+            self.normalization_checkbox.setEnabled(True) # Enable normalization checkbox
         else:
             self.padding_checkbox.setEnabled(False) # Disable padding checkbox
             self.resampling_checkbox.setEnabled(False)
             self.column_creation_checkbox.setEnabled(False)
+            self.normalization_checkbox.setEnabled(False) # Disable normalization checkbox
     
     def select_job_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Job Folder")
@@ -316,6 +339,7 @@ class DataAugmentGUI(QMainWindow):
                     self.padding_checkbox.setEnabled(True) # Enable padding
                     self.resampling_checkbox.setEnabled(True)
                     self.column_creation_checkbox.setEnabled(True)
+                    self.normalization_checkbox.setEnabled(True) # Enable normalization
                 else:
                     self.train_df = None
                     self.test_df = None
@@ -323,12 +347,13 @@ class DataAugmentGUI(QMainWindow):
                     self.padding_checkbox.setEnabled(False) # Disable padding
                     self.resampling_checkbox.setEnabled(False)
                     self.column_creation_checkbox.setEnabled(False)
+                    self.normalization_checkbox.setEnabled(False) # Disable normalization
                     QMessageBox.warning(self, "Warning", "Could not load a sample data file from the train/processed_data directory. Ensure CSV files exist there.")
                     self.logger.warning(f"No sample train data loaded from {self.job_folder}")
             except Exception as e:
                 self.logger.error(f"Error loading sample data for GUI: {e}", exc_info=True)
                 self.train_df = None; self.test_df = None
-                self.apply_button.setEnabled(False); self.padding_checkbox.setEnabled(False); self.resampling_checkbox.setEnabled(False); self.column_creation_checkbox.setEnabled(False)
+                self.apply_button.setEnabled(False); self.padding_checkbox.setEnabled(False); self.resampling_checkbox.setEnabled(False); self.column_creation_checkbox.setEnabled(False); self.normalization_checkbox.setEnabled(False)
                 QMessageBox.critical(self, "Error", f"Could not load sample data schema: {e}")
 
     def toggle_padding_options(self, state):
@@ -402,9 +427,15 @@ class DataAugmentGUI(QMainWindow):
         
         column_formulas = self.created_columns if self.column_creation_checkbox.isChecked() else None
         
+        normalize_data_flag = self.normalization_checkbox.isChecked()
+        # For now, feature_columns and exclude_columns will be handled by the manager based on this flag
+        # If more specific GUI controls are added later, they would be gathered here.
+        # default_exclude_columns = ['time', 'Time', 'timestamp', 'Timestamp', 'datetime'] # Example, manager handles this
+
         self.logger.info(f"Worker - Padding enabled: {padding_enabled}, length: {padding_length}")
         self.logger.info(f"Worker - Resampling enabled: {resampling_enabled}, frequency: {resampling_frequency}")
         self.logger.info(f"Worker - Column formulas: {column_formulas}")
+        self.logger.info(f"Worker - Normalization enabled: {normalize_data_flag}")
 
         self.augmentation_thread = QThread()
         self.augmentation_worker = AugmentationWorker(
@@ -412,7 +443,10 @@ class DataAugmentGUI(QMainWindow):
             job_folder=self.job_folder,
             padding_length=padding_length, # Pass padding length
             resampling_frequency=resampling_frequency,
-            column_formulas=column_formulas
+            column_formulas=column_formulas,
+            normalize_data=normalize_data_flag, # Pass normalization flag
+            # normalization_feature_columns=None, # Let manager infer or use defaults
+            # normalization_exclude_columns=default_exclude_columns # Or let manager use its defaults
         )
         self.augmentation_worker.moveToThread(self.augmentation_thread)
 

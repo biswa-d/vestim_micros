@@ -15,6 +15,7 @@
 import os
 import io # Import io for string buffer
 import glob # Import glob
+import json # Added for metadata
 import numpy as np
 import pandas as pd
 import logging
@@ -27,6 +28,7 @@ from PyQt5.QtCore import QObject, pyqtSignal # Import QObject and pyqtSignal
 from vestim.logger_config import setup_logger
 from vestim.services.data_processor.src.data_augment_service import DataAugmentService
 from vestim.gateway.src.job_manager_qt import JobManager # Corrected import
+from vestim.services import normalization_service # Added for normalization
 # Set up logging
 logger = setup_logger(log_file='data_augment_manager.log')
 
@@ -70,9 +72,13 @@ class DataAugmentManager(QObject): # Inherit from QObject
 
     def apply_augmentations(self,
                            job_folder: str,
-                           padding_length: Optional[int] = None, 
+                           padding_length: Optional[int] = None,
                            resampling_frequency: Optional[str] = None,
-                           column_formulas: Optional[List[Tuple[str, str]]] = None) -> Tuple[str, List[Dict[str, Any]]]:
+                           column_formulas: Optional[List[Tuple[str, str]]] = None,
+                           normalize_data: bool = False,
+                           normalization_feature_columns: Optional[List[str]] = None,
+                           normalization_exclude_columns: Optional[List[str]] = None,
+                           scaler_filename: str = "augmentation_scaler.joblib") -> Tuple[str, List[Dict[str, Any]]]:
        """
        Apply data augmentations (resampling, column creation, padding) to each file
        in the processed_data directories and saves them back, overwriting originals.
@@ -89,8 +95,13 @@ class DataAugmentManager(QObject): # Inherit from QObject
                - Path to the root job folder.
                - A list of dictionaries, where each dictionary contains metadata about a processed file 
                  (including 'filepath', 'status', and 'error' if any).
+normalize_data_initially_requested = normalize_data # Store the initial request
        """
        self.logger.info(f"Starting file-by-file augmentation for job: {job_folder}")
+       self.logger.info(f"Normalization requested: {normalize_data}")
+       if normalize_data:
+           self.logger.info(f"Normalization feature columns: {normalization_feature_columns}")
+           self.logger.info(f"Normalization exclude columns: {normalization_exclude_columns}")
        self._set_job_context(job_folder)
 
        # Emit progress signal instead of using callback directly
@@ -99,32 +110,157 @@ class DataAugmentManager(QObject): # Inherit from QObject
        processed_files_metadata = []
        
        try:
-            train_processed_dir = self.job_manager.get_train_folder()
-            test_processed_dir = self.job_manager.get_test_folder()
+           global_scaler = None
+           saved_scaler_path = None
+           actual_columns_to_normalize = []
 
-            if not train_processed_dir or not os.path.isdir(train_processed_dir):
+           train_processed_dir = self.job_manager.get_train_folder()
+           test_processed_dir = self.job_manager.get_test_folder()
+
+           if not train_processed_dir or not os.path.isdir(train_processed_dir):
                 self.logger.warning(f"Train processed directory not found or invalid: {train_processed_dir}")
             
-            if not test_processed_dir or not os.path.isdir(test_processed_dir):
+           if not test_processed_dir or not os.path.isdir(test_processed_dir):
                 self.logger.warning(f"Test processed directory not found or invalid: {test_processed_dir}")
 
-            all_files_to_process = []
-            if train_processed_dir and os.path.isdir(train_processed_dir):
-                all_files_to_process.extend(glob.glob(os.path.join(train_processed_dir, "*.csv")))
-            if test_processed_dir and os.path.isdir(test_processed_dir):
+           all_files_to_process = []
+           train_files_for_stats_calc = []
+
+           if train_processed_dir and os.path.isdir(train_processed_dir):
+                train_files_for_stats_calc.extend(glob.glob(os.path.join(train_processed_dir, "*.csv")))
+                all_files_to_process.extend(train_files_for_stats_calc)
+           if test_processed_dir and os.path.isdir(test_processed_dir):
                 all_files_to_process.extend(glob.glob(os.path.join(test_processed_dir, "*.csv")))
+            
+           if normalize_data:
+                if not train_files_for_stats_calc:
+                    self.logger.warning("Normalization requested, but no training files found to calculate statistics. Skipping normalization.")
+                    normalize_data = False # Disable normalization if no training data for stats
+                elif not normalization_feature_columns:
+                    self.logger.warning("Normalization requested, but no feature columns specified. Skipping normalization.")
+                    normalize_data = False
+                else:
+                    self.logger.info("Preparing for normalization: performing preliminary processing on training files to gather data for stats.")
+                    dataframes_for_stats = []
+                    # Temporarily apply resampling and column creation to training files to get data for stats
+                    for train_file_path_for_stats in train_files_for_stats_calc:
+                        try:
+                            df_temp_for_stats = pd.read_csv(train_file_path_for_stats) # TODO: Consider a more generic data loader if not always CSV
+                            
+                            # Apply resampling if enabled (using parameters passed to apply_augmentations)
+                            if resampling_frequency and not df_temp_for_stats.empty:
+                                df_temp_for_stats = self.service.resample_data(df_temp_for_stats, resampling_frequency)
+                            
+                            # Apply column creation if enabled
+                            if column_formulas and df_temp_for_stats is not None and not df_temp_for_stats.empty:
+                                df_temp_for_stats = self.service.create_columns(df_temp_for_stats, column_formulas)
+                            
+                            if df_temp_for_stats is not None and not df_temp_for_stats.empty:
+                                dataframes_for_stats.append(df_temp_for_stats)
+                            else:
+                                self.logger.warning(f"Temporary DataFrame for stats from {train_file_path_for_stats} became empty/None after pre-processing. Skipping for stats.")
+                        except Exception as e_preproc:
+                            self.logger.error(f"Error during preliminary processing of {train_file_path_for_stats} for stats: {e_preproc}. Skipping this file for stats calculation.")
+                            continue
+                    
+                    if not dataframes_for_stats:
+                        self.logger.error("No valid DataFrames generated from training files for stats calculation after preliminary processing. Skipping normalization.")
+                        normalize_data = False
+                    else:
+                        # Determine actual columns to normalize
+                        # If normalization_feature_columns is None, infer from the first processed DataFrame
+                        inferred_feature_columns = []
+                        if not normalization_feature_columns and dataframes_for_stats:
+                            first_df_for_cols = dataframes_for_stats[0]
+                            inferred_feature_columns = [col for col in first_df_for_cols.columns if pd.api.types.is_numeric_dtype(first_df_for_cols[col])]
+                            self.logger.info(f"Inferred numeric feature columns for normalization: {inferred_feature_columns}")
+                            if not inferred_feature_columns:
+                                self.logger.warning("Could not infer any numeric columns for normalization. Skipping normalization.")
+                                normalize_data = False
+                        
+                        current_feature_columns_source = normalization_feature_columns if normalization_feature_columns else inferred_feature_columns
 
-            if not all_files_to_process:
-                self.logger.info("No CSV files found in processed directories to augment.")
-                self.augmentationProgress.emit(100)
-                self.service.update_augmentation_metadata(job_folder, processed_files_metadata)
-                self.augmentationFinished.emit(job_folder, processed_files_metadata) # Emit finished signal
-                return job_folder, processed_files_metadata # Still return for direct calls if needed
+                        if normalize_data: # Re-check as it might have been set to False above
+                            actual_columns_to_normalize = list(current_feature_columns_source) # Make a copy
+                            if normalization_exclude_columns:
+                                actual_columns_to_normalize = [col for col in actual_columns_to_normalize if col not in normalization_exclude_columns]
+                            
+                            if not actual_columns_to_normalize:
+                                self.logger.warning("No columns remaining for normalization after exclusions. Skipping normalization.")
+                                normalize_data = False
+                            else:
+                                self.logger.info(f"Actual columns to normalize after considering formulas and exclusions: {actual_columns_to_normalize}")
+                                stats = normalization_service.calculate_global_dataset_stats(
+                                    data_items=dataframes_for_stats, # Pass list of pre-processed DataFrames
+                                    feature_columns=actual_columns_to_normalize
+                                    # data_reading_func and read_kwargs are not used when data_items are DataFrames
+                                )
+                                if stats:
+                                    global_scaler = normalization_service.create_scaler_from_stats(stats, actual_columns_to_normalize)
+                                    if global_scaler:
+                                        scaler_output_dir = os.path.join(job_folder, "scalers")
+                                        saved_scaler_path = normalization_service.save_scaler(global_scaler, scaler_output_dir, filename=scaler_filename)
+                                        if saved_scaler_path:
+                                            self.logger.info(f"Global scaler saved to: {saved_scaler_path}")
+                                            
+                                            # --- Store scaler path and normalization info in job_metadata.json ---
+                                            metadata_file_path = os.path.join(job_folder, "job_metadata.json")
+                                            try:
+                                                job_meta = {}
+                                                if os.path.exists(metadata_file_path):
+                                                    with open(metadata_file_path, 'r') as f_meta:
+                                                        job_meta = json.load(f_meta)
+                                                
+                                                job_meta['normalization_applied'] = True
+                                                # Store path relative to the job_folder for portability
+                                                job_meta['scaler_path'] = os.path.relpath(saved_scaler_path, job_folder)
+                                                job_meta['normalized_columns'] = actual_columns_to_normalize
+                                                
+                                                with open(metadata_file_path, 'w') as f_meta:
+                                                    json.dump(job_meta, f_meta, indent=4)
+                                                self.logger.info(f"Normalization metadata (scaler path, columns) saved to {metadata_file_path}")
+                                            except Exception as e_meta_save:
+                                                self.logger.error(f"Failed to save normalization metadata to {metadata_file_path}: {e_meta_save}")
+                                            # --- End store metadata ---
+                                        else:
+                                            self.logger.error("Failed to save global scaler. Normalization will be skipped.")
+                                            normalize_data = False # Disable if scaler not saved
+                                            global_scaler = None
+                                    else:
+                                        self.logger.error("Failed to create global scaler from stats. Normalization will be skipped.")
+                                        normalize_data = False # Disable if scaler not created
+                        else:
+                            self.logger.error("Failed to calculate global stats for normalization. Normalization will be skipped.")
+                            normalize_data = False # Disable if stats calculation failed
+            
+            # If normalization was attempted but ultimately skipped, record this
+           if normalize_data_initially_requested and not global_scaler: # Check if user wanted it AND it failed
+                metadata_file_path = os.path.join(job_folder, "job_metadata.json")
+                try:
+                    job_meta = {}
+                    if os.path.exists(metadata_file_path):
+                        with open(metadata_file_path, 'r') as f_meta:
+                            job_meta = json.load(f_meta)
+                    job_meta['normalization_applied'] = False
+                    job_meta.pop('scaler_path', None)
+                    job_meta.pop('normalized_columns', None)
+                    with open(metadata_file_path, 'w') as f_meta:
+                        json.dump(job_meta, f_meta, indent=4)
+                    self.logger.info(f"Recorded that normalization was attempted but skipped in {metadata_file_path}")
+                except Exception as e_meta_save_fail:
+                    self.logger.error(f"Failed to update normalization status (skipped) in {metadata_file_path}: {e_meta_save_fail}")
 
-            total_files = len(all_files_to_process)
-            self.logger.info(f"Found {total_files} CSV files to process.")
+           if not all_files_to_process:
+               self.logger.info("No CSV files found in processed directories to augment.")
+               self.augmentationProgress.emit(100)
+               self.service.update_augmentation_metadata(job_folder, processed_files_metadata)
+               self.augmentationFinished.emit(job_folder, processed_files_metadata) # Emit finished signal
+               return job_folder, processed_files_metadata # Still return for direct calls if needed
 
-            for i, file_path in enumerate(all_files_to_process):
+           total_files = len(all_files_to_process)
+           self.logger.info(f"Found {total_files} CSV files to process.")
+
+           for i, file_path in enumerate(all_files_to_process):
                 self.logger.info(f"Processing file ({i+1}/{total_files}): {file_path}")
                 file_metadata = {'filepath': file_path, 'status': 'Skipped', 'error': 'Unknown reason'} # Default status
                 df = None # Initialize df
@@ -178,14 +314,32 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             # For other unexpected errors during column creation, we might still want to stop or handle differently.
                             # For now, it will be caught by the broader e_file exception if not saved.
                     
-                    # 3. Padding (only if no formula error and df is valid)
+                    # 3. Normalization (New Step - only if no formula error and df is valid)
+                    if not formula_error_occurred and normalize_data and global_scaler and df is not None and not df.empty:
+                        self.logger.info(f"Applying normalization to {file_path} using global scaler for columns: {actual_columns_to_normalize}")
+                        try:
+                            # Assuming DataAugmentService will have a method to call normalization_service.transform_data
+                            # Or, we can call it directly if DataAugmentService doesn't need to be involved here.
+                            # For now, let's assume we add a method to DataAugmentService.
+                            df = self.service.apply_normalization(df, global_scaler, actual_columns_to_normalize) # This method needs to be added to DataAugmentService
+                            self.logger.info(f"Shape after normalization for {file_path}: {df.shape if df is not None else 'None'}")
+                        except Exception as e_norm:
+                            self.logger.error(f"Error during normalization for {file_path}: {e_norm}", exc_info=True)
+                            # Decide if this should be a critical failure for the file
+                            file_metadata['status'] = 'Failed'
+                            file_metadata['error'] = f"Normalization error: {e_norm}"
+                            # Potentially skip saving this file or stop, for now, it will mark as failed.
+                            # To prevent saving, we could set df to None or re-raise, but that might be too disruptive.
+                            # Let's assume it marks as failed and continues to padding if df is still valid.
+
+                    # 4. Padding (only if no formula error and df is valid)
                     if not formula_error_occurred and padding_length and padding_length > 0 and df is not None and not df.empty:
-                        self.logger.info(f"Applying padding of {padding_length} to {file_path} (after potential resampling and column creation)")
+                        self.logger.info(f"Applying padding of {padding_length} to {file_path} (after potential resampling, column creation, and normalization)")
                         df = self.service.pad_data(df, padding_length, resample_freq_for_time_padding=actual_resampling_frequency_for_padding)
                         self.logger.info(f"Shape after padding for {file_path}: {df.shape if df is not None else 'None'}")
 
-                    # Save if no formula error occurred and df is valid
-                    if not formula_error_occurred and df is not None and not df.empty:
+                    # Save if no formula error occurred and df is valid (and no critical normalization error made df invalid)
+                    if file_metadata['status'] != 'Failed' and df is not None and not df.empty: # Check status too
                         self.service.save_single_augmented_file(df, file_path)
                         file_metadata['augmented_shape'] = df.shape
                         file_metadata['columns'] = df.columns.tolist()
@@ -215,12 +369,12 @@ class DataAugmentManager(QObject): # Inherit from QObject
                 current_progress = int(((i + 1) / total_files) * 95)
                 self.augmentationProgress.emit(current_progress)
 
-            self.service.update_augmentation_metadata(job_folder, processed_files_metadata)
+           self.service.update_augmentation_metadata(job_folder, processed_files_metadata)
 
-            self.augmentationProgress.emit(100)
-            self.logger.info(f"File-by-file augmentation completed (or stopped) for job: {job_folder}")
-            self.augmentationFinished.emit(job_folder, processed_files_metadata) 
-            return job_folder, processed_files_metadata 
+           self.augmentationProgress.emit(100)
+           self.logger.info(f"File-by-file augmentation completed (or stopped) for job: {job_folder}")
+           self.augmentationFinished.emit(job_folder, processed_files_metadata)
+           return job_folder, processed_files_metadata
 
        except Exception as e:
             self.logger.error(f"Critical error during apply_augmentations for job {job_folder}: {e}", exc_info=True)
