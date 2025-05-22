@@ -178,14 +178,15 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(False)  # Initially hidden
         self.main_layout.addWidget(self.progress_bar)
 
-    # _filter_files_by_selected_source and on_data_source_selection_changed removed as ComboBox no longer filters display.
+    # Methods _filter_files_by_selected_source and on_data_source_selection_changed were here.
+    # They have been removed as the ComboBox selection no longer directly filters the file list display.
 
     def select_train_folder(self):
         self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder")
         if self.train_folder_path:
             self.data_source_combo.blockSignals(True)
             try:
-                self.populate_file_list(self.train_folder_path, self.train_list_widget, specific_extension=None) # Show all default types
+                self.populate_file_list(self.train_folder_path, self.train_list_widget) # Show all default types
                 logger.info(f"Selected training folder: {self.train_folder_path}. Populated with default extensions.")
             finally:
                 self.data_source_combo.blockSignals(False)
@@ -196,7 +197,7 @@ class DataImportGUI(QMainWindow):
         if self.test_folder_path:
             self.data_source_combo.blockSignals(True)
             try:
-                self.populate_file_list(self.test_folder_path, self.test_list_widget, specific_extension=None) # Show all default types
+                self.populate_file_list(self.test_folder_path, self.test_list_widget) # Show all default types
                 logger.info(f"Selected testing folder: {self.test_folder_path}. Populated with default extensions.")
             finally:
                 self.data_source_combo.blockSignals(False)
