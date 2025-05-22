@@ -27,7 +27,7 @@ import numpy as np
 # import matplotlib.pyplot as plt # PreviewDialog removed, so this might not be needed
 # from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas # PreviewDialog removed
 
-from vestim.gui.src.hyper_param_gui_qt_test import VEstimHyperParamGUI
+from vestim.gui.src.hyper_param_gui_qt_test import VEstimHyperParamGUI # Ensure test calls test
 from vestim.gateway.src.data_augment_manager_qt import DataAugmentManager
 
 import logging
@@ -534,45 +534,41 @@ class DataAugmentGUI(QMainWindow):
         self.cancel_button.setEnabled(True)
 
     def handle_formula_error(self, error_msg):
-        """Handles formula-specific errors emitted by the manager."""
-        self.logger.error(f"Formula error during augmentation: {error_msg}")
-        self.progress_bar.setValue(0) # Or set to an error state
-        self.progress_bar.setStyleSheet("QProgressBar::chunk { background-color: red; }")
-        self.progress_bar.setVisible(True)
+        """Handles formula errors emitted by the manager."""
+        self.logger.error(f"Formula error reported by manager: {error_msg}")
+        # Reset progress bar appearance and hide it
+        self.progress_bar.setValue(0) 
+        self.progress_bar.setStyleSheet("") 
+        self.progress_bar.setVisible(False) 
 
         if hasattr(self, 'status_label') and self.status_label is not None:
-            self.status_label.setText(f"Formula Error: {error_msg}")
+            self.status_label.setText(f"Formula Error: Processing stopped.")
         
-        QMessageBox.critical(self, "Formula Error", f"An error occurred with a formula: {error_msg}")
+        # Display the concise formula error message from the manager/service
+        QMessageBox.critical(self, "Formula Error", error_msg) 
         
         # Re-enable buttons
         self.apply_button.setEnabled(True)
         self.cancel_button.setEnabled(True)
-
+    
     def go_to_hyperparameter_gui(self):
-        """Transitions to the hyperparameter selection GUI."""
         self.logger.info("Transitioning to hyperparameter GUI...")
         try:
-            self.hyper_param_gui = VEstimHyperParamGUI(job_folder=self.job_folder)
+            self.hyper_param_gui = VEstimHyperParamGUI() # Corrected: No job_folder argument
             self.hyper_param_gui.show()
-            self.close() # Close the current data augmentation window
+            self.close() # Close current window
         except Exception as e:
-            self.logger.error(f"Failed to open Hyperparameter GUI: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"Could not open the Hyperparameter GUI: {e}")
+            self.logger.error(f"Error transitioning to hyperparameter GUI: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Could not open hyperparameter selection: {e}")
 
 def main():
-    """Main function to run the Data Augmentation GUI."""
     app = QApplication(sys.argv)
-    # Example: Launch with a predefined job_folder if passed as an argument,
-    # otherwise, it will prompt the user to select one.
-    job_folder_arg = sys.argv[1] if len(sys.argv) > 1 else None
-    if job_folder_arg and not os.path.isdir(job_folder_arg):
-        print(f"Warning: Provided job folder '{job_folder_arg}' does not exist. GUI will prompt for selection.")
-        job_folder_arg = None
-
-    gui = DataAugmentGUI(job_folder=job_folder_arg)
-    gui.show()
+    # Example: Launch with a specific job folder if available (e.g., from command line or previous step)
+    # job_folder_to_pass = "path/to/your/job_folder" # Replace with actual logic if needed
+    # ex = DataAugmentGUI(job_folder=job_folder_to_pass)
+    ex = DataAugmentGUI() 
+    ex.show()
     sys.exit(app.exec_())
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
