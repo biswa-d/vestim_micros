@@ -652,15 +652,15 @@ class VEstimHyperParamGUI(QWidget):
             self.hyper_param_manager.save_params_to_file(current_params, params_file_path)
             QMessageBox.information(self, "Success", f"Hyperparameters saved to {params_file_path}")
             
-            self.show_training_setup_gui() # Proceed to the next screen
+            self.show_training_setup_gui(current_params) # Proceed to the next screen, passing collected params
 
         except Exception as e:
             self.logger.error(f"Error proceeding to training: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"An error occurred: {e}")
             
-    def show_training_setup_gui(self):
+    def show_training_setup_gui(self, params_to_pass): # Accept params argument
         """Initializes and shows the Training Setup GUI."""
-        self.training_setup_gui = VEstimTrainSetupGUI(job_manager.get_job_folder()) # Pass current job folder
+        self.training_setup_gui = VEstimTrainSetupGUI(params_to_pass) # Pass the collected params
         self.training_setup_gui.show()
         self.close() # Close the hyperparameter window
 
