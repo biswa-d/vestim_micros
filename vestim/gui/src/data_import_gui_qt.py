@@ -224,6 +224,7 @@ class DataImportGUI(QMainWindow):
             logger.error(f"Error during file iteration or adding item for {folder_path}: {e}", exc_info=True)
         
         logger.info(f"Finished populating list for '{folder_path}'. Total items added: {items_added_count}. List widget current count: {list_widget.count()}")
+        list_widget.update() # Explicitly request a widget update
 
     def check_folders_selected(self):
         if self.train_folder_path and self.test_folder_path:
