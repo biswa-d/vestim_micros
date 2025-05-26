@@ -406,7 +406,7 @@ class VEstimTestingGUI(QMainWindow):
                     true_col = col
                 elif 'Predictions' in col:
                     pred_col = col
-                elif 'Difference' in col:
+                elif 'Error' in col: # Changed from 'Difference' to 'Error'
                     diff_col = col
             
             if not true_col or not pred_col:

@@ -150,7 +150,7 @@ class VEstimTestingService:
                 multiplier = 1000.0  # Match training task part - V to mV conversion
             elif "soc" in target_column_name.lower():
                 unit_suffix = "_percent"
-                unit_display = "% SOC"  # Match training task GUI format
+                unit_display = "SOC"  # Match training task GUI format
                 multiplier = 100.0  # Match training task part - 0-1 to percentage conversion
             elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
                 unit_suffix = "_degC"
@@ -175,6 +175,12 @@ class VEstimTestingService:
             mape = np.mean(np.abs((y_for_metrics_actual - y_for_metrics_pred) / mape_denominator)) * 100
             r2 = r2_score(y_for_metrics_actual, y_for_metrics_pred)
 
+            # Calculate error for the "Error (% SOC)" column
+            # y_for_metrics_actual is y_test_original_scale (e.g., SOC 0-1)
+            # y_for_metrics_pred is y_pred_original_scale (e.g., SOC 0-1)
+            # multiplier is 100.0 for SOC, so error is in percentage points
+            error_percent_soc_values = (y_for_metrics_actual - y_for_metrics_pred) * multiplier
+            
             print(f"Metrics calculated on (potentially) original scale values.")
             print(f"RMS Error: {rms_error_val} {unit_display}, MAE: {mae_val} {unit_display}, MAPE: {mape}%, R²: {r2}")
 
@@ -188,7 +194,8 @@ class VEstimTestingService:
                 'mape_percent': mape, # Explicitly state mape is percent
                 'r2': r2,
                 'unit_display': unit_display,  # Add the unit display string for consistent labeling
-                'multiplier': multiplier  # Store the multiplier for potential reuse
+                'multiplier': multiplier,  # Store the multiplier for potential reuse
+                'error_percent_soc_values': error_percent_soc_values # New key for direct error values
             }
             return results_dict
  

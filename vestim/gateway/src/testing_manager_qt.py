@@ -177,8 +177,8 @@ class VEstimTestingManager:
                     error_unit_display = "(mV)"  # Consistent with training GUI - errors in mV
                 elif "soc" in target_column_name.lower():
                     unit_suffix = "_percent"
-                    csv_unit_display = "(% SOC)"   # Match training GUI format
-                    error_unit_display = "(% SOC)" # Consistent with training GUI
+                    csv_unit_display = "(SOC)"   # Changed from (% SOC)
+                    error_unit_display = "(% SOC)" # Stays as (% SOC) for the error column name
                 elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
                     unit_suffix = "_degC"
                     csv_unit_display = "(Deg C)"   # Match training GUI format
@@ -204,11 +204,21 @@ class VEstimTestingManager:
                 
                 # Save predictions with dynamic column names - matching training GUI conventions
                 predictions_file = os.path.join(test_results_dir, f"{file_name}_predictions.csv")
-                pd.DataFrame({
-                    f'True Values {csv_unit_display}': y_true_scaled,
+                
+                # Prepare data for DataFrame
+                data_for_csv = {
+                    f'True Value {csv_unit_display}': y_true_scaled, # Changed "Values" to "Value"
                     f'Predictions {csv_unit_display}': y_pred_scaled,
-                    f'Error {error_unit_display}': difference
-                }).to_csv(predictions_file, index=False)
+                }
+                
+                if "soc" in target_column_name.lower():
+                    # Use the pre-calculated error from testing_service for SOC
+                    data_for_csv[f'Error {error_unit_display}'] = file_results['error_percent_soc_values']
+                else:
+                    # Use the existing difference calculation for other types
+                    data_for_csv[f'Error {error_unit_display}'] = difference
+                
+                pd.DataFrame(data_for_csv).to_csv(predictions_file, index=False)
                 
                 # Add results to summary file with dynamic headers matching training GUI
                 summary_file = os.path.join(task_dir, 'test_summary.csv')
