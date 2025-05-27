@@ -362,10 +362,13 @@ class TrainingTaskManager:
             optimizer = self.optimizer
             scheduler = self.scheduler
 
-            # Initialize CSV logging
-            # csv_log_file = task['csv_log_file']
-            # with open(csv_log_file, 'w') as f:
-            #     f.write("epoch,train_loss,val_loss,learning_rate\n")  # CSV header
+            # Initialize CSV logging for epoch-wise data
+            csv_log_file = task['csv_log_file']
+            # Ensure the directory for csv_log_file exists (it's task_dir/logs/)
+            os.makedirs(os.path.dirname(csv_log_file), exist_ok=True)
+            with open(csv_log_file, 'w', newline='') as f: # Added newline=''
+                csv_writer = csv.writer(f)
+                csv_writer.writerow(["epoch", "train_loss_norm", "val_loss_norm", "best_val_loss_norm", "learning_rate", "elapsed_time_sec", "avg_batch_time_sec", "patience_counter", "model_memory_mb"]) # Header
 
             # Training loop
             for epoch in range(1, max_epochs + 1):
@@ -544,6 +547,23 @@ class TrainingTaskManager:
                              best_val_rmse_for_gui = math.sqrt(max(0, best_validation_loss)) * multiplier
                         else:
                              best_val_rmse_for_gui = float('inf') # Ensure it's inf if best_validation_loss is inf
+                    
+                    # Log to CSV (after validation)
+                    model_memory_usage_val = torch.cuda.memory_allocated(device=self.device) if self.device.type == 'cuda' else 0
+                    model_memory_usage_mb_val = model_memory_usage_val / (1024 * 1024) if model_memory_usage_val > 0 else 0
+                    with open(csv_log_file, 'a', newline='') as f:
+                        csv_writer_val = csv.writer(f)
+                        csv_writer_val.writerow([
+                            epoch,
+                            f"{train_loss_norm:.6f}" if train_loss_norm is not None else 'nan',
+                            f"{val_loss_norm:.6f}" if val_loss_norm is not None else 'nan',
+                            f"{best_validation_loss:.6f}" if best_validation_loss is not None else 'nan', # best_validation_loss is normalized
+                            f"{current_lr:.1e}" if current_lr is not None else 'nan',
+                            f"{elapsed_time:.2f}" if elapsed_time is not None else 'nan', # elapsed_time for validation epoch
+                            f"{avg_batch_time:.4f}" if avg_batch_time is not None else 'nan', # avg_batch_time for train part of this epoch
+                            patience_counter if patience_counter is not None else 'nan',
+                            f"{model_memory_usage_mb_val:.3f}" if model_memory_usage_mb_val is not None else 'nan'
+                        ])
                     
                     self.logger.info(f"Epoch {epoch} | Train Loss (Norm): {train_loss_norm:.6f} | Val Loss (Norm): {val_loss_norm:.6f} | GUI Train RMSE: {train_rmse_for_gui:.4f} {error_unit_label} | GUI Val RMSE: {val_rmse_for_gui:.4f} {error_unit_label} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss (Norm): {best_validation_loss:.6f} | GUI Best Val RMSE: {best_val_rmse_for_gui:.4f} {error_unit_label} | Patience: {patience_counter}")
                     progress_data = {

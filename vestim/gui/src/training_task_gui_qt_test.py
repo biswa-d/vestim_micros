@@ -600,8 +600,12 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Save the training plot for the current task
         try:
             task_id = self.task_list[self.current_task_index].get('task_id', f'task_{self.current_task_index + 1}')
-            save_dir = self.task_list[self.current_task_index].get('saved_dir', self.job_manager.get_job_folder())
+            # Use 'task_dir' which is the specific directory for this task's artifacts
+            save_dir = self.task_list[self.current_task_index].get('task_dir', self.job_manager.get_job_folder()) # Fallback to job folder if task_dir is missing
             
+            # Ensure the save directory exists (it should, as it's created by TrainingSetupManager)
+            os.makedirs(save_dir, exist_ok=True)
+
             # Create a new figure for saving
             fig = Figure(figsize=(8, 5), dpi=300)
             ax = fig.add_subplot(111)
