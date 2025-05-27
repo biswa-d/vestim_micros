@@ -61,13 +61,13 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 self.logger.error(f"Failed to initialize WandB in GUI: {e}")
         
 
-        self.training_task_manager = TrainingTaskManager(global_params=self.params) # Pass global params
+        self.task_list = task_list
+        self.params = params # Assign to self.params first
+
+        self.training_task_manager = TrainingTaskManager(global_params=self.params) # Now use self.params
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.training_service = TrainingTaskService()
         self.job_manager = JobManager()
-
-        self.task_list = task_list
-        self.params = params
 
         # Initialize variables
         self.train_loss_values = []
