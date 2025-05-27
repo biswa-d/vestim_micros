@@ -264,9 +264,6 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Add the time layout to the main layout
         self.main_layout.addLayout(time_layout)
 
-        # Add time layout to the main layout
-        self.main_layout.addLayout(time_layout)
-
         # Plot Setup
         max_epochs = int(task['hyperparams']['MAX_EPOCHS'])
         valid_frequency = int(task['hyperparams']['ValidFrequency'])

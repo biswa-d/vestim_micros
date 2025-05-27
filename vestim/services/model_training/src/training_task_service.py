@@ -68,6 +68,7 @@ class TrainingTaskService:
                 break
 
             start_batch_time = time.time()
+            # Use the 'device' argument passed to the method, not self.device
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             optimizer.zero_grad()
 
@@ -176,6 +177,7 @@ class TrainingTaskService:
                     print("Stop requested during validation")
                     break
                 
+                # Use the 'device' argument passed to the method, not self.device
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
 
                 if model_type == "LSTM":
