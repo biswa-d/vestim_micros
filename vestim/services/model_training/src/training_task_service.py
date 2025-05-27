@@ -49,6 +49,8 @@ class TrainingTaskService:
         """Train the model for a single epoch, adapting to model type."""
         model.train()
         total_train_loss = []
+        all_train_y_pred_normalized = [] # To store all predictions from the epoch
+        all_train_y_true_normalized = [] # To store all true values from the epoch
         batch_times = []
         log_freq = task.get('log_frequency', 100)
         
@@ -119,6 +121,12 @@ class TrainingTaskService:
             optimizer.step()
             total_train_loss.append(loss.item())
             
+            # Store predictions and true values
+            # Ensure y_pred and y_batch are appropriately shaped before appending
+            # Assuming y_pred is [B, F] and y_batch is [B, F] after any necessary squeezing/selection
+            all_train_y_pred_normalized.append(y_pred.detach().cpu())
+            all_train_y_true_normalized.append(y_batch.detach().cpu()) # y_batch is already on device, move to cpu
+
             end_batch_time = time.time()
             batch_time = end_batch_time - start_batch_time
             batch_times.append(batch_time)
@@ -136,13 +144,23 @@ class TrainingTaskService:
 
 
         avg_epoch_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0
-        return avg_epoch_batch_time, sum(total_train_loss) / len(total_train_loss) if total_train_loss else float('nan')
+        avg_loss = sum(total_train_loss) / len(total_train_loss) if total_train_loss else float('nan')
+        
+        # Concatenate all batch tensors
+        if all_train_y_pred_normalized:
+            all_train_y_pred_normalized = torch.cat(all_train_y_pred_normalized, dim=0)
+        if all_train_y_true_normalized:
+            all_train_y_true_normalized = torch.cat(all_train_y_true_normalized, dim=0)
+            
+        return avg_epoch_batch_time, avg_loss, all_train_y_pred_normalized, all_train_y_true_normalized
 
 
     def validate_epoch(self, model, model_type, val_loader, h_s_initial, h_c_initial, epoch, device, stop_requested, task):
         """Validate the model for a single epoch, adapting to model type."""
         model.eval()
         total_val_loss = 0
+        all_val_y_pred_normalized = [] # To store all predictions from the epoch
+        all_val_y_true_normalized = [] # To store all true values from the epoch
         log_freq = task.get('log_frequency', 100)
         
         h_s, h_c = None, None
@@ -182,6 +200,10 @@ class TrainingTaskService:
 
                 loss = self.criterion(y_pred, y_batch)
                 total_val_loss += loss.item() * X_batch.size(0) # Accumulate total loss correctly
+                
+                # Store predictions and true values
+                all_val_y_pred_normalized.append(y_pred.detach().cpu())
+                all_val_y_true_normalized.append(y_batch.detach().cpu())
 
                 if batch_idx % log_freq == 0:
                      print(f"Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")
@@ -191,7 +213,15 @@ class TrainingTaskService:
                 elif model_type == "GRU": del current_h_s
                 torch.cuda.empty_cache() if device.type == 'cuda' else None
         
-        return total_val_loss / len(val_loader.dataset) if len(val_loader.dataset) > 0 else float('nan')
+        avg_loss = total_val_loss / len(val_loader.dataset) if len(val_loader.dataset) > 0 else float('nan')
+        
+        # Concatenate all batch tensors
+        if all_val_y_pred_normalized:
+            all_val_y_pred_normalized = torch.cat(all_val_y_pred_normalized, dim=0)
+        if all_val_y_true_normalized:
+            all_val_y_true_normalized = torch.cat(all_val_y_true_normalized, dim=0)
+            
+        return avg_loss, all_val_y_pred_normalized, all_val_y_true_normalized
 
     def save_model(self, model, model_path):
         """Save the model to disk."""

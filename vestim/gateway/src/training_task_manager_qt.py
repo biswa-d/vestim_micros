@@ -25,6 +25,8 @@ class TrainingTaskManager:
         self.current_task = None
         self.stop_requested = False
         self.global_params = global_params if global_params else {}
+        self.loaded_scaler = None # For storing the loaded scaler
+        self.scaler_metadata = {} # For storing normalization metadata (path, columns, target)
         
         # Determine device based on global_params or fallback
         selected_device_str = self.global_params.get('DEVICE_SELECTION', 'cuda:0')
@@ -103,6 +105,9 @@ class TrainingTaskManager:
         """Process a single training task and set up logging."""
         try:
             self.logger.info(f"Starting task with hyperparams: {task['hyperparams']}")
+
+            # Load normalization metadata and scaler if applicable
+            self.load_normalization_info_and_scaler()
 
             # Setup logging (SQL and CSV) for the job
             self.setup_job_logging(task)
@@ -214,6 +219,50 @@ class TrainingTaskManager:
             self.logger.error(f"SQLite error: {e}")
             raise e
 
+    def load_normalization_info_and_scaler(self):
+        """Loads normalization metadata and the scaler if normalization was applied."""
+        self.loaded_scaler = None
+        self.scaler_metadata = {}
+        job_folder = self.job_manager.get_job_folder()
+        if not job_folder:
+            self.logger.warning("Job folder not set in JobManager. Cannot load normalization info.")
+            return
+
+        metadata_file_path = os.path.join(job_folder, "job_metadata.json")
+        if os.path.exists(metadata_file_path):
+            try:
+                with open(metadata_file_path, 'r') as f_meta:
+                    job_meta = json.load(f_meta)
+                
+                if job_meta.get('normalization_applied', False):
+                    scaler_path_relative = job_meta.get('scaler_path')
+                    normalized_columns = job_meta.get('normalized_columns')
+                    # Assuming target_column is available in task later, or we can add it to job_meta if it's globally unique
+                    
+                    if scaler_path_relative and normalized_columns:
+                        scaler_path_absolute = os.path.join(job_folder, scaler_path_relative)
+                        from vestim.services import normalization_service # Local import
+                        self.loaded_scaler = normalization_service.load_scaler(scaler_path_absolute)
+                        if self.loaded_scaler:
+                            self.scaler_metadata = {
+                                'scaler_path': scaler_path_absolute,
+                                'normalized_columns': normalized_columns,
+                                'normalization_applied': True
+                                # 'target_column' will be derived from task params later
+                            }
+                            self.logger.info(f"Successfully loaded scaler from {scaler_path_absolute} and normalization metadata.")
+                        else:
+                            self.logger.error(f"Failed to load scaler from {scaler_path_absolute}. Reporting will be on normalized scale.")
+                    else:
+                        self.logger.warning("Normalization metadata incomplete (scaler_path or normalized_columns missing). Reporting on normalized scale.")
+                else:
+                    self.logger.info("Normalization was not applied according to job_metadata.json.")
+            except Exception as e:
+                self.logger.error(f"Error loading normalization metadata from {metadata_file_path}: {e}")
+        else:
+            self.logger.info(f"job_metadata.json not found at {metadata_file_path}. Assuming no normalization or scaler to load.")
+
+
     def create_data_loaders(self, task):
         """Create data loaders for the current task."""
         feature_cols = task['data_loader_params']['feature_columns']
@@ -268,6 +317,11 @@ class TrainingTaskManager:
         """Run the training process for a single task."""
         try:
             self.logger.info("Starting training loop")
+            # Initialize/reset task-specific best original scale validation RMSE tracker
+            # Using a unique attribute name per task to avoid conflicts if manager instance is reused for different tasks sequentially
+            # though typically a new manager or thread might be used. This is safer.
+            setattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', float('inf'))
+
             hyperparams = self.convert_hyperparams(task['hyperparams']) # This ensures BATCH_SIZE is int if it exists
             model = task['model'].to(device)
             
@@ -335,7 +389,10 @@ class TrainingTaskManager:
 
                 # Train the model for one epoch
                 model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM')) # Get model_type
-                avg_batch_time, train_loss = self.training_service.train_epoch(model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task)
+                # train_epoch now returns: avg_batch_time, avg_loss (normalized), all_train_y_pred_normalized, all_train_y_true_normalized
+                avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch(
+                    model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task
+                )
 
                 epoch_end_time = time.time()
                 epoch_duration = epoch_end_time - epoch_start_time
@@ -361,7 +418,10 @@ class TrainingTaskManager:
                     h_c_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
 
                     model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM')) # Get model_type
-                    val_loss = self.training_service.validate_epoch(model, model_type, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task)
+                    # validate_epoch now returns: avg_loss (normalized), all_val_y_pred_normalized, all_val_y_true_normalized
+                    val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
+                        model, model_type, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task
+                    )
 
                     current_time = time.time()
                     elapsed_time = current_time - start_time
@@ -370,9 +430,9 @@ class TrainingTaskManager:
 
                     current_lr = optimizer.param_groups[0]['lr']
                     
-                    if val_loss < best_validation_loss:
-                        print(f"Epoch: {epoch}, Validation loss improved from {best_validation_loss:.6f} to {val_loss:.6f}. Saving model...")
-                        best_validation_loss = val_loss
+                    if val_loss_norm < best_validation_loss: # best_validation_loss is also on normalized scale
+                        print(f"Epoch: {epoch}, Validation loss improved from {best_validation_loss:.6f} to {val_loss_norm:.6f}. Saving model...")
+                        best_validation_loss = val_loss_norm
                         self.save_model(task)
                         patience_counter = 0
                     else:
@@ -398,60 +458,154 @@ class TrainingTaskManager:
                         error_unit_label = "RMS Error [Deg C]"
                         multiplier = 1.0
                     
-                    # Calculate scaled RMSE values, handling potential NaN or None for losses
-                    train_rmse_scaled = float('nan')
-                    if train_loss is not None and not math.isnan(train_loss):
-                        train_rmse_scaled = math.sqrt(max(0, train_loss)) * multiplier
+                    # Calculate scaled RMSE values.
+                    train_rmse_for_gui = float('nan')
+                    val_rmse_for_gui = float('nan')
+                    # Retrieve the running best original scale validation RMSE for this task
+                    best_val_rmse_orig_scale_for_gui = getattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', float('inf'))
 
-                    val_rmse_scaled = float('nan')
-                    if val_loss is not None and not math.isnan(val_loss):
-                        val_rmse_scaled = math.sqrt(max(0, val_loss)) * multiplier
+                    target_col_for_scaler = task['data_loader_params']['target_column']
+
+                    if self.loaded_scaler and target_col_for_scaler in self.scaler_metadata.get('normalized_columns', []):
+                        from vestim.services import normalization_service # Local import
+                        import pandas as pd # Local import for DataFrame
+                        import numpy as np # Ensure numpy is imported for np.mean, np.sqrt
+
+                        # --- Train RMSE on original scale (if epoch_train_preds_norm available) ---
+                        if epoch_train_preds_norm is not None and epoch_train_trues_norm is not None and len(epoch_train_preds_norm) > 0:
+                            try:
+                                e_t_p_n = epoch_train_preds_norm.cpu().numpy() if epoch_train_preds_norm.is_cuda else epoch_train_preds_norm.numpy()
+                                e_t_t_n = epoch_train_trues_norm.cpu().numpy() if epoch_train_trues_norm.is_cuda else epoch_train_trues_norm.numpy()
+
+                                temp_df_train_pred = pd.DataFrame(0, index=np.arange(len(e_t_p_n)), columns=self.scaler_metadata['normalized_columns'])
+                                temp_df_train_pred[target_col_for_scaler] = e_t_p_n.flatten()
+                                df_train_pred_inv = normalization_service.inverse_transform_data(temp_df_train_pred, self.loaded_scaler, self.scaler_metadata['normalized_columns'])
+                                train_pred_orig = df_train_pred_inv[target_col_for_scaler].values
+
+                                temp_df_train_true = pd.DataFrame(0, index=np.arange(len(e_t_t_n)), columns=self.scaler_metadata['normalized_columns'])
+                                temp_df_train_true[target_col_for_scaler] = e_t_t_n.flatten()
+                                df_train_true_inv = normalization_service.inverse_transform_data(temp_df_train_true, self.loaded_scaler, self.scaler_metadata['normalized_columns'])
+                                train_true_orig = df_train_true_inv[target_col_for_scaler].values
+                                
+                                train_mse_orig = np.mean((train_pred_orig - train_true_orig)**2)
+                                train_rmse_for_gui = np.sqrt(train_mse_orig) * multiplier
+                            except Exception as e_inv_train:
+                                self.logger.error(f"Error during inverse transform for training data (epoch {epoch}): {e_inv_train}. Falling back for train_rmse_for_gui.")
+                                if train_loss_norm is not None and not math.isnan(train_loss_norm): # Use train_loss_norm (normalized)
+                                    train_rmse_for_gui = math.sqrt(max(0, train_loss_norm)) * multiplier
+                        else:
+                             if train_loss_norm is not None and not math.isnan(train_loss_norm): # Use train_loss_norm (normalized)
+                                train_rmse_for_gui = math.sqrt(max(0, train_loss_norm)) * multiplier
+                        
+                        # --- Validation RMSE on original scale ---
+                        if epoch_val_preds_norm is not None and epoch_val_trues_norm is not None and len(epoch_val_preds_norm) > 0:
+                            try:
+                                e_v_p_n = epoch_val_preds_norm.cpu().numpy() if epoch_val_preds_norm.is_cuda else epoch_val_preds_norm.numpy()
+                                e_v_t_n = epoch_val_trues_norm.cpu().numpy() if epoch_val_trues_norm.is_cuda else epoch_val_trues_norm.numpy()
+
+                                temp_df_val_pred = pd.DataFrame(0, index=np.arange(len(e_v_p_n)), columns=self.scaler_metadata['normalized_columns'])
+                                temp_df_val_pred[target_col_for_scaler] = e_v_p_n.flatten()
+                                df_val_pred_inv = normalization_service.inverse_transform_data(temp_df_val_pred, self.loaded_scaler, self.scaler_metadata['normalized_columns'])
+                                val_pred_orig = df_val_pred_inv[target_col_for_scaler].values
+
+                                temp_df_val_true = pd.DataFrame(0, index=np.arange(len(e_v_t_n)), columns=self.scaler_metadata['normalized_columns'])
+                                temp_df_val_true[target_col_for_scaler] = e_v_t_n.flatten()
+                                df_val_true_inv = normalization_service.inverse_transform_data(temp_df_val_true, self.loaded_scaler, self.scaler_metadata['normalized_columns'])
+                                val_true_orig = df_val_true_inv[target_col_for_scaler].values
+
+                                val_mse_orig = np.mean((val_pred_orig - val_true_orig)**2)
+                                current_val_rmse_orig_scale = np.sqrt(val_mse_orig) * multiplier # Current epoch's original scale RMSE
+                                val_rmse_for_gui = current_val_rmse_orig_scale
+                                
+                                # Update the best original scale validation RMSE found so far for this task
+                                if current_val_rmse_orig_scale < best_val_rmse_orig_scale_for_gui:
+                                    best_val_rmse_orig_scale_for_gui = current_val_rmse_orig_scale
+                                    setattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', best_val_rmse_orig_scale_for_gui)
+                                
+                            except Exception as e_inv_val:
+                                self.logger.error(f"Error during inverse transform for validation data (epoch {epoch}): {e_inv_val}. Falling back for val_rmse_for_gui.")
+                                if val_loss_norm is not None and not math.isnan(val_loss_norm): # Use val_loss_norm (normalized)
+                                    val_rmse_for_gui = math.sqrt(max(0, val_loss_norm)) * multiplier
+                        else:
+                            if val_loss_norm is not None and not math.isnan(val_loss_norm): # Use val_loss_norm (normalized)
+                                val_rmse_for_gui = math.sqrt(max(0, val_loss_norm)) * multiplier
+                        
+                        # best_val_rmse_for_gui should be the running best on original_scale if scaler is used
+                        # If it's still inf, it means no valid original scale RMSE has been calculated yet,
+                        # so fall back to scaled normalized best_validation_loss if that exists.
+                        if best_val_rmse_orig_scale_for_gui == float('inf') and best_validation_loss != float('inf') and not math.isnan(best_validation_loss):
+                            best_val_rmse_for_gui = math.sqrt(max(0, best_validation_loss)) * multiplier
+                        else:
+                            best_val_rmse_for_gui = best_val_rmse_orig_scale_for_gui
+
+                    else: # No scaler loaded or target not in normalized columns - use normalized loss for GUI RMSE
+                        if train_loss_norm is not None and not math.isnan(train_loss_norm):
+                            train_rmse_for_gui = math.sqrt(max(0, train_loss_norm)) * multiplier
+                        if val_loss_norm is not None and not math.isnan(val_loss_norm):
+                            val_rmse_for_gui = math.sqrt(max(0, val_loss_norm)) * multiplier
+                        if best_validation_loss != float('inf') and not math.isnan(best_validation_loss):
+                             best_val_rmse_for_gui = math.sqrt(max(0, best_validation_loss)) * multiplier
                     
-                    best_val_rmse_scaled = float('inf') # Default if best_validation_loss is inf
-                    if best_validation_loss != float('inf') and not math.isnan(best_validation_loss):
-                         best_val_rmse_scaled = math.sqrt(max(0, best_validation_loss)) * multiplier
-
-                    self.logger.info(f"Epoch {epoch} | Train Loss (MSE): {train_loss:.6f} | Val Loss (MSE): {val_loss:.6f} | {error_unit_label} (Train): {train_rmse_scaled:.4f} | {error_unit_label} (Val): {val_rmse_scaled:.4f} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss (MSE): {best_validation_loss:.6f} | Best {error_unit_label}: {best_val_rmse_scaled:.4f} | Patience Counter: {patience_counter}")
+                    self.logger.info(f"Epoch {epoch} | Train Loss (Norm): {train_loss_norm:.6f} | Val Loss (Norm): {val_loss_norm:.6f} | GUI Train RMSE: {train_rmse_for_gui:.4f} {error_unit_label} | GUI Val RMSE: {val_rmse_for_gui:.4f} {error_unit_label} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss (Norm): {best_validation_loss:.6f} | GUI Best Val RMSE: {best_val_rmse_for_gui:.4f} {error_unit_label} | Patience: {patience_counter}")
                     progress_data = {
                         'epoch': epoch,
-                        'train_loss': train_loss,  # Original MSE for logging or other non-display purposes
-                        'val_loss': val_loss,      # Original MSE
-                        'train_rmse_scaled': train_rmse_scaled,
-                        'val_rmse_scaled': val_rmse_scaled,
+                        'train_loss': train_loss_norm,
+                        'val_loss': val_loss_norm,
+                        'train_rmse_scaled': train_rmse_for_gui,
+                        'val_rmse_scaled': val_rmse_for_gui,
                         'error_unit_label': error_unit_label,
                         'elapsed_time': elapsed_time,
                         'delta_t_epoch': formatted_epoch_time,
                         'learning_rate': current_lr,
-                        'best_val_loss': best_validation_loss, # Original MSE
-                        'best_val_rmse_scaled': best_val_rmse_scaled,
+                        'best_val_loss': best_validation_loss,
+                        'best_val_rmse_scaled': best_val_rmse_for_gui,
                         'patience_counter': patience_counter,
                     }
-                    # Emit progress after validation
-                    update_progress_callback.emit(progress_data) 
+                    update_progress_callback.emit(progress_data)
 
                     if patience_counter > valid_patience:
                         early_stopping = True
                         print(f"Early stopping at epoch {epoch} due to no improvement.")
                         self.logger.info(f"Early stopping at epoch {epoch} due to no improvement.")
                         
-                        # Ensure that we log the final epoch before breaking out
                         model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
-                        model_memory_usage_mb = model_memory_usage / (1024 * 1024)  # Convert to MB
-                        # self.log_to_csv(task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_validation_loss, delta_t_epoch)
+                        model_memory_usage_mb = model_memory_usage / (1024 * 1024)
+                        
                         self.log_to_sqlite(
-                            task=task,
-                            epoch=epoch,
-                            train_loss=train_loss,
-                            val_loss=val_loss,
-                            best_val_loss=best_validation_loss,
-                            elapsed_time=elapsed_time,
-                            avg_batch_time=avg_batch_time,
-                            early_stopping=early_stopping,
-                            model_memory_usage=round(model_memory_usage_mb, 3),  # Memory in MB
-                            current_lr=current_lr  # Pass updated learning rate here
+                            task=task, epoch=epoch, train_loss=train_loss_norm,
+                            val_loss=val_loss_norm, best_val_loss=best_validation_loss,
+                            elapsed_time=elapsed_time, avg_batch_time=avg_batch_time,
+                            early_stopping=early_stopping, model_memory_usage=round(model_memory_usage_mb, 3),
+                            current_lr=current_lr
                         )
-
                         break
+                
+                # Log to SQLite for non-validation epochs or if not early stopped on a validation epoch
+                # Ensure this logging happens *after* potential early stopping break
+                if not early_stopping and not (epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs) : # If not a validation epoch
+                    model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
+                    model_memory_usage_mb = model_memory_usage / (1024 * 1024)
+                    self.log_to_sqlite(
+                        task=task, epoch=epoch, train_loss=train_loss_norm,
+                        val_loss=float('nan'), # No validation loss this epoch
+                        best_val_loss=best_validation_loss, # Carry over best known normalized loss
+                        elapsed_time=time.time() - start_time,
+                        avg_batch_time=avg_batch_time, early_stopping=False,
+                        model_memory_usage=round(model_memory_usage_mb, 3), current_lr=current_lr
+                    )
+                elif not early_stopping and (epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs): # If it IS a validation epoch but did NOT early stop
+                    model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
+                    model_memory_usage_mb = model_memory_usage / (1024 * 1024)
+                    self.log_to_sqlite(
+                        task=task, epoch=epoch, train_loss=train_loss_norm,
+                        val_loss=val_loss_norm, # Log the actual val_loss_norm for this validation epoch
+                        best_val_loss=best_validation_loss,
+                        elapsed_time=elapsed_time, # Use elapsed_time calculated at validation
+                        avg_batch_time=avg_batch_time, early_stopping=False,
+                        model_memory_usage=round(model_memory_usage_mb, 3), current_lr=current_lr
+                    )
+                
+                scheduler.step()
 
                 # Log data to CSV and SQLite after each epoch (whether validated or not)
                 #print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
