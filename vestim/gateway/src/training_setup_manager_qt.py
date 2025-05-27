@@ -160,6 +160,21 @@ class VEstimTrainingSetupManager:
     def create_training_tasks(self):
         """Create training tasks based on hyperparameters."""
         task_list = []
+        job_normalization_metadata = {} # To store data from job_metadata.json once
+        job_folder = self.job_manager.get_job_folder()
+        metadata_file_path = os.path.join(job_folder, "job_metadata.json")
+
+        if os.path.exists(metadata_file_path):
+            try:
+                with open(metadata_file_path, 'r') as f_meta:
+                    job_normalization_metadata = json.load(f_meta)
+                self.logger.info(f"Loaded job_metadata.json for task creation: {job_normalization_metadata}")
+            except Exception as e:
+                self.logger.error(f"Error loading job_metadata.json in create_training_tasks: {e}")
+                # Proceed without normalization info if file is corrupt or unreadable
+        else:
+            self.logger.info("job_metadata.json not found. Tasks will not include normalization metadata.")
+
         try:
             # Parse all comma-separated values
             max_epochs_list = [int(e.strip()) for e in str(self.current_hyper_params['MAX_EPOCHS']).split(',')]
@@ -209,7 +224,8 @@ class VEstimTrainingSetupManager:
                                                                 'REPETITIONS': rep,
                                                                 'ValidFrequency': valid_frequency,
                                                             },
-                                                            repetition=rep
+                                                            repetition=rep,
+                                                            job_normalization_metadata=job_normalization_metadata
                                                         )
                                                         task_list.append(task_info)
                                         else:  # ReduceLROnPlateau
@@ -231,7 +247,8 @@ class VEstimTrainingSetupManager:
                                                                 'REPETITIONS': rep,
                                                                 'ValidFrequency': valid_frequency,
                                                             },
-                                                            repetition=rep
+                                                            repetition=rep,
+                                                            job_normalization_metadata=job_normalization_metadata
                                                         )
                                                         task_list.append(task_info)
 
@@ -258,8 +275,10 @@ class VEstimTrainingSetupManager:
             self.logger.error(f"Error creating training tasks: {e}")
             raise
 
-    def _create_task_info(self, model_task, hyperparams, repetition):
+    def _create_task_info(self, model_task, hyperparams, repetition, job_normalization_metadata=None):
         """Helper method to create a task info dictionary."""
+        if job_normalization_metadata is None:
+            job_normalization_metadata = {} # Default to empty dict if not provided
         timestamp = time.strftime("%Y%m%d%H%M%S")
         task_counter = getattr(self, '_task_counter', 0) + 1
         self._task_counter = task_counter
@@ -355,7 +374,9 @@ class VEstimTrainingSetupManager:
                 'completed': False
             },
             'csv_log_file': os.path.join(logs_dir, 'training_progress.csv'),
-            'db_log_file': os.path.join(logs_dir, f'{task_id}_training.db')
+            'db_log_file': os.path.join(logs_dir, f'{task_id}_training.db'),
+            'job_metadata': job_normalization_metadata, # Embed normalization metadata from job_metadata.json
+            'job_folder_augmented_from': self.job_manager.get_job_folder() # Add path to job folder for scaler path resolution
         }
 
     def calculate_learnable_parameters(self, layers, input_size, hidden_units):

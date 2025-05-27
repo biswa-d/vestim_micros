@@ -85,14 +85,14 @@ class VEstimTestingService:
                 # Предполагается, что task_info['job_metadata'] содержит данные из job_metadata.json
                 # или task_info напрямую содержит 'normalization_applied', 'scaler_path', 'normalized_columns'
                 # Это должно быть установлено на этапе настройки обучения и сохранено с артефактами модели.
-                job_metadata = task_info.get('job_metadata', {}) # Example: if job_metadata is nested
-                normalization_applied_during_training = job_metadata.get('normalization_applied', False)
-                scaler_path_relative = job_metadata.get('scaler_path')
-                normalized_columns_during_training = job_metadata.get('normalized_columns', [])
+                # 'job_metadata' should now be directly available in task_info and contain the parsed JSON content.
+                job_meta = task_info.get('job_metadata', {})
+                normalization_applied_during_training = job_meta.get('normalization_applied', False)
+                scaler_path_relative = job_meta.get('scaler_path')
+                normalized_columns_during_training = job_meta.get('normalized_columns', [])
                 
-                # Example: Construct absolute scaler_path if job_folder is available in task_info
-                # This part needs to be robust based on how scaler_path is stored.
-                job_folder_for_scaler = task_info.get('job_folder_augmented_from') # Needs to be added to task_info
+                # job_folder_augmented_from is now directly in task_info
+                job_folder_for_scaler = task_info.get('job_folder_augmented_from')
                 
                 if normalization_applied_during_training and scaler_path_relative and job_folder_for_scaler and normalized_columns_during_training:
                     # Ensure scaler_path is absolute
