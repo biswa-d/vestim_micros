@@ -1,6 +1,7 @@
 import logging
 from logging.handlers import RotatingFileHandler
 import sys
+import os # Import the os module
 
 def setup_logger(log_file='default.log'):
     logger = logging.getLogger()
@@ -14,7 +15,10 @@ def setup_logger(log_file='default.log'):
              logger.setLevel(logging.INFO)
         return logger
 
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.INFO) # Set root logger level first
+
+    # Set higher logging level for matplotlib to reduce verbosity
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
     # Console Handler
     console_handler = logging.StreamHandler(sys.stdout)
@@ -62,6 +66,9 @@ def configure_job_specific_logging(job_folder_path, log_file_name='job.log'):
     console_handler.setLevel(logging.INFO) # Console shows INFO and above
     console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     logger.addHandler(console_handler)
+
+    # Explicitly set matplotlib's logger level after our handlers are set up
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
         
-    logger.info(f"Logging reconfigured. Root logger level: {logger.level}. File handler level: {job_file_handler.level}. Console handler level: {console_handler.level}. Now logging to: {job_log_file}")
+    logger.info(f"Logging reconfigured. Root logger level: {logger.level}. File handler level: {job_file_handler.level}. Console handler level: {console_handler.level}. Matplotlib logger level: {logging.getLogger('matplotlib').level}. Now logging to: {job_log_file}")
     return logger

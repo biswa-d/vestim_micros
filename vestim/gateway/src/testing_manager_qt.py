@@ -222,25 +222,25 @@ class VEstimTestingManager:
                 pd.DataFrame(data_for_csv).to_csv(predictions_file, index=False)
                 
                 # Add results to summary file with dynamic headers matching training GUI
-                summary_file = os.path.join(task_dir, 'test_summary.csv')
-                header = ['File', f'RMS Error {error_unit_display}', f'MAE {error_unit_display}', f'Max Abs Error {error_unit_display}', f'MAPE (%)', 'R2']
+                # summary_file = os.path.join(task_dir, 'test_summary.csv')
+                # header = ['File', f'RMS Error {error_unit_display}', f'MAE {error_unit_display}', f'Max Abs Error {error_unit_display}', f'MAPE (%)', 'R2']
                 
                 # Calculate max absolute error with appropriate scaling
                 max_abs_error_val = np.max(np.abs(difference)) if difference.size > 0 else 0
 
-                write_header = not os.path.exists(summary_file) or os.path.getsize(summary_file) == 0
-                with open(summary_file, 'a', newline='') as f:
-                    writer = csv.writer(f)
-                    if write_header:
-                        writer.writerow(header)
-                    writer.writerow([
-                        test_file,
-                        f"{file_results.get(rms_key, float('nan')):.2f}",
-                        f"{file_results.get(mae_key, float('nan')):.2f}",
-                        f"{max_abs_error_val:.2f}", # Log calculated max_abs_error_val
-                        f"{file_results.get('mape_percent', float('nan')):.2f}",
-                        f"{file_results.get('r2', float('nan')):.4f}"
-                    ])
+                # write_header = not os.path.exists(summary_file) or os.path.getsize(summary_file) == 0
+                # with open(summary_file, 'a', newline='') as f:
+                #     writer = csv.writer(f)
+                #     if write_header:
+                #         writer.writerow(header)
+                #     writer.writerow([
+                #         test_file,
+                #         f"{file_results.get(rms_key, float('nan')):.2f}",
+                #         f"{file_results.get(mae_key, float('nan')):.2f}",
+                #         f"{max_abs_error_val:.2f}", # Log calculated max_abs_error_val
+                #         f"{file_results.get('mape_percent', float('nan')):.2f}",
+                #         f"{file_results.get('r2', float('nan')):.4f}"
+                #     ])
                 
                 # Generate shorthand name for the model task
                 shorthand_name = self.generate_shorthand_name(task)

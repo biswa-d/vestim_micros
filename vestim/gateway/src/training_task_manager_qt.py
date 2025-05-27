@@ -363,9 +363,9 @@ class TrainingTaskManager:
             scheduler = self.scheduler
 
             # Initialize CSV logging
-            csv_log_file = task['csv_log_file']
-            with open(csv_log_file, 'w') as f:
-                f.write("epoch,train_loss,val_loss,learning_rate\n")  # CSV header
+            # csv_log_file = task['csv_log_file']
+            # with open(csv_log_file, 'w') as f:
+            #     f.write("epoch,train_loss,val_loss,learning_rate\n")  # CSV header
 
             # Training loop
             for epoch in range(1, max_epochs + 1):
@@ -570,13 +570,13 @@ class TrainingTaskManager:
                         model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                         model_memory_usage_mb = model_memory_usage / (1024 * 1024)
                         
-                        self.log_to_sqlite(
-                            task=task, epoch=epoch, train_loss=train_loss_norm,
-                            val_loss=val_loss_norm, best_val_loss=best_validation_loss,
-                            elapsed_time=elapsed_time, avg_batch_time=avg_batch_time,
-                            early_stopping=early_stopping, model_memory_usage=round(model_memory_usage_mb, 3),
-                            current_lr=current_lr
-                        )
+                        # self.log_to_sqlite(
+                        #     task=task, epoch=epoch, train_loss=train_loss_norm,
+                        #     val_loss=val_loss_norm, best_val_loss=best_validation_loss,
+                        #     elapsed_time=elapsed_time, avg_batch_time=avg_batch_time,
+                        #     early_stopping=early_stopping, model_memory_usage=round(model_memory_usage_mb, 3),
+                        #     current_lr=current_lr
+                        # )
                         break
                 
                 # Log to SQLite for non-validation epochs or if not early stopped on a validation epoch
@@ -584,25 +584,25 @@ class TrainingTaskManager:
                     if not (epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs): # If not a validation epoch
                         model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                         model_memory_usage_mb = model_memory_usage / (1024 * 1024)
-                        self.log_to_sqlite(
-                            task=task, epoch=epoch, train_loss=train_loss_norm,
-                            val_loss=float('nan'),
-                            best_val_loss=best_validation_loss,
-                            elapsed_time=time.time() - start_time,
-                            avg_batch_time=avg_batch_time, early_stopping=False,
-                            model_memory_usage=round(model_memory_usage_mb, 3), current_lr=current_lr
-                        )
+                        # self.log_to_sqlite(
+                        #     task=task, epoch=epoch, train_loss=train_loss_norm,
+                        #     val_loss=float('nan'),
+                        #     best_val_loss=best_validation_loss,
+                        #     elapsed_time=time.time() - start_time,
+                        #     avg_batch_time=avg_batch_time, early_stopping=False,
+                        #     model_memory_usage=round(model_memory_usage_mb, 3), current_lr=current_lr
+                        # )
                     elif (epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs): # If it IS a validation epoch but did NOT early stop
                         model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                         model_memory_usage_mb = model_memory_usage / (1024 * 1024)
-                        self.log_to_sqlite(
-                            task=task, epoch=epoch, train_loss=train_loss_norm,
-                            val_loss=val_loss_norm,
-                            best_val_loss=best_validation_loss,
-                            elapsed_time=elapsed_time,
-                            avg_batch_time=avg_batch_time, early_stopping=False,
-                            model_memory_usage=round(model_memory_usage_mb, 3), current_lr=current_lr
-                        )
+                        # self.log_to_sqlite(
+                        #     task=task, epoch=epoch, train_loss=train_loss_norm,
+                        #     val_loss=val_loss_norm,
+                        #     best_val_loss=best_validation_loss,
+                        #     elapsed_time=elapsed_time,
+                        #     avg_batch_time=avg_batch_time, early_stopping=False,
+                        #     model_memory_usage=round(model_memory_usage_mb, 3), current_lr=current_lr
+                        # )
                 
                 scheduler.step()
 
