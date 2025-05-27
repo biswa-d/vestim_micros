@@ -68,8 +68,15 @@ class TrainingTaskService:
                 break
 
             start_batch_time = time.time()
+            # Log device of X_batch before moving
+            # print(f"Train Epoch: X_batch device BEFORE move: {X_batch.device}, Target device: {device}")
+            
             # Use the 'device' argument passed to the method, not self.device
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+            
+            # Log device of X_batch after moving
+            # print(f"Train Epoch: X_batch device AFTER move: {X_batch.device}")
+            
             optimizer.zero_grad()
 
             if model_type == "LSTM":
@@ -177,8 +184,14 @@ class TrainingTaskService:
                     print("Stop requested during validation")
                     break
                 
+                # Log device of X_batch before moving
+                # print(f"Validate Epoch: X_batch device BEFORE move: {X_batch.device}, Target device: {device}")
+                
                 # Use the 'device' argument passed to the method, not self.device
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+
+                # Log device of X_batch after moving
+                # print(f"Validate Epoch: X_batch device AFTER move: {X_batch.device}")
 
                 if model_type == "LSTM":
                     current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
