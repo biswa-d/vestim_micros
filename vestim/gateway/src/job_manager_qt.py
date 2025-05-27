@@ -1,6 +1,8 @@
 import os
 from datetime import datetime
 from vestim.config import OUTPUT_DIR
+from vestim.logger_config import configure_job_specific_logging # Import the new function
+import logging # Import logging to potentially log the action
 
 class JobManager:
     _instance = None
@@ -19,6 +21,15 @@ class JobManager:
         self.job_id = f"job_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
         job_folder = os.path.join(OUTPUT_DIR, self.job_id)
         os.makedirs(job_folder, exist_ok=True)
+        
+        # Configure logging to use a file within this new job folder
+        try:
+            configure_job_specific_logging(job_folder)
+            logging.info(f"Job-specific logging configured for job: {self.job_id} in folder: {job_folder}")
+        except Exception as e:
+            logging.error(f"Failed to configure job-specific logging for {self.job_id}: {e}", exc_info=True)
+            # Continue without job-specific logging if setup fails, default logging will be used.
+
         return self.job_id, job_folder
 
     def get_job_id(self):
