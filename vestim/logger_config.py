@@ -37,12 +37,14 @@ def configure_job_specific_logging(job_folder_path, log_file_name='job.log'):
     """
     logger = logging.getLogger()
     
-    # Remove existing file handlers to avoid duplicate logging or logging to old files
-    for handler in logger.handlers[:]: # Iterate over a copy
-        if isinstance(handler, logging.FileHandler): # Catches RotatingFileHandler too
-            logger.removeHandler(handler)
-            handler.close() # Important to close the file
-            
+    # Forcefully remove ALL existing handlers from the root logger
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+        handler.close()
+    
+    # Reset root logger level (it might be set to a high level if all handlers were removed)
+    logger.setLevel(logging.DEBUG) # Set to DEBUG to capture everything for the file
+
     # Define the new job-specific log file path
     job_log_file = os.path.join(job_folder_path, log_file_name)
     
@@ -52,19 +54,14 @@ def configure_job_specific_logging(job_folder_path, log_file_name='job.log'):
         
     job_file_handler = RotatingFileHandler(job_log_file, maxBytes=5*1024*1024, backupCount=3)
     job_file_handler.setLevel(logging.DEBUG) # Or INFO, as per requirements
-    job_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')) # Added %(name)s
+    job_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')) # Moved %(name)s
     logger.addHandler(job_file_handler)
     
-    # Ensure console handler is still present if it was there or add it if not
-    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-        logger.addHandler(console_handler)
-
-    # Ensure logger level is set (it might have been reset if all handlers were removed)
-    if logger.level > logging.INFO or logger.level == 0:
-        logger.setLevel(logging.INFO)
+    # Add a new console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO) # Console shows INFO and above
+    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    logger.addHandler(console_handler)
         
-    logger.info(f"Logging reconfigured. Now logging to: {job_log_file}")
+    logger.info(f"Logging reconfigured. Root logger level: {logger.level}. File handler level: {job_file_handler.level}. Console handler level: {console_handler.level}. Now logging to: {job_log_file}")
     return logger
