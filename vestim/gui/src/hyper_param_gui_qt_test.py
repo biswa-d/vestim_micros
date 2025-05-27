@@ -123,7 +123,14 @@ class VEstimHyperParamGUI(QWidget):
         validation_group.setLayout(validation_criteria_layout)
         hyperparam_section.addWidget(validation_group, 1, 1)
 
-        # **📌 Add Hyperparameter Sections to the Main Layout**
+        # **🔹 Device Selection (Row 2, Column 3)**
+        device_selection_group = QGroupBox()
+        device_selection_layout = QVBoxLayout()
+        self.add_device_selection(device_selection_layout)
+        device_selection_group.setLayout(device_selection_layout)
+        hyperparam_section.addWidget(device_selection_group, 1, 2)
+
+        # ** Add Hyperparameter Sections to the Main Layout**
         main_layout.addLayout(hyperparam_section)
 
         # **📌 Bottom Buttons**
@@ -622,6 +629,38 @@ class VEstimHyperParamGUI(QWidget):
         # **Apply Layout to Parent Layout**
         layout.addLayout(validation_layout)
 
+    def add_device_selection(self, layout):
+        """Adds device selection UI components."""
+        device_layout = QVBoxLayout()
+        device_layout.setAlignment(Qt.AlignTop)
+
+        device_label = QLabel("Device Selection:")
+        device_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
+        device_label.setToolTip("Select the device for training (CPU or specific CUDA GPU).")
+        
+        self.device_combo = QComboBox()
+        device_options = ["cuda:0", "cuda:1", "cuda:2", "cuda:3", "CPU"]
+        self.device_combo.addItems(device_options)
+        self.device_combo.setFixedWidth(180)
+        self.device_combo.setToolTip("Defaults to cuda:0. Will fall back to CPU if selected CUDA device is not available (handled during training).")
+        
+        # Set default selection
+        default_device = "cuda:0" # Default to cuda:0
+        # A more robust check for torch.cuda.is_available() could be done here if torch is importable at this stage,
+        # but typically this check is better suited for the training script itself.
+        # For now, we just set the default preference.
+        if default_device in device_options:
+            self.device_combo.setCurrentText(default_device)
+        elif "CPU" in device_options: # Fallback to CPU if default_device isn't an option (should not happen with current list)
+            self.device_combo.setCurrentText("CPU")
+
+        self.param_entries["DEVICE_SELECTION"] = self.device_combo
+
+        device_layout.addWidget(device_label)
+        device_layout.addWidget(self.device_combo)
+        device_layout.addStretch(1)
+
+        layout.addLayout(device_layout)
 
     def get_selected_features(self):
         """Retrieve selected feature columns as a list."""

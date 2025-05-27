@@ -65,7 +65,8 @@ class VEstimTrainSetupGUI(QWidget):
             "VALID_PATIENCE": "Validation Patience",
             "ValidFrequency": "Validation Frequency",
             "LOOKBACK": "Lookback Sequence Length",
-            "REPETITIONS": "Repetitions"
+            "REPETITIONS": "Repetitions",
+            "DEVICE_SELECTION": "Selected Device"
         }
 
         # Setup GUI

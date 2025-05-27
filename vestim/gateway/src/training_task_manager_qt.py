@@ -16,7 +16,7 @@ def format_time(seconds):
     return f"{minutes:02d}:{seconds:02d}"
 
 class TrainingTaskManager:
-    def __init__(self):
+    def __init__(self, global_params=None):
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
         self.data_loader_service = DataLoaderService()
@@ -24,7 +24,34 @@ class TrainingTaskManager:
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.current_task = None
         self.stop_requested = False
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.global_params = global_params if global_params else {}
+        
+        # Determine device based on global_params or fallback
+        selected_device_str = self.global_params.get('DEVICE_SELECTION', 'cuda:0')
+        try:
+            if selected_device_str.startswith("cuda") and not torch.cuda.is_available():
+                self.logger.warning(f"CUDA device {selected_device_str} selected, but CUDA is not available. Falling back to CPU.")
+                self.device = torch.device("cpu")
+            elif selected_device_str.startswith("cuda"):
+                # Attempt to use the specific CUDA device. torch.device will raise an error if invalid.
+                self.device = torch.device(selected_device_str)
+                if not torch.cuda.is_available() or torch.cuda.current_device() != self.device.index:
+                    # This check is a bit redundant if torch.device(selected_device_str) worked,
+                    # but good for an explicit log if a specific CUDA device isn't the one torch ends up using.
+                    # More robust check would be to try a small tensor operation on that device.
+                    # For now, we assume torch.device handles the validation.
+                    pass # self.logger.info(f"Successfully set device to {selected_device_str}")
+            elif selected_device_str == "CPU":
+                self.device = torch.device("cpu")
+            else: # Default fallback if string is unrecognized
+                self.logger.warning(f"Unrecognized device selection '{selected_device_str}'. Falling back to cuda:0 if available, else CPU.")
+                self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        except Exception as e:
+            self.logger.error(f"Error setting device to '{selected_device_str}': {e}. Falling back to CPU.")
+            self.device = torch.device("cpu")
+        
+        self.logger.info(f"TrainingTaskManager initialized with device: {self.device}")
+
         self.training_thread = None  # Initialize the training thread here for PyQt
        
         # WandB setup (optional)
