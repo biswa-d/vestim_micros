@@ -600,10 +600,18 @@ class VEstimHyperParamGUI(QWidget):
         self.freq_entry.setFixedWidth(100)
         self.freq_entry.setToolTip("Enter validation frequency. Use commas for multiple values (e.g., 1,3,5)")
 
+        # Add Repetitions QLineEdit
+        repetitions_label = QLabel("Repetitions:")
+        repetitions_label.setToolTip("Number of times to repeat each training task with the same hyperparameters.")
+        self.repetitions_entry = QLineEdit(str(self.params.get("REPETITIONS", "1"))) # Default to "1"
+        self.repetitions_entry.setFixedWidth(100)
+        self.repetitions_entry.setToolTip("Enter an integer (e.g., 1, 2, 3).")
+
         # ✅ Store references in self.param_entries for parameter collection
         self.param_entries["VALID_PATIENCE"] = self.patience_entry
         self.param_entries["VALID_FREQUENCY"] = self.freq_entry
         self.param_entries["MAX_EPOCHS"] = self.max_epochs_entry
+        self.param_entries["REPETITIONS"] = self.repetitions_entry # Add to param_entries
 
         # **Ensure Proper Alignment**
         max_epochs_layout = QHBoxLayout()
@@ -621,10 +629,16 @@ class VEstimHyperParamGUI(QWidget):
         freq_layout.addWidget(self.freq_entry)
         freq_layout.setAlignment(Qt.AlignLeft)  # Aligns label and entry to the left
 
+        repetitions_layout = QHBoxLayout()
+        repetitions_layout.addWidget(repetitions_label)
+        repetitions_layout.addWidget(self.repetitions_entry)
+        repetitions_layout.setAlignment(Qt.AlignLeft)
+
         # **Add Widgets to Layout in Vertical Order**
         validation_layout.addLayout(max_epochs_layout)
         validation_layout.addLayout(patience_layout)
         validation_layout.addLayout(freq_layout)
+        validation_layout.addLayout(repetitions_layout) # Add repetitions layout
 
         # **Apply Layout to Parent Layout**
         layout.addLayout(validation_layout)
@@ -712,27 +726,8 @@ class VEstimHyperParamGUI(QWidget):
                 QMessageBox.warning(self, "Missing Information", "Please fill in the 'REPETITIONS' field.")
                 return
 
-            # Validate REPETITIONS specifically
-            if "REPETITIONS" in new_params:
-                try:
-                    repetitions_val = int(new_params["REPETITIONS"])
-                    if repetitions_val < 1:
-                        QMessageBox.warning(self, "Invalid Input", "Repetitions must be at least 1.")
-                        return
-                    new_params["REPETITIONS"] = repetitions_val # Store as int after validation
-                except ValueError:
-                    QMessageBox.warning(self, "Invalid Input", "Repetitions (in Validation Criteria) must be a valid integer.")
-                    return
-            else:
-                # This case should ideally not be hit if REPETITIONS is always in self.param_entries
-                # and collected. If it can be missing, a default or error is needed.
-                # For now, assume it's collected and error if not parseable.
-                # If it's truly optional and not present, this 'else' might need adjustment
-                # or REPETITIONS should not be in a "required" list if it can be omitted.
-                # Defaulting to 1 if not provided or invalid for simplicity for now,
-                # but a clear error is better if it's a required field.
-                self.logger.warning("REPETITIONS field was missing or invalid, defaulting to 1.")
-                new_params["REPETITIONS"] = 1 # Default to 1 if missing or error during collection
+            # The REPETITIONS validation block below was duplicated. Removing this second instance.
+            # The first instance (lines 714-727) is correct.
 
             self.logger.info(f"Proceeding to training with params: {new_params}")
 
