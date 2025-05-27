@@ -9,8 +9,8 @@
 import os
 import json
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, 
-    QLineEdit, QFileDialog, QMessageBox, QDialog, QGroupBox, QComboBox, QListWidget, QAbstractItemView,QFormLayout, QCheckBox
+    QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
+    QLineEdit, QFileDialog, QMessageBox, QDialog, QGroupBox, QComboBox, QListWidget, QAbstractItemView,QFormLayout, QCheckBox # QSpinBox removed
 )
 from PyQt5.QtCore import Qt, QPropertyAnimation
 from PyQt5.QtGui import QIcon
@@ -683,6 +683,8 @@ class VEstimHyperParamGUI(QWidget):
                     new_params[param] = entry.isChecked()  # Boolean value
                 elif isinstance(entry, QListWidget):  # Multi-select feature list
                     new_params[param] = [item.text() for item in entry.selectedItems()]
+            # REPETITIONS is a QLineEdit, its text value is collected by the isinstance(entry, QLineEdit) condition.
+            # Validation and conversion to int for REPETITIONS happens below.
 
             # Ensure critical fields are selected
             if not new_params.get("FEATURE_COLUMNS"):
@@ -694,6 +696,43 @@ class VEstimHyperParamGUI(QWidget):
             if not new_params.get("MODEL_TYPE"):
                 QMessageBox.critical(self, "Selection Error", "Please select a model type.")
                 return
+
+            # Validate REPETITIONS specifically as it's a QLineEdit now
+            if "REPETITIONS" in new_params:
+                try:
+                    repetitions_val = int(new_params["REPETITIONS"])
+                    if repetitions_val < 1:
+                        QMessageBox.warning(self, "Invalid Input", "Repetitions must be at least 1.")
+                        return
+                    new_params["REPETITIONS"] = repetitions_val # Store as int after validation
+                except ValueError:
+                    QMessageBox.warning(self, "Invalid Input", "Repetitions (in Validation Criteria) must be a valid integer.")
+                    return
+            else: # Should not happen if REPETITIONS is in param_entries
+                QMessageBox.warning(self, "Missing Information", "Please fill in the 'REPETITIONS' field.")
+                return
+
+            # Validate REPETITIONS specifically
+            if "REPETITIONS" in new_params:
+                try:
+                    repetitions_val = int(new_params["REPETITIONS"])
+                    if repetitions_val < 1:
+                        QMessageBox.warning(self, "Invalid Input", "Repetitions must be at least 1.")
+                        return
+                    new_params["REPETITIONS"] = repetitions_val # Store as int after validation
+                except ValueError:
+                    QMessageBox.warning(self, "Invalid Input", "Repetitions (in Validation Criteria) must be a valid integer.")
+                    return
+            else:
+                # This case should ideally not be hit if REPETITIONS is always in self.param_entries
+                # and collected. If it can be missing, a default or error is needed.
+                # For now, assume it's collected and error if not parseable.
+                # If it's truly optional and not present, this 'else' might need adjustment
+                # or REPETITIONS should not be in a "required" list if it can be omitted.
+                # Defaulting to 1 if not provided or invalid for simplicity for now,
+                # but a clear error is better if it's a required field.
+                self.logger.warning("REPETITIONS field was missing or invalid, defaulting to 1.")
+                new_params["REPETITIONS"] = 1 # Default to 1 if missing or error during collection
 
             self.logger.info(f"Proceeding to training with params: {new_params}")
 
@@ -797,6 +836,14 @@ class VEstimHyperParamGUI(QWidget):
 
                 elif isinstance(entry, QCheckBox):
                     entry.setChecked(bool(value))  # Ensure checkbox reflects state
+
+                # The QSpinBox case for REPETITIONS was here, but it's now a QLineEdit.
+                # The generic QLineEdit handler:
+                #   if isinstance(entry, QLineEdit):
+                #       entry.setText(str(value))
+                # will correctly handle setting the text for self.repetitions_entry
+                # as self.params["REPETITIONS"] will be an int (after proceed_to_training)
+                # or a string (if loaded from an older JSON or default). str(value) handles both.
 
                 elif isinstance(entry, QListWidget):  # Multi-Select Feature List
                     selected_items = set(value) if isinstance(value, list) else set([value])
