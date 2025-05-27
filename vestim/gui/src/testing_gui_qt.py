@@ -403,7 +403,7 @@ class VEstimTestingGUI(QMainWindow):
             
             # Look for columns containing 'True Values', 'Predictions', and 'Difference'
             for col in df.columns:
-                if 'True Values' in col:
+                if 'True Value' in col: # Changed from 'True Values' to 'True Value'
                     true_col = col
                 elif 'Predictions' in col:
                     pred_col = col
@@ -417,19 +417,31 @@ class VEstimTestingGUI(QMainWindow):
             # Determine unit display based on target and columns
             unit_display_short = ""
             unit_display_long = target_column_name
-            
+            is_percentage_target = False # Flag for SOC, SOE, SOP
+
             if "voltage" in target_column_name.lower():
                 unit_display_short = "V"
                 unit_display_long = "Voltage (V)"
                 error_unit = "mV"
             elif "soc" in target_column_name.lower():
-                unit_display_short = "% SOC"  # Match training GUI format
-                unit_display_long = "SOC (% SOC)"  # Match training GUI format
-                error_unit = "% SOC"  # Match training GUI format
+                unit_display_short = "% SOC"
+                unit_display_long = "SOC (% SOC)"
+                error_unit = "% SOC"
+                is_percentage_target = True
+            elif "soe" in target_column_name.lower(): # New case for SOE
+                unit_display_short = "% SOE"
+                unit_display_long = "SOE (% SOE)"
+                error_unit = "% SOE"
+                is_percentage_target = True
+            elif "sop" in target_column_name.lower(): # New case for SOP
+                unit_display_short = "% SOP"
+                unit_display_long = "SOP (% SOP)"
+                error_unit = "% SOP"
+                is_percentage_target = True
             elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
-                unit_display_short = "Deg C"  # Match training GUI format
-                unit_display_long = "Temperature (Deg C)"  # Match training GUI format
-                error_unit = "Deg C"  # Match training GUI format
+                unit_display_short = "Deg C"
+                unit_display_long = "Temperature (Deg C)"
+                error_unit = "Deg C"
             else:
                 # Extract from column name if possible
                 if "(" in true_col and ")" in true_col:
@@ -442,17 +454,26 @@ class VEstimTestingGUI(QMainWindow):
                     unit_display_long = target_column_name
                     error_unit = ""
             
-            # Calculate errors if not already in file
-            if diff_col:
-                errors = df[diff_col]
-            else:
-                errors = df[true_col] - df[pred_col]
-                # For voltage, we display error in mV
-                if "voltage" in target_column_name.lower() and "V" in true_col:
-                    errors *= 1000  # Convert V difference to mV
+            # Calculate errors for plot text, applying scaling if necessary
+            # errors_for_plot_text will be used for RMS and Max error display on the plot
+            if diff_col and error_unit in diff_col : # If error column exists and its unit matches expected error unit for plot
+                errors_for_plot_text = df[diff_col]
+            else: # Calculate raw difference and then scale for plot text if needed
+                raw_errors = df[true_col] - df[pred_col]
+                if "voltage" in target_column_name.lower():
+                    errors_for_plot_text = raw_errors * 1000  # V to mV
+                elif is_percentage_target:
+                    # Heuristic: if max abs true value is small (e.g. <=1.5), assume 0-1 scale needing *100 for % points
+                    # This helps display errors in percentage points if original data was 0-1.
+                    if df[true_col].abs().max() <= 1.5:
+                         errors_for_plot_text = raw_errors * 100
+                    else: # Assume already in percentage points if values are large (e.g. 0-100)
+                         errors_for_plot_text = raw_errors
+                else: # For other types like temperature or generic, use raw difference for plot text errors
+                    errors_for_plot_text = raw_errors
             
-            rms_error = np.sqrt(np.mean(errors**2))
-            max_error = np.max(np.abs(errors))
+            rms_error = np.sqrt(np.mean(errors_for_plot_text**2))
+            max_error = np.max(np.abs(errors_for_plot_text)) # Corrected to use errors_for_plot_text
             
             # Create plot window
             plot_window = QDialog(self)
