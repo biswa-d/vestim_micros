@@ -101,6 +101,7 @@ class VEstimTestingManager:
     def _test_single_model(self, task, idx, test_folder):
         """Test a single model and save the result."""
         try:
+            self.logger.info(f"--- Starting _test_single_model for task_id: {task.get('task_id', 'UnknownTask')} (list index: {idx}) ---") # Added detailed log
             print(f"Preparing test data for Task {idx + 1}...")
             
             # Get required paths and parameters

@@ -316,6 +316,7 @@ class TrainingTaskManager:
     def run_training(self, task, update_progress_callback, train_loader, val_loader, device):
         """Run the training process for a single task."""
         try:
+            self.logger.info(f"--- Starting run_training for task: {task['task_id']} ---") # Added detailed log
             self.logger.info("Starting training loop")
             # Initialize/reset task-specific best original scale validation RMSE tracker
             # Using a unique attribute name per task to avoid conflicts if manager instance is reused for different tasks sequentially
