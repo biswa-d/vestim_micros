@@ -50,7 +50,8 @@ class LSTMModelBN(nn.Module):
         self.LeakyReLU = nn.LeakyReLU(negative_slope=0.1)
 
     def forward(self, x, h_s, h_c):
-        x = x.to(self.device)  
+        # x is expected to be on the correct device already by the caller (TrainingTaskService)
+        # x = x.to(self.device) # REMOVED: This was causing the device mismatch.
 
         # **Apply BatchNorm to input features** (requires permute)
         x = x.permute(0, 2, 1)  # Move sequence length to last
@@ -90,7 +91,8 @@ class LSTMModelLN(nn.Module):
         self.linear = nn.Linear(hidden_units, 1)  
 
     def forward(self, x, h_s, h_c):
-        x = x.to(self.device)  
+        # x is expected to be on the correct device already by the caller (TrainingTaskService)
+        # x = x.to(self.device) # REMOVED: This was causing the device mismatch.
 
         # LSTM forward pass
         y, (h_s, h_c) = self.lstm(x, (h_s, h_c))
@@ -117,8 +119,8 @@ class LSTMModel(nn.Module):
         self.LeakyReLU = nn.LeakyReLU(negative_slope=0.1)
 
     def forward(self, x, h_s, h_c):
-        # Ensure input is on the correct device
-        x = x.to(self.device)  
+        # Ensure input is on the correct device - This is now handled by the caller (TrainingTaskService)
+        # x = x.to(self.device) # REMOVED: This was causing the device mismatch.
 
         # Pass through LSTM
         y, (h_s, h_c) = self.lstm(x, (h_s, h_c))
@@ -139,35 +141,41 @@ class LSTMModel(nn.Module):
 
 class LSTMModelService:
     def __init__(self):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # self.device can be a fallback if no device is specified during model creation,
+        # but ideally, the device should always be passed in.
+        self.default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def build_lstm_model(self, params):
+    def build_lstm_model(self, params, target_device=None):
         """
-        Build the LSTM model using the provided parameters.
+        Build the LSTM model using the provided parameters and target device.
         
         :param params: Dictionary containing model parameters.
+        :param target_device: The torch.device to build the model on.
         :return: An instance of LSTMModel.
         """
-        input_size = params.get("INPUT_SIZE", 3)  # Default input size set to 3, change if needed
-        hidden_units = int(params["HIDDEN_UNITS"])  # Ensure hidden_units is an integer
+        input_size = params.get("INPUT_SIZE", 3)
+        hidden_units = int(params["HIDDEN_UNITS"])
         num_layers = int(params["LAYERS"])
+        device_to_use = target_device if target_device is not None else self.default_device
         
-        print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
-        return LSTMModel(input_size, hidden_units, num_layers, self.device)
+        print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers} on device: {device_to_use}")
+        return LSTMModel(input_size, hidden_units, num_layers, device_to_use)
     
-    def build_lstm_model_LN(self, params):
+    def build_lstm_model_LN(self, params, target_device=None):
         """
-        Build the LSTM model using the provided parameters.
+        Build the LSTM model with LayerNorm using the provided parameters and target device.
         
         :param params: Dictionary containing model parameters.
-        :return: An instance of LSTMModel.
+        :param target_device: The torch.device to build the model on.
+        :return: An instance of LSTMModelLN.
         """
-        input_size = params.get("INPUT_SIZE", 3)  # Default input size set to 3, change if needed
-        hidden_units = int(params["HIDDEN_UNITS"])  # Ensure hidden_units is an integer
+        input_size = params.get("INPUT_SIZE", 3)
+        hidden_units = int(params["HIDDEN_UNITS"])
         num_layers = int(params["LAYERS"])
+        device_to_use = target_device if target_device is not None else self.default_device
         
-        print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers}")
-        return LSTMModelLN(input_size, hidden_units, num_layers, self.device)
+        print(f"Building LSTMModelLN with input_size={input_size}, hidden_units={hidden_units}, num_layers={num_layers} on device: {device_to_use}")
+        return LSTMModelLN(input_size, hidden_units, num_layers, device_to_use)
 
     def save_model(self, model, model_path):
         """
@@ -179,26 +187,28 @@ class LSTMModelService:
         torch.save(model.state_dict(), model_path)
         print(f"Model saved to {model_path}")
 
-    def create_and_save_lstm_model(self, params, model_path):
+    def create_and_save_lstm_model(self, params, model_path, target_device=None):
         """
-        Build and save an LSTM model using the provided parameters.
+        Build and save an LSTM model using the provided parameters and target device.
         
         :param params: Dictionary containing model parameters.
         :param model_path: The file path where the model will be saved.
+        :param target_device: The torch.device to build the model on.
         :return: The built LSTM model.
         """
-        model = self.build_lstm_model(params)
+        model = self.build_lstm_model(params, target_device)
         self.save_model(model, model_path)
         return model
 
-    def create_and_save_lstm_model_with_LN(self, params, model_path):
+    def create_and_save_lstm_model_with_LN(self, params, model_path, target_device=None):
         """
-        Build and save an LSTM model using the provided parameters.
+        Build and save an LSTM model with LayerNorm using the provided parameters and target device.
         
         :param params: Dictionary containing model parameters.
         :param model_path: The file path where the model will be saved.
+        :param target_device: The torch.device to build the model on.
         :return: The built LSTM model.
         """
-        model = self.build_lstm_model_LN(params)
+        model = self.build_lstm_model_LN(params, target_device)
         self.save_model(model, model_path)
         return model

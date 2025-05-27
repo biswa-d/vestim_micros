@@ -81,7 +81,25 @@ class VEstimTrainingSetupManager:
 
         # Call the function from the dictionary or raise an error if not found
         if model_type in model_map:
-            return model_map[model_type](model_params, model_path)
+            # Determine the target device from global params
+            selected_device_str = self.params.get('DEVICE_SELECTION', 'cuda:0') # Default to cuda:0 if not found
+            try:
+                if selected_device_str.startswith("cuda") and not torch.cuda.is_available():
+                    self.logger.warning(f"TrainingSetupManager: CUDA device {selected_device_str} selected, but CUDA not available. Model will be built for CPU.")
+                    target_device = torch.device("cpu")
+                elif selected_device_str.startswith("cuda"):
+                    target_device = torch.device(selected_device_str)
+                elif selected_device_str == "CPU":
+                    target_device = torch.device("cpu")
+                else:
+                    self.logger.warning(f"TrainingSetupManager: Unrecognized device '{selected_device_str}'. Defaulting model build to cuda:0 if available, else CPU.")
+                    target_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            except Exception as e:
+                self.logger.error(f"TrainingSetupManager: Error determining target device '{selected_device_str}': {e}. Defaulting model build to CPU.")
+                target_device = torch.device("cpu")
+            
+            self.logger.info(f"TrainingSetupManager: Passing target_device {target_device} to model creation for {model_type}")
+            return model_map[model_type](model_params, model_path, target_device)
         
         raise ValueError(f"Unsupported model type: {model_type}")
 

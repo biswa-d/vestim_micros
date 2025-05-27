@@ -607,6 +607,98 @@ class TrainingTaskManager:
 # This block is for epochs where validation did not run.
                         current_time_train_only = time.time()
                         elapsed_time_train_only = current_time_train_only - start_time
+                        # model_memory_usage_mb is already calculated at the start of this 'if not (epoch ...)' block
+                        
+                        # Calculate scaled RMSE for training for GUI if possible
+                        train_rmse_for_gui_no_val = float('nan')
+                        target_column_no_val = task['data_loader_params']['target_column']
+                        # Determine error_unit_label and multiplier for this context
+                        # These would have been set during a validation epoch if one occurred,
+                        # otherwise, we need defaults or to fetch them.
+                        # 'error_unit_label' is defined in the outer scope of the validation block
+                        # We need to ensure it's available or use a default if this non-validation epoch occurs before any validation.
+                        current_error_unit_label_no_val = "RMS Error" # Default
+                        multiplier_no_val = 1.0 # Default
+                        if 'error_unit_label' in locals() and 'multiplier' in locals(): # Check if set by validation block
+                            current_error_unit_label_no_val = error_unit_label
+                            multiplier_no_val = multiplier
+                        else: # Recalculate if not set from validation context (e.g. first few epochs before validation)
+                            if "voltage" in target_column_no_val.lower():
+                                current_error_unit_label_no_val = "RMS Error [mV]"
+                                multiplier_no_val = 1000.0
+                            elif "soc" in target_column_no_val.lower():
+                                current_error_unit_label_no_val = "RMS Error [% SOC]"
+                                multiplier_no_val = 100.0
+                            elif "soe" in target_column_no_val.lower():
+                                current_error_unit_label_no_val = "RMS Error [% SOE]"
+                                multiplier_no_val = 100.0
+                            elif "sop" in target_column_no_val.lower():
+                                current_error_unit_label_no_val = "RMS Error [% SOP]"
+                                multiplier_no_val = 100.0
+                            elif "temperature" in target_column_no_val.lower() or "temp" in target_column_no_val.lower():
+                                current_error_unit_label_no_val = "RMS Error [Deg C]"
+                                multiplier_no_val = 1.0
+
+                        if self.loaded_scaler and target_column_no_val in self.scaler_metadata.get('normalized_columns', []):
+                            if epoch_train_preds_norm is not None and epoch_train_trues_norm is not None and len(epoch_train_preds_norm) > 0:
+                                try:
+                                    import pandas as pd 
+                                    import numpy as np
+                                    from vestim.services import normalization_service 
+                                    e_t_p_n_cpu_no_val = epoch_train_preds_norm.cpu().numpy() if epoch_train_preds_norm.is_cuda else epoch_train_preds_norm.numpy()
+                                    e_t_t_n_cpu_no_val = epoch_train_trues_norm.cpu().numpy() if epoch_train_trues_norm.is_cuda else epoch_train_trues_norm.numpy()
+                                    temp_df_train_pred_no_val = pd.DataFrame(0, index=np.arange(len(e_t_p_n_cpu_no_val)), columns=self.scaler_metadata['normalized_columns'])
+                                    temp_df_train_pred_no_val[target_column_no_val] = e_t_p_n_cpu_no_val.flatten()
+                                    df_train_pred_inv_no_val = normalization_service.inverse_transform_data(temp_df_train_pred_no_val, self.loaded_scaler, self.scaler_metadata['normalized_columns'])
+                                    train_pred_orig_no_val = df_train_pred_inv_no_val[target_column_no_val].values
+                                    temp_df_train_true_no_val = pd.DataFrame(0, index=np.arange(len(e_t_t_n_cpu_no_val)), columns=self.scaler_metadata['normalized_columns'])
+                                    temp_df_train_true_no_val[target_column_no_val] = e_t_t_n_cpu_no_val.flatten()
+                                    df_train_true_inv_no_val = normalization_service.inverse_transform_data(temp_df_train_true_no_val, self.loaded_scaler, self.scaler_metadata['normalized_columns'])
+                                    train_true_orig_no_val = df_train_true_inv_no_val[target_column_no_val].values
+                                    train_mse_orig_no_val = np.mean((train_pred_orig_no_val - train_true_orig_no_val)**2)
+                                    train_rmse_for_gui_no_val = np.sqrt(train_mse_orig_no_val) * multiplier_no_val
+                                except Exception as e_inv_train_no_val:
+                                    self.logger.error(f"Error during inverse transform for training data (non-val epoch {epoch}): {e_inv_train_no_val}.")
+                                    if train_loss_norm is not None and not math.isnan(train_loss_norm): train_rmse_for_gui_no_val = math.sqrt(max(0, train_loss_norm)) * multiplier_no_val
+                            else: 
+                                if train_loss_norm is not None and not math.isnan(train_loss_norm): train_rmse_for_gui_no_val = math.sqrt(max(0, train_loss_norm)) * multiplier_no_val
+                        else: 
+                            if train_loss_norm is not None and not math.isnan(train_loss_norm): train_rmse_for_gui_no_val = math.sqrt(max(0, train_loss_norm)) * multiplier_no_val
+
+                        # Log to CSV for non-validation epochs
+                        with open(csv_log_file, 'a', newline='') as f:
+                            csv_writer_train_only = csv.writer(f)
+                            csv_writer_train_only.writerow([
+                                epoch,
+                                f"{train_loss_norm:.6f}" if train_loss_norm is not None else 'nan',
+                                'nan', 
+                                f"{best_validation_loss:.6f}" if best_validation_loss is not None else 'nan', 
+                                f"{current_lr:.1e}" if current_lr is not None else 'nan',
+                                f"{elapsed_time_train_only:.2f}" if elapsed_time_train_only is not None else 'nan',
+                                f"{avg_batch_time:.4f}" if avg_batch_time is not None else 'nan',
+                                patience_counter if patience_counter is not None else 'nan',
+                                f"{model_memory_usage_mb:.3f}" if model_memory_usage_mb is not None else 'nan'
+                            ])
+                        
+                        # Update GUI via signal (for non-validation epochs)
+                        progress_data_train_only = {
+                            'epoch': epoch,
+                            'train_loss_norm': train_loss_norm, 
+                            'val_loss_norm': float('nan'),      
+                            'train_rmse_scaled': train_rmse_for_gui_no_val, 
+                            'val_rmse_scaled': float('nan'),         
+                            'best_val_rmse_scaled': getattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', float('inf')), 
+                            'error_unit_label': current_error_unit_label_no_val, 
+                            'delta_t_epoch': formatted_epoch_time, 
+                            'elapsed_time': format_time(elapsed_time_train_only), 
+                            'patience_counter': patience_counter, 
+                            'learning_rate': current_lr, 
+                            'status': f"Epoch {epoch}/{max_epochs} - Training..."
+                        }
+                        update_progress_callback.emit(progress_data_train_only)
+# This block is for epochs where validation did not run.
+                        current_time_train_only = time.time()
+                        elapsed_time_train_only = current_time_train_only - start_time
                         model_memory_usage_train_only = torch.cuda.memory_allocated(device=self.device) if self.device.type == 'cuda' else 0
                         model_memory_usage_mb_train_only = model_memory_usage_train_only / (1024 * 1024) if model_memory_usage_train_only > 0 else 0
                         
