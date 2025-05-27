@@ -554,9 +554,22 @@ class DataAugmentGUI(QMainWindow):
     def go_to_hyperparameter_gui(self):
         self.logger.info("Transitioning to hyperparameter GUI...")
         try:
-            self.hyper_param_gui = VEstimHyperParamGUI() # Corrected: No job_folder argument
-            self.hyper_param_gui.show()
-            self.close() # Close current window
+            # Create the new window instance.
+            # It's generally better to assign to a local variable first,
+            # then show it, then close the old one, and then assign to self.hyper_param_gui
+            # if it needs to be stored as an instance attribute.
+            hyper_param_gui_instance = VEstimHyperParamGUI()
+            hyper_param_gui_instance.show() # Show the new window
+
+            # Close the current window after the new one is shown
+            self.close()
+            
+            # If you need to keep a reference to the new GUI in the DataAugmentGUI instance
+            # (e.g., if other methods might interact with it, though unlikely for a transition),
+            # assign it now. Otherwise, this line might not be necessary if hyper_param_gui_instance
+            # manages its own lifecycle as a top-level window.
+            self.hyper_param_gui = hyper_param_gui_instance
+
         except Exception as e:
             self.logger.error(f"Error transitioning to hyperparameter GUI: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Could not open hyperparameter selection: {e}")
