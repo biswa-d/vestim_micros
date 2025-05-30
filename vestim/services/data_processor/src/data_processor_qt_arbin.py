@@ -357,45 +357,79 @@ class DataProcessorArbin:
                         item_name = f"{prefix}{key}".replace('/', '_') # Create a flat name
                         if isinstance(item, h5py.Dataset):
                             try:
-                                data = item[()]  # Read dataset
-                                # Ensure data is 1D or can be squeezed to 1D for DataFrame column
+                                data = item[()]
                                 if data.ndim == 1:
                                     data_dict[item_name] = data
-                                elif data.ndim == 2 and (data.shape[0] == 1 or data.shape[1] == 1):
-                                    data_dict[item_name] = data.flatten()
-                                elif data.ndim == 0: # Scalar dataset
-                                    data_dict[item_name] = np.array([data]) # Convert scalar to 1-element array
+                                # Try to flatten 2D arrays if one dimension is 1, or if it's a common shape for time series (e.g., from 'meas_TimeStamp')
+                                elif data.ndim == 2:
+                                    if data.shape[0] == 1: # (1, N)
+                                        data_dict[item_name] = data.flatten()
+                                    elif data.shape[1] == 1: # (N, 1)
+                                        data_dict[item_name] = data.flatten()
+                                    # Heuristic: if one dimension is significantly larger, assume it's the time series
+                                    # This is risky but might catch cases like (20, 27105) if 27105 is the intended length
+                                    # For now, let's be more conservative and only flatten if one dim is 1.
+                                    # else:
+                                    #    self.logger.warning(f"Dataset '{item_name}' in {file_path} is 2D ({data.shape}). Not automatically flattening unless one dimension is 1. Skipping.")
+                                elif data.ndim == 0:
+                                    data_dict[item_name] = np.array([data])
                                 else:
-                                    self.logger.warning(f"Dataset '{item_name}' in {file_path} is multi-dimensional ({data.shape}) beyond simple flattening; skipping.")
+                                    self.logger.warning(f"Dataset '{item_name}' in {file_path} is multi-dimensional ({data.shape}) and not a simple 1D or 2D flattenable array; skipping.")
                             except Exception as e_read_dataset:
                                 self.logger.error(f"Could not read dataset '{item_name}' from HDF5 group in {file_path}: {e_read_dataset}")
                         elif isinstance(item, h5py.Group):
-                            get_datasets_recursive(item, prefix=f"{item_name}_") # Pass prefix for uniqueness
+                            get_datasets_recursive(item, prefix=f"{item_name}_")
                 
-                get_datasets_recursive(mat_file) # Start from the root of the HDF5 file
+                get_datasets_recursive(mat_file)
 
             if not data_dict:
-                self.logger.warning(f"No suitable 1D datasets found in .mat file: {file_path}")
+                self.logger.warning(f"No 1D or simple flattenable 2D datasets found in .mat file: {file_path}")
                 return None
 
-            # Check for consistent lengths - find the most common length
-            lengths = [len(v) for v in data_dict.values()]
+            lengths = {k: len(v) for k, v in data_dict.items()}
             if not lengths:
-                 self.logger.warning(f"No data extracted from {file_path} to form DataFrame.")
+                 self.logger.warning(f"No data extracted with length information from {file_path} to form DataFrame.")
                  return None
+
+            # Determine the target length
+            # Prioritize known time column names if they exist and have a significant length
+            possible_time_keys = [k for k in lengths.keys() if 'time' in k.lower() or 'timestamp' in k.lower()]
+            target_length = 0
             
-            common_length = max(set(lengths), key=lengths.count)
+            if possible_time_keys:
+                # Find the length of the longest potential time key
+                max_len_time_key = 0
+                for tk in possible_time_keys:
+                    if lengths[tk] > max_len_time_key:
+                        max_len_time_key = lengths[tk]
+                if max_len_time_key > 1: # Ensure it's not a scalar time value
+                    target_length = max_len_time_key
+                    self.logger.info(f"Using length {target_length} from a time-related key for {file_path}.")
+
+
+            if target_length == 0: # If no suitable time key found, use the most common length among reasonably long arrays
+                # Filter out very short arrays before determining common length, to avoid issues with metadata arrays
+                min_meaningful_length = 10 # Heuristic: arrays shorter than this are likely not main data
+                long_lengths = [l for l in lengths.values() if l >= min_meaningful_length]
+                if long_lengths:
+                    target_length = max(set(long_lengths), key=long_lengths.count)
+                    self.logger.info(f"Using most common length {target_length} from longer arrays for {file_path}.")
+                elif lengths: # If all arrays are short, take the overall most common length
+                    target_length = max(set(lengths.values()), key=list(lengths.values()).count)
+                    self.logger.info(f"All arrays are short. Using most common length {target_length} for {file_path}.")
+                else: # Should not happen if lengths dictionary was populated
+                    self.logger.warning(f"Could not determine a target length for {file_path}. Cannot proceed.")
+                    return None
             
-            # Filter out columns that don't match the common length
             final_data_dict = {}
             for key, value in data_dict.items():
-                if len(value) == common_length:
+                if lengths[key] == target_length:
                     final_data_dict[key] = value
                 else:
-                    self.logger.warning(f"Column '{key}' in {file_path} has length {len(value)}, expected {common_length}. Skipping this column.")
+                    self.logger.warning(f"Column '{key}' in {file_path} has length {lengths[key]}, expected {target_length}. Skipping this column.")
 
             if not final_data_dict:
-                self.logger.warning(f"No columns with consistent length found in {file_path} after filtering.")
+                self.logger.warning(f"No columns with consistent target length {target_length} found in {file_path} after filtering.")
                 return None
 
             df = pd.DataFrame(final_data_dict)
