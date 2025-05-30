@@ -8,7 +8,8 @@
 
 import os
 import shutil
-import h5py # Ensure this is h5py
+import h5py
+import scipy.io as sio # Re-add for fallback
 import numpy as np
 import gc  # Explicit garbage collector
 from vestim.gateway.src.job_manager_qt import JobManager
@@ -349,92 +350,113 @@ class DataProcessorArbin:
         pd.DataFrame: DataFrame with the extracted data or None if extraction fails.
         """
         data_dict = {}
+        processed_with_h5py = False
         try:
+            # Attempt with h5py first (for MAT v7.3+)
+            self.logger.info(f"Attempting to read .mat file {file_path} with h5py...")
             with h5py.File(file_path, 'r') as mat_file:
                 if 'meas' not in mat_file:
-                    self.logger.warning(f"'meas' structure not found in .mat file: {file_path}")
-                    # Fallback: try to read top-level datasets if 'meas' is missing
-                    for key, item in mat_file.items():
+                    self.logger.warning(f"'meas' structure not found in .mat file {file_path} using h5py. Checking top-level.")
+                    for key, item in mat_file.items(): # Fallback to top-level for h5py
                         if isinstance(item, h5py.Dataset):
                             try:
                                 data = item[()]
-                                if data.dtype.kind in ['S', 'O']: # Skip string, object (cell) arrays
-                                    self.logger.info(f"Skipping non-numeric dataset '{key}' (dtype: {data.dtype}) in {file_path}.")
-                                    continue
-                                if data.ndim == 1:
-                                    data_dict[key] = data
-                                elif data.ndim == 2 and (data.shape[0] == 1 or data.shape[1] == 1):
-                                    data_dict[key] = data.flatten()
-                                elif data.ndim == 0:
-                                    data_dict[key] = np.array([data])
-                                else:
-                                    self.logger.warning(f"Top-level dataset '{key}' in {file_path} is multi-dimensional ({data.shape}) and not flattenable; skipping.")
-                            except Exception as e_read_dataset:
-                                self.logger.error(f"Could not read top-level dataset '{key}' from {file_path}: {e_read_dataset}")
-                    if not data_dict: # If still no data after fallback
-                        return None
-                else: # 'meas' structure exists
+                                if data.dtype.kind in ['S', 'O']: continue
+                                if data.ndim == 1: data_dict[key] = data
+                                elif data.ndim == 2 and (data.shape[0] == 1 or data.shape[1] == 1): data_dict[key] = data.flatten()
+                                elif data.ndim == 0: data_dict[key] = np.array([data])
+                            except Exception: pass # ignore problematic datasets at top level
+                else:
                     meas_group = mat_file['meas']
                     for field_name, field_dataset in meas_group.items():
                         if isinstance(field_dataset, h5py.Dataset):
                             try:
                                 data = field_dataset[()]
-                                # Skip char arrays (like TimeStamp [27105x20 char]) and cell arrays (object dtype)
-                                if data.dtype.kind in ['S', 'O']: # S for ByteString (char array), O for Object (cell array)
-                                    self.logger.info(f"Skipping non-numeric field '{field_name}' (dtype: {data.dtype}) in 'meas' struct of {file_path}.")
-                                    continue
-                                
-                                if data.ndim == 1:
-                                    data_dict[field_name] = data
-                                elif data.ndim == 2 and (data.shape[0] == 1 or data.shape[1] == 1): # (1,N) or (N,1)
-                                    data_dict[field_name] = data.flatten()
-                                elif data.ndim == 0: # Scalar value
-                                     data_dict[field_name] = np.array([data]) # Store as 1-element array
-                                else:
-                                    self.logger.warning(f"Field '{field_name}' in 'meas' struct of {file_path} is multi-dimensional ({data.shape}) and not flattenable; skipping.")
-                            except Exception as e_read_field:
-                                self.logger.error(f"Could not read field '{field_name}' from 'meas' struct in {file_path}: {e_read_field}")
-            
-            if not data_dict:
-                self.logger.warning(f"No suitable numeric datasets found in 'meas' struct or top-level of .mat file: {file_path}")
-                return None
+                                if data.dtype.kind in ['S', 'O']: continue
+                                if data.ndim == 1: data_dict[field_name] = data
+                                elif data.ndim == 2 and (data.shape[0] == 1 or data.shape[1] == 1): data_dict[field_name] = data.flatten()
+                                elif data.ndim == 0: data_dict[field_name] = np.array([data])
+                            except Exception: pass # ignore problematic fields
+            if data_dict:
+                processed_with_h5py = True
+                self.logger.info(f"Successfully extracted data using h5py from {file_path}.")
 
-            # Determine the most common length among the extracted numeric arrays
-            lengths = [len(v) for v in data_dict.values() if isinstance(v, np.ndarray) and v.ndim == 1]
-            if not lengths:
-                 self.logger.warning(f"No 1D numeric data extracted from {file_path} to determine common length.")
-                 return None
-            
-            common_length = max(set(lengths), key=lengths.count)
-            self.logger.info(f"Determined common length for numeric data in {file_path} as: {common_length}")
-            
-            final_data_dict = {}
-            for key, value in data_dict.items():
-                if isinstance(value, np.ndarray) and value.ndim == 1 and len(value) == common_length:
-                    final_data_dict[key] = value
+        except OSError as e_h5py: # Catch h5py specific file opening errors (like signature not found)
+            self.logger.warning(f"h5py failed to open {file_path} (likely not a HDF5-based .mat file): {e_h5py}. Attempting fallback with scipy.io.loadmat.")
+        except Exception as e_h5py_other: # Catch other h5py errors during processing
+            self.logger.error(f"An unexpected error occurred with h5py for {file_path}: {e_h5py_other}. Attempting fallback with scipy.io.loadmat.")
+
+        if not processed_with_h5py or not data_dict: # If h5py failed or found no data, try scipy.io
+            data_dict = {} # Reset data_dict for scipy
+            try:
+                self.logger.info(f"Attempting to read .mat file {file_path} with scipy.io.loadmat...")
+                mat_data_sio = sio.loadmat(file_path, simplify_cells=True) # simplify_cells can help with struct access
+                
+                if 'meas' not in mat_data_sio:
+                    self.logger.warning(f"'meas' structure not found in .mat file {file_path} using scipy.io.loadmat. Checking top-level variables.")
+                    # Fallback for scipy: iterate through top-level variables
+                    for key, value in mat_data_sio.items():
+                        if key.startswith('__'): continue # Skip metadata keys
+                        if isinstance(value, np.ndarray):
+                            if np.issubdtype(value.dtype, np.number): # Check if numeric
+                                if value.ndim == 1: data_dict[key] = value
+                                elif value.ndim == 2 and (value.shape[0] == 1 or value.shape[1] == 1): data_dict[key] = value.flatten()
+                                elif value.ndim == 0 : data_dict[key] = np.array([value]) # scalar
                 else:
-                    self.logger.warning(f"Numeric column '{key}' in {file_path} has length {len(value) if isinstance(value, np.ndarray) else 'N/A'}, expected {common_length}. Skipping this column.")
+                    meas_struct_sio = mat_data_sio['meas']
+                    if isinstance(meas_struct_sio, dict): # simplify_cells=True makes structs dict-like
+                        for field_name, data_array in meas_struct_sio.items():
+                            if isinstance(data_array, np.ndarray):
+                                if np.issubdtype(data_array.dtype, np.number): # Check if numeric
+                                    if data_array.ndim == 1: data_dict[field_name] = data_array
+                                    elif data_array.ndim == 2 and (data_array.shape[0] == 1 or data_array.shape[1] == 1): data_dict[field_name] = data_array.flatten()
+                                    elif data_array.ndim == 0 : data_dict[field_name] = np.array([data_array])
+                    else: # Should not happen with simplify_cells=True, but as a fallback
+                         self.logger.warning(f"'meas' in {file_path} with scipy.io was not a dict as expected (simplify_cells=True).")
 
-            if not final_data_dict:
-                self.logger.warning(f"No numeric columns with consistent length {common_length} found in {file_path} after filtering.")
-                return None
 
-            df = pd.DataFrame(final_data_dict)
-            
-            # Minimal renaming for time column if needed for resampling consistency
-            # Prefer 'Timestamp', then 'Time'. This helps _resample_data.
-            if 'Timestamp' not in df.columns:
-                if 'Time' in df.columns:
-                    df.rename(columns={'Time': 'Timestamp'}, inplace=True)
-                elif 'time' in df.columns: # common alternative from h5py keys
-                    df.rename(columns={'time': 'Timestamp'}, inplace=True)
-            
-            self.logger.info(f"Successfully extracted {len(df.columns)} columns from .mat file: {file_path}")
-            return df
+                if data_dict:
+                    self.logger.info(f"Successfully extracted data using scipy.io.loadmat from {file_path}.")
+                else:
+                    self.logger.warning(f"No suitable numeric datasets found using scipy.io.loadmat for {file_path}.")
+                    return None # Both methods failed to find data
 
-        except Exception as e:
-            self.logger.error(f"Error processing .mat file {file_path} with h5py: {e}", exc_info=True)
+            except Exception as e_sio:
+                self.logger.error(f"Error processing .mat file {file_path} with scipy.io.loadmat: {e_sio}", exc_info=True)
+                return None # Both methods failed
+
+        # Common post-processing for data_dict from either h5py or scipy.io
+        if not data_dict:
+            self.logger.warning(f"No data extracted from .mat file: {file_path} by either method.")
             return None
+
+        lengths = [len(v) for v in data_dict.values() if isinstance(v, np.ndarray) and v.ndim == 1]
+        if not lengths:
+             self.logger.warning(f"No 1D numeric data arrays found in {file_path} to determine common length.")
+             return None
+        
+        common_length = max(set(lengths), key=lengths.count)
+        self.logger.info(f"Determined common length for numeric data in {file_path} as: {common_length}")
+        
+        final_data_dict = {}
+        for key, value in data_dict.items():
+            if isinstance(value, np.ndarray) and value.ndim == 1 and len(value) == common_length:
+                final_data_dict[key] = value
+            else:
+                self.logger.warning(f"Column '{key}' in {file_path} (length {len(value) if isinstance(value, np.ndarray) else 'N/A'}) does not match common length {common_length}. Skipping.")
+
+        if not final_data_dict:
+            self.logger.warning(f"No columns with consistent length {common_length} found in {file_path} after filtering.")
+            return None
+
+        df = pd.DataFrame(final_data_dict)
+        
+        if 'Timestamp' not in df.columns: # Ensure a time column for resampling
+            if 'Time' in df.columns: df.rename(columns={'Time': 'Timestamp'}, inplace=True)
+            elif 'time' in df.columns: df.rename(columns={'time': 'Timestamp'}, inplace=True)
+        
+        self.logger.info(f"Successfully processed and created DataFrame with {len(df.columns)} columns from .mat file: {file_path}")
+        return df
         
     def _resample_data(self, df, sampling_frequency='1S'):
         """
