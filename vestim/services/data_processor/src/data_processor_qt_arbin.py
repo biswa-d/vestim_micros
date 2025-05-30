@@ -351,85 +351,72 @@ class DataProcessorArbin:
         data_dict = {}
         try:
             with h5py.File(file_path, 'r') as mat_file:
-                
-                def get_datasets_recursive(group, prefix=''):
-                    for key, item in group.items():
-                        item_name = f"{prefix}{key}".replace('/', '_') # Create a flat name
+                if 'meas' not in mat_file:
+                    self.logger.warning(f"'meas' structure not found in .mat file: {file_path}")
+                    # Fallback: try to read top-level datasets if 'meas' is missing
+                    for key, item in mat_file.items():
                         if isinstance(item, h5py.Dataset):
                             try:
                                 data = item[()]
+                                if data.dtype.kind in ['S', 'O']: # Skip string, object (cell) arrays
+                                    self.logger.info(f"Skipping non-numeric dataset '{key}' (dtype: {data.dtype}) in {file_path}.")
+                                    continue
                                 if data.ndim == 1:
-                                    data_dict[item_name] = data
-                                # Try to flatten 2D arrays if one dimension is 1, or if it's a common shape for time series (e.g., from 'meas_TimeStamp')
-                                elif data.ndim == 2:
-                                    if data.shape[0] == 1: # (1, N)
-                                        data_dict[item_name] = data.flatten()
-                                    elif data.shape[1] == 1: # (N, 1)
-                                        data_dict[item_name] = data.flatten()
-                                    # Heuristic: if one dimension is significantly larger, assume it's the time series
-                                    # This is risky but might catch cases like (20, 27105) if 27105 is the intended length
-                                    # For now, let's be more conservative and only flatten if one dim is 1.
-                                    # else:
-                                    #    self.logger.warning(f"Dataset '{item_name}' in {file_path} is 2D ({data.shape}). Not automatically flattening unless one dimension is 1. Skipping.")
+                                    data_dict[key] = data
+                                elif data.ndim == 2 and (data.shape[0] == 1 or data.shape[1] == 1):
+                                    data_dict[key] = data.flatten()
                                 elif data.ndim == 0:
-                                    data_dict[item_name] = np.array([data])
+                                    data_dict[key] = np.array([data])
                                 else:
-                                    self.logger.warning(f"Dataset '{item_name}' in {file_path} is multi-dimensional ({data.shape}) and not a simple 1D or 2D flattenable array; skipping.")
+                                    self.logger.warning(f"Top-level dataset '{key}' in {file_path} is multi-dimensional ({data.shape}) and not flattenable; skipping.")
                             except Exception as e_read_dataset:
-                                self.logger.error(f"Could not read dataset '{item_name}' from HDF5 group in {file_path}: {e_read_dataset}")
-                        elif isinstance(item, h5py.Group):
-                            get_datasets_recursive(item, prefix=f"{item_name}_")
-                
-                get_datasets_recursive(mat_file)
-
+                                self.logger.error(f"Could not read top-level dataset '{key}' from {file_path}: {e_read_dataset}")
+                    if not data_dict: # If still no data after fallback
+                        return None
+                else: # 'meas' structure exists
+                    meas_group = mat_file['meas']
+                    for field_name, field_dataset in meas_group.items():
+                        if isinstance(field_dataset, h5py.Dataset):
+                            try:
+                                data = field_dataset[()]
+                                # Skip char arrays (like TimeStamp [27105x20 char]) and cell arrays (object dtype)
+                                if data.dtype.kind in ['S', 'O']: # S for ByteString (char array), O for Object (cell array)
+                                    self.logger.info(f"Skipping non-numeric field '{field_name}' (dtype: {data.dtype}) in 'meas' struct of {file_path}.")
+                                    continue
+                                
+                                if data.ndim == 1:
+                                    data_dict[field_name] = data
+                                elif data.ndim == 2 and (data.shape[0] == 1 or data.shape[1] == 1): # (1,N) or (N,1)
+                                    data_dict[field_name] = data.flatten()
+                                elif data.ndim == 0: # Scalar value
+                                     data_dict[field_name] = np.array([data]) # Store as 1-element array
+                                else:
+                                    self.logger.warning(f"Field '{field_name}' in 'meas' struct of {file_path} is multi-dimensional ({data.shape}) and not flattenable; skipping.")
+                            except Exception as e_read_field:
+                                self.logger.error(f"Could not read field '{field_name}' from 'meas' struct in {file_path}: {e_read_field}")
+            
             if not data_dict:
-                self.logger.warning(f"No 1D or simple flattenable 2D datasets found in .mat file: {file_path}")
+                self.logger.warning(f"No suitable numeric datasets found in 'meas' struct or top-level of .mat file: {file_path}")
                 return None
 
-            lengths = {k: len(v) for k, v in data_dict.items()}
+            # Determine the most common length among the extracted numeric arrays
+            lengths = [len(v) for v in data_dict.values() if isinstance(v, np.ndarray) and v.ndim == 1]
             if not lengths:
-                 self.logger.warning(f"No data extracted with length information from {file_path} to form DataFrame.")
+                 self.logger.warning(f"No 1D numeric data extracted from {file_path} to determine common length.")
                  return None
-
-            # Determine the target length
-            # Prioritize known time column names if they exist and have a significant length
-            possible_time_keys = [k for k in lengths.keys() if 'time' in k.lower() or 'timestamp' in k.lower()]
-            target_length = 0
             
-            if possible_time_keys:
-                # Find the length of the longest potential time key
-                max_len_time_key = 0
-                for tk in possible_time_keys:
-                    if lengths[tk] > max_len_time_key:
-                        max_len_time_key = lengths[tk]
-                if max_len_time_key > 1: # Ensure it's not a scalar time value
-                    target_length = max_len_time_key
-                    self.logger.info(f"Using length {target_length} from a time-related key for {file_path}.")
-
-
-            if target_length == 0: # If no suitable time key found, use the most common length among reasonably long arrays
-                # Filter out very short arrays before determining common length, to avoid issues with metadata arrays
-                min_meaningful_length = 10 # Heuristic: arrays shorter than this are likely not main data
-                long_lengths = [l for l in lengths.values() if l >= min_meaningful_length]
-                if long_lengths:
-                    target_length = max(set(long_lengths), key=long_lengths.count)
-                    self.logger.info(f"Using most common length {target_length} from longer arrays for {file_path}.")
-                elif lengths: # If all arrays are short, take the overall most common length
-                    target_length = max(set(lengths.values()), key=list(lengths.values()).count)
-                    self.logger.info(f"All arrays are short. Using most common length {target_length} for {file_path}.")
-                else: # Should not happen if lengths dictionary was populated
-                    self.logger.warning(f"Could not determine a target length for {file_path}. Cannot proceed.")
-                    return None
+            common_length = max(set(lengths), key=lengths.count)
+            self.logger.info(f"Determined common length for numeric data in {file_path} as: {common_length}")
             
             final_data_dict = {}
             for key, value in data_dict.items():
-                if lengths[key] == target_length:
+                if isinstance(value, np.ndarray) and value.ndim == 1 and len(value) == common_length:
                     final_data_dict[key] = value
                 else:
-                    self.logger.warning(f"Column '{key}' in {file_path} has length {lengths[key]}, expected {target_length}. Skipping this column.")
+                    self.logger.warning(f"Numeric column '{key}' in {file_path} has length {len(value) if isinstance(value, np.ndarray) else 'N/A'}, expected {common_length}. Skipping this column.")
 
             if not final_data_dict:
-                self.logger.warning(f"No columns with consistent target length {target_length} found in {file_path} after filtering.")
+                self.logger.warning(f"No numeric columns with consistent length {common_length} found in {file_path} after filtering.")
                 return None
 
             df = pd.DataFrame(final_data_dict)
