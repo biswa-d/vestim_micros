@@ -226,7 +226,9 @@ class DataImportGUI(QMainWindow):
             extensions_to_check = [".mat"]
         elif data_source == "Digatron":
             extensions_to_check = [".csv"]
-        else: # Default for STLA, Biologic, and any others
+        elif data_source == "STLA":
+            extensions_to_check = [".xlsx", ".xls"] # Only Excel files for STLA
+        else: # Default for Biologic, and any others not explicitly handled
             extensions_to_check = [ext.lower() for ext in DEFAULT_DATA_EXTENSIONS]
         
         logger.info(f"Populating list for '{folder_path}' (Source: {data_source}). Scanning for extensions: {extensions_to_check}")
