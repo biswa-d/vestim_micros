@@ -121,12 +121,40 @@ def create_scaler_from_stats(global_stats, feature_columns, scaler_type='min_max
         scaler = MinMaxScaler()
         # Manually set the parameters of the scaler
         scaler.feature_range = (0, 1) # Default, can be parameterized
-        scaler.scale_ = 1.0 / (stats_max - stats_min)
-        scaler.min_ = -stats_min * scaler.scale_
+        
+        # Calculate scale and min, handling division by zero for constant features
+        scale = np.ones_like(stats_min, dtype=float)
+        min_val = np.zeros_like(stats_min, dtype=float)
+        
+        diff = stats_max - stats_min
+        
+        # Where diff is not zero
+        valid_scale_mask = diff != 0
+        scale[valid_scale_mask] = 1.0 / diff[valid_scale_mask]
+        min_val[valid_scale_mask] = -stats_min[valid_scale_mask] * scale[valid_scale_mask]
+        
+        # Where diff is zero (constant feature), map to 0
+        # X_scaled = (X - X_min) / (X_max - X_min) -> if X_min == X_max, this should be 0
+        # X_scaled = X * scale + min_val
+        # If X = X_min, then X_min * scale_const + min_const = 0
+        # Let scale_const = 1.0 (to avoid issues if X is 0 and scale is 0)
+        # Then X_min * 1.0 + min_const = 0 => min_const = -X_min
+        constant_feature_mask = diff == 0
+        scale[constant_feature_mask] = 1.0
+        min_val[constant_feature_mask] = -stats_min[constant_feature_mask]
+        
+        # Handle cases where min or max might be NaN (e.g., all-NaN column)
+        # scale and min_val will become NaN automatically, which is fine.
+        
+        scaler.scale_ = scale
+        scaler.min_ = min_val
         scaler.data_min_ = stats_min
         scaler.data_max_ = stats_max
         scaler.n_features_in_ = len(feature_columns)
-        # scaler.feature_names_in_ = np.array(feature_columns, dtype=object) # If using sklearn >= 1.0
+        try: # Set feature_names_in_ if possible (sklearn >= 0.24 for MinMaxScaler)
+            scaler.feature_names_in_ = np.array(feature_columns, dtype=object)
+        except AttributeError:
+            pass # Older sklearn, feature_names_in_ might not be settable or exist
     elif scaler_type == 'z_score':
         # For Z-score, we'd need mean and std. This function expects min/max.
         # If Z-score is needed, calculate_global_dataset_stats should also return mean and std.
@@ -221,8 +249,16 @@ def transform_data(data_df, scaler, feature_columns):
     try:
         data_copy = data_df.copy()
         # Ensure data is float before transforming
-        data_copy[transformable_cols] = data_copy[transformable_cols].astype(float)
-        data_copy[transformable_cols] = scaler.transform(data_copy[transformable_cols])
+        data_to_transform_df = data_copy[transformable_cols].astype(float)
+        # Convert to NumPy array to avoid UserWarning about feature names
+        # The order of columns in transformable_cols is derived from feature_columns,
+        # which is the order used to set up the scaler.
+        data_to_transform_np = data_to_transform_df.to_numpy()
+        
+        transformed_np = scaler.transform(data_to_transform_np)
+        
+        # Assign back to the DataFrame
+        data_copy[transformable_cols] = transformed_np
         print(f"Data transformed for columns: {transformable_cols}")
         return data_copy
     except Exception as e:
@@ -255,7 +291,13 @@ def inverse_transform_data(data_df, scaler, feature_columns):
         
     try:
         data_copy = data_df.copy()
-        data_copy[transformable_cols] = scaler.inverse_transform(data_copy[transformable_cols])
+        # Convert to NumPy array, ensuring correct column order for inverse_transform
+        data_to_inverse_transform_df = data_copy[transformable_cols]
+        data_to_inverse_transform_np = data_to_inverse_transform_df.to_numpy()
+
+        inverse_transformed_np = scaler.inverse_transform(data_to_inverse_transform_np)
+        
+        data_copy[transformable_cols] = inverse_transformed_np
         print(f"Data inverse_transformed for columns: {transformable_cols}")
         return data_copy
     except Exception as e:
