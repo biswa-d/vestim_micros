@@ -243,25 +243,53 @@ class DataProcessorDigatron:
         pd.DataFrame: Resampled DataFrame.
         """
         try:
-            # Ensure 'Time' is present in the dataset
-            if 'Time' not in df.columns:
-                print("No 'Time' column found in the dataset.")
-                return None
+            time_col = None
+            if 'Timestamp' in df.columns: # Prefer 'Timestamp'
+                time_col = 'Timestamp'
+            elif 'Time' in df.columns:
+                time_col = 'Time'
             
-            # Convert 'Time' to seconds (if not already datetime)
-            if not pd.api.types.is_datetime64_any_dtype(df['Time']):
-                df['Time'] = pd.to_datetime(df['Time'], unit='s')
+            if time_col is None:
+                self.logger.error("No 'Time' or 'Timestamp' column found in the dataset for resampling.")
+                return None # Or return df as is, if no time column means no resampling
+            
+            # Convert time column to datetime objects
+            if not pd.api.types.is_datetime64_any_dtype(df[time_col]):
+                try:
+                    df[time_col] = pd.to_datetime(df[time_col])
+                except ValueError:
+                    try: # Attempt to parse as seconds from epoch if direct conversion fails
+                        df[time_col] = pd.to_datetime(df[time_col], unit='s', errors='coerce')
+                    except Exception as e_time_conv:
+                         self.logger.error(f"Could not convert time column '{time_col}' to datetime: {e_time_conv}. Resampling skipped.")
+                         return df # Return original df if time conversion fails
 
-            # Set time as index for resampling
-            df.set_index('Time', inplace=True)
+            if df[time_col].isnull().any():
+                self.logger.warning(f"Null values found in '{time_col}' column after conversion. Dropping these rows before resampling.")
+                df.dropna(subset=[time_col], inplace=True)
 
-            # Resample using the specified frequency, interpolating missing values
-            df_resampled = df.resample(sampling_frequency).mean(numeric_only=True).interpolate()
+            if df.empty:
+                self.logger.error(f"DataFrame is empty after handling NaT in '{time_col}'. Cannot resample.")
+                return None
 
-            # Reset index to keep 'Time' as a column
+            df.set_index(time_col, inplace=True)
+
+            # Resample numeric columns using mean and interpolate
+            numeric_cols = df.select_dtypes(include=np.number).columns
+            df_resampled_numeric = df[numeric_cols].resample(sampling_frequency).mean().interpolate()
+
+            # Handle non-numeric columns: resample and forward-fill
+            non_numeric_cols = df.select_dtypes(exclude=np.number).columns
+            if not non_numeric_cols.empty:
+                df_non_numeric_indexed = df[non_numeric_cols]
+                # Resample non-numeric columns (e.g., using first value in window, then ffill)
+                df_resampled_non_numeric = df_non_numeric_indexed.resample(sampling_frequency).first().ffill()
+                df_resampled = pd.concat([df_resampled_numeric, df_resampled_non_numeric], axis=1)
+            else:
+                df_resampled = df_resampled_numeric
+            
             df_resampled.reset_index(inplace=True)
-
             return df_resampled
         except Exception as e:
-            self.logger.error(f"Error resampling data: {e}")
+            self.logger.error(f"Error resampling data: {e}", exc_info=True)
             return None

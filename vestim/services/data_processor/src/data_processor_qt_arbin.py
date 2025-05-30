@@ -8,7 +8,7 @@
 
 import os
 import shutil
-import scipy.io as sio
+import h5py # Ensure this is h5py
 import numpy as np
 import gc  # Explicit garbage collector
 from vestim.gateway.src.job_manager_qt import JobManager
@@ -186,26 +186,8 @@ class DataProcessorArbin:
         try:
             df = pd.read_csv(csv_file_path)
             
-            # Define potential column names and their standard mappings
-            column_mapping = {
-                'Time': 'Timestamp', 'timestamp': 'Timestamp', 'Record Time': 'Timestamp',
-                'Voltage': 'Voltage', 'voltage': 'Voltage', 'Voltage(V)': 'Voltage',
-                'Current': 'Current', 'current': 'Current', 'Current(A)': 'Current',
-                'Temperature': 'Temp', 'temperature': 'Temp', 'Battery_Temp_degC': 'Temp', 'Aux_Temperature_1(C)': 'Temp',
-                'SOC': 'SOC', 'soc': 'SOC', 'SOC(%)': 'SOC'
-            }
-            
-            # Rename columns based on the mapping
-            df.rename(columns=column_mapping, inplace=True)
-            
-            # Select only the standard columns, if they exist
-            standard_columns = ['Timestamp', 'Voltage', 'Current', 'Temp', 'SOC']
-            df_processed = df[[col for col in standard_columns if col in df.columns]]
-
-            # Ensure all standard columns are present, fill with NaN if not
-            for col in standard_columns:
-                if col not in df_processed.columns:
-                    df_processed[col] = np.nan
+            # No column filtering or renaming, save as is.
+            df_processed = df
             
             csv_file_name = os.path.join(output_folder, os.path.splitext(os.path.basename(csv_file_path))[0] + '.csv')
             df_processed.to_csv(csv_file_name, index=False)
@@ -221,24 +203,10 @@ class DataProcessorArbin:
         """Convert Excel file to a standardized CSV format."""
         try:
             # Reading the first sheet by default
-            df = pd.read_excel(excel_file_path, sheet_name=0) 
-
-            column_mapping = {
-                'Time': 'Timestamp', 'timestamp': 'Timestamp', 'Record Time': 'Timestamp',
-                'Voltage': 'Voltage', 'voltage': 'Voltage', 'Voltage(V)': 'Voltage',
-                'Current': 'Current', 'current': 'Current', 'Current(A)': 'Current',
-                'Temperature': 'Temp', 'temperature': 'Temp', 'Battery_Temp_degC': 'Temp', 'Aux_Temperature_1(C)': 'Temp',
-                'SOC': 'SOC', 'soc': 'SOC', 'SOC(%)': 'SOC'
-            }
+            df = pd.read_excel(excel_file_path, sheet_name=0)
             
-            df.rename(columns=column_mapping, inplace=True)
-            
-            standard_columns = ['Timestamp', 'Voltage', 'Current', 'Temp', 'SOC']
-            df_processed = df[[col for col in standard_columns if col in df.columns]]
-
-            for col in standard_columns:
-                if col not in df_processed.columns:
-                    df_processed[col] = np.nan
+            # No column filtering or renaming, save as is.
+            df_processed = df
 
             csv_file_name = os.path.join(output_folder, os.path.splitext(os.path.basename(excel_file_path))[0] + '.csv')
             df_processed.to_csv(csv_file_name, index=False)
@@ -289,35 +257,25 @@ class DataProcessorArbin:
         try:
             df = pd.read_csv(csv_file_path)
 
-            column_mapping = {
-                'Time': 'Timestamp', 'timestamp': 'Timestamp', 'Record Time': 'Timestamp',
-                'Voltage': 'Voltage', 'voltage': 'Voltage', 'Voltage(V)': 'Voltage',
-                'Current': 'Current', 'current': 'Current', 'Current(A)': 'Current',
-                'Temperature': 'Temp', 'temperature': 'Temp', 'Battery_Temp_degC': 'Temp', 'Aux_Temperature_1(C)': 'Temp',
-                'SOC': 'SOC', 'soc': 'SOC', 'SOC(%)': 'SOC'
-            }
-            df.rename(columns=column_mapping, inplace=True)
+            # Minimal column mapping for Timestamp if necessary, otherwise keep original names
+            # Prefer 'Timestamp' if available, else 'Time'
+            if 'Timestamp' not in df.columns and 'Time' in df.columns:
+                df.rename(columns={'Time': 'Timestamp'}, inplace=True)
+            elif 'timestamp' in df.columns: # common alternative
+                 df.rename(columns={'timestamp': 'Timestamp'}, inplace=True)
+            # Add other common time column names if needed
 
             # Ensure 'Timestamp' column exists for resampling
             if 'Timestamp' not in df.columns:
-                self.logger.error(f"'Timestamp' column not found in {csv_file_path} after mapping. Skipping resampling.")
-                # Save as is, or handle error differently
-                self._convert_csv_to_csv(csv_file_path, output_folder) # Fallback to non-resampled conversion
+                self.logger.error(f"A recognizable time column ('Timestamp', 'Time', 'timestamp') not found in {csv_file_path}. Skipping resampling.")
+                # Save as is (already handled by _convert_csv_to_csv to not filter)
+                self._convert_csv_to_csv(csv_file_path, output_folder)
                 return
-
-            # Select standard columns
-            standard_columns = ['Timestamp', 'Voltage', 'Current', 'Temp', 'SOC']
-            df_processed = df[[col for col in standard_columns if col in df.columns]]
-            for col in standard_columns: # Ensure all standard columns exist
-                if col not in df_processed.columns:
-                    df_processed[col] = np.nan
             
-            # Rename 'Timestamp' to 'Time' for _resample_data compatibility if needed, or adapt _resample_data
-            # For now, let's assume _resample_data can handle 'Timestamp' or we adapt it.
-            # If _resample_data strictly expects 'Time', uncomment below:
-            # df_processed.rename(columns={'Timestamp': 'Time'}, inplace=True)
+            # No explicit column filtering here, pass all columns to _resample_data
+            df_processed = df
 
-            df_resampled = self._resample_data(df_processed.copy(), sampling_frequency) # Pass a copy to avoid SettingWithCopyWarning
+            df_resampled = self._resample_data(df_processed.copy(), sampling_frequency) # Pass a copy
             if df_resampled is None:
                 self.logger.error(f"Failed to resample data from {csv_file_path}. Saving non-resampled.")
                 # Fallback: save the processed but non-resampled data
@@ -345,27 +303,19 @@ class DataProcessorArbin:
         try:
             df = pd.read_excel(excel_file_path, sheet_name=0)
 
-            column_mapping = {
-                'Time': 'Timestamp', 'timestamp': 'Timestamp', 'Record Time': 'Timestamp',
-                'Voltage': 'Voltage', 'voltage': 'Voltage', 'Voltage(V)': 'Voltage',
-                'Current': 'Current', 'current': 'Current', 'Current(A)': 'Current',
-                'Temperature': 'Temp', 'temperature': 'Temp', 'Battery_Temp_degC': 'Temp', 'Aux_Temperature_1(C)': 'Temp',
-                'SOC': 'SOC', 'soc': 'SOC', 'SOC(%)': 'SOC'
-            }
-            df.rename(columns=column_mapping, inplace=True)
+            # Minimal column mapping for Timestamp if necessary
+            if 'Timestamp' not in df.columns and 'Time' in df.columns:
+                df.rename(columns={'Time': 'Timestamp'}, inplace=True)
+            elif 'timestamp' in df.columns:
+                 df.rename(columns={'timestamp': 'Timestamp'}, inplace=True)
 
             if 'Timestamp' not in df.columns:
-                self.logger.error(f"'Timestamp' column not found in {excel_file_path} after mapping. Skipping resampling.")
+                self.logger.error(f"A recognizable time column ('Timestamp', 'Time', 'timestamp') not found in {excel_file_path}. Skipping resampling.")
                 self._convert_excel_to_csv(excel_file_path, output_folder) # Fallback
                 return
 
-            standard_columns = ['Timestamp', 'Voltage', 'Current', 'Temp', 'SOC']
-            df_processed = df[[col for col in standard_columns if col in df.columns]]
-            for col in standard_columns:
-                if col not in df_processed.columns:
-                    df_processed[col] = np.nan
-            
-            # df_processed.rename(columns={'Timestamp': 'Time'}, inplace=True) # If _resample_data needs 'Time'
+            # No explicit column filtering here
+            df_processed = df
 
             df_resampled = self._resample_data(df_processed.copy(), sampling_frequency)
             if df_resampled is None:
@@ -390,7 +340,7 @@ class DataProcessorArbin:
 
     def extract_data_from_matfile(self, file_path):
         """
-        Extracts specific fields from a .mat file and returns them as a DataFrame.
+        Extracts all 1D-convertible datasets from a .mat file (HDF5 format) and returns them as a DataFrame.
         
         Parameters:
         file_path (str): Path to the .mat file.
@@ -398,35 +348,71 @@ class DataProcessorArbin:
         Returns:
         pd.DataFrame: DataFrame with the extracted data or None if extraction fails.
         """
+        data_dict = {}
         try:
-            # Load the .mat file
-            mat_data = sio.loadmat(file_path)
-            meas = mat_data.get('meas')
-            
-            if meas is None:
-                print(f"No 'meas' structure found in {file_path}")
+            with h5py.File(file_path, 'r') as mat_file:
+                
+                def get_datasets_recursive(group, prefix=''):
+                    for key, item in group.items():
+                        item_name = f"{prefix}{key}".replace('/', '_') # Create a flat name
+                        if isinstance(item, h5py.Dataset):
+                            try:
+                                data = item[()]  # Read dataset
+                                # Ensure data is 1D or can be squeezed to 1D for DataFrame column
+                                if data.ndim == 1:
+                                    data_dict[item_name] = data
+                                elif data.ndim == 2 and (data.shape[0] == 1 or data.shape[1] == 1):
+                                    data_dict[item_name] = data.flatten()
+                                elif data.ndim == 0: # Scalar dataset
+                                    data_dict[item_name] = np.array([data]) # Convert scalar to 1-element array
+                                else:
+                                    self.logger.warning(f"Dataset '{item_name}' in {file_path} is multi-dimensional ({data.shape}) beyond simple flattening; skipping.")
+                            except Exception as e_read_dataset:
+                                self.logger.error(f"Could not read dataset '{item_name}' from HDF5 group in {file_path}: {e_read_dataset}")
+                        elif isinstance(item, h5py.Group):
+                            get_datasets_recursive(item, prefix=f"{item_name}_") # Pass prefix for uniqueness
+                
+                get_datasets_recursive(mat_file) # Start from the root of the HDF5 file
+
+            if not data_dict:
+                self.logger.warning(f"No suitable 1D datasets found in .mat file: {file_path}")
                 return None
 
-            # Define fields to extract, excluding non-numeric or unnecessary fields
-            fields_to_extract = [
-                'Time', 'Voltage', 'Current', 'Ah', 'SOC', 'Power',
-                'Battery_Temp_degC', 'Ambient_Temp_degC'
-            ]
+            # Check for consistent lengths - find the most common length
+            lengths = [len(v) for v in data_dict.values()]
+            if not lengths:
+                 self.logger.warning(f"No data extracted from {file_path} to form DataFrame.")
+                 return None
             
-            # Extract data into a dictionary (assuming data is stored in structures)
-            data_dict = {}
-            for field in fields_to_extract:
-                if field in meas.dtype.names:
-                    data_dict[field] = meas[field][0, 0].flatten()
+            common_length = max(set(lengths), key=lengths.count)
+            
+            # Filter out columns that don't match the common length
+            final_data_dict = {}
+            for key, value in data_dict.items():
+                if len(value) == common_length:
+                    final_data_dict[key] = value
+                else:
+                    self.logger.warning(f"Column '{key}' in {file_path} has length {len(value)}, expected {common_length}. Skipping this column.")
 
-            # Convert dictionary to a DataFrame
-            df = pd.DataFrame(data_dict)
-            df.rename(columns={'Battery_Temp_degC': 'Temp'}, inplace=True)
+            if not final_data_dict:
+                self.logger.warning(f"No columns with consistent length found in {file_path} after filtering.")
+                return None
 
+            df = pd.DataFrame(final_data_dict)
+            
+            # Minimal renaming for time column if needed for resampling consistency
+            # Prefer 'Timestamp', then 'Time'. This helps _resample_data.
+            if 'Timestamp' not in df.columns:
+                if 'Time' in df.columns:
+                    df.rename(columns={'Time': 'Timestamp'}, inplace=True)
+                elif 'time' in df.columns: # common alternative from h5py keys
+                    df.rename(columns={'time': 'Timestamp'}, inplace=True)
+            
+            self.logger.info(f"Successfully extracted {len(df.columns)} columns from .mat file: {file_path}")
             return df
 
         except Exception as e:
-            print(f"Error processing file {file_path}: {e}")
+            self.logger.error(f"Error processing .mat file {file_path} with h5py: {e}", exc_info=True)
             return None
         
     def _resample_data(self, df, sampling_frequency='1S'):
@@ -463,66 +449,55 @@ class DataProcessorArbin:
             # Set time as index for resampling
             df.set_index(time_col, inplace=True)
 
-            # Resample using the specified frequency, interpolating missing values
-            # Ensure only numeric columns are aggregated
+            # Resample numeric columns using mean and interpolate
             numeric_cols = df.select_dtypes(include=np.number).columns
-            df_resampled = df[numeric_cols].resample(sampling_frequency).mean().interpolate()
+            df_resampled_numeric = df[numeric_cols].resample(sampling_frequency).mean().interpolate()
 
+            # Handle non-numeric columns: resample and forward-fill
+            non_numeric_cols = df.select_dtypes(exclude=np.number).columns
+            if not non_numeric_cols.empty:
+                # Ensure the index is available for non_numeric part before resampling
+                df_non_numeric_indexed = df[non_numeric_cols]
+                if not isinstance(df_non_numeric_indexed.index, pd.DatetimeIndex):
+                     # This case should ideally not happen if set_index was successful above
+                     # but as a safeguard, re-apply set_index if it got lost.
+                     # This part is tricky as the original time_col might not be in df_non_numeric_indexed
+                     # For simplicity, we assume the index from numeric resampling can be used.
+                     # A more robust way would be to resample non-numeric with .first() or .ffill() directly
+                     # if the time index is shared.
+                     pass # Assuming index is already set from numeric part
+
+                # Resample non-numeric columns (e.g., using first value in window, then ffill)
+                df_resampled_non_numeric = df_non_numeric_indexed.resample(sampling_frequency).first().ffill()
+                
+                # Combine numeric and non-numeric
+                df_resampled = pd.concat([df_resampled_numeric, df_resampled_non_numeric], axis=1)
+            else:
+                df_resampled = df_resampled_numeric
+            
+            # Ensure the resampled DataFrame has the same columns as the original numeric/non-numeric split,
+            # in case some columns became all NaN and were dropped by resample().mean() or .first()
+            # Reindex to ensure all original columns are present, filling with NaN if necessary, then ffill/bfill
+            # This is a bit complex; simpler is to ensure resample().first().ffill() for non-numeric
+            # and resample().mean().interpolate() for numeric handles most cases.
+            # The concat should align on the new DatetimeIndex.
 
             # Reset index to keep time column
             df_resampled.reset_index(inplace=True)
+            
+            # Restore original column order if possible (excluding the original index if it was just 'Time')
+            original_cols_order = [col for col in df.columns if col in df_resampled.columns] # df here is before set_index
+            # df_resampled = df_resampled[original_cols_order] # This might fail if time_col name changed
 
             return df_resampled
         except Exception as e:
-            self.logger.error(f"Error resampling data: {e}")
+            self.logger.error(f"Error resampling data: {e}", exc_info=True)
             return None
     
-    def _extract_data_from_matfile(file_path): # This seems to be a duplicate static method definition. Should be removed or be self.extract_data_from_matfile
-        """
-        Extracts specific fields from a .mat file and returns them as a DataFrame.
-        
-        Parameters:
-        file_path (str): Path to the .mat file.
+    # The duplicate static method _extract_data_from_matfile should be fully removed by the previous replacement.
+    # This SEARCH block is to ensure its complete removal if any remnants were left.
+    # If the previous diff was perfect, this block might not find anything, which is fine.
 
-        Returns:
-        pd.DataFrame: DataFrame with the extracted data or None if extraction fails.
-        """
-        try:
-            # Load the .mat file
-            mat_data = sio.loadmat(file_path)
-            meas = mat_data.get('meas')
-            
-            if meas is None:
-                print(f"No 'meas' structure found in {file_path}")
-                return None
-
-            # Define fields to extract, excluding non-numeric or unnecessary fields
-            fields_to_extract = [
-                'Time', 'Voltage', 'Current', 'Ah', 'SOC', 'Power',
-                'Battery_Temp_degC', 'Ambient_Temp_degC', 'TimeStamp'
-            ]
-            
-            # Extract data into a dictionary (assuming data is stored in structures)
-            data_dict = {}
-            for field in fields_to_extract:
-                if field in meas.dtype.names:
-                    data_dict[field] = meas[field][0, 0].flatten()
-
-            # Convert dictionary to a DataFrame
-            df = pd.DataFrame(data_dict)
-            df.rename(columns={'Battery_Temp_degC': 'Temp'}, inplace=True)
-
-            # Ensure 'Time' is present in the dataset
-            if 'Time' not in df.columns:
-                print("No 'Time' column found in the dataset.")
-                return None
-
-            return df
-
-        except Exception as e:
-            print(f"Error processing file {file_path}: {e}")
-            return None
-    
     def _update_progress(self, progress_callback):
         """ Update the progress percentage and call the callback. """
         if progress_callback and self.total_files > 0:

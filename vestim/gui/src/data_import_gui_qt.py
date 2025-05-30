@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 
 import os, sys
-from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI  # Import the new data augmentation GUI
+from vestim.gui.src.data_augment_gui_qt_test import DataAugmentGUI  # Import the new data augmentation GUI
 from vestim.services.data_processor.src.data_processor_qt_arbin import DataProcessorArbin
 from vestim.services.data_processor.src.data_processor_qt_stla import DataProcessorSTLA
 from vestim.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
@@ -141,7 +141,7 @@ class DataImportGUI(QMainWindow):
         self.data_source_combo.setFixedWidth(120)  # Set a specific width for the ComboBox
         self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
         combined_layout.addWidget(self.data_source_combo)
-        # self.data_source_combo.currentIndexChanged.connect(self.on_data_source_selection_changed) # Disconnected
+        self.data_source_combo.currentIndexChanged.connect(self.on_data_source_selection_changed)
 
         # Add stretchable space between the dropdown and the button
         combined_layout.addStretch(1)  # Push the button to the right
@@ -178,41 +178,58 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(False)  # Initially hidden
         self.main_layout.addWidget(self.progress_bar)
 
-    # Methods _filter_files_by_selected_source and on_data_source_selection_changed were here.
-    # They have been removed as the ComboBox selection no longer directly filters the file list display.
+    def on_data_source_selection_changed(self, index):
+        """
+        Called when the data source selection changes.
+        Refreshes the file lists based on the new data source.
+        """
+        selected_source = self.data_source_combo.currentText()
+        logger.info(f"Data source changed to: {selected_source}. Refreshing file lists.")
+        if self.train_folder_path:
+            self.populate_file_list(self.train_folder_path, self.train_list_widget, selected_source)
+        if self.test_folder_path:
+            self.populate_file_list(self.test_folder_path, self.test_list_widget, selected_source)
 
     def select_train_folder(self):
         self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder")
         if self.train_folder_path:
-            self.data_source_combo.blockSignals(True)
-            try:
-                self.populate_file_list(self.train_folder_path, self.train_list_widget) # Show all default types
-                logger.info(f"Selected training folder: {self.train_folder_path}. Populated with default extensions.")
-            finally:
-                self.data_source_combo.blockSignals(False)
+            selected_source = self.data_source_combo.currentText()
+            # self.data_source_combo.blockSignals(True) # Not needed if populate_file_list handles current source
+            # try:
+            self.populate_file_list(self.train_folder_path, self.train_list_widget, selected_source)
+            logger.info(f"Selected training folder: {self.train_folder_path}. Populated for source: {selected_source}.")
+            # finally:
+            #     self.data_source_combo.blockSignals(False)
         self.check_folders_selected()
 
     def select_test_folder(self):
         self.test_folder_path = QFileDialog.getExistingDirectory(self, "Select Testing Folder")
         if self.test_folder_path:
-            self.data_source_combo.blockSignals(True)
-            try:
-                self.populate_file_list(self.test_folder_path, self.test_list_widget) # Show all default types
-                logger.info(f"Selected testing folder: {self.test_folder_path}. Populated with default extensions.")
-            finally:
-                self.data_source_combo.blockSignals(False)
+            selected_source = self.data_source_combo.currentText()
+            # self.data_source_combo.blockSignals(True)
+            # try:
+            self.populate_file_list(self.test_folder_path, self.test_list_widget, selected_source)
+            logger.info(f"Selected testing folder: {self.test_folder_path}. Populated for source: {selected_source}.")
+            # finally:
+            #     self.data_source_combo.blockSignals(False)
         self.check_folders_selected()
 
-    def populate_file_list(self, folder_path, list_widget): # Removed specific_extension
+    def populate_file_list(self, folder_path, list_widget, data_source):
         """
-        Populate the list widget with files matching DEFAULT_DATA_EXTENSIONS.
+        Populate the list widget with files matching extensions for the given data_source.
         """
         list_widget.clear()
         if not folder_path or not os.path.isdir(folder_path):
             return
 
-        extensions_to_check = [ext.lower() for ext in DEFAULT_DATA_EXTENSIONS]
-        logger.info(f"Populating list for '{folder_path}'. Scanning for extensions: {extensions_to_check}")
+        if data_source == "Arbin":
+            extensions_to_check = [".mat"]
+        elif data_source == "Digatron":
+            extensions_to_check = [".csv"]
+        else: # Default for STLA, Biologic, and any others
+            extensions_to_check = [ext.lower() for ext in DEFAULT_DATA_EXTENSIONS]
+        
+        logger.info(f"Populating list for '{folder_path}' (Source: {data_source}). Scanning for extensions: {extensions_to_check}")
         
         items_added_count = 0
         try:
