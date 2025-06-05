@@ -3,9 +3,11 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN
+from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN # Keep imports for type hinting if model object is used
 from vestim.services import normalization_service as norm_svc # Added for normalization
 import json # For potentially loading metadata
+
+# Removed torch.serialization.add_safe_globals as we are reverting to weights_only=False
 
 class VEstimTestingService:
     def __init__(self, device='cpu'):
@@ -24,7 +26,7 @@ class VEstimTestingService:
         :param model_path: Path to the model .pth file.
         :return: The loaded model.
         """
-        model = torch.load(model_path)
+        model = torch.load(model_path) # Reverted to weights_only=False (default)
         model.to(self.device)
         model.eval()  # Set the model to evaluation mode
         return model
@@ -205,7 +207,7 @@ class VEstimTestingService:
 
         try:
             # Load the model weights
-            model= torch.load(model_path).to(self.device)
+            model= torch.load(model_path).to(self.device) # Reverted to weights_only=False (default)
             model.eval()  # Set the model to evaluation mode
 
             # Run the testing process (returns results but does NOT save them)

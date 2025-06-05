@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout
                             QComboBox, QTableWidget, QTableWidgetItem, QSizePolicy,
                             QFileDialog, QProgressBar, QWidget, QMessageBox, QDialog,
                             QFormLayout, QGroupBox, QSpinBox, QDoubleSpinBox)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject, QTimer
 
 import os
 import sys
@@ -533,7 +533,6 @@ class DataAugmentGUI(QMainWindow):
         self.apply_button.setEnabled(True)
         self.cancel_button.setEnabled(True)
 
-    # New handler for formula errors emitted by the manager
     def handle_formula_error(self, error_msg):
         """Handles formula errors emitted by the manager."""
         self.logger.error(f"Formula error reported by manager: {error_msg}")
@@ -544,7 +543,7 @@ class DataAugmentGUI(QMainWindow):
 
         if hasattr(self, 'status_label') and self.status_label is not None:
             self.status_label.setText(f"Formula Error: Processing stopped.")
-
+        
         # Display the concise formula error message from the manager/service
         QMessageBox.critical(self, "Formula Error", error_msg) 
         
@@ -553,14 +552,42 @@ class DataAugmentGUI(QMainWindow):
         self.cancel_button.setEnabled(True)
     
     def go_to_hyperparameter_gui(self):
-        self.logger.info("Transitioning to hyperparameter GUI...")
+        self.logger.info("Scheduling transition to hyperparameter GUI...")
         try:
-            self.hyper_param_gui = VEstimHyperParamGUI()
-            self.hyper_param_gui.show()
-            self.close() # Close current window
+            # Create the new window instance but don't show it immediately.
+            # Store it on self temporarily so the slot can access it.
+            self._next_hyper_param_gui = VEstimHyperParamGUI()
+
+            # Schedule the actual show and close operations to allow current events to process.
+            QTimer.singleShot(0, self._execute_gui_transition)
+
         except Exception as e:
-            self.logger.error(f"Error transitioning to hyperparameter GUI: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"Could not open hyperparameter selection: {e}")
+            self.logger.error(f"Error preparing transition to hyperparameter GUI: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Could not prepare hyperparameter selection: {e}")
+            # Re-enable buttons if preparation fails
+            self.apply_button.setEnabled(True)
+            self.cancel_button.setEnabled(True)
+
+    def _execute_gui_transition(self):
+        """Helper method to actually show the new GUI and close the old one."""
+        self.logger.info("Executing GUI transition now...")
+        try:
+            if hasattr(self, '_next_hyper_param_gui') and self._next_hyper_param_gui:
+                self._next_hyper_param_gui.show()
+                # If DataAugmentGUI needs to keep a reference to the new GUI after transition,
+                # assign it to self.hyper_param_gui. Otherwise, this can be omitted
+                # if hyper_param_gui is only for launching.
+                self.hyper_param_gui = self._next_hyper_param_gui
+                # del self._next_hyper_param_gui # Clean up temporary attribute
+
+            self.close() # Close the current DataAugmentGUI window
+        except Exception as e:
+            self.logger.error(f"Error during actual GUI transition execution: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Could not complete transition to hyperparameter selection: {e}")
+            # Consider re-enabling buttons on the (now likely still visible) DataAugmentGUI if transition fails badly
+            self.apply_button.setEnabled(True)
+            self.cancel_button.setEnabled(True)
+
 
 def main():
     app = QApplication(sys.argv)

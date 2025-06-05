@@ -257,8 +257,15 @@ class VEstimTestingGUI(QMainWindow):
 
     def add_result_row(self, result):
         """Add each test result as a row in the QTreeWidget."""
-        print(f"Adding result row: {result}")
-        self.logger.info(f"Adding result row: {result}")
+        # print(f"Adding result row: {result}") # Original verbose print
+        
+        task_data_for_log = result.get('task_completed', {})
+        log_summary = (
+            f"Sl.No: {task_data_for_log.get('sl_no', 'N/A')}, "
+            f"Model: {task_data_for_log.get('model', 'N/A')}, "
+            f"File: {task_data_for_log.get('file_name', 'N/A')}"
+        )
+        self.logger.info(f"Adding result row: {log_summary}") # More concise log
 
         if 'task_error' in result:
             print(f"Error in task: {result['task_error']}")

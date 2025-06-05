@@ -141,7 +141,8 @@ class VEstimTestingGUI(QMainWindow):
         # TreeWidget to display results
         self.tree = QTreeWidget()
         self.tree.setColumnCount(9)
-        self.tree.setHeaderLabels(["Sl.No", "Task ID", "Model", "File Name", "#W&Bs", "RMS Error (mV)", "Max Error (mV)", "MAPE (%)", "R²", "Plot"])
+        # Initial generic headers, will be updated by first result
+        self.tree.setHeaderLabels(["Sl.No", "Task ID", "Model", "File Name", "#W&Bs", "RMS Error", "Max Error", "MAPE (%)", "R²", "Plot"])
 
         # Set optimized column widths
         self.tree.setColumnWidth(0, 50)   # Sl.No column
@@ -265,48 +266,94 @@ class VEstimTestingGUI(QMainWindow):
         task_data = result.get('task_completed')
 
         if task_data:
-            save_dir = task_data.get("saved_dir", "")  
+            save_dir = task_data.get("saved_dir", "")
             task_id = task_data.get("task_id", "N/A")
             model_name = task_data.get("model", "Unknown Model")
             file_name = task_data.get("file_name", "Unknown File")
             num_learnable_params = str(task_data.get("#params", "N/A"))
-
-            # Extract metrics - handle both formats
-            rms_error = task_data.get('rms_error_mv', 0)
-            if isinstance(rms_error, str):
-                rms_error = float(rms_error)
             
-            max_error = task_data.get('max_error_mv', 0)
-            if isinstance(max_error, str):
-                max_error = float(max_error)
+            # Dynamically determine target column and units
+            target_column_name = task_data.get("target_column", "")
+            predictions_file = task_data.get("predictions_file", "")
 
-            mape = task_data.get('mape', 0)
-            if isinstance(mape, str):
-                mape = float(mape)
+            unit_suffix = ""
+            unit_display = "" # For table headers
+            if "voltage" in target_column_name.lower():
+                unit_suffix = "_mv"
+                unit_display = "(mV)"
+            elif "soc" in target_column_name.lower():
+                unit_suffix = "_percent"
+                unit_display = "(% SOC)"  # Match training GUI format
+            elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
+                unit_suffix = "_degC"
+                unit_display = "(Deg C)"  # Match training GUI format
+            
+            # Get unit display from task_data if available (for consistency)
+            if 'unit_display' in task_data:
+                unit_display = task_data['unit_display']
+            
+            # Update tree headers if this is the first result
+            if self.sl_no_counter == 1:
+                current_headers = [self.tree.headerItem().text(i) for i in range(self.tree.columnCount())]
+                current_headers[5] = f"RMS Error {unit_display}"
+                current_headers[6] = f"Max Error {unit_display}"
+                self.tree.setHeaderLabels(current_headers)
 
-            r2 = task_data.get('r2', 0)
-            if isinstance(r2, str):
-                r2 = float(r2)
+            # Extract metrics using dynamic keys
+            rms_key = f'rms_error{unit_suffix}'
+            mae_key = f'mae{unit_suffix}'
+            max_error_key = f'max_abs_error{unit_suffix}'
+            
+            # Retrieve values with proper fallbacks
+            rms_error_val = task_data.get(rms_key, 'N/A')
+            max_error_val = task_data.get(max_error_key, task_data.get('max_error_mv', 'N/A'))
+            mape = task_data.get('mape_percent', task_data.get('mape', 'N/A'))
+            r2 = task_data.get('r2', 'N/A')
 
-            # Format metrics for display
-            rms_error_str = f"{rms_error:.2f}"
-            max_error_str = f"{max_error:.2f}"
-            mape_str = f"{mape:.2f}"
-            r2_str = f"{r2:.4f}"
+            # Safe conversion to float for formatting - ensures numpy types are properly handled
+            try:
+                if rms_error_val != 'N/A':
+                    rms_error_val = float(rms_error_val)
+                    rms_error_str = f"{rms_error_val:.2f}"
+                else:
+                    rms_error_str = 'N/A'
+                    
+                if max_error_val != 'N/A':
+                    max_error_val = float(max_error_val)
+                    max_error_str = f"{max_error_val:.2f}"
+                else:
+                    max_error_str = 'N/A'
+                    
+                if mape != 'N/A':
+                    mape = float(mape)
+                    mape_str = f"{mape:.2f}"
+                else:
+                    mape_str = 'N/A'
+                    
+                if r2 != 'N/A':
+                    r2 = float(r2)
+                    r2_str = f"{r2:.4f}"
+                else:
+                    r2_str = 'N/A'
+            except (ValueError, TypeError) as e:
+                # Log the error and use safe defaults
+                print(f"Error converting metrics to float: {e}")
+                rms_error_str = str(rms_error_val) if rms_error_val is not None else 'N/A'
+                max_error_str = str(max_error_val) if max_error_val is not None else 'N/A'
+                mape_str = str(mape) if mape is not None else 'N/A'
+                r2_str = str(r2) if r2 is not None else 'N/A'
 
-            test_file_path = task_data.get("test_file", "Unknown Test File")
-
-            # Add row data to QTreeWidget
+            # Add row data to QTreeWidget - All values must be strings for QTreeWidgetItem
             row = QTreeWidgetItem([
-                str(self.sl_no_counter), 
-                task_id, 
-                model_name, 
-                file_name, 
-                num_learnable_params, 
-                rms_error_str,
-                max_error_str,
-                mape_str,
-                r2_str
+                str(self.sl_no_counter),
+                str(task_id),
+                str(model_name),
+                str(file_name),
+                str(num_learnable_params),
+                str(rms_error_str),   # Ensure string type
+                str(max_error_str),   # Ensure string type
+                str(mape_str),        # Ensure string type
+                str(r2_str)           # Ensure string type
             ])
             self.sl_no_counter += 1
 
@@ -318,8 +365,16 @@ class VEstimTestingGUI(QMainWindow):
             # Create "Plot Result" button
             plot_button = QPushButton("Plot Result")
             plot_button.setStyleSheet("background-color: #800080; color: white; padding: 5px;")
-            plot_button.clicked.connect(lambda _, path=save_dir: self.plot_model_result(test_file_path, save_dir))
-            button_layout.addWidget(plot_button)
+            # Use predictions_file path for plotting if available
+            plot_path = predictions_file if predictions_file and os.path.exists(predictions_file) else None
+            if plot_path:
+                plot_button.clicked.connect(lambda _, p=plot_path, s=save_dir, tcn=target_column_name: 
+                                         self.plot_model_result(p, s, tcn))
+                button_layout.addWidget(plot_button)
+            else:
+                plot_button.setDisabled(True)
+                plot_button.setToolTip("Predictions file not found")
+                button_layout.addWidget(plot_button)
 
             # Add row to tree widget
             self.tree.addTopLevelItem(row)
@@ -330,40 +385,111 @@ class VEstimTestingGUI(QMainWindow):
             if os.path.exists(training_history_path):
                 self.show_training_history_plot(training_history_path, task_id)
 
-    def plot_model_result(self, test_file_path, save_dir):
-        """Plot test results for a specific model."""
+    def plot_model_result(self, predictions_file, save_dir, target_column_name):
+        """Plot test results for a specific model with dynamic units."""
         try:
-            print(f"Plotting results for test file: {test_file_path}")
-            if not os.path.exists(test_file_path):
-                QMessageBox.critical(self, "Error", f"Test file not found: {test_file_path}")
+            print(f"Plotting results from predictions file: {predictions_file} with target: {target_column_name}")
+            if not os.path.exists(predictions_file):
+                QMessageBox.critical(self, "Error", f"Predictions file not found: {predictions_file}")
                 return
 
-
-            df = pd.read_csv(test_file_path)
-            if "True Values (V)" not in df.columns or "Predictions (V)" not in df.columns:
-                QMessageBox.critical(self, "Error", f"Required columns not found in the file: {test_file_path}")
+            df = pd.read_csv(predictions_file)
+            
+            # Determine column names based on target_column_name
+            true_col = None
+            pred_col = None
+            diff_col = None
+            
+            # Look for columns containing 'True Values', 'Predictions', and 'Difference'
+            for col in df.columns:
+                if 'True Value' in col: # Changed from 'True Values' to 'True Value'
+                    true_col = col
+                elif 'Predictions' in col:
+                    pred_col = col
+                elif 'Error' in col: # Changed from 'Difference' to 'Error'
+                    diff_col = col
+            
+            if not true_col or not pred_col:
+                QMessageBox.critical(self, "Error", f"Required columns not found in predictions file.\nAvailable columns: {list(df.columns)}")
                 return
+                
+            # Determine unit display based on target and columns
+            unit_display_short = ""
+            unit_display_long = target_column_name
+            is_percentage_target = False # Flag for SOC, SOE, SOP
 
-            errors = df["Difference (mV)"]
-            rms_error = np.sqrt(np.mean(errors**2))
-            max_error = np.max(np.abs(errors))
-
-            # Create plot window and display results
+            if "voltage" in target_column_name.lower():
+                unit_display_short = "V"
+                unit_display_long = "Voltage (V)"
+                error_unit = "mV"
+            elif "soc" in target_column_name.lower():
+                unit_display_short = "% SOC"
+                unit_display_long = "SOC (% SOC)"
+                error_unit = "% SOC"
+                is_percentage_target = True
+            elif "soe" in target_column_name.lower(): # New case for SOE
+                unit_display_short = "% SOE"
+                unit_display_long = "SOE (% SOE)"
+                error_unit = "% SOE"
+                is_percentage_target = True
+            elif "sop" in target_column_name.lower(): # New case for SOP
+                unit_display_short = "% SOP"
+                unit_display_long = "SOP (% SOP)"
+                error_unit = "% SOP"
+                is_percentage_target = True
+            elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
+                unit_display_short = "Deg C"
+                unit_display_long = "Temperature (Deg C)"
+                error_unit = "Deg C"
+            else:
+                # Extract from column name if possible
+                if "(" in true_col and ")" in true_col:
+                    unit_match = true_col.split("(")[1].split(")")[0]
+                    unit_display_short = unit_match
+                    unit_display_long = f"{target_column_name} ({unit_match})"
+                    error_unit = unit_match
+                else:
+                    unit_display_short = ""
+                    unit_display_long = target_column_name
+                    error_unit = ""
+            
+            # Calculate errors for plot text, applying scaling if necessary
+            # errors_for_plot_text will be used for RMS and Max error display on the plot
+            if diff_col and error_unit in diff_col : # If error column exists and its unit matches expected error unit for plot
+                errors_for_plot_text = df[diff_col]
+            else: # Calculate raw difference and then scale for plot text if needed
+                raw_errors = df[true_col] - df[pred_col]
+                if "voltage" in target_column_name.lower():
+                    errors_for_plot_text = raw_errors * 1000  # V to mV
+                elif is_percentage_target:
+                    # Heuristic: if max abs true value is small (e.g. <=1.5), assume 0-1 scale needing *100 for % points
+                    # This helps display errors in percentage points if original data was 0-1.
+                    if df[true_col].abs().max() <= 1.5:
+                         errors_for_plot_text = raw_errors * 100
+                    else: # Assume already in percentage points if values are large (e.g. 0-100)
+                         errors_for_plot_text = raw_errors
+                else: # For other types like temperature or generic, use raw difference for plot text errors
+                    errors_for_plot_text = raw_errors
+            
+            rms_error = np.sqrt(np.mean(errors_for_plot_text**2))
+            max_error = np.max(np.abs(errors_for_plot_text)) # Corrected to use errors_for_plot_text
+            
+            # Create plot window
             plot_window = QDialog(self)
-            test_name = os.path.splitext(os.path.basename(test_file_path))[0]
+            test_name = os.path.splitext(os.path.basename(predictions_file))[0]
             plot_window.setWindowTitle(f"Test Results: {test_name}")
             plot_window.setGeometry(200, 100, 800, 600)
 
             fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
-            ax.plot(df["True Values (V)"], label='True Values (V)', color='blue', marker='o', markersize=5, linestyle='-', linewidth=1)
-            ax.plot(df["Predictions (V)"], label='Predictions (V)', color='red', marker='x', markersize=5, linestyle='--', linewidth=1)
+            ax.plot(df[true_col], label=f'True Values', color='blue', marker='o', markersize=3, linestyle='-', linewidth=1)
+            ax.plot(df[pred_col], label=f'Predictions', color='red', marker='x', markersize=3, linestyle='--', linewidth=1)
 
-            text_str = f"RMS Error: {rms_error:.4f} V\nMax Error: {max_error:.4f} V"
-            ax.text(0.02, 0.98, text_str, transform=ax.transAxes, fontsize=12, verticalalignment='top', 
+            text_str = f"RMS Error: {rms_error:.4f} {error_unit}\nMax Error: {max_error:.4f} {error_unit}"
+            ax.text(0.02, 0.98, text_str, transform=ax.transAxes, fontsize=10, verticalalignment='top',
                     bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
             ax.set_xlabel('Index', fontsize=12)
-            ax.set_ylabel('Voltage (V)', fontsize=12)
+            ax.set_ylabel(f'{unit_display_long}', fontsize=12)
             ax.set_title(f"Test: {test_name}", fontsize=14, fontweight='bold')
             ax.legend(loc='upper right', fontsize=10)
             ax.grid(True, linestyle='--', alpha=0.6)
@@ -373,10 +499,10 @@ class VEstimTestingGUI(QMainWindow):
             layout = QVBoxLayout()
             layout.addWidget(canvas)
 
-            # Create save button with the working lambda syntax
+            # Create save button
             save_button = QPushButton("Save Plot")
             save_button.setStyleSheet('background-color: #4CAF50; color: white;')
-            save_button.clicked.connect(lambda checked, f=fig, t=test_file_path: self.save_plot(f, t, save_dir))
+            save_button.clicked.connect(lambda checked, f=fig, t=predictions_file: self.save_plot(f, t, save_dir))
             layout.addWidget(save_button)
 
             plot_window.setLayout(layout)
@@ -402,7 +528,7 @@ class VEstimTestingGUI(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to save plot: {str(e)}")
 
     def show_training_history_plot(self, plot_path, task_id):
-        """Display the training history plot in a new window."""
+        """Display the training history plot in a new window."""            
         try:
             plot_window = QDialog(self)
             plot_window.setWindowTitle(f"Training History - Task {task_id}")
@@ -445,7 +571,6 @@ class VEstimTestingGUI(QMainWindow):
         # Start processing the queue after the thread starts
         self.process_queue()
     
-    
     def update_elapsed_time(self):
         """Update the elapsed time label."""
         if self.timer_running:
@@ -453,7 +578,6 @@ class VEstimTestingGUI(QMainWindow):
             hours, remainder = divmod(elapsed_time, 3600)
             minutes, seconds = divmod(remainder, 60)
             self.time_label.setText(f"Testing Time: {int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
-
 
     def process_queue(self):
         try:
@@ -466,6 +590,7 @@ class VEstimTestingGUI(QMainWindow):
             # If the queue is empty, wait and try again
             QTimer.singleShot(100, self.process_queue)
             return  # Return early if there's nothing new to process
+        
         # Process all the events in the Qt event loop (force repaint of the UI)
         QApplication.processEvents()
         
@@ -497,7 +622,6 @@ class VEstimTestingGUI(QMainWindow):
             # Continue checking the queue if tasks are not yet complete
             QTimer.singleShot(100, self.process_queue)
 
-    
     def all_tests_completed(self):
         # Update the status label to indicate completion
         self.status_label.setText("All tests completed successfully.")
@@ -515,6 +639,7 @@ class VEstimTestingGUI(QMainWindow):
         # Optionally log or print a message
         print("All tests completed successfully.")
         self.update_status("All tests completed successfully.")
+        
         # Ensure the thread is properly cleaned up
         if self.testing_thread.isRunning():
             self.testing_thread.quit()

@@ -139,7 +139,7 @@ class VEstimTrainingSetupManager:
                     )
                     os.makedirs(model_dir, exist_ok=True)
 
-                    model_name = f"model_lstm_hu_{hidden_units}_layers_{layers}.pth"
+                    model_name = "untrained_model_template.pth" # Changed filename
                     model_path = os.path.join(model_dir, model_name)
 
                     # Model parameters
@@ -204,6 +204,18 @@ class VEstimTrainingSetupManager:
             valid_frequency = int(self.current_hyper_params.get('VALID_FREQUENCY', '3'))
             repetitions = int(self.current_hyper_params.get('REPETITIONS', '1'))
             
+            # Robustly get MAX_TRAINING_TIME_SECONDS
+            raw_max_time = self.current_hyper_params.get('MAX_TRAINING_TIME_SECONDS')
+            if isinstance(raw_max_time, (int, float)):
+                max_training_time_seconds = int(raw_max_time)
+            elif isinstance(raw_max_time, str) and raw_max_time.isdigit():
+                max_training_time_seconds = int(raw_max_time)
+            else:
+                max_training_time_seconds = 0 # Default if not found, None, or not a valid number string
+                if raw_max_time is not None:
+                    self.logger.warning(f"Invalid value for MAX_TRAINING_TIME_SECONDS in TrainingSetupManager: '{raw_max_time}'. Defaulting to 0.")
+            self.logger.info(f"TrainingSetupManager using MAX_TRAINING_TIME_SECONDS: {max_training_time_seconds}")
+
             # Get scheduler type
             scheduler_type = self.current_hyper_params.get('SCHEDULER_TYPE', 'StepLR')
 
@@ -241,9 +253,11 @@ class VEstimTrainingSetupManager:
                                                                 'LR_PARAM': factor,
                                                                 'REPETITIONS': rep,
                                                                 'ValidFrequency': valid_frequency,
+                                                                'MAX_TRAINING_TIME_SECONDS': max_training_time_seconds, # Add here
                                                             },
                                                             repetition=rep,
-                                                            job_normalization_metadata=job_normalization_metadata
+                                                            job_normalization_metadata=job_normalization_metadata,
+                                                            max_training_time_seconds_arg=max_training_time_seconds # Pass as separate arg for clarity
                                                         )
                                                         task_list.append(task_info)
                                         else:  # ReduceLROnPlateau
@@ -264,9 +278,11 @@ class VEstimTrainingSetupManager:
                                                                 'PLATEAU_FACTOR': p_factor,
                                                                 'REPETITIONS': rep,
                                                                 'ValidFrequency': valid_frequency,
+                                                                'MAX_TRAINING_TIME_SECONDS': max_training_time_seconds, # Add here
                                                             },
                                                             repetition=rep,
-                                                            job_normalization_metadata=job_normalization_metadata
+                                                            job_normalization_metadata=job_normalization_metadata,
+                                                            max_training_time_seconds_arg=max_training_time_seconds # Pass as separate arg for clarity
                                                         )
                                                         task_list.append(task_info)
 
@@ -293,7 +309,7 @@ class VEstimTrainingSetupManager:
             self.logger.error(f"Error creating training tasks: {e}")
             raise
 
-    def _create_task_info(self, model_task, hyperparams, repetition, job_normalization_metadata=None):
+    def _create_task_info(self, model_task, hyperparams, repetition, job_normalization_metadata=None, max_training_time_seconds_arg=0): # Added new arg
         """Helper method to create a task info dictionary."""
         if job_normalization_metadata is None:
             job_normalization_metadata = {} # Default to empty dict if not provided
@@ -382,7 +398,8 @@ class VEstimTrainingSetupManager:
                 'early_stopping_patience': hyperparams['VALID_PATIENCE'],
                 'save_best_model': True,
                 'checkpoint_dir': os.path.join(logs_dir, 'checkpoints'),
-                'best_model_path': os.path.join(task_dir, 'best_model.pth')
+                'best_model_path': os.path.join(task_dir, 'best_model.pth'),
+                'max_training_time_seconds': max_training_time_seconds_arg # Add to training_params
             },
             'results': {
                 'best_val_loss': float('inf'),

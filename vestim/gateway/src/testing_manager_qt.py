@@ -106,11 +106,28 @@ class VEstimTestingManager:
             
             # Get required paths and parameters
             lookback = task['hyperparams']['LOOKBACK']
-            model_path = task['model_path']
-            task_dir = task['task_dir']
+            # model_path = task['model_path'] # This was pointing to the untrained template
+            task_dir = task['task_dir'] # This is the specific directory for the task (e.g., .../task_XYZ_rep_1/)
+            
+            # Correct model_path should point to the best_model.pth within the task_dir
+            # This path is set in task['training_params']['best_model_path'] by TrainingSetupManager
+            # and used by TrainingTaskManager to save the best model.
+            model_path = task.get('training_params', {}).get('best_model_path')
+
+            if not model_path or not os.path.exists(model_path):
+                self.logger.error(f"Best model path not found or file does not exist for task {task.get('task_id', 'UnknownTask')}: {model_path}. Skipping testing for this task.")
+                self.queue.put({'task_error': f"Best model not found for task {task.get('task_id', 'UnknownTask')}"})
+                return # Skip this task if its best model isn't available
+
             num_learnable_params = task['hyperparams']['NUM_LEARNABLE_PARAMS']
             
-            print(f"Testing model: {model_path} with lookback: {lookback}")
+            # Make model_path relative for logging
+            try:
+                output_dir_for_log = os.path.dirname(self.job_manager.get_job_folder()) # Gets 'output'
+                log_model_path = os.path.relpath(model_path, output_dir_for_log)
+            except Exception: # Fallback if path manipulation fails
+                log_model_path = model_path
+            print(f"Testing model: {log_model_path} with lookback: {lookback}")
             
             # Create test_results directory within task directory
             test_results_dir = os.path.join(task_dir, 'test_results')
@@ -253,7 +270,16 @@ class VEstimTestingManager:
                     'model': shorthand_name,
                     'file_name': test_file, # Current test file name
                     '#params': num_learnable_params,
-                    'task_info': task, # Pass the whole task dictionary for context
+                    # Create a more concise task_info for the GUI
+                    'task_info': {
+                        'task_id': task.get('task_id'),
+                        'model_type': task.get('model_metadata', {}).get('model_type'),
+                        'lookback': task.get('hyperparams', {}).get('LOOKBACK'),
+                        'repetitions': task.get('hyperparams', {}).get('REPETITIONS'),
+                        # Add other key identifiers if needed by GUI, but avoid full hyperparam dict
+                        'layers': task.get('hyperparams', {}).get('LAYERS'),
+                        'hidden_units': task.get('hyperparams', {}).get('HIDDEN_UNITS'),
+                    },
                     'target_column': target_column_name, # Add target column for plotting
                     'predictions_file': predictions_file, # Correct path to the predictions file for plotting
                     'unit_display': error_unit_display, # Pass error unit display for GUI consistency
@@ -279,7 +305,12 @@ class VEstimTestingManager:
                 
                 # Print debug information to help with troubleshooting
                 print(f"Sending results for test file: {test_file}")
-                print(f"Predictions file path: {predictions_file}")
+                try:
+                    output_dir_for_log_preds = os.path.dirname(self.job_manager.get_job_folder()) # Gets 'output'
+                    log_predictions_path = os.path.relpath(predictions_file, output_dir_for_log_preds)
+                except Exception:
+                    log_predictions_path = predictions_file
+                print(f"Predictions file path: {log_predictions_path}")
                 print(f"Target column: {target_column_name}")
                 
                 # Send results to GUI for this specific test file
@@ -288,8 +319,13 @@ class VEstimTestingManager:
             # The overall task completion signal (all_tasks_completed) is sent after the outer loop in _run_testing_tasks
 
         except Exception as e:
-            print(f"Error testing model {model_path}: {str(e)}")
-            self.logger.error(f"Error testing model {model_path}: {str(e)}", exc_info=True)
+            try:
+                output_dir_for_log_err = os.path.dirname(self.job_manager.get_job_folder())
+                log_model_path_err = os.path.relpath(model_path, output_dir_for_log_err)
+            except Exception:
+                log_model_path_err = model_path
+            print(f"Error testing model {log_model_path_err}: {str(e)}")
+            self.logger.error(f"Error testing model {log_model_path_err}: {str(e)}", exc_info=True)
             self.queue.put({'task_error': str(e)})
 
     @staticmethod

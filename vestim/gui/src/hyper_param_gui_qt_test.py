@@ -613,8 +613,45 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["MAX_EPOCHS"] = self.max_epochs_entry
         self.param_entries["REPETITIONS"] = self.repetitions_entry # Add to param_entries
 
+        # **Max Training Time**
+        max_time_label = QLabel("Max Training Time:")
+        max_time_label.setToolTip("Set a maximum duration for the training process (HH:MM:SS). Training will stop after this time, even if max epochs not reached.")
+        
+        time_layout = QHBoxLayout()
+        self.max_time_hours_entry = QLineEdit(self.params.get("MAX_TRAIN_HOURS", "0"))
+        self.max_time_hours_entry.setFixedWidth(40)
+        self.max_time_hours_entry.setPlaceholderText("HH")
+        time_layout.addWidget(self.max_time_hours_entry)
+        time_layout.addWidget(QLabel("H :"))
+        
+        self.max_time_minutes_entry = QLineEdit(self.params.get("MAX_TRAIN_MINUTES", "30"))
+        self.max_time_minutes_entry.setFixedWidth(40)
+        self.max_time_minutes_entry.setPlaceholderText("MM")
+        time_layout.addWidget(self.max_time_minutes_entry)
+        time_layout.addWidget(QLabel("M :"))
+
+        self.max_time_seconds_entry = QLineEdit(self.params.get("MAX_TRAIN_SECONDS", "0"))
+        self.max_time_seconds_entry.setFixedWidth(40)
+        self.max_time_seconds_entry.setPlaceholderText("SS")
+        time_layout.addWidget(self.max_time_seconds_entry)
+        time_layout.addWidget(QLabel("S"))
+        time_layout.addStretch()
+
+        self.param_entries["MAX_TRAIN_HOURS"] = self.max_time_hours_entry
+        self.param_entries["MAX_TRAIN_MINUTES"] = self.max_time_minutes_entry
+        self.param_entries["MAX_TRAIN_SECONDS"] = self.max_time_seconds_entry
+
         # **Ensure Proper Alignment**
-        max_epochs_layout = QHBoxLayout()
+        # Using QFormLayout now for the whole validation criteria section for consistency
+        validation_form_layout = QFormLayout()
+        validation_form_layout.addRow(max_epochs_label, self.max_epochs_entry)
+        validation_form_layout.addRow(patience_label, self.patience_entry)
+        validation_form_layout.addRow(freq_label, self.freq_entry)
+        validation_form_layout.addRow(repetitions_label, self.repetitions_entry)
+        validation_form_layout.addRow(max_time_label, time_layout) # Add new row
+
+        # Remove old individual QHBoxLayouts for these items
+        # max_epochs_layout = QHBoxLayout()
         max_epochs_layout.addWidget(max_epochs_label)
         max_epochs_layout.addWidget(self.max_epochs_entry)
         max_epochs_layout.addStretch()
@@ -635,10 +672,11 @@ class VEstimHyperParamGUI(QWidget):
         repetitions_layout.setAlignment(Qt.AlignLeft)
 
         # **Add Widgets to Layout in Vertical Order**
-        validation_layout.addLayout(max_epochs_layout)
-        validation_layout.addLayout(patience_layout)
-        validation_layout.addLayout(freq_layout)
-        validation_layout.addLayout(repetitions_layout) # Add repetitions layout
+        # validation_layout.addLayout(max_epochs_layout) # Replaced by QFormLayout
+        # validation_layout.addLayout(patience_layout)   # Replaced by QFormLayout
+        # validation_layout.addLayout(freq_layout)       # Replaced by QFormLayout
+        # validation_layout.addLayout(repetitions_layout) # Replaced by QFormLayout
+        validation_layout.addLayout(validation_form_layout) # Add the QFormLayout
 
         # **Apply Layout to Parent Layout**
         layout.addLayout(validation_layout)
@@ -873,8 +911,34 @@ class VEstimHyperParamGUI(QWidget):
         # especially if loaded params match current combo box text (so currentIndexChanged doesn't fire)
         self.update_model_params()
         self.update_scheduler_settings()
-        self.update_training_method()
+        self.update_training_method() # This will also handle batch size visibility
 
+        # Populate Max Training Time H, M, S fields from MAX_TRAINING_TIME_SECONDS
+        if "MAX_TRAINING_TIME_SECONDS" in self.params:
+            try:
+                total_seconds = int(self.params["MAX_TRAINING_TIME_SECONDS"])
+                if total_seconds >= 0:
+                    hours = total_seconds // 3600
+                    minutes = (total_seconds % 3600) // 60
+                    seconds = total_seconds % 60
+                    
+                    if hasattr(self, 'max_time_hours_entry'):
+                        self.max_time_hours_entry.setText(str(hours))
+                    if hasattr(self, 'max_time_minutes_entry'):
+                        self.max_time_minutes_entry.setText(str(minutes))
+                    if hasattr(self, 'max_time_seconds_entry'):
+                        self.max_time_seconds_entry.setText(str(seconds))
+                    self.logger.info(f"Populated Max Training Time H:M:S from loaded MAX_TRAINING_TIME_SECONDS ({total_seconds}s).")
+                else:
+                    if hasattr(self, 'max_time_hours_entry'): self.max_time_hours_entry.setText("0")
+                    if hasattr(self, 'max_time_minutes_entry'): self.max_time_minutes_entry.setText("30")
+                    if hasattr(self, 'max_time_seconds_entry'): self.max_time_seconds_entry.setText("0")
+            except (ValueError, TypeError) as e:
+                self.logger.warning(f"Could not parse MAX_TRAINING_TIME_SECONDS ('{self.params.get('MAX_TRAINING_TIME_SECONDS')}') for GUI: {e}. Setting H:M:S to defaults.")
+                if hasattr(self, 'max_time_hours_entry'): self.max_time_hours_entry.setText("0")
+                if hasattr(self, 'max_time_minutes_entry'): self.max_time_minutes_entry.setText("30")
+                if hasattr(self, 'max_time_seconds_entry'): self.max_time_seconds_entry.setText("0")
+        # If MAX_TRAINING_TIME_SECONDS is not in params, the QLineEdit defaults (set during creation) will be used.
 
         self.logger.info("GUI successfully updated with loaded parameters.")
 

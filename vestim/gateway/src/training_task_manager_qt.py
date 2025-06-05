@@ -104,7 +104,11 @@ class TrainingTaskManager:
     def process_task(self, task, update_progress_callback):
         """Process a single training task and set up logging."""
         try:
-            self.logger.info(f"Starting task with hyperparams: {task['hyperparams']}")
+            # Concise log for starting task
+            h_params_summary = {
+                k: task['hyperparams'].get(k) for k in ['MODEL_TYPE', 'LAYERS', 'HIDDEN_UNITS', 'MAX_EPOCHS', 'INITIAL_LR', 'BATCH_SIZE', 'LOOKBACK'] if k in task['hyperparams']
+            }
+            self.logger.info(f"Starting task_id: {task.get('task_id', 'N/A')} with key hyperparams: {h_params_summary}")
 
             # Load normalization metadata and scaler if applicable
             self.load_normalization_info_and_scaler()
@@ -126,7 +130,7 @@ class TrainingTaskManager:
 
             # Create data loaders for the task
             train_loader, val_loader = self.create_data_loaders(task)
-            self.logger.info(f"DataLoader configured for task: {task['hyperparams']}")
+            self.logger.info(f"DataLoaders configured for task_id: {task.get('task_id', 'N/A')}")
             print(f" dataloader size, Train: {len(train_loader)} | Validation: {len(val_loader)}")
 
             # Update progress for starting training
@@ -152,9 +156,15 @@ class TrainingTaskManager:
         db_log_file = task.get('db_log_file')
 
         # Log information about the task and log file paths
+        output_dir_root = os.path.dirname(self.job_manager.get_job_folder()) # e.g., 'output'
+        
+        log_model_dir = os.path.relpath(model_dir, output_dir_root) if model_dir and output_dir_root in model_dir else model_dir
+        log_csv_file = os.path.relpath(csv_log_file, output_dir_root) if csv_log_file and output_dir_root in csv_log_file else csv_log_file
+        log_db_file = os.path.relpath(db_log_file, output_dir_root) if db_log_file and output_dir_root in db_log_file else db_log_file
+
         print(f"Setting up logging for job: {job_id}")
-        print(f"Model directory: {model_dir}")
-        print(f"Log files for task {task['task_id']} are: {csv_log_file}, {db_log_file}")
+        print(f"Model directory (relative to output): {log_model_dir}")
+        print(f"Log files for task {task['task_id']} (relative to output): CSV: {log_csv_file}, DB: {log_db_file}")
 
         # Ensure the model_dir exists
         if not os.path.exists(model_dir):
@@ -168,7 +178,9 @@ class TrainingTaskManager:
         try:
             # Ensure the database file path is valid
             if not os.path.isfile(db_log_file):
-                self.logger.info(f"Creating new database file at: {db_log_file}")
+                output_dir_root_db = os.path.dirname(self.job_manager.get_job_folder())
+                log_db_path_create = os.path.relpath(db_log_file, output_dir_root_db) if db_log_file and output_dir_root_db in db_log_file else db_log_file
+                self.logger.info(f"Creating new database file at (relative to output): {log_db_path_create}")
 
             # Connect to the database and create tables
             conn = sqlite3.connect(db_log_file)
@@ -347,9 +359,14 @@ class TrainingTaskManager:
 
             best_validation_loss = float('inf')
             patience_counter = 0
-            start_time = time.time()
-            last_validation_time = start_time
+            loop_start_time = time.time() # Renamed from start_time to avoid confusion with overall training start
+            last_validation_time = loop_start_time
             early_stopping = False  # Initialize early stopping flag
+
+            # Max training time logic
+            max_training_time_seconds = int(task.get('training_params', {}).get('max_training_time_seconds', 0))
+            overall_training_start_time = time.time() # For max training time check
+            self.logger.info(f"Max training time set to: {max_training_time_seconds} seconds.")
 
             self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
             # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
@@ -376,6 +393,18 @@ class TrainingTaskManager:
                     self.logger.info("Training stopped by user")
                     print("Stopping training...")
                     break
+                
+                # Check for max training time exceeded
+                if max_training_time_seconds > 0:
+                    current_training_duration = time.time() - overall_training_start_time
+                    if current_training_duration > max_training_time_seconds:
+                        self.logger.info(f"Max training time ({max_training_time_seconds}s) exceeded. Stopping training.")
+                        print(f"Max training time ({max_training_time_seconds}s) exceeded. Stopping training.")
+                        self.stop_requested = True # Use existing flag to gracefully stop
+                        early_stopping = True # Indicate it was a form of early stop
+                        # Also update task results if possible here or after loop
+                        task['results']['early_stopped_reason'] = 'Max training time exceeded'
+                        break # Exit epoch loop
 
                 # Initialize hidden states for training phase
                 # Use the actual batch size from the train_loader
@@ -428,7 +457,7 @@ class TrainingTaskManager:
                     )
 
                     current_time = time.time()
-                    elapsed_time = current_time - start_time
+                    elapsed_time = current_time - loop_start_time # Use loop_start_time for per-epoch/validation cycle timing
                     delta_t_epoch = (current_time - last_validation_time) / valid_freq
                     last_validation_time = current_time
 
@@ -437,7 +466,13 @@ class TrainingTaskManager:
                     if val_loss_norm < best_validation_loss: # best_validation_loss is also on normalized scale
                         print(f"Epoch: {epoch}, Validation loss improved from {best_validation_loss:.6f} to {val_loss_norm:.6f}. Saving model...")
                         best_validation_loss = val_loss_norm
-                        self.save_model(task)
+                        # Save to best_model_path
+                        best_model_save_path = task.get('training_params', {}).get('best_model_path')
+                        if best_model_save_path:
+                            self.save_model(task, save_path=best_model_save_path)
+                            self.logger.info(f"Best model saved to: {best_model_save_path}")
+                        else:
+                            self.logger.warning(f"best_model_path not found in task for epoch {epoch}. Best model not saved.")
                         patience_counter = 0
                     else:
                         patience_counter += 1
@@ -606,7 +641,7 @@ class TrainingTaskManager:
                         model_memory_usage_mb = model_memory_usage / (1024 * 1024)
 # This block is for epochs where validation did not run.
                         current_time_train_only = time.time()
-                        elapsed_time_train_only = current_time_train_only - start_time
+                        elapsed_time_train_only = current_time_train_only - loop_start_time # Changed start_time to loop_start_time
                         # model_memory_usage_mb is already calculated at the start of this 'if not (epoch ...)' block
                         
                         # Calculate scaled RMSE for training for GUI if possible
@@ -698,7 +733,7 @@ class TrainingTaskManager:
                         update_progress_callback.emit(progress_data_train_only)
 # This block is for epochs where validation did not run.
                         current_time_train_only = time.time()
-                        elapsed_time_train_only = current_time_train_only - start_time
+                        elapsed_time_train_only = current_time_train_only - loop_start_time # Changed start_time to loop_start_time
                         model_memory_usage_train_only = torch.cuda.memory_allocated(device=self.device) if self.device.type == 'cuda' else 0
                         model_memory_usage_mb_train_only = model_memory_usage_train_only / (1024 * 1024) if model_memory_usage_train_only > 0 else 0
                         
@@ -852,7 +887,8 @@ class TrainingTaskManager:
                 self.logger.info("Training was stopped early. Exiting...")
 
             # Final save and cleanup
-            self.save_model(task)
+            # self.save_model(task) # REMOVED: Best model is saved during validation improvement.
+            # self.logger.info(f"Training loop finished for task {task['task_id']}. Best model is at: {task.get('training_params', {}).get('best_model_path')}") # Redundant
             
             # Log final summary
             with open(os.path.join(task['model_dir'], 'training_summary.txt'), 'w') as f:
@@ -860,14 +896,26 @@ class TrainingTaskManager:
                 f.write(f"Best validation loss: {best_validation_loss:.6f}\n")
                 f.write(f"Final learning rate: {optimizer.param_groups[0]['lr']:.8f}\n")
                 f.write(f"Stopped at epoch: {epoch}/{max_epochs}\n")
+            
+            # REMOVED unconditional final save: self.save_model(task)
+            self.logger.info(f"Training loop finished for task {task['task_id']}. Best model is at: {task.get('training_params', {}).get('best_model_path')}")
 
             update_progress_callback.emit({'task_completed': True})
             self.logger.info("Training task completed")
-
+        # Correctly indented except for the try block starting at line 318
         except Exception as e:
-            self.logger.error(f"Error during training: {str(e)}")
+            self.logger.error(f"Error during training for task {task.get('task_id', 'N/A')}: {str(e)}", exc_info=True)
             update_progress_callback.emit({'task_error': str(e)})
-
+        # Correctly indented finally for the try block starting at line 318
+        finally:
+            best_model_path_final = task.get('training_params', {}).get('best_model_path', 'N/A')
+            job_folder_final = self.job_manager.get_job_folder()
+            if best_model_path_final != 'N/A' and job_folder_final in best_model_path_final:
+                relative_best_model_path = os.path.relpath(best_model_path_final, job_folder_final)
+            else:
+                relative_best_model_path = best_model_path_final
+            self.logger.info(f"Finished run_training attempt for task {task.get('task_id', 'N/A')}. Best model (if saved): {relative_best_model_path}")
+    # End of run_training method, convert_hyperparams should be at class level indentation
 
     def convert_hyperparams(self, hyperparams):
         """Converts all relevant hyperparameters to the correct types."""
@@ -890,13 +938,14 @@ class TrainingTaskManager:
         hyperparams['REPETITIONS'] = int(hyperparams['REPETITIONS'])
         return hyperparams
 
-    def save_model(self, task):
-        """Save the trained model to disk in both internal and portable formats."""
+    def save_model(self, task, save_path=None):
+        """Save the trained model to disk. Uses save_path if provided, else defaults to task['model_path']."""
         try:
-            model_path = task.get('model_path', None)
-            if model_path is None:
-                self.logger.error("Model path not found in task.")
-                raise ValueError("Model path not found in task.")
+            path_to_save = save_path if save_path else task.get('model_path')
+            
+            if path_to_save is None:
+                self.logger.error("No valid save path provided or found in task for saving model.")
+                raise ValueError("No valid save path for model.")
 
             model = task['model']
             if model is None:
@@ -904,15 +953,17 @@ class TrainingTaskManager:
                 raise ValueError("No model instance found in task.")
 
             # Save full model for internal use (current workflow)
-            torch.save(model, model_path)
-            print(f"Full model saved")
+            torch.save(model, path_to_save) # Use path_to_save
+            self.logger.info(f"Model saved to {path_to_save}") # Log actual save path
 
-            # Save portable version
-            task_dir = os.path.dirname(model_path)
-            export_path = os.path.join(task_dir, 'model_export.pt')
-            
-            # Get model definition code
-            model_def = """
+            # Save portable version (if this is the best model)
+            is_best_model_save = save_path and os.path.basename(save_path) == 'best_model.pth'
+            if is_best_model_save:
+                task_dir = os.path.dirname(path_to_save) # Use path_to_save
+                export_path = os.path.join(task_dir, 'best_model_export.pt') # Differentiate export name
+                
+                # Get model definition code
+                model_def = """
 import torch
 import torch.nn as nn
 
@@ -950,33 +1001,33 @@ class LSTMModel(nn.Module):
         return out, (h_s, h_c)
 """
 
-            # Create export dictionary with all necessary information
-            export_dict = {
-                'state_dict': model.state_dict(),
-                'model_definition': model_def,
-                'model_metadata': task['model_metadata'],
-                'hyperparams': {
-                    'input_size': task['hyperparams']['INPUT_SIZE'],
-                    'hidden_size': task['hyperparams']['HIDDEN_UNITS'],
-                    'num_layers': task['hyperparams']['LAYERS'],
-                    'output_size': task['hyperparams']['OUTPUT_SIZE']
-                },
-                'data_config': {
-                    'feature_columns': task['data_loader_params']['feature_columns'],
-                    'target_column': task['data_loader_params']['target_column'],
-                    'lookback': task['data_loader_params']['lookback']
-                },
-                'model_type': task['model_metadata']['model_type'],
-                'export_timestamp': time.strftime("%Y%m%d-%H%M%S")
-            }
+                # Create export dictionary with all necessary information
+                export_dict = {
+                    'state_dict': model.state_dict(),
+                    'model_definition': model_def,
+                    'model_metadata': task['model_metadata'],
+                    'hyperparams': {
+                        'input_size': task['hyperparams']['INPUT_SIZE'],
+                        'hidden_size': task['hyperparams']['HIDDEN_UNITS'],
+                        'num_layers': task['hyperparams']['LAYERS'],
+                        'output_size': task['hyperparams']['OUTPUT_SIZE']
+                    },
+                    'data_config': {
+                        'feature_columns': task['data_loader_params']['feature_columns'],
+                        'target_column': task['data_loader_params']['target_column'],
+                        'lookback': task['data_loader_params']['lookback']
+                    },
+                    'model_type': task['model_metadata']['model_type'],
+                    'export_timestamp': time.strftime("%Y%m%d-%H%M%S")
+                }
 
-            # Save portable version
-            torch.save(export_dict, export_path)
-            print(f"Portable model saved!")
+                # Save the export dictionary
+                torch.save(export_dict, export_path)
+                self.logger.info(f"Best model exported to {export_path}")
 
-            # Create a README file with multiple loading options
-            readme_path = os.path.join(task_dir, 'MODEL_LOADING_INSTRUCTIONS.md')
-            readme_content = f"""# Model Loading Instructions
+                # Create a README file with multiple loading options for the best model
+                readme_path = os.path.join(task_dir, 'BEST_MODEL_LOADING_INSTRUCTIONS.md')
+                readme_content = f"""# Model Loading Instructions
 
 ## Model Details
 - Model Type: {task['model_metadata']['model_type']}
@@ -1070,10 +1121,9 @@ with torch.no_grad():
     prediction, _ = model(input_sequence)
 ```
 """
-            
-            with open(readme_path, 'w') as f:
-                f.write(readme_content)
-            #print(f"Loading instructions saved to {readme_path}")
+                with open(readme_path, 'w') as f:
+                    f.write(readme_content)
+                self.logger.info(f"Best model loading instructions saved to {readme_path}")
 
         except Exception as e:
             self.logger.error(f"Error saving model: {str(e)}")
@@ -1082,8 +1132,11 @@ with torch.no_grad():
     def stop_task(self):
         self.stop_requested = True  # Set the flag to request a stop
         if self.training_thread and self.training_thread.isRunning():  # Use isRunning() instead of is_alive()
-            print("Waiting for the training thread to finish before saving the model...")
+            print("Attempting to gracefully stop the training thread...")
             self.training_thread.quit()  # Gracefully stop the thread
-            self.training_thread.wait(7000)  # Wait for the thread to finish cleanly
-            print("Training thread has finished. Proceeding to save the model.")
-            self.logger.info("Training thread has finished. Proceeding to save the model.")
+            if self.training_thread.wait(7000):  # Wait for the thread to finish cleanly
+                print("Training thread has finished.")
+                self.logger.info("Training thread has finished after stop request.")
+            else:
+                print("Training thread did not finish cleanly after 7 seconds.")
+                self.logger.warning("Training thread did not finish cleanly after stop request and 7s wait.")

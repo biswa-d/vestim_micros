@@ -8,7 +8,7 @@ import numpy as np
 # from vestim.logger_config import setup_logger
 # logger = setup_logger(__name__)
 # For now, using print for simplicity, replace with logger.
-print("Normalization service module loaded.")
+# print("Normalization service module loaded.") # Commented out to reduce log clutter
 
 def calculate_global_dataset_stats(data_items: list, feature_columns: list, data_reading_func=pd.read_csv, **read_kwargs):
     """
