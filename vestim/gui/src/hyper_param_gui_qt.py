@@ -16,6 +16,7 @@ from PyQt5.QtCore import Qt, QPropertyAnimation
 from PyQt5.QtGui import QIcon
 
 import pandas as pd
+import torch
 
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
@@ -664,36 +665,12 @@ class VEstimHyperParamGUI(QWidget):
         validation_form_layout.addRow(repetitions_label, self.repetitions_entry)
         validation_form_layout.addRow(max_time_label, time_layout) # Add new row
 
-        # Remove old individual QHBoxLayouts for these items
-        # The following lines referencing max_epochs_layout, patience_layout,
-        # freq_layout, and repetitions_layout are now obsolete as their
-        # widgets are directly added to validation_form_layout.
-        # max_epochs_layout.addWidget(max_epochs_label)
-        # max_epochs_layout.addWidget(self.max_epochs_entry)
-        # max_epochs_layout.addStretch()
-
-        # patience_layout = QHBoxLayout()
-        # patience_layout.addWidget(patience_label)
-        # patience_layout.addWidget(self.patience_entry)
-        # patience_layout.setAlignment(Qt.AlignLeft)
-
-        # freq_layout = QHBoxLayout()
-        # freq_layout.addWidget(freq_label)
-        # freq_layout.addWidget(self.freq_entry)
-        # freq_layout.setAlignment(Qt.AlignLeft)
-
-        # repetitions_layout = QHBoxLayout()
-        # repetitions_layout.addWidget(repetitions_label)
-        # repetitions_layout.addWidget(self.repetitions_entry)
-        # repetitions_layout.setAlignment(Qt.AlignLeft)
-
         # The QFormLayout (validation_form_layout) now handles these.
-        # The individual addLayout calls for the QHBoxLayouts are also removed.
         validation_layout.addLayout(validation_form_layout) # Add the QFormLayout
 
         # **Apply Layout to Parent Layout**
         layout.addLayout(validation_layout)
-
+        
     def add_device_selection(self, layout):
         """Adds device selection UI components."""
         device_layout = QVBoxLayout()
@@ -704,34 +681,46 @@ class VEstimHyperParamGUI(QWidget):
         device_label.setToolTip("Select the device for training (CPU or specific CUDA GPU).")
         
         self.device_combo = QComboBox()
-        device_options = ["cuda:0", "cuda:1", "cuda:2", "cuda:3", "CPU"]
+        
+        # Detect available GPUs - Use torch.cuda to find available CUDA devices
+        device_options = ["CPU"]
+        if torch.cuda.is_available():
+            for i in range(torch.cuda.device_count()):
+                device_options.append(f"cuda:{i}")
+                
         self.device_combo.addItems(device_options)
         self.device_combo.setFixedWidth(180)
-        self.device_combo.setToolTip("Defaults to cuda:0. Will fall back to CPU if selected CUDA device is not available (handled during training).")
+        self.device_combo.setToolTip("Select CPU for compatibility, GPU for faster training.")
+
+        # Set default device to cuda:0 if available
+        default_device = "cuda:0" if torch.cuda.is_available() else "CPU"
         
-        # Set default selection
-        default_device = "cuda:0" # Default to cuda:0
-        # A more robust check for torch.cuda.is_available() could be done here if torch is importable at this stage,
-        # but typically this check is better suited for the training script itself.
-        # For now, we just set the default preference.
         if default_device in device_options:
             self.device_combo.setCurrentText(default_device)
-        elif "CPU" in device_options: # Fallback to CPU if default_device isn't an option (should not happen with current list)
+        elif "CPU" in device_options: # Fallback to CPU if default_device isn't an option
             self.device_combo.setCurrentText("CPU")
 
         self.param_entries["DEVICE_SELECTION"] = self.device_combo
 
         device_layout.addWidget(device_label)
         device_layout.addWidget(self.device_combo)
+        
+        # Mixed precision training checkbox (only available for CUDA devices)
+        if torch.cuda.is_available():
+            self.mixed_precision_checkbox = QCheckBox("Use Mixed Precision Training")
+            self.mixed_precision_checkbox.setChecked(True)  # Enable by default
+            self.mixed_precision_checkbox.setToolTip("Enable automatic mixed precision (AMP) to accelerate GPU training with minimal accuracy impact.")
+            self.param_entries["USE_MIXED_PRECISION"] = self.mixed_precision_checkbox
+            
+            # Add the checkbox to the layout
+            device_layout.addWidget(self.mixed_precision_checkbox)
+        
         device_layout.addStretch(1)
-
         layout.addLayout(device_layout)
 
     def get_selected_features(self):
         """Retrieve selected feature columns as a list."""
         return [item.text() for item in self.feature_list.selectedItems()]
-
-
 
     def proceed_to_training(self):
         try:
@@ -776,9 +765,6 @@ class VEstimHyperParamGUI(QWidget):
             else: # Should not happen if REPETITIONS is in param_entries
                 QMessageBox.warning(self, "Missing Information", "Please fill in the 'REPETITIONS' field.")
                 return
-
-            # The REPETITIONS validation block below was duplicated. Removing this second instance.
-            # The first instance (lines 714-727) is correct.
 
             self.logger.info(f"Proceeding to training with params: {new_params}")
 
@@ -883,14 +869,6 @@ class VEstimHyperParamGUI(QWidget):
                 elif isinstance(entry, QCheckBox):
                     entry.setChecked(bool(value))  # Ensure checkbox reflects state
 
-                # The QSpinBox case for REPETITIONS was here, but it's now a QLineEdit.
-                # The generic QLineEdit handler:
-                #   if isinstance(entry, QLineEdit):
-                #       entry.setText(str(value))
-                # will correctly handle setting the text for self.repetitions_entry
-                # as self.params["REPETITIONS"] will be an int (after proceed_to_training)
-                # or a string (if loaded from an older JSON or default). str(value) handles both.
-
                 elif isinstance(entry, QListWidget):  # Multi-Select Feature List
                     selected_items = set(value) if isinstance(value, list) else set([value])
                     for i in range(entry.count()):
@@ -902,23 +880,18 @@ class VEstimHyperParamGUI(QWidget):
             model_index = self.model_combo.findText(self.params["MODEL_TYPE"])
             if model_index != -1:
                 self.model_combo.setCurrentIndex(model_index)
-                # self.update_model_params() # This will be called by the signal connection if index actually changes
-                                          # If loading params and index doesn't change, manually call if needed,
-                                          # but update_training_method will also be called by its own connection.
 
         # ✅ Ensure Scheduler Parameters Update Correctly
         if "SCHEDULER_TYPE" in self.params:
             scheduler_index = self.scheduler_combo.findText(self.params["SCHEDULER_TYPE"])
             if scheduler_index != -1:
                 self.scheduler_combo.setCurrentIndex(scheduler_index)
-            # self.update_scheduler_settings() # Called by signal if index changes
 
         # ✅ Ensure Training Method and dependent fields update correctly
         if "TRAINING_METHOD" in self.params:
             method_index = self.training_method_combo.findText(self.params["TRAINING_METHOD"])
             if method_index != -1:
                 self.training_method_combo.setCurrentIndex(method_index)
-            # self.update_training_method() # Called by signal if index changes
         
         # Explicitly call update methods after setting combo boxes to ensure UI consistency
         # especially if loaded params match current combo box text (so currentIndexChanged doesn't fire)
@@ -954,8 +927,6 @@ class VEstimHyperParamGUI(QWidget):
         # If MAX_TRAINING_TIME_SECONDS is not in params, the QLineEdit defaults (set during creation) will be used.
 
         self.logger.info("GUI successfully updated with loaded parameters.")
-
-
 
     def open_guide(self):
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
