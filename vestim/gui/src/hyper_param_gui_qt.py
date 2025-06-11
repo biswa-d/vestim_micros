@@ -9,7 +9,7 @@
 import os
 import json
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, 
+    QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
     QLineEdit, QFileDialog, QMessageBox, QDialog, QGroupBox, QComboBox, QListWidget, QAbstractItemView,QFormLayout, QCheckBox
 )
 from PyQt5.QtCore import Qt, QPropertyAnimation
@@ -20,7 +20,6 @@ import torch
 
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
-from vestim.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
 
 # Initialize the JobManager
 job_manager = JobManager()
@@ -724,76 +723,42 @@ class VEstimHyperParamGUI(QWidget):
 
     def proceed_to_training(self):
         try:
-            # Fetch all parameters
+            # 1. Fetch all parameters from the UI
             new_params = {}
-
-            # Collect values from stored param entries
             for param, entry in self.param_entries.items():
                 if isinstance(entry, QLineEdit):
-                    new_params[param] = entry.text().strip()  # Text input
+                    new_params[param] = entry.text().strip()
                 elif isinstance(entry, QComboBox):
-                    new_params[param] = entry.currentText()  # Dropdown selection
+                    new_params[param] = entry.currentText()
                 elif isinstance(entry, QCheckBox):
-                    new_params[param] = entry.isChecked()  # Boolean value
-                elif isinstance(entry, QListWidget):  # Multi-select feature list
+                    new_params[param] = entry.isChecked()
+                elif isinstance(entry, QListWidget):
                     new_params[param] = [item.text() for item in entry.selectedItems()]
-            # REPETITIONS is a QLineEdit, its text value is collected by the isinstance(entry, QLineEdit) condition.
-            # Validation and conversion to int for REPETITIONS happens below.
 
-            # Ensure critical fields are selected
+            # 2. Validate critical fields
             if not new_params.get("FEATURE_COLUMNS"):
                 QMessageBox.critical(self, "Selection Error", "Please select at least one feature column.")
                 return
             if not new_params.get("TARGET_COLUMN"):
                 QMessageBox.critical(self, "Selection Error", "Please select a target column.")
                 return
-            if not new_params.get("MODEL_TYPE"):
-                QMessageBox.critical(self, "Selection Error", "Please select a model type.")
-                return
 
-            # Validate REPETITIONS specifically as it's a QLineEdit now
-            if "REPETITIONS" in new_params:
-                try:
-                    repetitions_val = int(new_params["REPETITIONS"])
-                    if repetitions_val < 1:
-                        QMessageBox.warning(self, "Invalid Input", "Repetitions must be at least 1.")
-                        return
-                    new_params["REPETITIONS"] = repetitions_val # Store as int after validation
-                except ValueError:
-                    QMessageBox.warning(self, "Invalid Input", "Repetitions (in Validation Criteria) must be a valid integer.")
-                    return
-            else: # Should not happen if REPETITIONS is in param_entries
-                QMessageBox.warning(self, "Missing Information", "Please fill in the 'REPETITIONS' field.")
-                return
+            self.logger.info(f"Sending job request to backend with params: {new_params}")
 
-            self.logger.info(f"Proceeding to training with params: {new_params}")
+            # 3. Start the training
+            status = self.job_manager.start_training(new_params)
 
-            # Update the parameter manager
-            self.update_params(new_params)
-
-            # Save params only if job folder is set
-            if self.job_manager.get_job_folder():
-                self.hyper_param_manager.save_params()
+            if status:
+                QMessageBox.information(self, "Success", f"Training started successfully.\n{status}")
+                self.close()
             else:
-                self.logger.error("Job folder is not set.")
-                raise ValueError("Job folder is not set.")
+                QMessageBox.critical(self, "Error", "Failed to start training. Check logs for details.")
 
-            self.close()  # Close current window
-            self.training_setup_gui = VEstimTrainSetupGUI(new_params)  # Pass updated params
-            self.training_setup_gui.show()
-
-        except ValueError as e:
-            QMessageBox.critical(self, "Error", f"Invalid parameter input: {str(e)}")
+        except Exception as e:
+            self.logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
 
 
-    def show_training_setup_gui(self):
-        # Initialize the next GUI after fade-out is complete
-        self.training_setup_gui = VEstimTrainSetupGUI(self.params)
-        current_geometry = self.geometry()
-        self.training_setup_gui.setGeometry(current_geometry)
-        # self.training_setup_gui.setGeometry(100, 100, 900, 600)
-        self.training_setup_gui.show()
-        self.close()  # Close the previous window
 
     def load_column_names(self):
         """Loads column names from a sample CSV file in the train processed data folder."""

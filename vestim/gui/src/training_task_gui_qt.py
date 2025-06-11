@@ -15,7 +15,6 @@ import os
 import matplotlib.pyplot as plt
 
 # Import local services
-from vestim.services.model_training.src.training_task_service import TrainingTaskService
 from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from vestim.gateway.src.job_manager_qt import JobManager
@@ -66,7 +65,6 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
         self.training_task_manager = TrainingTaskManager(global_params=self.params) # Now use self.params
         self.training_setup_manager = VEstimTrainingSetupManager()
-        self.training_service = TrainingTaskService()
         self.job_manager = JobManager()
 
         # Initialize variables
@@ -514,141 +512,47 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.stop_button.hide()
 
     def update_gui_after_epoch(self, progress_data):
-        # Task index and dynamic status for the status label
-        task_info = f"Task {self.current_task_index + 1}/{len(self.task_list)}"
-
-        # Always show the task info and append the status
-        if 'status' in progress_data:
-            self.status_label.setText(f"{task_info} - {progress_data['status']}")
-            self.status_label.setStyleSheet("font-size: 11pt; font-weight: bold; color: #004d99;")
-
-        # Handle log updates
-        if 'epoch' in progress_data:
-            epoch = progress_data['epoch']
-            # Use the new scaled RMSE values and error label from progress_data
-            train_rmse_scaled = progress_data.get('train_rmse_scaled', float('nan'))
-            val_rmse_scaled = progress_data.get('val_rmse_scaled', float('nan'))
-            best_val_rmse_scaled = progress_data.get('best_val_rmse_scaled', float('nan'))
-            error_unit_label = progress_data.get('error_unit_label', "RMS Error") # Default if not provided
-            self.current_error_unit_label = error_unit_label # Update instance variable
-
-            patience_counter = progress_data.get('patience_counter', None)
-            delta_t_epoch = progress_data['delta_t_epoch']
-            learning_rate = progress_data.get('learning_rate', None)
-
-            # Format the log message using HTML for bold text
-            log_message = (
-                f"Epoch: <b>{epoch}</b>, "
-                f"Train {error_unit_label.split('[')[0].strip()}: <b>{train_rmse_scaled:.2f}</b> {error_unit_label.split('[')[-1].replace(']','').strip()}, "
-                f"Val {error_unit_label.split('[')[0].strip()}: <b>{val_rmse_scaled:.2f}</b> {error_unit_label.split('[')[-1].replace(']','').strip()}, "
-                f"Best Val {error_unit_label.split('[')[0].strip()}: <b>{best_val_rmse_scaled:.2f}</b> {error_unit_label.split('[')[-1].replace(']','').strip()}, "
-                f"Time Per Epoch (ΔT): <b>{delta_t_epoch}s</b>, "
-                f"LR: <b>{learning_rate:.1e}</b>, "
-                f"Patience Counter: <b>{patience_counter}</b><br>"
-            )
-
-            # Append the log message to the log text widget using rich text
-            self.log_text.append(log_message)
-
-            # Ensure the log scrolls to the bottom
-            self.log_text.moveCursor(self.log_text.textCursor().End)
-
-            # Update the plot data with actual epoch numbers
-            if not hasattr(self, 'epoch_points'):
-                self.epoch_points = []
+        # Update the plot with new data
+        epoch = progress_data.get('epoch')
+        train_loss = progress_data.get('train_loss')
+        val_loss = progress_data.get('val_loss')
+        
+        if epoch is not None:
             self.epoch_points.append(epoch)
-            self.train_loss_values.append(train_rmse_scaled if not np.isnan(train_rmse_scaled) else 0) # Plot 0 for NaN to avoid issues
-            self.valid_loss_values.append(val_rmse_scaled if not np.isnan(val_rmse_scaled) else 0) # Plot 0 for NaN
+        if train_loss is not None:
+            self.train_loss_values.append(train_loss)
+        if val_loss is not None:
+            self.valid_loss_values.append(val_loss)
+            self.valid_x_values.append(epoch)
 
-            # Update the plot
-            self.ax.clear()
-            
-            # Plot the data using actual epoch numbers
-            self.ax.plot(self.epoch_points, self.train_loss_values, label='Training', color='blue', marker='.')
-            self.ax.plot(self.epoch_points, self.valid_loss_values, label='Validation', color='red', marker='.')
-            
-            # Set y-axis to log scale
-            self.ax.set_yscale('log')
-            
-            # Keep x-axis fixed to max_epochs
-            max_epochs = int(self.task_list[self.current_task_index]['hyperparams']['MAX_EPOCHS'])
-            self.ax.set_xlim(1, max_epochs)
-            
-            # Set x-ticks to be integers
-            num_ticks = min(10, max_epochs)  # Show at most 10 ticks
-            step = max(1, max_epochs // num_ticks)
-            ticks = list(range(1, max_epochs + 1, step))
-            if max_epochs not in ticks:
-                ticks.append(max_epochs)
-            self.ax.set_xticks(ticks)
-            self.ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-            
-            # Dynamically adjust only y-axis limits
-            all_values = self.train_loss_values + self.valid_loss_values
-            if all_values:
-                y_min_calculated = min(all_values) * 0.8
-                y_max_calculated = max(all_values) * 1.2
+        self.train_line.set_data(self.epoch_points, self.train_loss_values)
+        self.valid_line.set_data(self.valid_x_values, self.valid_loss_values)
+        
+        self.ax.relim()
+        self.ax.autoscale_view()
+        self.canvas.draw()
 
-                if self.ax.get_yscale() == 'log':
-                    if y_min_calculated <= 0:
-                        positive_values = [val for val in all_values if val > 0]
-                        if positive_values:
-                            y_min_final = min(positive_values) * 0.1 # Adjust factor as needed
-                            if y_min_final <= 0: # Still non-positive, use a tiny epsilon
-                                y_min_final = 1e-9
-                        else: # No positive values at all (e.g. all are zero)
-                            y_min_final = 1e-9 # Fallback to a tiny positive number
-                    else:
-                        y_min_final = y_min_calculated
-                    
-                    # Ensure y_max is also positive and greater than y_min for log scale
-                    if y_max_calculated <= y_min_final:
-                        y_max_final = y_min_final * 10 # Or some other sensible factor
-                    else:
-                        y_max_final = y_max_calculated
-                else: # Linear scale
-                    y_min_final = y_min_calculated
-                    y_max_final = y_max_calculated
-                
-                self.ax.set_ylim(y_min_final, y_max_final)
-            
-            # Update labels and title
-            self.ax.set_xlabel('Epoch')
-            self.ax.set_ylabel(self.current_error_unit_label) # Use dynamic label
-            self.ax.set_title('Training Progress')
-            self.ax.legend()
-            self.ax.grid(True, which="both", ls="-", alpha=0.2)
-            
-            # Add minor gridlines for log scale
-            self.ax.grid(True, which="minor", ls=":", alpha=0.1)
-
-            # Redraw the plot
-            self.canvas.draw_idle()
+        # Update the status label
+        status_message = progress_data.get("message", f"Epoch {epoch} complete")
+        self.status_label.setText(status_message)
 
     def stop_training(self):
-        print("Stop training button clicked")
-
-        # Stop the timer
-        self.timer_running = False
-
-        # Send stop request to the task manager
-        self.training_task_manager.stop_task()
-        print("Stop request sent to training task manager")
-
-        # Immediate GUI update to reflect the stopping state
-        self.status_label.setText("Stopping Training...")
-        self.status_label.setStyleSheet("color: #e75480; font-size: 16pt; font-weight: bold;")  # Pinkish-red text
-
-        # Change stop button appearance and text during the process
-        self.stop_button.setText("Stopping...")  # Update button text
-        self.stop_button.setStyleSheet("background-color: #ffcccb; color: white; font-size: 12pt; font-weight: bold;")  # Lighter red
-
-        # Set flag to prevent further tasks
         self.training_process_stopped = True
-        print(f"Training process stopped flag is now {self.training_process_stopped}")
-
-        # Check if the training thread has finished
-        QTimer.singleShot(100, self.check_if_stopped)
+        self.timer_running = False
+        
+        if self.training_task_manager and self.current_task_index < len(self.task_list):
+            task_id = self.task_list[self.current_task_index].get("task_id")
+            if task_id:
+                self.training_task_manager.stop_task(task_id)
+        
+        if self.training_thread and self.training_thread.isRunning():
+            self.training_thread.quit()
+            self.training_thread.wait()
+        
+        self.status_label.setText("Training process stopped by user.")
+        self.status_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: red;")
+        
+        self.show_proceed_to_testing_button()
 
 
 
@@ -688,117 +592,42 @@ class VEstimTrainingTaskGUI(QMainWindow):
         try:
             task_id = self.task_list[self.current_task_index].get('task_id', f'task_{self.current_task_index + 1}')
             # Use 'task_dir' which is the specific directory for this task's artifacts
-            save_dir = self.task_list[self.current_task_index].get('task_dir', self.job_manager.get_job_folder()) # Fallback to job folder if task_dir is missing
-            
-            # Ensure the save directory exists (it should, as it's created by TrainingSetupManager)
-            os.makedirs(save_dir, exist_ok=True)
-
-            # Create a new figure for saving
-            fig = Figure(figsize=(8, 5), dpi=300)
-            ax = fig.add_subplot(111)
-            
-            # Plot the data using actual epoch numbers
-            ax.plot(self.epoch_points, self.train_loss_values, label='Training', color='blue', marker='.')
-            ax.plot(self.epoch_points, self.valid_loss_values, label='Validation', color='red', marker='.')
-            
-            # Set y-axis to log scale
-            ax.set_yscale('log')
-            
-            # Set labels and title
-            ax.set_xlabel('Epoch')
-            ax.set_ylabel(self.current_error_unit_label) # Use dynamic label for saved plot
-            ax.set_title(f'Training History - Task {task_id}')
-            ax.legend()
-            ax.grid(True, which="both", ls="-", alpha=0.2)
-            ax.grid(True, which="minor", ls=":", alpha=0.1)
-            
-            # Save the plot
-            plot_file = os.path.join(save_dir, f'training_history_{task_id}.png')
-            fig.savefig(plot_file, bbox_inches='tight')
-            plt.close(fig)
-            
-            print(f"Saved training history plot for task {task_id} at: {plot_file}")
-        except Exception as e:
-            print(f"Failed to save training history plot: {str(e)}")
-
-        if self.isVisible():  # Check if the window still exists
-            total_training_time = time.time() - self.start_time
-            total_hours, total_remainder = divmod(total_training_time, 3600)
-            total_minutes, total_seconds = divmod(total_remainder, 60)
-            formatted_total_time = f"{int(total_hours):02}h:{int(total_minutes):02}m:{int(total_seconds):02}s"
-
-            # Update time label
-            self.static_text_label.setText("Total Training Time:")
-            self.static_text_label.setStyleSheet("color: blue; font-size: 12pt; font-weight: bold;")
-            self.time_value_label.setText(formatted_total_time)
-            self.time_value_label.setStyleSheet("color: purple; font-size: 12pt; font-weight: bold;")
-
-            # Check if the training process was stopped early
-            if getattr(self, 'training_process_stopped', False):
-                self.status_label.setText("Training stopped early. Saving model to task folder...")
-                self.status_label.setStyleSheet("color: #b22222; font-size: 14pt; font-weight: bold;")  # Reddish color
+            task_dir = self.task_list[self.current_task_index].get('model_dir')
+            if task_dir:
+                plot_save_path = os.path.join(task_dir, f"training_plot_{task_id}.png")
+                self.canvas.figure.savefig(plot_save_path)
+                self.logger.info(f"Training plot saved to {plot_save_path}")
             else:
-                self.status_label.setText("All Training Tasks Completed!")
-                self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
+                self.logger.warning(f"Could not save plot for task {task_id} because 'model_dir' was not found.")
+        except Exception as e:
+            self.logger.error(f"Error saving training plot: {e}")
 
-            # Ensure the "Proceed to Testing" button is displayed in both cases
-            self.stop_button.hide()
-            self.show_proceed_to_testing_button()
-
-        # Handle the case where the window has been destroyed
-        else:
-            print("Task completed method was called after the window was destroyed.")
-
-        # Check if there are more tasks to process
-        if self.current_task_index < len(self.task_list) - 1:
-            print(f"Completed task {self.current_task_index + 1}/{len(self.task_list)}.")
-            self.current_task_index += 1
-            self.task_completed_flag = False  # Reset the flag for the next task
+        # Move to the next task or show completion message
+        self.current_task_index += 1
+        if self.current_task_index < len(self.task_list):
+            self.task_completed_flag = False  # Reset for the next task
+            self.clear_layout()
             self.build_gui(self.task_list[self.current_task_index])
             self.start_task_processing()
         else:
-            # Handle the case when all tasks are completed
-            total_training_time = time.time() - self.start_time
-            total_hours, total_remainder = divmod(total_training_time, 3600)
-            total_minutes, total_seconds = divmod(total_remainder, 60)
-            formatted_total_time = f"{int(total_hours):02}h:{int(total_minutes):02}m:{int(total_seconds):02}s"
-
-            self.static_text_label.setText("Total Training Time:")
-            self.time_value_label.setText(formatted_total_time)
-
-            self.status_label.setText("All Training Tasks Completed!")
+            self.status_label.setText("All training tasks completed.")
+            self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
+            self.stop_button.hide()
             self.show_proceed_to_testing_button()
 
     def wait_for_thread_to_stop(self):
-        if self.worker and self.worker.isRunning():
-            # Continue checking until the thread has stopped
-            QTimer.singleShot(100, self.wait_for_thread_to_stop)
-        else:
-            # Once the thread is confirmed to be stopped
-            print("Training thread has stopped, now closing the window.")
-            self.close()  # Close the window
+        if self.training_thread and self.training_thread.isRunning():
+            self.training_thread.quit()
+            self.training_thread.wait()
 
     def on_closing(self):
-        if self.worker and self.worker.isRunning():
-            print("Stopping training before closing...")
-            self.stop_training()  # Stop the training thread
-            QTimer.singleShot(100, self.wait_for_thread_to_stop)
-        else:
-            self.close()  # Close the window
-    
+        self.stop_training()
+        self.wait_for_thread_to_stop()
+
     def show_proceed_to_testing_button(self):
-        # Ensure the button is shown
-        self.stop_button.hide()
         self.proceed_button.show()
 
     def transition_to_testing_gui(self):
-        self.close()  # Close the current window
-        self.testing_gui = VEstimTestingGUI()  # Initialize the testing GUI
-        self.testing_gui.show()  # Show the testing GUI
-
-if __name__ == "__main__":
-    import sys
-    app = QApplication(sys.argv)
-    task_list = []  # Replace with actual task list
-    params = {}  # Replace with actual parameters
-    sys.exit(app.exec_())
+        self.testing_gui = VEstimTestingGUI(self.params)
+        self.testing_gui.show()
+        self.close()

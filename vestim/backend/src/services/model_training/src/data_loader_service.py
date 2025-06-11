@@ -6,8 +6,8 @@ from torch.utils.data import DataLoader, TensorDataset, SubsetRandomSampler
 from datetime import datetime
 import gc  # For garbage collection
 import logging
-from vestim.services.model_training.src.sequence_rnn_data_handler import SequenceRNNDataHandler
-from vestim.services.model_training.src.whole_sequence_fnn_data_handler import WholeSequenceFNNDataHandler
+from vestim.backend.src.services.model_training.src.sequence_rnn_data_handler import SequenceRNNDataHandler
+from vestim.backend.src.services.model_training.src.whole_sequence_fnn_data_handler import WholeSequenceFNNDataHandler
 
 class DataLoaderService:
     def __init__(self):

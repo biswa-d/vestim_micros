@@ -26,9 +26,9 @@ from PyQt5.QtCore import QObject, pyqtSignal # Import QObject and pyqtSignal
 # from PyQt5.QtWidgets import QMessageBox 
 
 from vestim.logger_config import setup_logger
-from vestim.services.data_processor.src.data_augment_service import DataAugmentService
+from vestim.backend.src.services.data_processor.src.data_augment_service import DataAugmentService
 from vestim.gateway.src.job_manager_qt import JobManager # Corrected import
-from vestim.services import normalization_service # Added for normalization
+from vestim.backend.src.services import normalization_service
 import pandas as pd # Added for pd.api.types
 
 # Set up logging

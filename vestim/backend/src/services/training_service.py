@@ -7,8 +7,8 @@ import sqlite3
 import csv
 from torch.cuda.amp import GradScaler, autocast
 from vestim.backend.src.services.job_service import JobService
-from vestim.services.model_training.src.data_loader_service import DataLoaderService
-from vestim.services.model_training.src.training_task_service import TrainingTaskService as ModelTrainingService
+from vestim.backend.src.services.model_training.src.data_loader_service import DataLoaderService
+from vestim.backend.src.services.model_training.src.training_task_service import TrainingTaskService as ModelTrainingService
 
 class TrainingService:
     """Manages the execution of a single model training task."""

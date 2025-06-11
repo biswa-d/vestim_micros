@@ -19,10 +19,14 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 
 import os, sys
+import requests
+import json
+from datetime import datetime
+
 from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI  # Import the new data augmentation GUI
-from vestim.services.data_processor.src.data_processor_qt_arbin import DataProcessorArbin
-from vestim.services.data_processor.src.data_processor_qt_stla import DataProcessorSTLA
-from vestim.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
+from vestim.backend.src.services.data_processor.src.data_processor_qt_arbin import DataProcessorArbin
+from vestim.backend.src.services.data_processor.src.data_processor_qt_stla import DataProcessorSTLA
+from vestim.backend.src.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
 
 import logging
 
@@ -31,6 +35,9 @@ from vestim.logger_config import setup_logger  # Assuming you have logger_config
 logger = setup_logger(log_file='default.log')  # Log everything to 'default.log' initially
 
 DEFAULT_DATA_EXTENSIONS = [".csv", ".txt", ".mat", ".xls", ".xlsx", ".RES"] # Added .RES for Biologic, expand as needed
+
+# Server connection constants
+SERVER_URL = "http://127.0.0.1:8001"
 
 class DataImportGUI(QMainWindow):
     def __init__(self):
@@ -43,6 +50,7 @@ class DataImportGUI(QMainWindow):
         self.data_processor_arbin = DataProcessorArbin()  # Initialize DataProcessor
         self.data_processor_stla = DataProcessorSTLA()  # Initialize DataProcessor
         self.data_processor_digatron = DataProcessorDigatron()
+        self.job_id = None  # Will store the current job ID
 
         # Resampling moved to data augmentation GUI
         self.organizer_thread = None
@@ -279,8 +287,7 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
-        # Determine which data processor to use based on the selected data source
-        selected_source = self.data_source_combo.currentText()
+        # Determine which data processor to use based on the selected data source        selected_source = self.data_source_combo.currentText()
         if selected_source == "Arbin":
             data_processor = self.data_processor_arbin
         elif selected_source == "STLA":
@@ -293,21 +300,30 @@ class DataImportGUI(QMainWindow):
 
         # Create and start the file organizer thread with the selected data processor
         # Removed sampling_frequency parameter as this is now handled in the data augmentation GUI
-        self.organizer = FileOrganizer(train_files, test_files, data_processor)
+        self.organizer = FileOrganizer(
+            train_files, 
+            test_files, 
+            data_processor,
+            data_source=selected_source
+        )
         self.organizer_thread = QThread()
 
         # Connect signals and slots
         self.organizer.progress.connect(self.handle_progress_update)
         self.organizer.job_folder_signal.connect(self.on_files_processed)
+        self.organizer.job_id_signal.connect(self.on_job_created)
 
         self.organizer.moveToThread(self.organizer_thread)
         self.organizer_thread.started.connect(self.organizer.run)
         self.organizer_thread.start()
-
-
     def handle_progress_update(self, progress_value):
         # Update the progress bar with the percentage
         self.progress_bar.setValue(progress_value)
+        
+    def on_job_created(self, job_id):
+        """Handle when a job is created via the API."""
+        self.job_id = job_id
+        logger.info(f"Job created with ID: {job_id}")
 
     def on_files_processed(self, job_folder):
         # Handle when files are processed and job folder is created
@@ -340,16 +356,23 @@ class DataImportGUI(QMainWindow):
         # Display error message
         QMessageBox.critical(self, "Error", message)
 
+    def on_job_created(self, job_id):
+        """Handle when a job is created via the API."""
+        self.job_id = job_id
+        logger.info(f"Job created with ID: {job_id}")
+
 class FileOrganizer(QObject):
     progress = pyqtSignal(int)  # Emit progress percentage
     job_folder_signal = pyqtSignal(str)  # To communicate when the job folder is created
+    job_id_signal = pyqtSignal(str)  # To communicate the job ID
 
-    def __init__(self, train_files, test_files, data_processor, sampling_frequency=None):
+    def __init__(self, train_files, test_files, data_processor, sampling_frequency=None, data_source=None):
         super().__init__()
         self.train_files = train_files
         self.test_files = test_files
         self.data_processor = data_processor
         self.sampling_frequency = sampling_frequency  # Keep for backwards compatibility with existing code
+        self.data_source = data_source  # Add data source info
 
     def run(self):
         if not self.train_files or not self.test_files:
@@ -357,20 +380,59 @@ class FileOrganizer(QObject):
             return
 
         try:
-            # Call the backend method from DataProcessor to organize and convert files
-            # Note: We'll need to update the data processor methods to not use sampling_frequency
-            # in the future, but for now we'll pass None to maintain compatibility
+            # First create a job via the server API
+            job_id = self.create_job_via_api()
+            if not job_id:
+                self.progress.emit(0)
+                return
+            
+            # Now process the files using the data processor
             job_folder = self.data_processor.organize_and_convert_files(
-                self.train_files, 
-                self.test_files, 
-                progress_callback=self.update_progress, 
-                sampling_frequency=None  # Remove resampling here as it's moved to data augmentation
+                self.train_files,
+                self.test_files,
+                progress_callback=self.update_progress,
+                sampling_frequency=None,  # Remove resampling here as it's moved to data augmentation
+                job_id=job_id  # Pass the job_id to the data processor
             )
+            
             logger.info(f"Job folder created: {job_folder}")
-            # Emit success message with job folder details
+            # Emit success message with job folder details and job ID
             self.job_folder_signal.emit(job_folder)
+            self.job_id_signal.emit(job_id)
         except Exception as e:
+            logger.error(f"Error in FileOrganizer.run: {str(e)}", exc_info=True)
             self.progress.emit(0)  # Emit 0% if there is an error
+            
+    def create_job_via_api(self):
+        """Create a new job through the server API."""
+        try:
+            # Prepare job creation payload
+            selections = {
+                "train_files": [os.path.basename(f) for f in self.train_files],
+                "test_files": [os.path.basename(f) for f in self.test_files],
+                "train_folder": os.path.dirname(self.train_files[0]) if self.train_files else "",
+                "test_folder": os.path.dirname(self.test_files[0]) if self.test_files else "",
+                "data_source": self.data_source,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Call the server API to create a job
+            response = requests.post(
+                f"{SERVER_URL}/jobs",
+                json={"selections": selections}
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            logger.info(f"Job created via API: {result['job_id']}")
+            return result['job_id']
+        except Exception as e:
+            logger.error(f"Error creating job via API: {str(e)}", exc_info=True)
+            return None
+            
+    def update_progress(self, progress):
+        """Update the progress bar."""
+        self.progress.emit(progress)
             logger.error(f"Error occurred during file organization: {e}")
 
     def update_progress(self, progress_value):

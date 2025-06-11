@@ -1,0 +1,164 @@
+#!/usr/bin/env python
+# filepath: c:\Users\dehuryb\OneDrive - McMaster University\Models\ML_LiB_Models\vestim_micros\vestim\scripts\run_server.py
+import argparse
+import os
+import signal
+import sys
+import time
+import uvicorn
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(os.path.join(os.path.expanduser("~"), ".vestim", "server.log"), mode='a')
+    ]
+)
+logger = logging.getLogger("vestim.server")
+
+# Create ~/.vestim directory for logs and PID file if it doesn't exist
+os.makedirs(os.path.join(os.path.expanduser("~"), ".vestim"), exist_ok=True)
+
+def get_pid_file():
+    """Returns the path to the PID file."""
+    return os.path.join(os.path.expanduser("~"), ".vestim", "server.pid")
+
+def is_server_running():
+    """Check if the server is already running by checking the PID file."""
+    pid_file = get_pid_file()
+    
+    if os.path.exists(pid_file):
+        with open(pid_file, 'r') as f:
+            try:
+                pid = int(f.read().strip())
+                # Check if process with this PID exists
+                try:
+                    os.kill(pid, 0)  # Signal 0 doesn't kill the process, just checks if it exists
+                    return True
+                except OSError:
+                    # Process is not running, remove stale PID file
+                    os.remove(pid_file)
+                    return False
+            except ValueError:
+                # Invalid PID in file
+                os.remove(pid_file)
+                return False
+    return False
+
+def write_pid_file():
+    """Write current process ID to PID file."""
+    pid_file = get_pid_file()
+    with open(pid_file, 'w') as f:
+        f.write(str(os.getpid()))
+    logger.info(f"PID {os.getpid()} written to {pid_file}")
+
+def remove_pid_file():
+    """Remove the PID file when the server stops."""
+    pid_file = get_pid_file()
+    if os.path.exists(pid_file):
+        os.remove(pid_file)
+        logger.info(f"PID file {pid_file} removed")
+
+def handle_shutdown(signum, frame):
+    """Signal handler for graceful shutdown."""
+    logger.info("Shutdown signal received. Stopping server...")
+    remove_pid_file()
+    sys.exit(0)
+
+def main():
+    """
+    Main entry point for running the VEstim backend server as a standalone process.
+    """
+    parser = argparse.ArgumentParser(description="VEstim Backend Server")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind the server to")
+    parser.add_argument("--port", type=int, default=8001, help="Port to bind the server to")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
+    parser.add_argument("--stop", action="store_true", help="Stop the running server")
+    parser.add_argument("--status", action="store_true", help="Check if the server is running")
+    
+    args = parser.parse_args()
+
+    # Status command
+    if args.status:
+        if is_server_running():
+            print("VEstim server is running.")
+            return 0
+        else:
+            print("VEstim server is not running.")
+            return 1
+
+    # Stop command
+    if args.stop:
+        pid_file = get_pid_file()
+        if os.path.exists(pid_file):
+            with open(pid_file, 'r') as f:
+                try:
+                    pid = int(f.read().strip())
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                        print(f"Stopping VEstim server (PID {pid})...")
+                        # Wait to confirm process is terminated
+                        for _ in range(5):  # Wait up to 5 seconds
+                            time.sleep(1)
+                            try:
+                                os.kill(pid, 0)  # Check if process still exists
+                            except OSError:
+                                print("VEstim server stopped successfully.")
+                                # Remove PID file if it still exists
+                                if os.path.exists(pid_file):
+                                    os.remove(pid_file)
+                                return 0
+                        print("Warning: Server didn't stop within timeout period.")
+                        return 1
+                    except OSError:
+                        print("No server process found with the stored PID.")
+                        os.remove(pid_file)
+                        return 1
+                except ValueError:
+                    print("Invalid PID in the PID file.")
+                    os.remove(pid_file)
+                    return 1
+        else:
+            print("No running VEstim server found.")
+            return 1
+
+    # Check if the server is already running
+    if is_server_running():
+        print("VEstim server is already running. Use --stop to stop it first.")
+        return 1
+
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGTERM, handle_shutdown)
+
+    # Write PID file to track the server process
+    write_pid_file()
+
+    try:
+        print(f"Starting VEstim server on {args.host}:{args.port}...")
+        logger.info(f"Starting VEstim server on {args.host}:{args.port}")
+        
+        # Run the server
+        uvicorn.run(
+            "vestim.backend.src.main:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+            log_level="info"
+        )
+    except KeyboardInterrupt:
+        logger.info("Server stopped by keyboard interrupt")
+    except Exception as e:
+        logger.error(f"Error starting server: {e}", exc_info=True)
+        remove_pid_file()
+        return 1
+    finally:
+        remove_pid_file()
+    
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

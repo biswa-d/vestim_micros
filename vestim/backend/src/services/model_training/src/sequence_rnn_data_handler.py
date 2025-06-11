@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import gc
 import logging # Assuming handlers might log independently or get a logger passed
-from vestim.services.model_training.src.base_data_handler import BaseDataHandler
+from vestim.backend.src.services.model_training.src.base_data_handler import BaseDataHandler
 
 class SequenceRNNDataHandler(BaseDataHandler):
     """
