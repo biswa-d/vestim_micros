@@ -25,3 +25,15 @@ class APIGateway:
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Error making GET request to {url}: {e}")
             return None
+
+    def delete(self, endpoint):
+        url = f"{self.backend_url}/{endpoint}"
+        try:
+            self.logger.info(f"Making DELETE request to {url}")
+            response = requests.delete(url)
+            self.logger.info(f"Response status code: {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Error making DELETE request to {url}: {e}")
+            return None

@@ -4,6 +4,7 @@ import gc  # Explicit garbage collector
 import pandas as pd
 import h5py
 import logging
+from vestim.config import OUTPUT_DIR
 
 class DataProcessorDigatron:
     def __init__(self):
@@ -24,7 +25,7 @@ class DataProcessorDigatron:
             raise ValueError("A job_id must be provided.")
 
         # The job folder is now derived from the job_id, assuming a base directory 'jobs'.
-        job_folder = os.path.join("jobs", str(job_id))
+        job_folder = os.path.join(OUTPUT_DIR, str(job_id))
         os.makedirs(job_folder, exist_ok=True) # Ensure the job folder exists
 
         self.logger.info(f"Job ID: {job_id}, Folder: {job_folder}")

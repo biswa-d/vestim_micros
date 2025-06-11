@@ -556,7 +556,7 @@ class DataAugmentGUI(QMainWindow):
         try:
             # Create the new window instance but don't show it immediately.
             # Store it on self temporarily so the slot can access it.
-            self._next_hyper_param_gui = VEstimHyperParamGUI()
+            self._next_hyper_param_gui = VEstimHyperParamGUI(job_folder=self.job_folder)
 
             # Schedule the actual show and close operations to allow current events to process.
             QTimer.singleShot(0, self._execute_gui_transition)

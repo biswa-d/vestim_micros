@@ -134,6 +134,15 @@ def get_job(job_id: str, job_service: JobService = Depends(get_job_service)):
         raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
     return job
 
+@app.delete("/jobs/{job_id}", response_model=Dict[str, str])
+def delete_job(job_id: str, job_service: JobService = Depends(get_job_service)):
+    """
+    Deletes a job.
+    """
+    if not job_service.delete_job(job_id):
+        raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+    return {"message": f"Job {job_id} deleted"}
+
 @app.post("/jobs/{job_id}/train", response_model=Dict[str, str])
 def train_job(job_id: str, background_tasks: BackgroundTasks, training_task_manager: TrainingTaskManager = Depends(get_training_task_manager)):
     """
@@ -216,6 +225,14 @@ def server_status():
         "status": "online",
         "timestamp": time.time(),
     }
+
+@app.post("/server/shutdown")
+def shutdown_server():
+    """
+    Shuts down the server.
+    """
+    os.kill(os.getpid(), 9)
+    return {"message": "Server is shutting down"}
 
 # This block allows running the server directly for development
 if __name__ == "__main__":

@@ -192,8 +192,8 @@ class JobDashboard(QMainWindow):
         self.layout.addWidget(self.title_label)
 
         self.job_table_widget = QTableWidget()
-        self.job_table_widget.setColumnCount(4)
-        self.job_table_widget.setHorizontalHeaderLabels(["Job ID", "Time Since Start", "Present State", "Open Job"])
+        self.job_table_widget.setColumnCount(5)
+        self.job_table_widget.setHorizontalHeaderLabels(["Job ID", "Time Since Start", "Present State", "Open Job", "Kill Job"])
         self.job_table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.job_table_widget.setEditTriggers(QTableWidget.NoEditTriggers)
         self.layout.addWidget(self.job_table_widget)
@@ -205,13 +205,10 @@ class JobDashboard(QMainWindow):
         self.new_job_button.clicked.connect(self.create_new_job)
         self.button_layout.addWidget(self.new_job_button)
 
-        self.stop_all_button = QPushButton("Stop All Tasks")
-        self.stop_all_button.clicked.connect(self.stop_all_tasks)
-        self.button_layout.addWidget(self.stop_all_button)
+        self.stop_server_button = QPushButton("Stop Server")
+        self.stop_server_button.clicked.connect(self.stop_server)
+        self.button_layout.addWidget(self.stop_server_button)
 
-        self.clear_all_button = QPushButton("Clear All Jobs")
-        self.clear_all_button.clicked.connect(self.clear_all_jobs)
-        self.button_layout.addWidget(self.clear_all_button)
         
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.clicked.connect(self.refresh_job_list)
@@ -266,6 +263,10 @@ class JobDashboard(QMainWindow):
                 open_button = QPushButton("Open")
                 open_button.clicked.connect(lambda _, j=job_id, s=status: self.show_job_details(j, s))
                 self.job_table_widget.setCellWidget(i, 3, open_button)
+
+                kill_button = QPushButton("Kill")
+                kill_button.clicked.connect(lambda _, j=job_id: self.kill_job(j))
+                self.job_table_widget.setCellWidget(i, 4, kill_button)
                 
             self.statusBar().showMessage(f"Found {len(jobs)} jobs")
             
@@ -278,29 +279,24 @@ class JobDashboard(QMainWindow):
         self.data_import_gui = DataImportGUI()
         self.data_import_gui.show()
 
-    def stop_all_tasks(self):
-        """Stop all running tasks."""
-        # This functionality is now handled on a per-job basis.
-        # This method can be removed or adapted to stop all jobs.
-        pass
-
-    def clear_all_jobs(self):
-        """Clear all jobs from the server."""
+    def stop_server(self):
+        """Stop the backend server and close the application."""
         reply = QMessageBox.question(
             self,
-            "Confirm Delete",
-            "Are you sure you want to delete ALL jobs and their data?\nThis action cannot be undone.",
+            "Confirm Stop",
+            "Are you sure you want to stop the server?\nThis will close the application.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
 
         if reply == QMessageBox.Yes:
             try:
-                self.api_gateway.post("jobs/clear")
-                QMessageBox.information(self, "Jobs Cleared", "All jobs have been cleared.")
-                self.refresh_job_list()
+                self.api_gateway.post("server/shutdown")
+                QMessageBox.information(self, "Server Stopped", "The server has been stopped.")
+                self.close()
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Error clearing jobs: {e}")
+                QMessageBox.critical(self, "Error", f"Error stopping server: {e}")
+
     
     def show_job_details(self, job_id, status):
         """Show details for the selected job."""
@@ -319,6 +315,27 @@ class JobDashboard(QMainWindow):
         else:
             dialog = JobDetailsDialog(job_id, self)
             dialog.exec_()
+
+    def kill_job(self, job_id):
+        """Stop a running job."""
+        reply = QMessageBox.question(
+            self,
+            "Confirm Kill",
+            f"Are you sure you want to kill job {job_id}?\nThis action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                response = self.api_gateway.delete(f"jobs/{job_id}")
+                if response:
+                    QMessageBox.information(self, "Job Killed", f"Job {job_id} has been killed.")
+                    self.refresh_job_list()
+                else:
+                    QMessageBox.critical(self, "Error", f"Failed to kill job {job_id}.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error killing job: {e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

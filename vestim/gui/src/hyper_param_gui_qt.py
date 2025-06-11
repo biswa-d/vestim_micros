@@ -23,13 +23,14 @@ from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamM
 
 import logging
 class VEstimHyperParamGUI(QWidget):
-    def __init__(self, job_id):
+    def __init__(self, job_folder):
         self.logger = logging.getLogger(__name__)  # Initialize the logger within the instance
         self.logger.info("Initializing Hyperparameter GUI")
         super().__init__()
         self.params = {}  # Initialize an empty params dictionary
         self.api_gateway = APIGateway()
-        self.job_id = job_id
+        self.job_folder = job_folder
+        self.job_id = os.path.basename(job_folder)
         self.hyper_param_manager = VEstimHyperParamManager()  # Initialize HyperParamManager
         self.param_entries = {}  # To store the entry widgets for parameters
 
@@ -659,30 +660,30 @@ class VEstimHyperParamGUI(QWidget):
 
     def load_column_names(self):
         """Loads column names from the first CSV file found in the train folder."""
-        job_details = self.api_gateway.get(f"jobs/{self.job_id}")
-        if not job_details:
-            self.logger.error(f"Could not get details for job {self.job_id}")
-            return []
+        train_folder = os.path.join(self.job_folder, 'train_data', 'processed_data')
         
-        job_folder = job_details.get("job_folder")
-        train_folder = os.path.join(job_folder, 'train_data', 'processed_data')
-
-        if not train_folder or not os.path.exists(train_folder):
-            self.logger.warning("Train folder not found. Cannot load column names.")
+        if not os.path.exists(train_folder):
+            self.logger.error(f"Train folder not found at {train_folder}")
+            QMessageBox.critical(self, "Error", f"Train folder not found at {train_folder}")
             return []
-        
+            
         try:
             # Find the first CSV file in the directory
             csv_files = [f for f in os.listdir(train_folder) if f.endswith('.csv')]
             if not csv_files:
-                self.logger.warning("No CSV files found in the train folder.")
+                self.logger.error("No CSV files found in the processed train data folder.")
+                QMessageBox.critical(self, "Error", "No CSV files found in the processed train data folder.")
                 return []
             
-            # Read the header of the first CSV file
-            df = pd.read_csv(os.path.join(train_folder, csv_files[0]), nrows=0)
+            # Load the first CSV to get column names
+            sample_file_path = os.path.join(train_folder, csv_files[0])
+            df = pd.read_csv(sample_file_path)
+            self.logger.info(f"Loaded columns from {sample_file_path}: {df.columns.tolist()}")
             return df.columns.tolist()
+            
         except Exception as e:
             self.logger.error(f"Failed to load column names: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to load column names: {e}")
             return []
 
     def load_params_from_json(self):

@@ -226,6 +226,38 @@ class JobService:
         except Exception as e:
             self.logger.error(f"Failed to get job by ID: {e}", exc_info=True)
             return None
+
+    def delete_job(self, job_id):
+        """Delete a specific job by ID."""
+        try:
+            self.logger.info(f"Attempting to delete job {job_id}")
+            jobs = self.get_all_jobs()
+            job_to_delete = None
+            for job in jobs:
+                if job["job_id"] == job_id:
+                    job_to_delete = job
+                    break
+            
+            if job_to_delete:
+                # Remove job folder
+                job_folder = job_to_delete.get("job_folder")
+                if job_folder and os.path.exists(job_folder):
+                    self.logger.info(f"Removing job folder: {job_folder}")
+                    shutil.rmtree(job_folder, ignore_errors=True)
+                
+                # Remove job from registry
+                self.logger.info(f"Removing job {job_id} from registry")
+                updated_jobs = [job for job in jobs if job["job_id"] != job_id]
+                with open(self.job_registry_file, 'w') as f:
+                    json.dump({"jobs": updated_jobs}, f, indent=4)
+                
+                self.logger.info(f"Job {job_id} has been deleted.")
+                return True
+            self.logger.warning(f"Job {job_id} not found in registry.")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to delete job: {e}", exc_info=True)
+            return False
     
     def clear_all_jobs(self):
         """Delete all jobs and their data."""
