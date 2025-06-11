@@ -29,37 +29,30 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Import your services
-from vestim.gateway.src.testing_manager_qt import VEstimTestingManager
-from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
-from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
+from vestim.gui.src.api_gateway import APIGateway
 
 class TestingThread(QThread):
     update_status_signal = pyqtSignal(str)
     result_signal = pyqtSignal(dict)
     testing_complete_signal = pyqtSignal()
 
-    def __init__(self, testing_manager, queue):
+    def __init__(self, job_id, api_gateway):
         super().__init__()
         self.logger = logging.getLogger(__name__)
-        self.testing_manager = testing_manager
-        self.queue = queue
+        self.job_id = job_id
+        self.api_gateway = api_gateway
         self.stop_flag = False
 
     def run(self):
         try:
-            self.testing_manager.start_testing(self.queue)
+            self.api_gateway.post(f"jobs/{self.job_id}/test")
             while not self.stop_flag:
-                try:
-                    result = self.queue.get(timeout=1)
-                    if result:
-                        if 'all_tasks_completed' in result:
-                            self.testing_complete_signal.emit()
-                            self.stop_flag = True
-                        else:
-                            self.result_signal.emit(result)
-                except Empty:
-                    continue
+                status = self.api_gateway.get(f"jobs/{self.job_id}/testing_status")
+                if not status or status.get("status") in ["complete", "error", "stopped"]:
+                    break
+                self.result_signal.emit(status)
+                time.sleep(5)
+            self.testing_complete_signal.emit()
         except Exception as e:
             self.update_status_signal.emit(f"Error: {str(e)}")
         finally:
@@ -68,13 +61,11 @@ class TestingThread(QThread):
 
 
 class VEstimTestingGUI(QMainWindow):
-    def __init__(self):
+    def __init__(self, job_id):
         super().__init__()
         self.logger = logging.getLogger(__name__)
-        self.job_manager = JobManager()
-        self.testing_manager = VEstimTestingManager()
-        self.hyper_param_manager = VEstimHyperParamManager()
-        self.training_setup_manager = VEstimTrainingSetupManager()
+        self.job_id = job_id
+        self.api_gateway = APIGateway()
 
         self.param_labels = {
             "LAYERS": "Layers",
@@ -100,7 +91,11 @@ class VEstimTestingGUI(QMainWindow):
 
 
         self.initUI()
-        self.start_testing()
+        self.testing_thread = TestingThread(self.job_id, self.api_gateway)
+        self.testing_thread.result_signal.connect(self.add_result_row)
+        self.testing_thread.testing_complete_signal.connect(self.all_tests_completed)
+        self.testing_thread.update_status_signal.connect(self.update_status)
+        self.testing_thread.start()
 
     def initUI(self):
         self.setWindowTitle("VEstim Tool - Model Testing")
@@ -120,7 +115,9 @@ class VEstimTestingGUI(QMainWindow):
         # Hyperparameters Display
         self.hyperparam_frame = QWidget()
         self.main_layout.addWidget(self.hyperparam_frame)
-        self.hyper_params = self.hyper_param_manager.get_hyper_params()
+        job_details = self.api_gateway.get(f"jobs/{self.job_id}")
+        if job_details:
+            self.hyper_params = job_details.get("selections", {})
         self.display_hyperparameters(self.hyper_params)
         print(f"Displayed hyperparameters: {self.hyper_params}")
         
@@ -500,168 +497,91 @@ class VEstimTestingGUI(QMainWindow):
             ax.set_ylabel(f'{unit_display_long}', fontsize=12)
             ax.set_title(f"Test: {test_name}", fontsize=14, fontweight='bold')
             ax.legend(loc='upper right', fontsize=10)
-            ax.grid(True, linestyle='--', alpha=0.6)
-            ax.tick_params(axis='both', which='major', labelsize=10)
+            
+            # Save the plot
+            self.save_plot(fig, predictions_file, save_dir)
 
+            # Show the plot
             canvas = FigureCanvas(fig)
             layout = QVBoxLayout()
             layout.addWidget(canvas)
-
-            # Create save button
-            save_button = QPushButton("Save Plot")
-            save_button.setStyleSheet('background-color: #4CAF50; color: white;')
-            save_button.clicked.connect(lambda checked, f=fig, t=predictions_file: self.save_plot(f, t, save_dir))
-            layout.addWidget(save_button)
-
             plot_window.setLayout(layout)
-            plot_window.show()
-
+            plot_window.exec_()
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"An error occurred while plotting results\n{str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to plot results: {e}")
 
     def save_plot(self, fig, test_file_path, save_dir):
         """Save the current plot as a PNG image."""
         try:
-            # Generate filename from test file path
-            test_file_name = os.path.splitext(os.path.basename(test_file_path))[0]  
-            # Construct the plot file path inside save_dir
-            plot_file = os.path.join(save_dir, f"{test_file_name}_test_results_plot.png")
-
-            # Save the figure as a PNG image
-            fig.savefig(plot_file, format='png', dpi=300, bbox_inches='tight')
-            QMessageBox.information(self, "Success", f"Plot saved successfully to:\n{plot_file}")
-            print(f"Plot saved as: {plot_file}")
-            
+            base_name = os.path.splitext(os.path.basename(test_file_path))[0]
+            save_path = os.path.join(save_dir, f"{base_name}_plot.png")
+            fig.savefig(save_path)
+            print(f"Plot saved to {save_path}")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save plot: {str(e)}")
+            print(f"Error saving plot: {e}")
 
     def show_training_history_plot(self, plot_path, task_id):
         """Display the training history plot in a new window."""            
         try:
-            plot_window = QDialog(self)
-            plot_window.setWindowTitle(f"Training History - Task {task_id}")
-            plot_window.setGeometry(200, 100, 800, 600)
-
-            # Create QLabel to display the image
-            image_label = QLabel()
-            pixmap = QPixmap(plot_path)
-            scaled_pixmap = pixmap.scaled(780, 580, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            image_label.setPixmap(scaled_pixmap)
-
-            # Create layout
-            layout = QVBoxLayout()
-            layout.addWidget(image_label)
-            plot_window.setLayout(layout)
-            plot_window.show()
-
+            if os.path.exists(plot_path):
+                dialog = QDialog(self)
+                dialog.setWindowTitle(f"Training History - {task_id}")
+                layout = QVBoxLayout()
+                
+                pixmap = QPixmap(plot_path)
+                label = QLabel()
+                label.setPixmap(pixmap.scaled(800, 600, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                layout.addWidget(label)
+                
+                dialog.setLayout(layout)
+                dialog.exec_()
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to display training history plot: {str(e)}")
+            print(f"Error showing training history plot: {e}")
 
     def start_testing(self):
-        print("Starting testing...")
-        self.timer_running = True  # Reset the flag
-        self.progress.setValue(0)  # Reset progress bar
-        self.status_label.setText("Preparing test data...")
         self.start_time = time.time()
-        self.progress.show()  # Ensure progress bar is visible
-
-        self.testing_thread = TestingThread(self.testing_manager, self.queue)
-        self.testing_thread.update_status_signal.connect(self.update_status)
-        self.testing_thread.result_signal.connect(self.add_result_row)
-        self.testing_thread.testing_complete_signal.connect(self.all_tests_completed)  # Connect to the completion signal
-        self.testing_thread.start()
-
-        # Start the timer for updating elapsed time
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_elapsed_time)  # Call the update method every second
-        self.timer.start(1000)  # 1000 milliseconds = 1 second
-
-        # Start processing the queue after the thread starts
+        self.update_elapsed_time()
         self.process_queue()
-    
+
     def update_elapsed_time(self):
-        """Update the elapsed time label."""
         if self.timer_running:
             elapsed_time = time.time() - self.start_time
-            hours, remainder = divmod(elapsed_time, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            self.time_label.setText(f"Testing Time: {int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
+            hours, rem = divmod(elapsed_time, 3600)
+            mins, secs = divmod(rem, 60)
+            self.time_label.setText(f"Testing Time: {int(hours):02d}h:{int(mins):02d}m:{int(secs):02d}s")
+            QTimer.singleShot(1000, self.update_elapsed_time)
 
     def process_queue(self):
         try:
-            # Try to get a result from the queue
-            result = self.queue.get_nowait()
-            print(f"Got result from queue: {result}")
-            self.add_result_row(result)  # Add the result to the GUI
-            self.results_list.append(result)  # Track the completed results
+            while not self.queue.empty():
+                result = self.queue.get_nowait()
+                if 'task_completed' in result:
+                    self.add_result_row(result)
+                elif 'all_tasks_completed' in result:
+                    self.all_tests_completed()
+                    return  # Stop processing
+                elif 'progress' in result:
+                    self.progress.setValue(result['progress'])
+                elif 'status' in result:
+                    self.update_status(result['status'])
         except Empty:
-            # If the queue is empty, wait and try again
-            QTimer.singleShot(100, self.process_queue)
-            return  # Return early if there's nothing new to process
-        
-        # Process all the events in the Qt event loop (force repaint of the UI)
-        QApplication.processEvents()
-        
-        # If new result is added, update the progress bar and status
-        total_tasks = len(self.testing_manager.training_setup_manager.get_task_list())
-        print(f"Total tasks: {total_tasks}")
-        completed_tasks = len(self.results_list)
-        print(f"Completed tasks: {completed_tasks}")
-        
-        if total_tasks == 0:  # Avoid division by zero
-            self.update_status("No tasks to process.")
-            return
-
-        # Ensure progress is an integer between 0 and 100
-        progress_value = int((completed_tasks / total_tasks) * 100)
-        self.progress.setValue(progress_value)  # Update progress bar
-
-        # Update the status with the number of completed tasks
-        self.update_status(f"Completed {completed_tasks}/{total_tasks} tasks")
-
-        # Check if all tasks are completed
-        if completed_tasks >= total_tasks:
-            # If all tasks are complete, stop processing the queue and update UI
-            self.timer_running = False
-            self.update_status("All tests completed!")
-            self.progress.hide()  # Hide the progress bar when finished
-            self.open_results_button.show()  # Show the results button
-        else:
-            # Continue checking the queue if tasks are not yet complete
-            QTimer.singleShot(100, self.process_queue)
+            pass
+        finally:
+            if self.timer_running:
+                QTimer.singleShot(100, self.process_queue)
 
     def all_tests_completed(self):
-        # Update the status label to indicate completion
-        self.status_label.setText("All tests completed successfully.")
-        
-        self.progress.setValue(100)
-        self.progress.hide()
-        
-        # Show the button to open the results folder
-        self.open_results_button.show()
-        
-        # Stop the timer
         self.timer_running = False
-        self.timer.stop()  # Stop the QTimer
-        
-        # Optionally log or print a message
-        print("All tests completed successfully.")
-        self.update_status("All tests completed successfully.")
-        
-        # Ensure the thread is properly cleaned up
-        if self.testing_thread.isRunning():
-            self.testing_thread.quit()
-            self.testing_thread.wait()  # Wait for the thread to finish
+        self.status_label.setText("All testing tasks completed.")
+        self.status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: green;")
+        self.progress.setValue(100)
+        self.open_results_button.show()
 
     def open_job_folder(self):
-        job_folder = self.job_manager.get_job_folder()
-        if os.path.exists(job_folder):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(job_folder))
-        else:
-            QMessageBox.critical(self, "Error", f"Results folder not found: {job_folder}")
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    gui = VEstimTestingGUI()
-    gui.show()
-    sys.exit(app.exec_())
+        job_details = self.api_gateway.get(f"jobs/{self.job_id}")
+        if job_details:
+            job_folder = job_details.get("job_folder")
+            if job_folder and os.path.isdir(job_folder):
+                QDesktopServices.openUrl(QUrl.fromLocalFile(job_folder))
+            else:
+                QMessageBox.warning(self, "Folder Not Found", "The job folder could not be found.")

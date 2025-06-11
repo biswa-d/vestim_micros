@@ -3,15 +3,19 @@ import shutil
 import scipy.io
 import numpy as np
 import gc  # Explicit garbage collector
-from vestim.gateway.src.job_manager import JobManager
+from vestim.backend.src.services.job_service import JobService
 from tqdm import tqdm
+from vestim.config import OUTPUT_DIR
 
 class DataProcessor:
     def __init__(self):
-        self.job_manager = JobManager()
+        self.job_service = JobService()
 
-    def organize_and_convert_files(self, train_files, test_files):
-        job_id, job_folder = self.job_manager.create_new_job()
+    def organize_and_convert_files(self, train_files, test_files, job_id=None):
+        if job_id is None:
+            raise ValueError("job_id must be provided.")
+        
+        job_folder = os.path.join(OUTPUT_DIR, job_id)
 
         # Create directories for raw and processed data
         train_raw_folder = os.path.join(job_folder, 'train', 'raw_data')

@@ -1,98 +1,88 @@
 import argparse
-import os
 import sys
 import subprocess
 import time
-import requests
-from PyQt5.QtWidgets import QApplication
-from vestim.gui.src.job_dashboard_gui_qt import JobDashboard
+from vestim.scripts.server_helper import is_server_running, stop_server, get_pid_file_path
 
-def check_server_status(url="http://127.0.0.1:8001", retries=5, delay=1):
-    """Checks if the backend server is ready to accept connections."""
-    for i in range(retries):
-        try:
-            response = requests.get(url)
-            if response.status_code == 200:
-                print("Backend server is ready.")
-                return True
-        except requests.ConnectionError:
-            pass
-        print(f"Server not ready yet. Retrying in {delay} second(s)...")
-        time.sleep(delay)
-    print("Could not connect to the backend server.")
-    return False
-
-def start_server(args):
-    """Starts the backend server."""
-    # Use the same arguments passed to this script
-    command = [sys.executable, "-m", "vestim.scripts.run_server"]
+def start_server():
+    """Starts the backend server as a detached process."""
+    if is_server_running():
+        print("Server is already running.")
+        return
     
-    # Add any server-specific arguments
-    if args.host:
-        command.extend(["--host", args.host])
-    if args.port:
-        command.extend(["--port", str(args.port)])
-    if args.reload:
-        command.append("--reload")
+    print("Starting the VEstim backend server...")
     
-    # Determine how to run the server based on the mode
-    if args.mode == "server":
-        # For server-only mode, just run the command directly (blocking)
-        print("Starting server in foreground mode...")
-        return subprocess.call(command)
-    else:
-        # For GUI mode, start server as a background process
-        print("Starting server in background mode...")
+    try:
+        # Start the server as a background process
         creationflags = 0
         if sys.platform == "win32":
             creationflags = subprocess.DETACHED_PROCESS
+            
+        process = subprocess.Popen(
+            [sys.executable, "-m", "vestim.scripts.run_server"],
+            creationflags=creationflags,
+            close_fds=True
+        )
         
-        subprocess.Popen(command, creationflags=creationflags, close_fds=True)
+        # Write the PID to a file
+        pid_file = get_pid_file_path()
+        with open(pid_file, "w") as f:
+            f.write(str(process.pid))
+            
+        print(f"Server started with PID {process.pid}.")
         
-        # Wait for the server to be ready
-        if not check_server_status(f"http://{args.host}:{args.port}"):
-            print("Failed to start the backend server. Exiting.")
-            return 1
-    
-    return 0
+    except Exception as e:
+        print(f"Failed to start server: {e}")
 
-def start_gui(args):
-    """Starts the GUI."""
-    # Start the GUI
-    app = QApplication(sys.argv)
-    gui = JobDashboard()
-    gui.show()
-    return app.exec_()
+def launch_gui():
+    """Launches the VEstim GUI."""
+    print("Launching the VEstim GUI...")
+    
+    # Wait for the server to be ready
+    for _ in range(10):  # Wait up to 10 seconds
+        if is_server_running():
+            break
+        time.sleep(1)
+    else:
+        print("Error: Server did not start in time. Cannot launch GUI.")
+        return
+        
+    try:
+        subprocess.run([sys.executable, "-m", "vestim.scripts.run_gui"])
+    except Exception as e:
+        print(f"Failed to launch GUI: {e}")
 
 def main():
     """
-    Main entry point for the VEstim application.
+    Main entry point for the VEstim tool.
+    Provides commands to start, stop, and manage the application.
     """
-    parser = argparse.ArgumentParser(description="VEstim - Machine Learning Model Training Tool")
-    parser.add_argument("--mode", choices=["all", "server", "gui"], default="all",
-                        help="Run mode: 'all' to run both server and GUI, 'server' for server only, 'gui' for GUI only")
-    parser.add_argument("--host", default="127.0.0.1", help="Host to bind the server to")
-    parser.add_argument("--port", type=int, default=8001, help="Port to bind the server to")
-    parser.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
+    parser = argparse.ArgumentParser(description="VEstim Tool")
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    
+    # Start command
+    start_parser = subparsers.add_parser("start", help="Start the VEstim server and launch the GUI")
+    
+    # Stop command
+    stop_parser = subparsers.add_parser("stop", help="Stop the VEstim server")
+    
+    # Status command
+    status_parser = subparsers.add_parser("status", help="Check if the VEstim server is running")
     
     args = parser.parse_args()
     
-    # Mode handling
-    if args.mode in ["all", "server"]:
-        server_result = start_server(args)
-        if server_result != 0 and args.mode == "server":
-            return server_result
-    
-    if args.mode in ["all", "gui"]:
-        # Check if the server is already running before starting the GUI
-        if args.mode == "gui" and not check_server_status(f"http://{args.host}:{args.port}"):
-            print(f"Error: GUI mode requires a running server at {args.host}:{args.port}")
-            print("Please start the server first with: vestim --mode server")
-            return 1
-        
-        return start_gui(args)
-    
-    return 0
+    if args.command == "start":
+        start_server()
+        launch_gui()
+    elif args.command == "stop":
+        stop_server()
+    elif args.command == "status":
+        if is_server_running():
+            print("VEstim server is running.")
+        else:
+            print("VEstim server is not running.")
+    else:
+        parser.print_help()
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

@@ -4,9 +4,9 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 import sys
 import time
-from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
 from vestim.gui.src.training_task_gui_qt import VEstimTrainingTaskGUI
-from vestim.gateway.src.job_manager_qt import JobManager
+from vestim.backend.src.managers.job_manager_qt import JobManager
 import logging
 
 class SetupWorker(QThread):

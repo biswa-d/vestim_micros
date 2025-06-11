@@ -33,24 +33,26 @@ class JobService:
 
     def create_new_job(self, selections: dict):
         """Generates a new job ID and creates the main job directory."""
-        self.job_id = f"job_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        job_folder = os.path.join(OUTPUT_DIR, self.job_id)
+        job_id = f"job_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        job_folder = os.path.join(OUTPUT_DIR, job_id)
         os.makedirs(job_folder, exist_ok=True)
         
         try:
             configure_job_specific_logging(job_folder)
-            self.logger.info(f"Job-specific logging configured for job: {self.job_id}")
+            self.logger.info(f"Job-specific logging configured for job: {job_id}")
         except Exception as e:
-            self.logger.error(f"Failed to configure job-specific logging for {self.job_id}: {e}", exc_info=True)
+            self.logger.error(f"Failed to configure job-specific logging for {job_id}: {e}", exc_info=True)
             
         # Store the selections and initial status in a status.json file
         status_file = os.path.join(job_folder, 'status.json')
         job_info = {
-            "job_id": self.job_id,
-            "status": "created", 
+            "job_id": job_id,
+            "status": "created",
             "selections": selections,
             "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
+            "updated_at": datetime.now().isoformat(),
+            "job_folder": job_folder,
+            "state": {}
         }
         
         with open(status_file, 'w') as f:
@@ -59,9 +61,9 @@ class JobService:
         # Register the job in the global registry
         self._register_job(job_info)
             
-        self.logger.info(f"Created new job {self.job_id} with selections: {selections}")
+        self.logger.info(f"Created new job {job_id} with selections: {selections}")
         
-        return self.job_id, job_folder
+        return job_id, job_folder
     
     def _register_job(self, job_info):
         """Add a job to the registry file."""
@@ -80,8 +82,8 @@ class JobService:
         except Exception as e:
             self.logger.error(f"Failed to register job in registry: {e}", exc_info=True)
 
-    def update_job_status(self, job_id, status, message=None):
-        """Update the status of a job."""
+    def update_job_status(self, job_id, status, state_payload=None):
+        """Update the status and state of a job."""
         job_folder = os.path.join(OUTPUT_DIR, job_id)
         status_file = os.path.join(job_folder, 'status.json')
         
@@ -95,8 +97,7 @@ class JobService:
                 job_info = json.load(f)
             
             job_info["status"] = status
-            if message:
-                job_info["message"] = message
+            job_info["state"] = state_payload if state_payload else {}
             job_info["updated_at"] = datetime.now().isoformat()
             
             with open(status_file, 'w') as f:
@@ -250,34 +251,3 @@ class JobService:
             os.makedirs(results_folder, exist_ok=True)
             return results_folder
         return None
-
-    def get_all_jobs(self):
-        """Returns a list of all jobs with their statuses."""
-        jobs = []
-        if not os.path.exists(OUTPUT_DIR):
-            return jobs
-        for item in os.listdir(OUTPUT_DIR):
-            job_folder = os.path.join(OUTPUT_DIR, item)
-            if os.path.isdir(job_folder) and item.startswith("job_"):
-                status_file = os.path.join(job_folder, 'status.json')
-                if os.path.exists(status_file):
-                    with open(status_file, 'r') as f:
-                        try:
-                            data = json.load(f)
-                            status = data.get("status", "unknown")
-                        except json.JSONDecodeError:
-                            status = "corrupted"
-                else:
-                    status = "unknown"
-                jobs.append({"job_id": item, "status": status})
-        return jobs
-
-    def clear_all_jobs(self):
-        """Deletes all job folders."""
-        if not os.path.exists(OUTPUT_DIR):
-            return
-        for item in os.listdir(OUTPUT_DIR):
-            item_path = os.path.join(OUTPUT_DIR, item)
-            if os.path.isdir(item_path) and item.startswith("job_"):
-                shutil.rmtree(item_path)
-        self.logger.info("All job folders have been cleared.")

@@ -15,8 +15,8 @@ import torch
 
 from vestim.backend.src.services.job_service import JobService
 # The following imports will need to be resolved within the backend context
-from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
-from vestim.services.model_training.src.LSTM_model_service_test import LSTMModelService
+from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
+from vestim.backend.src.services.model_training.src.LSTM_model_service import LSTMModelService
 
 class SetupService:
     """Handles the creation of models and training tasks based on hyperparameters."""

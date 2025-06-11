@@ -21,6 +21,9 @@ class TrainingService:
         self.data_loader_service = DataLoaderService()
         self.model_training_service = ModelTrainingService()
         self.stop_requested = False
+        self.train_loss_history = []
+        self.val_loss_history = []
+        self.log_history = []
         
         self.device = torch.device(self.global_params.get('DEVICE_SELECTION', 'cpu'))
         self.use_amp = self.global_params.get('USE_MIXED_PRECISION', False) and self.device.type == 'cuda'
@@ -31,6 +34,7 @@ class TrainingService:
         """The main entry point to start processing the training task."""
         self.logger.info(f"Starting training task: {self.task_info.get('task_id')}")
         try:
+            self.job_service.update_job_status(self.task_info['job_id'], "training")
             self.update_status("started", "Initializing...")
             
             self.setup_job_logging()
@@ -40,14 +44,17 @@ class TrainingService:
 
             if not self.stop_requested:
                 self.update_status("complete", "Training finished successfully.")
+                self.job_service.update_job_status(self.task_info['job_id'], "complete")
                 self.logger.info(f"Training task {self.task_info.get('task_id')} completed successfully.")
             else:
                 self.update_status("stopped", "Training was stopped by user.")
+                self.job_service.update_job_status(self.task_info['job_id'], "stopped")
                 self.logger.info(f"Training task {self.task_info.get('task_id')} was stopped.")
 
         except Exception as e:
             self.logger.error(f"Error during training task {self.task_info.get('task_id')}: {e}", exc_info=True)
             self.update_status("error", str(e))
+            self.job_service.update_job_status(self.task_info['job_id'], "error", {"error_message": str(e)})
             raise
 
     def run_training(self, train_loader, val_loader):
@@ -88,6 +95,7 @@ class TrainingService:
                 total_train_loss += loss.item()
             
             avg_train_loss = total_train_loss / len(train_loader)
+            self.train_loss_history.append(avg_train_loss)
 
             # Validation phase
             model.eval()
@@ -101,9 +109,22 @@ class TrainingService:
                     total_val_loss += loss.item()
             
             avg_val_loss = total_val_loss / len(val_loader)
+            self.val_loss_history.append(avg_val_loss)
             
-            self.logger.info(f"Epoch {epoch}/{max_epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
-            self.update_status("running", f"Epoch {epoch} complete", epoch, max_epochs, avg_train_loss, avg_val_loss)
+            log_message = f"Epoch {epoch}/{max_epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}"
+            self.logger.info(log_message)
+            self.log_history.append(log_message)
+            status_payload = {
+                "epoch": epoch,
+                "total_epochs": max_epochs,
+                "train_loss": avg_train_loss,
+                "val_loss": avg_val_loss,
+                "train_loss_history": self.train_loss_history,
+                "val_loss_history": self.val_loss_history,
+                "log_history": self.log_history,
+            }
+            self.update_status("running", f"Epoch {epoch} complete", **status_payload)
+            self.job_service.update_job_status(self.task_info['job_id'], "training", status_payload)
 
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss

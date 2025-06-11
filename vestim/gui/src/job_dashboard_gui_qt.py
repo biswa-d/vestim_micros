@@ -1,20 +1,24 @@
 import sys
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-    QListWidget, QListWidgetItem, QLabel, QMessageBox, QDialog, QLineEdit, 
-    QGridLayout, QTextEdit, QComboBox, QDialogButtonBox
+    QListWidget, QListWidgetItem, QLabel, QMessageBox, QDialog, QLineEdit,
+    QGridLayout, QTextEdit, QComboBox, QDialogButtonBox, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt5.QtCore import QTimer, Qt
-import requests
 import json
 import os
 from datetime import datetime
+from vestim.gui.src.data_import_gui_qt import DataImportGUI
+from vestim.gui.src.training_task_gui_qt import VEstimTrainingTaskGUI
+from vestim.gui.src.testing_gui_qt import VEstimTestingGUI
+from vestim.gui.src.api_gateway import APIGateway
 
 class JobDetailsDialog(QDialog):
     """Dialog for displaying and interacting with job details."""
     def __init__(self, job_id, parent=None):
         super().__init__(parent)
         self.job_id = job_id
+        self.api_gateway = APIGateway()
         self.setWindowTitle(f"Job Details - {job_id}")
         self.setMinimumSize(600, 400)
         
@@ -40,12 +44,17 @@ class JobDetailsDialog(QDialog):
         # Task list section
         self.layout.addWidget(QLabel("Tasks:"))
         self.task_list = QListWidget()
+        self.task_list.itemDoubleClicked.connect(self.open_task_gui)
         self.layout.addWidget(self.task_list)
         
         # Action buttons
         self.button_layout = QHBoxLayout()
         self.layout.addLayout(self.button_layout)
         
+        self.open_task_button = QPushButton("Open Task")
+        self.open_task_button.clicked.connect(self.open_task_gui)
+        self.button_layout.addWidget(self.open_task_button)
+
         self.stop_all_button = QPushButton("Stop All Tasks")
         self.stop_all_button.clicked.connect(self.stop_all_tasks)
         self.button_layout.addWidget(self.stop_all_button)
@@ -69,10 +78,11 @@ class JobDetailsDialog(QDialog):
     def refresh_job_details(self):
         """Load the job details from the server."""
         try:
-            response = requests.get(f"http://127.0.0.1:8001/jobs/{self.job_id}")
-            response.raise_for_status()
-            job = response.json()
-            
+            job = self.api_gateway.get(f"jobs/{self.job_id}")
+            if not job:
+                print(f"Error fetching job details for {self.job_id}")
+                return
+
             # Update the UI with job details
             self.status_value.setText(job.get("status", "Unknown"))
             
@@ -84,22 +94,40 @@ class JobDetailsDialog(QDialog):
                 except:
                     self.created_value.setText(created_at)
             
-            # TODO: Load tasks associated with this job when API endpoint is available
+            self.refresh_task_list()
             
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching job details: {e}")
-    
+        except Exception as e:
+            print(f"Error refreshing job details: {e}")
+
     def stop_all_tasks(self):
         """Stop all tasks associated with this job."""
         try:
-            # Call the API to stop all tasks
-            response = requests.post("http://127.0.0.1:8001/tasks/stop_all")
-            response.raise_for_status()
-            
-            QMessageBox.information(self, "Tasks Stopped", "All tasks have been stopped.")
+            self.api_gateway.post(f"jobs/{self.job_id}/stop")
+            QMessageBox.information(self, "Job Stopped", f"Stop signal sent to job {self.job_id}.")
             self.refresh_job_details()
-        except requests.exceptions.RequestException as e:
-            QMessageBox.warning(self, "Error", f"Failed to stop tasks: {e}")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to stop job: {e}")
+
+    def refresh_task_list(self):
+        """Refreshes the list of tasks for the current job."""
+        try:
+            status = self.api_gateway.get(f"jobs/{self.job_id}/status")
+            if status is None:
+                return
+            self.task_list.clear()
+            item = QListWidgetItem(f"{status['task_id']} - Status: {status['status']}")
+            item.setData(Qt.UserRole, status)
+            self.task_list.addItem(item)
+        except Exception as e:
+            print(f"Error refreshing task list: {e}")
+
+    def open_task_gui(self):
+        """Opens the training GUI for the selected task."""
+        try:
+            self.api_gateway.post(f"jobs/{self.job_id}/train")
+            QMessageBox.information(self, "Training Started", f"Training started for job {self.job_id}.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to start training: {e}")
     
     def closeEvent(self, event):
         """Clean up resources when dialog is closed."""
@@ -151,6 +179,7 @@ class NewJobDialog(QDialog):
 class JobDashboard(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.api_gateway = APIGateway()
         self.setWindowTitle("VEstim Job Dashboard")
         self.setGeometry(100, 100, 800, 600)
 
@@ -162,9 +191,12 @@ class JobDashboard(QMainWindow):
         self.title_label.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(self.title_label)
 
-        self.job_list_widget = QListWidget()
-        self.job_list_widget.itemDoubleClicked.connect(self.show_job_details)
-        self.layout.addWidget(self.job_list_widget)
+        self.job_table_widget = QTableWidget()
+        self.job_table_widget.setColumnCount(4)
+        self.job_table_widget.setHorizontalHeaderLabels(["Job ID", "Time Since Start", "Present State", "Open Job"])
+        self.job_table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.job_table_widget.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.layout.addWidget(self.job_table_widget)
 
         self.button_layout = QHBoxLayout()
         self.layout.addLayout(self.button_layout)
@@ -199,17 +231,20 @@ class JobDashboard(QMainWindow):
     def refresh_job_list(self):
         """Fetch and display the list of jobs from the server."""
         try:
-            response = requests.get("http://127.0.0.1:8001/jobs")
-            response.raise_for_status()
-            jobs = response.json()
-            
-            self.job_list_widget.clear()
+            jobs = self.api_gateway.get("jobs")
+            if jobs is None:
+                self.job_table_widget.setRowCount(0)
+                self.statusBar().showMessage("Error: Cannot connect to the server. Please ensure it is running.")
+                return
+
+            self.job_table_widget.setRowCount(0)
             
             if not jobs:
                 self.statusBar().showMessage("No jobs found")
                 return
                 
-            for job in jobs:
+            self.job_table_widget.setRowCount(len(jobs))
+            for i, job in enumerate(jobs):
                 job_id = job.get('job_id', 'Unknown')
                 status = job.get('status', 'Unknown')
                 created_at = job.get('created_at', '')
@@ -217,79 +252,71 @@ class JobDashboard(QMainWindow):
                 if created_at:
                     try:
                         dt = datetime.fromisoformat(created_at)
-                        date_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                        time_since_start = datetime.now() - dt
+                        time_str = str(time_since_start).split('.')[0]
                     except:
-                        date_str = created_at
+                        time_str = "Unknown"
                 else:
-                    date_str = 'Unknown date'
+                    time_str = 'Unknown'
+
+                self.job_table_widget.setItem(i, 0, QTableWidgetItem(job_id))
+                self.job_table_widget.setItem(i, 1, QTableWidgetItem(time_str))
+                self.job_table_widget.setItem(i, 2, QTableWidgetItem(status))
                 
-                item = QListWidgetItem(f"{job_id} - Status: {status} - Created: {date_str}")
-                item.setData(Qt.UserRole, job_id)
-                self.job_list_widget.addItem(item)
+                open_button = QPushButton("Open")
+                open_button.clicked.connect(lambda _, j=job_id, s=status: self.show_job_details(j, s))
+                self.job_table_widget.setCellWidget(i, 3, open_button)
                 
             self.statusBar().showMessage(f"Found {len(jobs)} jobs")
             
-        except requests.exceptions.ConnectionError:
-            self.statusBar().showMessage("Error: Cannot connect to server")
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
+            self.job_table_widget.setRowCount(0)
             self.statusBar().showMessage(f"Error fetching jobs: {e}")
-
+            
     def create_new_job(self):
-        """Open dialog to create a new job."""
-        dialog = NewJobDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            selections = dialog.get_selections()
-            try:
-                response = requests.post(
-                    "http://127.0.0.1:8001/jobs", 
-                    json={"selections": selections}
-                )
-                response.raise_for_status()
-                result = response.json()
-                
-                QMessageBox.information(
-                    self, 
-                    "Job Created", 
-                    f"Job created successfully.\nJob ID: {result['job_id']}"
-                )
-                
-                self.refresh_job_list()
-            except requests.exceptions.RequestException as e:
-                QMessageBox.critical(self, "Error", f"Error creating new job: {e}")
+        """Open the data import GUI to start a new job."""
+        self.data_import_gui = DataImportGUI()
+        self.data_import_gui.show()
 
     def stop_all_tasks(self):
         """Stop all running tasks."""
-        try:
-            response = requests.post("http://127.0.0.1:8001/tasks/stop_all")
-            response.raise_for_status()
-            QMessageBox.information(self, "Tasks Stopped", "All tasks have been stopped.")
-            self.refresh_job_list()
-        except requests.exceptions.RequestException as e:
-            QMessageBox.critical(self, "Error", f"Error stopping tasks: {e}")
+        # This functionality is now handled on a per-job basis.
+        # This method can be removed or adapted to stop all jobs.
+        pass
 
     def clear_all_jobs(self):
         """Clear all jobs from the server."""
         reply = QMessageBox.question(
-            self, 
-            "Confirm Delete", 
+            self,
+            "Confirm Delete",
             "Are you sure you want to delete ALL jobs and their data?\nThis action cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No, 
+            QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if reply == QMessageBox.Yes:
             try:
-                response = requests.post("http://127.0.0.1:8001/jobs/clear")
-                response.raise_for_status()
+                self.api_gateway.post("jobs/clear")
                 QMessageBox.information(self, "Jobs Cleared", "All jobs have been cleared.")
                 self.refresh_job_list()
-            except requests.exceptions.RequestException as e:
+            except Exception as e:
                 QMessageBox.critical(self, "Error", f"Error clearing jobs: {e}")
     
-    def show_job_details(self, item):
+    def show_job_details(self, job_id, status):
         """Show details for the selected job."""
-        job_id = item.data(Qt.UserRole)
-        if job_id:
+        if not job_id:
+            return
+            
+        if status == "created":
+            self.hyper_param_gui = VEstimHyperParamGUI(job_id)
+            self.hyper_param_gui.show()
+        elif status == "training":
+            self.training_gui = VEstimTrainingTaskGUI(job_id)
+            self.training_gui.show()
+        elif status == "testing":
+            self.testing_gui = VEstimTestingGUI(job_id)
+            self.testing_gui.show()
+        else:
             dialog = JobDetailsDialog(job_id, self)
             dialog.exec_()
 

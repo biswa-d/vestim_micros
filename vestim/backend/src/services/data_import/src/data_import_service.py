@@ -4,12 +4,12 @@ import requests
 import sys
 import os
 
-from src.config import ROOT_DIR, OUTPUT_DIR  # Import the ROOT_DIR from config
-from src.gateway.src.job_manager import JobManager
+from vestim.backend.src.services.job_service import JobService
+from vestim.config import OUTPUT_DIR
 
 app = Flask(__name__)
 
-job_manager = JobManager()
+job_service = JobService()
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
@@ -21,12 +21,7 @@ def upload_files():
     if not job_id:
         return jsonify({"error": "job_id is required"}), 400
 
-    # Ensure job manager knows about the job ID
-    job_manager.job_id = job_id
-    job_folder = job_manager.get_job_folder()
-    
-    if not job_folder:
-        return jsonify({"error": "Unable to determine job folder"}), 500
+    job_folder = os.path.join(OUTPUT_DIR, job_id)
 
     os.makedirs(job_folder, exist_ok=True)
 

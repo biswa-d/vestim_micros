@@ -1,6 +1,6 @@
 import os
 import json
-from vestim.gateway.src.job_manager_qt import JobManager
+from vestim.backend.src.services.job_service import JobService
 import logging
 
 class VEstimHyperParamManager:
@@ -14,7 +14,7 @@ class VEstimHyperParamManager:
     def __init__(self):
         if not hasattr(self, 'initialized'):
             self.logger = logging.getLogger(__name__)  # Set up logger for this class
-            self.job_manager = JobManager()
+            self.job_service = JobService()
             self.current_params = {}  # Initialize current_params as None
             # self.param_sets = []  # Initialize param_sets as an empty list
             self.initialized = True
@@ -72,9 +72,7 @@ class VEstimHyperParamManager:
                 validated_params[key] = value
 
             else:
-                validated_params[key] = value  # Keep as-is for other data types
-
-        # ✅ Feature & Target Columns (No validation needed, comes from UI dropdowns)
+                validated_params[key] = value  # Keep as-is for other data types        # ✅ Feature & Target Columns (No validation needed, comes from UI dropdowns)
         validated_params["FEATURE_COLUMNS"] = params.get("FEATURE_COLUMNS", [])
         validated_params["TARGET_COLUMN"] = params.get("TARGET_COLUMN", "")
         validated_params["MODEL_TYPE"] = params.get("MODEL_TYPE", "")
@@ -82,10 +80,9 @@ class VEstimHyperParamManager:
         self.logger.info("Parameter validation and normalization completed successfully.")
         return validated_params
 
-
     def save_params(self):
         """Save the current validated parameters to the job folder in a JSON file."""
-        job_folder = self.job_manager.get_job_folder()
+        job_folder = self.job_service.get_job_folder()
 
         if not job_folder:
             self.logger.error("Job folder is not set. Cannot save parameters.")
@@ -128,11 +125,8 @@ class VEstimHyperParamManager:
             _ = self.validate_and_normalize_params(self.current_params) # Validate original structure
 
             with open(params_file, 'w') as file:
-                json.dump(params_to_save, file, indent=4) # Save the modified dict
-
-            self.logger.info(f"Hyperparameters successfully saved to file: {params_file}")
+                json.dump(params_to_save, file, indent=4) # Save the modified dict            self.logger.info(f"Hyperparameters successfully saved to file: {params_file}")
             self.logger.info(f"Saved content: {params_to_save}")
-
 
         except Exception as e:
             self.logger.error(f"Failed to save parameters: {e}")
@@ -150,10 +144,10 @@ class VEstimHyperParamManager:
         self.current_params.update(validated_params)
         # self.param_sets.append(self.current_params)
         self.logger.info("Parameters successfully updated.")
-
+    
     def get_current_params(self):
         """Load the parameters from the saved JSON file in the job folder."""
-        job_folder = self.job_manager.get_job_folder()
+        job_folder = self.job_service.get_job_folder()
         params_file = os.path.join(job_folder, 'hyperparams.json')
         
         if os.path.exists(params_file):

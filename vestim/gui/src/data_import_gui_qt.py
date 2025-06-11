@@ -27,6 +27,7 @@ from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI  # Import the new 
 from vestim.backend.src.services.data_processor.src.data_processor_qt_arbin import DataProcessorArbin
 from vestim.backend.src.services.data_processor.src.data_processor_qt_stla import DataProcessorSTLA
 from vestim.backend.src.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
+from vestim.gui.src.api_gateway import APIGateway
 
 import logging
 
@@ -36,9 +37,6 @@ logger = setup_logger(log_file='default.log')  # Log everything to 'default.log'
 
 DEFAULT_DATA_EXTENSIONS = [".csv", ".txt", ".mat", ".xls", ".xlsx", ".RES"] # Added .RES for Biologic, expand as needed
 
-# Server connection constants
-SERVER_URL = "http://127.0.0.1:8001"
-
 class DataImportGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -47,6 +45,7 @@ class DataImportGUI(QMainWindow):
         self.test_folder_path = ""
         self.selected_train_files = []
         self.selected_test_files = []
+        self.api_gateway = APIGateway()
         self.data_processor_arbin = DataProcessorArbin()  # Initialize DataProcessor
         self.data_processor_stla = DataProcessorSTLA()  # Initialize DataProcessor
         self.data_processor_digatron = DataProcessorDigatron()
@@ -287,7 +286,8 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
-        # Determine which data processor to use based on the selected data source        selected_source = self.data_source_combo.currentText()
+        # Determine which data processor to use based on the selected data source
+        selected_source = self.data_source_combo.currentText()
         if selected_source == "Arbin":
             data_processor = self.data_processor_arbin
         elif selected_source == "STLA":
@@ -304,7 +304,8 @@ class DataImportGUI(QMainWindow):
             train_files, 
             test_files, 
             data_processor,
-            data_source=selected_source
+            data_source=selected_source,
+            api_gateway=self.api_gateway
         )
         self.organizer_thread = QThread()
 
@@ -366,11 +367,12 @@ class FileOrganizer(QObject):
     job_folder_signal = pyqtSignal(str)  # To communicate when the job folder is created
     job_id_signal = pyqtSignal(str)  # To communicate the job ID
 
-    def __init__(self, train_files, test_files, data_processor, sampling_frequency=None, data_source=None):
+    def __init__(self, train_files, test_files, data_processor, api_gateway, sampling_frequency=None, data_source=None):
         super().__init__()
         self.train_files = train_files
         self.test_files = test_files
         self.data_processor = data_processor
+        self.api_gateway = api_gateway
         self.sampling_frequency = sampling_frequency  # Keep for backwards compatibility with existing code
         self.data_source = data_source  # Add data source info
 
@@ -392,7 +394,7 @@ class FileOrganizer(QObject):
                 self.test_files,
                 progress_callback=self.update_progress,
                 sampling_frequency=None,  # Remove resampling here as it's moved to data augmentation
-                job_id=job_id  # Pass the job_id to the data processor
+                job_id=job_id
             )
             
             logger.info(f"Job folder created: {job_folder}")
@@ -417,12 +419,7 @@ class FileOrganizer(QObject):
             }
             
             # Call the server API to create a job
-            response = requests.post(
-                f"{SERVER_URL}/jobs",
-                json={"selections": selections}
-            )
-            response.raise_for_status()
-            result = response.json()
+            result = self.api_gateway.post("jobs", json={"selections": selections})
             
             logger.info(f"Job created via API: {result['job_id']}")
             return result['job_id']
@@ -430,11 +427,6 @@ class FileOrganizer(QObject):
             logger.error(f"Error creating job via API: {str(e)}", exc_info=True)
             return None
             
-    def update_progress(self, progress):
-        """Update the progress bar."""
-        self.progress.emit(progress)
-            logger.error(f"Error occurred during file organization: {e}")
-
     def update_progress(self, progress_value):
         """Emit progress as a percentage."""
         self.progress.emit(progress_value)

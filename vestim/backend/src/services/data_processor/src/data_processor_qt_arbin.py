@@ -12,20 +12,21 @@ import h5py
 import scipy.io as sio # Re-add for fallback
 import numpy as np
 import gc  # Explicit garbage collector
-from vestim.gateway.src.job_manager_qt import JobManager
+from vestim.backend.src.services.job_service import JobService
 from tqdm import tqdm
 import pandas as pd
+from vestim.config import OUTPUT_DIR
 
 import logging
 
 class DataProcessorArbin:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.job_manager = JobManager()
+        self.job_service = JobService()
         self.total_files = 0  # Total number of files to process (copy + convert)
         self.processed_files = 0  # Keep track of total processed files
 
-    def organize_and_convert_files(self, train_files, test_files, progress_callback=None, sampling_frequency=None):
+    def organize_and_convert_files(self, train_files, test_files, progress_callback=None, sampling_frequency=None, job_id=None):
         # Ensure `total_files` is calculated upfront and is non-zero
         self.logger.info("Starting file organization and conversion.")
         # Count initial files for copying
@@ -35,7 +36,11 @@ class DataProcessorArbin:
             self.logger.error("No files to process.")
             raise ValueError("No files to process.")
 
-        job_id, job_folder = self.job_manager.create_new_job()
+        if job_id is None:
+            raise ValueError("job_id must be provided.")
+        
+        job_folder = os.path.join(OUTPUT_DIR, job_id)
+            
         self.logger.info(f"Job created with ID: {job_id}, Folder: {job_folder}")
 
         # Switch logger to job-specific log file

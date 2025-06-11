@@ -28,7 +28,7 @@ import numpy as np
 # from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas # PreviewDialog removed
 
 from vestim.gui.src.hyper_param_gui_qt import VEstimHyperParamGUI
-from vestim.gateway.src.data_augment_manager_qt import DataAugmentManager
+from vestim.backend.src.managers.data_augment_manager_qt import DataAugmentManager
 
 import logging
 from vestim.logger_config import setup_logger

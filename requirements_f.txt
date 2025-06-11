@@ -1,26 +1,8 @@
-# Dependencies for data_import service
-requests==2.25.1
-numpy
-scipy
-pytest
-setuptools
-pandas
-scikit-learn
-matplotlib
-torch
-torchvision
-tqdm
-seaborn
-numpy
-
-
-# Dependencies for hyper_param service
-# Add any additional dependencies here
-
-# Dependencies for model_training service
-# Add any additional dependencies here
-
-# Dependencies for model_testing service
-# Add any additional dependencies here
-
-# Dependencies for GUI
+fastapi>=0.68.0
+uvicorn>=0.15.0
+requests>=2.26.0
+PyQt5>=5.15.0
+torch>=1.9.0
+pydantic>=1.8.0
+psutil>=5.8.0
+appdirs>=1.4.4

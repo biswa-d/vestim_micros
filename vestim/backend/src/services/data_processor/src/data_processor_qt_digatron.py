@@ -3,17 +3,15 @@ import shutil
 import gc  # Explicit garbage collector
 import pandas as pd
 import h5py
-from vestim.gateway.src.job_manager_qt import JobManager
 import logging
 
 class DataProcessorDigatron:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.job_manager = JobManager()
         self.total_files = 0  # Total number of files to process (copy)
         self.processed_files = 0  # Keep track of total processed files
 
-    def organize_and_convert_files(self, train_files, test_files, progress_callback=None, sampling_frequency=None):
+    def organize_and_convert_files(self, train_files, test_files, progress_callback=None, sampling_frequency=None, job_id=None):
         # Ensure valid CSV files are provided
         if not all(f.endswith('.csv') for f in train_files + test_files):
             self.logger.error("Invalid file types. Only CSV files are accepted for Digatron processor.")
@@ -21,8 +19,15 @@ class DataProcessorDigatron:
 
         self.logger.info("Starting file organization and processing for Digatron CSVs.")
         
-        job_id, job_folder = self.job_manager.create_new_job()
-        self.logger.info(f"Job created with ID: {job_id}, Folder: {job_folder}")
+        if job_id is None:
+            self.logger.error("organize_and_convert_files called without a job_id.")
+            raise ValueError("A job_id must be provided.")
+
+        # The job folder is now derived from the job_id, assuming a base directory 'jobs'.
+        job_folder = os.path.join("jobs", str(job_id))
+        os.makedirs(job_folder, exist_ok=True) # Ensure the job folder exists
+
+        self.logger.info(f"Job ID: {job_id}, Folder: {job_folder}")
 
         job_log_file = os.path.join(job_folder, 'job.log')
         self.switch_log_file(job_log_file)

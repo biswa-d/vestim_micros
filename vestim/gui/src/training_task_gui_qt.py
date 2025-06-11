@@ -15,9 +15,7 @@ import os
 import matplotlib.pyplot as plt
 
 # Import local services
-from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
-from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
-from vestim.gateway.src.job_manager_qt import JobManager
+from vestim.gui.src.api_gateway import APIGateway
 from vestim.gui.src.testing_gui_qt import VEstimTestingGUI
 
 
@@ -27,22 +25,31 @@ class TrainingThread(QThread):
     task_completed_signal = pyqtSignal()  # Signal when the task is completed
     task_error_signal = pyqtSignal(str)  # Signal for any error during the task
 
-    def __init__(self, task, training_task_manager):
+    def __init__(self, job_id, task_id, api_gateway):
         super().__init__()
-        self.task = task
-        self.training_task_manager = training_task_manager
+        self.job_id = job_id
+        self.task_id = task_id
+        self.api_gateway = api_gateway
 
     def run(self):
         try:
             # Process the task in the background
-            self.training_task_manager.process_task(self.task, self.update_epoch_signal)
-            self.task_completed_signal.emit()  # Emit signal when the task is completed
+            self.api_gateway.post(f"jobs/{self.job_id}/train", json={"task_id": self.task_id})
+            
+            while True:
+                status = self.api_gateway.get(f"jobs/{self.job_id}/status")
+                if not status or status.get("status") in ["complete", "error", "stopped"]:
+                    break
+                self.update_epoch_signal.emit(status)
+                time.sleep(5)
+
+            self.task_completed_signal.emit()
         except Exception as e:
             self.task_error_signal.emit(str(e))  # Emit error message
 
 
 class VEstimTrainingTaskGUI(QMainWindow):
-    def __init__(self, task_list, params):
+    def __init__(self, job_id):
         super().__init__()
         
         #Logger setup
@@ -59,13 +66,10 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 self.wandb_enabled = False
                 self.logger.error(f"Failed to initialize WandB in GUI: {e}")
         
-
-        self.task_list = task_list
-        self.params = params # Assign to self.params first
-
-        self.training_task_manager = TrainingTaskManager(global_params=self.params) # Now use self.params
-        self.training_setup_manager = VEstimTrainingSetupManager()
-        self.job_manager = JobManager()
+        self.job_id = job_id
+        self.api_gateway = APIGateway()
+        self.task_list = self.api_gateway.get(f"jobs/{self.job_id}/tasks")
+        self.params = self.task_list[0]['hyperparams'] if self.task_list else {}
 
         # Initialize variables
         self.train_loss_values = []
@@ -426,17 +430,10 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.clear_plot()
 
         # Start the training task in a background thread
-        self.training_thread = TrainingThread(self.task_list[self.current_task_index], self.training_task_manager)
-
-        # Pass the thread reference to the training_task_manager
-        self.training_task_manager.training_thread = self.training_thread
-
-        # Connect signals
+        self.training_thread = TrainingThread(self.job_id, self.task_list[self.current_task_index]['task_id'], self.api_gateway)
         self.training_thread.update_epoch_signal.connect(self.update_gui_after_epoch)
         self.training_thread.task_completed_signal.connect(lambda: self.task_completed())
         self.training_thread.task_error_signal.connect(lambda error: self.handle_error(error))
-
-        # Start the thread
         self.training_thread.start()
 
         # Update the elapsed time and queue processing
@@ -501,133 +498,87 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
 
     def handle_error(self, error_message):
-        # Update the status label with the error message
+        self.logger.error(f"An error occurred during training: {error_message}")
         self.status_label.setText(f"Error: {error_message}")
-        self.status_label.setStyleSheet("color: red; font-weight: bold;")
-
-        # Append the error message to the log text
-        self.log_text.append(f"Error: {error_message}")
-
-        # Hide the stop button since the task encountered an error
-        self.stop_button.hide()
-
-    def update_gui_after_epoch(self, progress_data):
-        # Update the plot with new data
-        epoch = progress_data.get('epoch')
-        train_loss = progress_data.get('train_loss')
-        val_loss = progress_data.get('val_loss')
-        
-        if epoch is not None:
-            self.epoch_points.append(epoch)
-        if train_loss is not None:
-            self.train_loss_values.append(train_loss)
-        if val_loss is not None:
-            self.valid_loss_values.append(val_loss)
-            self.valid_x_values.append(epoch)
-
-        self.train_line.set_data(self.epoch_points, self.train_loss_values)
-        self.valid_line.set_data(self.valid_x_values, self.valid_loss_values)
-        
-        self.ax.relim()
-        self.ax.autoscale_view()
-        self.canvas.draw()
-
-        # Update the status label
-        status_message = progress_data.get("message", f"Epoch {epoch} complete")
-        self.status_label.setText(status_message)
-
-    def stop_training(self):
-        self.training_process_stopped = True
-        self.timer_running = False
-        
-        if self.training_task_manager and self.current_task_index < len(self.task_list):
-            task_id = self.task_list[self.current_task_index].get("task_id")
-            if task_id:
-                self.training_task_manager.stop_task(task_id)
-        
-        if self.training_thread and self.training_thread.isRunning():
-            self.training_thread.quit()
-            self.training_thread.wait()
-        
-        self.status_label.setText("Training process stopped by user.")
         self.status_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: red;")
-        
+        self.timer_running = False
         self.show_proceed_to_testing_button()
 
+    def update_gui_after_epoch(self, progress_data):
+        epoch = progress_data.get('epoch')
+        train_loss = progress_data.get('train_loss')
+        valid_loss = progress_data.get('valid_loss')
+        
+        if epoch is not None and train_loss is not None:
+            self.train_loss_values.append(train_loss)
+            self.epoch_points.append(epoch)
+            self.train_line.set_data(self.epoch_points, self.train_loss_values)
+            
+            if valid_loss is not None:
+                self.valid_loss_values.append(valid_loss)
+                self.valid_x_values.append(epoch)
+                self.valid_line.set_data(self.valid_x_values, self.valid_loss_values)
+
+            self.ax.relim()
+            self.ax.autoscale_view()
+            self.canvas.draw()
+            
+            self.status_label.setText(f"Epoch {epoch} | Train Loss: {train_loss:.4f} | Valid Loss: {valid_loss:.4f}")
+            self.log_text.append(f"Epoch {epoch}: Train Loss={train_loss:.4f}, Valid Loss={valid_loss:.4f}")
+            
+            if self.wandb_enabled:
+                wandb.log({"epoch": epoch, "train_loss": train_loss, "valid_loss": valid_loss})
+
+    def stop_training(self):
+        """Stops the training process by setting a flag."""
+        self.logger.info("Stop button clicked. Attempting to stop training...")
+        self.training_process_stopped = True
+        self.timer_running = False  # Stop the timer
+        
+        try:
+            self.api_gateway.post(f"jobs/{self.job_id}/stop")
+            self.status_label.setText("Training stopped by user.")
+            self.status_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: orange;")
+            self.show_proceed_to_testing_button()
+        except Exception as e:
+            self.logger.error(f"Failed to stop training: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to stop training: {e}")
 
 
     def check_if_stopped(self):
-        if self.training_thread and self.training_thread.isRunning():
-            # Keep checking until the thread has stopped
-            QTimer.singleShot(100, self.check_if_stopped)
-        else:
-            # Once the thread is confirmed to be stopped, proceed to task completion
-            print("Training thread has stopped.")
-            
-            # Update status to indicate training has stopped early (if it was stopped manually)
-            if getattr(self, 'training_process_stopped', False):
-                self.status_label.setText("Training stopped early.")
-                self.status_label.setStyleSheet("color: #b22222; font-size: 14pt; font-weight: bold;")  # Subtle red color and larger font
-            else:
-                # In case training completed naturally
-                self.status_label.setText("Training completed.")
-                self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
-
-            # Show the "Proceed to Testing" button once the training has stopped
-            if not self.task_completed_flag:
-                print("Calling task_completed() after training thread has stopped.")
-                self.task_completed()
-            else:
-                print("task_completed() was already called, skipping.")
-
+        """
+        Checks if the training process has been stopped by the user.
+        This method is called periodically by the training service.
+        """
+        return self.training_process_stopped
 
     def task_completed(self):
         if self.task_completed_flag:
-            return  # Exit if this method has already been called for this task
-        self.task_completed_flag = True  # Set the flag to True on the first call
-
+            return
+        self.task_completed_flag = True
         self.timer_running = False
-
-        # Save the training plot for the current task
+        
         try:
-            task_id = self.task_list[self.current_task_index].get('task_id', f'task_{self.current_task_index + 1}')
-            # Use 'task_dir' which is the specific directory for this task's artifacts
-            task_dir = self.task_list[self.current_task_index].get('model_dir')
-            if task_dir:
-                plot_save_path = os.path.join(task_dir, f"training_plot_{task_id}.png")
-                self.canvas.figure.savefig(plot_save_path)
-                self.logger.info(f"Training plot saved to {plot_save_path}")
+            final_status = self.api_gateway.get(f"jobs/{self.job_id}/status")
+            if final_status and final_status.get("status") == "complete":
+                self.status_label.setText("Training completed successfully.")
+                self.status_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: green;")
+                self.show_proceed_to_testing_button()
             else:
-                self.logger.warning(f"Could not save plot for task {task_id} because 'model_dir' was not found.")
+                self.handle_error("Task failed or was stopped.")
         except Exception as e:
-            self.logger.error(f"Error saving training plot: {e}")
-
-        # Move to the next task or show completion message
-        self.current_task_index += 1
-        if self.current_task_index < len(self.task_list):
-            self.task_completed_flag = False  # Reset for the next task
-            self.clear_layout()
-            self.build_gui(self.task_list[self.current_task_index])
-            self.start_task_processing()
-        else:
-            self.status_label.setText("All training tasks completed.")
-            self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
-            self.stop_button.hide()
-            self.show_proceed_to_testing_button()
+            self.handle_error(str(e))
 
     def wait_for_thread_to_stop(self):
-        if self.training_thread and self.training_thread.isRunning():
+        if hasattr(self, 'training_thread') and self.training_thread.isRunning():
             self.training_thread.quit()
             self.training_thread.wait()
 
-    def on_closing(self):
-        self.stop_training()
-        self.wait_for_thread_to_stop()
-
     def show_proceed_to_testing_button(self):
         self.proceed_button.show()
+        self.stop_button.hide()
 
     def transition_to_testing_gui(self):
-        self.testing_gui = VEstimTestingGUI(self.params)
+        self.testing_gui = VEstimTestingGUI(self.job_id)
         self.testing_gui.show()
         self.close()

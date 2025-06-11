@@ -5,25 +5,28 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vestim"
 version = "1.0.0"
-description = "Voltage Estimation Tool for Lithium-ion Batteries"
-authors = [{name = "Biswanath Dehury", email = "dehuryb@mcmaster.ca"}]
+description = "A tool for ML model training with client-server architecture"
+authors = [{name = "Biswanath Dehury", email = "your.email@example.com"}]
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
 dependencies = [
-    "matplotlib==3.9.2",
-    "numpy==1.26.4",
-    "pandas==2.2.2",
-    "PyQt5==5.15.11",
-    "PyQt5_sip==12.15.0",
-    "scikit-learn==1.5.1",
-    "scipy==1.14.1",
-    "torch==2.4.0",
-    "tqdm==4.66.5",
+    "fastapi>=0.68.0",
+    "uvicorn>=0.15.0",
+    "requests>=2.26.0",
+    "PyQt5>=5.15.0",
+    "torch>=1.9.0",
+    "pydantic>=1.8.0",
+    "psutil>=5.8.0",
+    "appdirs>=1.4.4",
 ]
 
-[tool.setuptools.packages]
-find = {where=["."], include=["vestim", "vestim.*"]}  # Discovery includes vestim and all subpackages
-
-[tool.setuptools.package-data]
-"vestim" = ["*"]  # Ensure all files under vestim are included
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vestim*"]
 
 [project.scripts]
-vestim = "vestim.scripts.run_gui:main"
+vestim = "vestim.scripts.start:main"

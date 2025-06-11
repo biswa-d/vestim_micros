@@ -18,19 +18,18 @@ from PyQt5.QtGui import QIcon
 import pandas as pd
 import torch
 
-from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
+from vestim.gui.src.api_gateway import APIGateway
+from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
 
-# Initialize the JobManager
-job_manager = JobManager()
 import logging
 class VEstimHyperParamGUI(QWidget):
-    def __init__(self):
+    def __init__(self, job_id):
         self.logger = logging.getLogger(__name__)  # Initialize the logger within the instance
         self.logger.info("Initializing Hyperparameter GUI")
         super().__init__()
         self.params = {}  # Initialize an empty params dictionary
-        self.job_manager = job_manager  # Use the shared JobManager instance
+        self.api_gateway = APIGateway()
+        self.job_id = job_id
         self.hyper_param_manager = VEstimHyperParamManager()  # Initialize HyperParamManager
         self.param_entries = {}  # To store the entry widgets for parameters
 
@@ -500,412 +499,285 @@ class VEstimHyperParamGUI(QWidget):
 
         self.lr_period_label = QLabel("LR Drop Period:")
         self.lr_period_label.setStyleSheet("font-size: 11pt; font-weight: bold;") # Make bold
-        self.lr_period_label.setToolTip("Number of epochs after which LR is reduced.")
-        self.lr_period_entry = QLineEdit(self.params.get("LR_DROP_PERIOD", "1000"))
+        self.lr_period_label.setToolTip("Number of epochs before LR is reduced.")
+        self.lr_period_entry = QLineEdit(self.params.get("LR_DROP_PERIOD", "5"))
         self.lr_period_entry.setFixedWidth(100)
-        self.lr_period_entry.setToolTip("Set higher values if you want the LR to stay stable for longer periods.")
+        self.lr_period_entry.setToolTip("A smaller value means LR drops more frequently.")
         self.param_entries["LR_PERIOD"] = self.lr_period_entry
 
         # **ReduceLROnPlateau Parameters**
-        self.plateau_patience_label = QLabel("Plateau Patience:")
-        self.plateau_patience_label.setStyleSheet("font-size: 11pt; font-weight: bold;") # Make bold
-        self.plateau_patience_label.setToolTip("Number of epochs to wait before reducing LR if no improvement in validation.")
-        self.plateau_patience_entry = QLineEdit(self.params.get("PLATEAU_PATIENCE", "10"))
-        self.plateau_patience_entry.setFixedWidth(100)
-        self.plateau_patience_entry.setToolTip("Larger values allow longer training before LR adjustment.")
-        self.param_entries["PLATEAU_PATIENCE"] = self.plateau_patience_entry
+        self.patience_label = QLabel("Patience:")
+        self.patience_label.setStyleSheet("font-size: 11pt; font-weight: bold;") # Make bold
+        self.patience_label.setToolTip("Number of epochs with no improvement before LR is reduced.")
+        self.patience_entry = QLineEdit(self.params.get("PATIENCE", "3"))
+        self.patience_entry.setFixedWidth(100)
+        self.patience_entry.setToolTip("Higher values make the scheduler less sensitive to short-term fluctuations.")
+        self.param_entries["PATIENCE"] = self.patience_entry
 
-        self.plateau_factor_label = QLabel("Plateau Factor:")
-        self.plateau_factor_label.setStyleSheet("font-size: 11pt; font-weight: bold;") # Make bold
-        self.plateau_factor_label.setToolTip("Factor by which LR is reduced when ReduceLROnPlateau is triggered.")
-        self.plateau_factor_entry = QLineEdit(self.params.get("PLATEAU_FACTOR", "0.1"))
-        self.plateau_factor_entry.setFixedWidth(100)
-        self.plateau_factor_entry.setToolTip("Lower values make the LR decrease more significantly.")
-        self.param_entries["PLATEAU_FACTOR"] = self.plateau_factor_entry
-
-        # ✅ Initially hide ReduceLROnPlateau parameters
-        self.plateau_patience_label.setVisible(False)
-        self.plateau_patience_entry.setVisible(False)
-        self.plateau_factor_label.setVisible(False)
-        self.plateau_factor_entry.setVisible(False)
-
-        # ✅ Connect selection change event
+        # **Connect Dropdown to Update Settings**
         self.scheduler_combo.currentIndexChanged.connect(self.update_scheduler_settings)
 
-        # **Apply Layout**
-        layout.addWidget(scheduler_label)
-        layout.addWidget(self.scheduler_combo)
-        layout.addWidget(initial_lr_label)
-        layout.addWidget(self.initial_lr_entry)
-        layout.addWidget(self.lr_param_label)
-        layout.addWidget(self.lr_param_entry)
-        layout.addWidget(self.lr_period_label)
-        layout.addWidget(self.lr_period_entry)
-        layout.addWidget(self.plateau_patience_label)
-        layout.addWidget(self.plateau_patience_entry)
-        layout.addWidget(self.plateau_factor_label)
-        layout.addWidget(self.plateau_factor_entry)
+        # **Add Widgets to Layout**
+        scheduler_layout = QVBoxLayout()
+        scheduler_layout.setAlignment(Qt.AlignTop)
+        scheduler_layout.addWidget(scheduler_label)
+        scheduler_layout.addWidget(self.scheduler_combo)
+        scheduler_layout.addWidget(initial_lr_label)
+        scheduler_layout.addWidget(self.initial_lr_entry)
+        scheduler_layout.addWidget(self.lr_param_label)
+        scheduler_layout.addWidget(self.lr_param_entry)
+        scheduler_layout.addWidget(self.lr_period_label)
+        scheduler_layout.addWidget(self.lr_period_entry)
+        scheduler_layout.addWidget(self.patience_label)
+        scheduler_layout.addWidget(self.patience_entry)
 
-        # **Set Default to StepLR**
+        # **Apply to Parent Layout**
+        layout.addLayout(scheduler_layout)
+
+        # **Set Default to StepLR and Update Visibility**
+        self.scheduler_combo.setCurrentText("StepLR")
         self.update_scheduler_settings()
 
     def update_scheduler_settings(self):
-        """Updates the displayed scheduler parameters dynamically."""
-        selected_scheduler = self.param_entries["SCHEDULER_TYPE"].currentText()
+        """Updates the visibility and labels of scheduler parameters based on the selected scheduler."""
+        selected_scheduler = self.scheduler_combo.currentText()
 
-        if selected_scheduler == "StepLR":
-            self.lr_param_label.setText("LR Drop Factor:")
-            self.lr_param_label.setVisible(True)
-            self.lr_param_entry.setVisible(True)
-            self.lr_period_label.setVisible(True)
-            self.lr_period_entry.setVisible(True)
+        is_step_lr = (selected_scheduler == "StepLR")
+        is_reduce_lr = (selected_scheduler == "ReduceLROnPlateau")
 
-            self.plateau_patience_label.setVisible(False)
-            self.plateau_patience_entry.setVisible(False)
-            self.plateau_factor_label.setVisible(False)
-            self.plateau_factor_entry.setVisible(False)
+        # **StepLR Specific**
+        self.lr_param_label.setText("LR Drop Factor:" if is_step_lr else "LR Reduction Factor:")
+        self.lr_param_label.setVisible(True)
+        self.lr_param_entry.setVisible(True)
+        self.lr_period_label.setVisible(is_step_lr)
+        self.lr_period_entry.setVisible(is_step_lr)
 
-        elif selected_scheduler == "ReduceLROnPlateau":
-            self.lr_param_label.setText("Plateau Factor:")
-            self.lr_param_label.setVisible(True)
-            self.lr_param_entry.setVisible(True)
-            self.lr_period_label.setVisible(False)
-            self.lr_period_entry.setVisible(False)
-
-            self.plateau_patience_label.setVisible(True)
-            self.plateau_patience_entry.setVisible(True)
-            self.plateau_factor_label.setVisible(True)
-            self.plateau_factor_entry.setVisible(True)
+        # **ReduceLROnPlateau Specific**
+        self.patience_label.setVisible(is_reduce_lr)
+        self.patience_entry.setVisible(is_reduce_lr)
 
 
     def add_validation_criteria(self, layout):
-        """Adds aligned validation patience and frequency UI components with tooltips and structured alignment."""
+        """Adds UI components for validation criteria with top alignment and tooltips."""
 
-        # **Main Layout with Top Alignment**
+        # **Main Vertical Layout**
         validation_layout = QVBoxLayout()
         validation_layout.setAlignment(Qt.AlignTop)
 
-        # Add maximum training epochs
-        max_epochs_label = QLabel("Max Training Epochs:")
-        max_epochs_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
-        max_epochs_label.setToolTip("Enter maximum training epochs. Use commas for multiple values (e.g., 100,200,500)")
+        # **Epochs**
+        epochs_label = QLabel("Epochs:")
+        epochs_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
+        epochs_label.setToolTip("Total number of training cycles.")
+        self.epochs_entry = QLineEdit(self.params.get("EPOCHS", "10"))
+        self.epochs_entry.setFixedWidth(100)
+        self.epochs_entry.setToolTip("More epochs can improve accuracy but risk overfitting.")
+        self.param_entries["EPOCHS"] = self.epochs_entry
 
-        self.max_epochs_entry = QLineEdit(self.params.get("MAX_EPOCHS", "500"))
-        self.max_epochs_entry.setFixedWidth(100)
-        self.max_epochs_entry.setToolTip("Enter maximum training epochs. Use commas for multiple values (e.g., 100,200,500)")
-
-        # **Validation Patience**
-        patience_label = QLabel("Validation Patience:")
-        patience_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
-        patience_label.setToolTip("Enter validation patience. Use commas for multiple values (e.g., 5,10,15)")
-
-        self.patience_entry = QLineEdit(self.params.get("VALID_PATIENCE", "10"))
-        self.patience_entry.setFixedWidth(100)
-        self.patience_entry.setToolTip("Enter validation patience. Use commas for multiple values (e.g., 5,10,15)")
+        # **Early Stopping**
+        early_stopping_label = QLabel("Early Stopping Patience:")
+        early_stopping_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
+        early_stopping_label.setToolTip("Number of epochs to wait for improvement before stopping training.")
+        self.early_stopping_entry = QLineEdit(self.params.get("EARLY_STOPPING_PATIENCE", "3"))
+        self.early_stopping_entry.setFixedWidth(100)
+        self.early_stopping_entry.setToolTip("Prevents overfitting by stopping when performance on the validation set stops improving.")
+        self.param_entries["EARLY_STOPPING_PATIENCE"] = self.early_stopping_entry
 
         # **Validation Frequency**
-        freq_label = QLabel("Validation Frequency:")
-        freq_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
-        freq_label.setToolTip("Enter validation frequency. Use commas for multiple values (e.g., 1,3,5)")
+        validation_freq_label = QLabel("Validation Frequency:")
+        validation_freq_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
+        validation_freq_label.setToolTip("How often to run validation (in epochs).")
+        self.validation_freq_entry = QLineEdit(self.params.get("VALIDATION_FREQ", "1"))
+        self.validation_freq_entry.setFixedWidth(100)
+        self.validation_freq_entry.setToolTip("e.g., '1' means validate after every epoch.")
+        self.param_entries["VALIDATION_FREQ"] = self.validation_freq_entry
 
-        self.freq_entry = QLineEdit(self.params.get("ValidFrequency", "3"))
-        self.freq_entry.setFixedWidth(100)
-        self.freq_entry.setToolTip("Enter validation frequency. Use commas for multiple values (e.g., 1,3,5)")
+        # **Add Widgets to Layout**
+        validation_layout.addWidget(epochs_label)
+        validation_layout.addWidget(self.epochs_entry)
+        validation_layout.addWidget(early_stopping_label)
+        validation_layout.addWidget(self.early_stopping_entry)
+        validation_layout.addWidget(validation_freq_label)
+        validation_layout.addWidget(self.validation_freq_entry)
 
-        # Add Repetitions QLineEdit
-        repetitions_label = QLabel("Repetitions:")
-        repetitions_label.setStyleSheet("font-size: 11pt; font-weight: bold;") # Make bold
-        repetitions_label.setToolTip("Number of times to repeat each training task with the same hyperparameters.")
-        self.repetitions_entry = QLineEdit(str(self.params.get("REPETITIONS", "1"))) # Default to "1"
-        self.repetitions_entry.setFixedWidth(100)
-        self.repetitions_entry.setToolTip("Enter an integer (e.g., 1, 2, 3).")
-
-        # ✅ Store references in self.param_entries for parameter collection
-        self.param_entries["VALID_PATIENCE"] = self.patience_entry
-        self.param_entries["VALID_FREQUENCY"] = self.freq_entry
-        self.param_entries["MAX_EPOCHS"] = self.max_epochs_entry
-        self.param_entries["REPETITIONS"] = self.repetitions_entry # Add to param_entries
-
-        # **Max Training Time**
-        max_time_label = QLabel("Max Training Time:")
-        max_time_label.setStyleSheet("font-size: 11pt; font-weight: bold;") # Make bold
-        max_time_label.setToolTip("Set a maximum duration for the training process (HH:MM:SS). Training will stop after this time, even if max epochs not reached.")
-        
-        time_layout = QHBoxLayout()
-        self.max_time_hours_entry = QLineEdit(self.params.get("MAX_TRAIN_HOURS", "0"))
-        self.max_time_hours_entry.setFixedWidth(40)
-        self.max_time_hours_entry.setPlaceholderText("HH")
-        time_layout.addWidget(self.max_time_hours_entry)
-        time_layout.addWidget(QLabel("H :"))
-        
-        self.max_time_minutes_entry = QLineEdit(self.params.get("MAX_TRAIN_MINUTES", "30"))
-        self.max_time_minutes_entry.setFixedWidth(40)
-        self.max_time_minutes_entry.setPlaceholderText("MM")
-        time_layout.addWidget(self.max_time_minutes_entry)
-        time_layout.addWidget(QLabel("M :"))
-
-        self.max_time_seconds_entry = QLineEdit(self.params.get("MAX_TRAIN_SECONDS", "0"))
-        self.max_time_seconds_entry.setFixedWidth(40)
-        self.max_time_seconds_entry.setPlaceholderText("SS")
-        time_layout.addWidget(self.max_time_seconds_entry)
-        time_layout.addWidget(QLabel("S"))
-        time_layout.addStretch()
-
-        self.param_entries["MAX_TRAIN_HOURS"] = self.max_time_hours_entry
-        self.param_entries["MAX_TRAIN_MINUTES"] = self.max_time_minutes_entry
-        self.param_entries["MAX_TRAIN_SECONDS"] = self.max_time_seconds_entry
-
-        # **Ensure Proper Alignment**
-        # Using QFormLayout now for the whole validation criteria section for consistency
-        validation_form_layout = QFormLayout()
-        validation_form_layout.addRow(max_epochs_label, self.max_epochs_entry)
-        validation_form_layout.addRow(patience_label, self.patience_entry)
-        validation_form_layout.addRow(freq_label, self.freq_entry)
-        validation_form_layout.addRow(repetitions_label, self.repetitions_entry)
-        validation_form_layout.addRow(max_time_label, time_layout) # Add new row
-
-        # The QFormLayout (validation_form_layout) now handles these.
-        validation_layout.addLayout(validation_form_layout) # Add the QFormLayout
-
-        # **Apply Layout to Parent Layout**
+        # **Apply to Parent Layout**
         layout.addLayout(validation_layout)
-        
+
     def add_device_selection(self, layout):
-        """Adds device selection UI components."""
+        """Adds UI components for device selection with top alignment and tooltips."""
+
+        # **Main Vertical Layout**
         device_layout = QVBoxLayout()
         device_layout.setAlignment(Qt.AlignTop)
 
-        device_label = QLabel("Device Selection:")
+        # **Device Selection**
+        device_label = QLabel("Select Device:")
         device_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
-        device_label.setToolTip("Select the device for training (CPU or specific CUDA GPU).")
-        
+        device_label.setToolTip("Choose the hardware for training.")
+
         self.device_combo = QComboBox()
         
-        # Detect available GPUs - Use torch.cuda to find available CUDA devices
-        device_options = ["CPU"]
+        # **Check for CUDA Availability**
         if torch.cuda.is_available():
-            for i in range(torch.cuda.device_count()):
-                device_options.append(f"cuda:{i}")
-                
-        self.device_combo.addItems(device_options)
+            device_options = ["cuda", "cpu"]
+            self.device_combo.addItems(device_options)
+            self.device_combo.setToolTip("CUDA is available. Select 'cuda' for GPU training.")
+        else:
+            device_options = ["cpu"]
+            self.device_combo.addItems(device_options)
+            self.device_combo.setToolTip("CUDA not available. Training will run on CPU.")
+            self.device_combo.setEnabled(False) # Disable if only CPU is an option
+
         self.device_combo.setFixedWidth(180)
-        self.device_combo.setToolTip("Select CPU for compatibility, GPU for faster training.")
+        self.param_entries["DEVICE"] = self.device_combo
 
-        # Set default device to cuda:0 if available
-        default_device = "cuda:0" if torch.cuda.is_available() else "CPU"
-        
-        if default_device in device_options:
-            self.device_combo.setCurrentText(default_device)
-        elif "CPU" in device_options: # Fallback to CPU if default_device isn't an option
-            self.device_combo.setCurrentText("CPU")
-
-        self.param_entries["DEVICE_SELECTION"] = self.device_combo
-
+        # **Add Widgets to Layout**
         device_layout.addWidget(device_label)
         device_layout.addWidget(self.device_combo)
-        
-        # Mixed precision training checkbox (only available for CUDA devices)
-        if torch.cuda.is_available():
-            self.mixed_precision_checkbox = QCheckBox("Use Mixed Precision Training")
-            self.mixed_precision_checkbox.setChecked(True)  # Enable by default
-            self.mixed_precision_checkbox.setToolTip("Enable automatic mixed precision (AMP) to accelerate GPU training with minimal accuracy impact.")
-            self.param_entries["USE_MIXED_PRECISION"] = self.mixed_precision_checkbox
-            
-            # Add the checkbox to the layout
-            device_layout.addWidget(self.mixed_precision_checkbox)
-        
-        device_layout.addStretch(1)
+
+        # **Apply to Parent Layout**
         layout.addLayout(device_layout)
 
-    def get_selected_features(self):
-        """Retrieve selected feature columns as a list."""
-        return [item.text() for item in self.feature_list.selectedItems()]
 
     def proceed_to_training(self):
+        """Collects parameters, generates task configurations, and starts training."""
+        self.collect_parameters()
+        self.hyper_param_manager.set_params(self.params)
+        
         try:
-            # 1. Fetch all parameters from the UI
-            new_params = {}
-            for param, entry in self.param_entries.items():
-                if isinstance(entry, QLineEdit):
-                    new_params[param] = entry.text().strip()
-                elif isinstance(entry, QComboBox):
-                    new_params[param] = entry.currentText()
-                elif isinstance(entry, QCheckBox):
-                    new_params[param] = entry.isChecked()
-                elif isinstance(entry, QListWidget):
-                    new_params[param] = [item.text() for item in entry.selectedItems()]
+            task_configs = self.hyper_param_manager.generate_task_configs()
+            
+            for i, config in enumerate(task_configs):
+                task_id = f"task_{self.job_id}_{i}"
+                self.api_gateway.post(f"jobs/{self.job_id}/train", json={"task_id": task_id, "params": config})
 
-            # 2. Validate critical fields
-            if not new_params.get("FEATURE_COLUMNS"):
-                QMessageBox.critical(self, "Selection Error", "Please select at least one feature column.")
-                return
-            if not new_params.get("TARGET_COLUMN"):
-                QMessageBox.critical(self, "Selection Error", "Please select a target column.")
-                return
-
-            self.logger.info(f"Sending job request to backend with params: {new_params}")
-
-            # 3. Start the training
-            status = self.job_manager.start_training(new_params)
-
-            if status:
-                QMessageBox.information(self, "Success", f"Training started successfully.\n{status}")
-                self.close()
-            else:
-                QMessageBox.critical(self, "Error", "Failed to start training. Check logs for details.")
-
+            QMessageBox.information(self, "Training Started", f"Started {len(task_configs)} training task(s) for job {self.job_id}.")
+            self.close()
         except Exception as e:
-            self.logger.error(f"An unexpected error occurred: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
-
+            self.logger.error(f"Failed to start training: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to start training: {e}")
 
 
     def load_column_names(self):
-        """Loads column names from a sample CSV file in the train processed data folder."""
-        train_folder = self.job_manager.get_train_folder()
-        if train_folder:
-            try:
-                csv_files = [f for f in os.listdir(train_folder) if f.endswith(".csv")]
-                if not csv_files:
-                    raise FileNotFoundError("No CSV files found in train processed data folder.")
-                
-                sample_csv_path = os.path.join(train_folder, csv_files[0])  # Pick the first CSV
-                df = pd.read_csv(sample_csv_path, nrows=1)  # Load only header
-                return list(df.columns)  # Return column names
+        """Loads column names from the first CSV file found in the train folder."""
+        job_details = self.api_gateway.get(f"jobs/{self.job_id}")
+        if not job_details:
+            self.logger.error(f"Could not get details for job {self.job_id}")
+            return []
+        
+        job_folder = job_details.get("job_folder")
+        train_folder = os.path.join(job_folder, 'train_data', 'processed_data')
 
-            except Exception as e:
-                print(f"Error loading CSV columns: {e}")
-        return []
-    
+        if not train_folder or not os.path.exists(train_folder):
+            self.logger.warning("Train folder not found. Cannot load column names.")
+            return []
+        
+        try:
+            # Find the first CSV file in the directory
+            csv_files = [f for f in os.listdir(train_folder) if f.endswith('.csv')]
+            if not csv_files:
+                self.logger.warning("No CSV files found in the train folder.")
+                return []
+            
+            # Read the header of the first CSV file
+            df = pd.read_csv(os.path.join(train_folder, csv_files[0]), nrows=0)
+            return df.columns.tolist()
+        except Exception as e:
+            self.logger.error(f"Failed to load column names: {e}", exc_info=True)
+            return []
+
     def load_params_from_json(self):
-        """Load hyperparameters from a JSON file and update the UI."""
-        filepath, _ = QFileDialog.getOpenFileName(self, "Load Params", "", "JSON Files (*.json);;All Files (*)")
-        if filepath:
+        """Opens a file dialog to load hyperparameters from a JSON file."""
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(self, "Load Hyperparameters", "", "JSON Files (*.json)", options=options)
+        if file_path:
             try:
-                # Load and validate parameters using the manager
-                self.params = self.hyper_param_manager.load_params(filepath)
-                self.logger.info(f"Successfully loaded parameters from {filepath}")
-
-                # Update GUI elements with loaded parameters
-                self.update_gui_with_loaded_params()
-
+                with open(file_path, 'r') as f:
+                    new_params = json.load(f)
+                self.update_params(new_params)
+                QMessageBox.information(self, "Success", "Parameters loaded successfully.")
             except Exception as e:
-                self.logger.error(f"Failed to load parameters from {filepath}: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to load parameters: {str(e)}")
-
+                QMessageBox.critical(self, "Error", f"Failed to load parameters: {e}")
 
     def update_params(self, new_params):
         """Update hyperparameters and refresh the UI."""
         try:
-            self.logger.info(f"Updating parameters: {new_params}")
-
-            # Update using the hyperparameter manager
-            self.hyper_param_manager.update_params(new_params)
-
-            # Refresh the GUI with updated parameters
+            self.params.update(new_params)
             self.update_gui_with_loaded_params()
-
-        except ValueError as e:
-            self.logger.error(f"Invalid parameter input: {new_params} - Error: {e}")
-            QMessageBox.critical(self, "Error", f"Invalid parameter input: {str(e)}")
-
+            self.logger.info("Parameters updated and GUI refreshed.")
+        except Exception as e:
+            self.logger.error(f"Failed to update parameters: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"An error occurred while updating parameters: {e}")
 
     def update_gui_with_loaded_params(self):
-        """Update the GUI with previously saved parameters, including features & target."""
-        
-        if not self.params:
-            self.logger.warning("No parameters found to update the GUI.")
-            return
+        """Refreshes the GUI with the current self.params dictionary."""
+        # Update simple QLineEdit and QComboBox widgets
+        for key, widget in self.param_entries.items():
+            if key in self.params:
+                value = self.params[key]
+                if isinstance(widget, QLineEdit):
+                    widget.setText(str(value))
+                elif isinstance(widget, QComboBox):
+                    index = widget.findText(str(value), Qt.MatchFixedString)
+                    if index >= 0:
+                        widget.setCurrentIndex(index)
+                elif isinstance(widget, QCheckBox):
+                    widget.setChecked(bool(value))
 
-        # ✅ Update standard hyperparameters (Text Fields, Dropdowns, Checkboxes)
-        for param_name, entry in self.param_entries.items():
-            if param_name in self.params:
-                value = self.params[param_name]
+        # Update QListWidget for feature columns
+        if "FEATURE_COLUMNS" in self.params and isinstance(self.param_entries["FEATURE_COLUMNS"], QListWidget):
+            feature_list_widget = self.param_entries["FEATURE_COLUMNS"]
+            feature_list_widget.clearSelection()
+            selected_features = self.params["FEATURE_COLUMNS"]
+            if isinstance(selected_features, list):
+                for i in range(feature_list_widget.count()):
+                    item = feature_list_widget.item(i)
+                    if item.text() in selected_features:
+                        item.setSelected(True)
 
-                # ✅ Handle different widget types correctly
-                if isinstance(entry, QLineEdit):
-                    entry.setText(str(value))  # Convert value to string for text fields
-
-                elif isinstance(entry, QComboBox):
-                    index = entry.findText(str(value))  # Get index for dropdowns
-                    if index != -1:
-                        entry.setCurrentIndex(index)
-
-                elif isinstance(entry, QCheckBox):
-                    entry.setChecked(bool(value))  # Ensure checkbox reflects state
-
-                elif isinstance(entry, QListWidget):  # Multi-Select Feature List
-                    selected_items = set(value) if isinstance(value, list) else set([value])
-                    for i in range(entry.count()):
-                        item = entry.item(i)
-                        item.setSelected(item.text() in selected_items)
-
-        # ✅ Update Model Parameters (Ensure proper model-specific param refresh)
+        # Update model-specific parameters
         if "MODEL_TYPE" in self.params:
-            model_index = self.model_combo.findText(self.params["MODEL_TYPE"])
-            if model_index != -1:
-                self.model_combo.setCurrentIndex(model_index)
+            self.model_combo.setCurrentText(self.params["MODEL_TYPE"])
+            self.update_model_params() # This will rebuild the model-specific UI
+            # Now, re-populate the newly created model-specific fields
+            for key, widget in self.param_entries.items():
+                if key in self.params and isinstance(widget, QLineEdit):
+                    widget.setText(str(self.params[key]))
 
-        # ✅ Ensure Scheduler Parameters Update Correctly
+        # Update scheduler-specific parameters
         if "SCHEDULER_TYPE" in self.params:
-            scheduler_index = self.scheduler_combo.findText(self.params["SCHEDULER_TYPE"])
-            if scheduler_index != -1:
-                self.scheduler_combo.setCurrentIndex(scheduler_index)
-
-        # ✅ Ensure Training Method and dependent fields update correctly
-        if "TRAINING_METHOD" in self.params:
-            method_index = self.training_method_combo.findText(self.params["TRAINING_METHOD"])
-            if method_index != -1:
-                self.training_method_combo.setCurrentIndex(method_index)
+            self.scheduler_combo.setCurrentText(self.params["SCHEDULER_TYPE"])
+            self.update_scheduler_settings()
+            # Re-populate scheduler fields
+            for key, widget in self.param_entries.items():
+                if key in self.params and isinstance(widget, QLineEdit):
+                    widget.setText(str(self.params[key]))
         
-        # Explicitly call update methods after setting combo boxes to ensure UI consistency
-        # especially if loaded params match current combo box text (so currentIndexChanged doesn't fire)
-        self.update_model_params()
-        self.update_scheduler_settings()
-        self.update_training_method() # This will also handle batch size visibility
+        self.logger.info("GUI has been updated with loaded parameters.")
 
-        # Populate Max Training Time H, M, S fields from MAX_TRAINING_TIME_SECONDS
-        if "MAX_TRAINING_TIME_SECONDS" in self.params:
-            try:
-                total_seconds = int(self.params["MAX_TRAINING_TIME_SECONDS"])
-                if total_seconds >= 0:
-                    hours = total_seconds // 3600
-                    minutes = (total_seconds % 3600) // 60
-                    seconds = total_seconds % 60
-                    
-                    if hasattr(self, 'max_time_hours_entry'):
-                        self.max_time_hours_entry.setText(str(hours))
-                    if hasattr(self, 'max_time_minutes_entry'):
-                        self.max_time_minutes_entry.setText(str(minutes))
-                    if hasattr(self, 'max_time_seconds_entry'):
-                        self.max_time_seconds_entry.setText(str(seconds))
-                    self.logger.info(f"Populated Max Training Time H:M:S from loaded MAX_TRAINING_TIME_SECONDS ({total_seconds}s).")
-                else:
-                    if hasattr(self, 'max_time_hours_entry'): self.max_time_hours_entry.setText("0")
-                    if hasattr(self, 'max_time_minutes_entry'): self.max_time_minutes_entry.setText("30")
-                    if hasattr(self, 'max_time_seconds_entry'): self.max_time_seconds_entry.setText("0")
-            except (ValueError, TypeError) as e:
-                self.logger.warning(f"Could not parse MAX_TRAINING_TIME_SECONDS ('{self.params.get('MAX_TRAINING_TIME_SECONDS')}') for GUI: {e}. Setting H:M:S to defaults.")
-                if hasattr(self, 'max_time_hours_entry'): self.max_time_hours_entry.setText("0")
-                if hasattr(self, 'max_time_minutes_entry'): self.max_time_minutes_entry.setText("30")
-                if hasattr(self, 'max_time_seconds_entry'): self.max_time_seconds_entry.setText("0")
-        # If MAX_TRAINING_TIME_SECONDS is not in params, the QLineEdit defaults (set during creation) will be used.
-
-        self.logger.info("GUI successfully updated with loaded parameters.")
 
     def open_guide(self):
-        resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
-        pdf_path = os.path.join(resources_path, 'hyper_param_guide.pdf')
-        if os.path.exists(pdf_path):
-            try:
-                os.startfile(pdf_path)
-            except Exception as e:
-                print(f"Failed to open PDF: {e}")
-        else:
-            self.logger.warning("PDF guide not found. Make sure 'hyper_param_guide.pdf' is in the correct directory.")
+        """Opens the hyperparameter guide PDF."""
+        try:
+            # Correctly determine the path to the guide relative to this script
+            guide_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources', 'hyper_param_guide.pdf')
+            if os.path.exists(guide_path):
+                os.startfile(guide_path)
+            else:
+                QMessageBox.warning(self, "Guide Not Found", "The hyperparameter guide could not be found.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not open the guide: {e}")
 
-if __name__ == "__main__":
-    app = QApplication([])
-    gui = VEstimHyperParamGUI()
-    gui.show()
-    app.exec_()
+    def collect_parameters(self):
+        """Collects all parameters from the UI and stores them in self.params."""
+        self.params = {}
+        for key, widget in self.param_entries.items():
+            if isinstance(widget, QLineEdit):
+                self.params[key] = widget.text()
+            elif isinstance(widget, QComboBox):
+                self.params[key] = widget.currentText()
+            elif isinstance(widget, QListWidget):
+                selected_items = [item.text() for item in widget.selectedItems()]
+                self.params[key] = selected_items
+            elif isinstance(widget, QCheckBox):
+                self.params[key] = widget.isChecked()
+        self.logger.info(f"Collected parameters: {self.params}")

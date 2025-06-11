@@ -20,17 +20,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import numpy as np
 
-from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.services.model_testing.src.testing_service import VEstimTestingService # Corrected import
-from vestim.services.model_testing.src.test_data_service import VEstimTestDataService # Corrected import
-from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.backend.src.services.job_service import JobService
+from vestim.backend.src.services.model_testing.src.testing_service import VEstimTestingService
+from vestim.backend.src.services.model_testing.src.test_data_service import VEstimTestDataService
+from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
 import logging
 
 class VEstimTestingManager:
     def __init__(self):
         print("Initializing VEstimTestingManager...")
         self.logger = logging.getLogger(__name__)
-        self.job_manager = JobManager()  # Singleton instance of JobManager
+        self.job_service = JobService()  # Singleton instance of JobService
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.testing_service = VEstimTestingService()
         self.test_data_service = VEstimTestDataService()
@@ -55,8 +55,8 @@ class VEstimTestingManager:
         """The main function that runs testing tasks."""
         try:
             print("Getting test folder and results save directory...")
-            test_folder = self.job_manager.get_test_folder()
-            # save_dir = self.job_manager.get_test_results_folder()
+            test_folder = self.job_service.get_test_folder()
+            # save_dir = self.job_service.get_test_results_folder()
             # print(f"Test folder: {test_folder}, Save directory: {save_dir}")
 
             # Retrieve task list
@@ -64,7 +64,7 @@ class VEstimTestingManager:
             task_list = self.training_setup_manager.get_task_list()
 
             if not task_list:
-                task_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
+                task_summary_file = os.path.join(self.job_service.get_job_folder(), 'training_tasks_summary.json')
                 if os.path.exists(task_summary_file):
                     with open(task_summary_file, 'r') as f:
                         task_list = json.load(f)
@@ -123,7 +123,7 @@ class VEstimTestingManager:
             
             # Make model_path relative for logging
             try:
-                output_dir_for_log = os.path.dirname(self.job_manager.get_job_folder()) # Gets 'output'
+                output_dir_for_log = os.path.dirname(self.job_service.get_job_folder()) # Gets 'output'
                 log_model_path = os.path.relpath(model_path, output_dir_for_log)
             except Exception: # Fallback if path manipulation fails
                 log_model_path = model_path
@@ -306,7 +306,7 @@ class VEstimTestingManager:
                 # Print debug information to help with troubleshooting
                 print(f"Sending results for test file: {test_file}")
                 try:
-                    output_dir_for_log_preds = os.path.dirname(self.job_manager.get_job_folder()) # Gets 'output'
+                    output_dir_for_log_preds = os.path.dirname(self.job_service.get_job_folder()) # Gets 'output'
                     log_predictions_path = os.path.relpath(predictions_file, output_dir_for_log_preds)
                 except Exception:
                     log_predictions_path = predictions_file
@@ -320,7 +320,7 @@ class VEstimTestingManager:
 
         except Exception as e:
             try:
-                output_dir_for_log_err = os.path.dirname(self.job_manager.get_job_folder())
+                output_dir_for_log_err = os.path.dirname(self.job_service.get_job_folder())
                 log_model_path_err = os.path.relpath(model_path, output_dir_for_log_err)
             except Exception:
                 log_model_path_err = model_path

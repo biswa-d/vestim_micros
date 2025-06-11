@@ -1,6 +1,6 @@
 import argparse
 import json
-from vestim.gateway.src.job_manager_qt import JobManager
+from vestim.backend.src.managers.job_manager_qt import JobManager
 
 def main():
     """

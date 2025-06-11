@@ -23,8 +23,9 @@ import logging
 from typing import List, Tuple, Dict, Optional, Union, Any
 
 from vestim.logger_config import setup_logger
-from vestim.gateway.src.job_manager_qt import JobManager # Import JobManager
+from vestim.backend.src.services.job_service import JobService
 from vestim.backend.src.services import normalization_service as norm_svc
+from vestim.config import OUTPUT_DIR
 
 # Set up logging
 logger = setup_logger(log_file='data_augment_service.log')
@@ -35,10 +36,10 @@ class DataAugmentService:
     def __init__(self):
         """Initialize the DataAugmentService"""
         self.logger = logging.getLogger(__name__)
-        self.job_manager = JobManager() # Instantiate JobManager
+        self.job_service = JobService()
 
     def _set_job_context(self, job_folder: str):
-        """Sets the JobManager's context to the given job_folder."""
+        """Sets the JobService's context to the given job_folder."""
         if not job_folder or not os.path.isdir(job_folder):
             self.logger.error(f"Invalid job_folder provided to _set_job_context: {job_folder}")
             return # Exit if job_folder is invalid
@@ -47,12 +48,7 @@ class DataAugmentService:
         if not job_id.startswith("job_"): # Basic validation
              self.logger.warning(f"Job folder '{job_id}' might not be a valid job ID format.")
 
-        if self.job_manager.get_job_id() != job_id:
-            self.logger.info(f"Setting JobManager's current job_id to: {job_id} (from path: {job_folder})")
-            self.job_manager.job_id = job_id
-        elif self.job_manager.get_job_folder() != job_folder :
-            self.logger.info(f"JobManager's job_id '{job_id}' matches, but ensuring folder context is updated using path: {job_folder}")
-            self.job_manager.job_id = job_id
+        self.job_service.set_job_id(job_id)
 
 
     def load_processed_data(self, train_path: str, test_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -467,13 +463,13 @@ class DataAugmentService:
 
     def update_augmentation_metadata(self, job_folder: str, processed_files_info: List[Dict[str, Any]]):
         self.logger.info(f"Updating augmentation metadata for job: {job_folder}")
-        self._set_job_context(job_folder) 
+        self._set_job_context(job_folder)
 
-        metadata_path = os.path.join(job_folder, 'augmentation_log.txt') 
+        metadata_path = os.path.join(job_folder, 'augmentation_log.txt')
 
         try:
-            with open(metadata_path, 'w') as f: 
-                f.write(f"--- Data Augmentation Process --- Job ID: {self.job_manager.get_job_id()} ---\n")
+            with open(metadata_path, 'w') as f:
+                f.write(f"--- Data Augmentation Process --- Job ID: {self.job_service.get_job_id()} ---\n")
                 f.write(f'Augmentation Run Date: {pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}\n\n')
                 f.write(f'Total files processed: {len(processed_files_info)}\n\n')
                 f.write("--- Processed File Details ---\n")

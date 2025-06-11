@@ -3,8 +3,8 @@ import csv
 import sqlite3
 import torch
 from PyQt5.QtCore import QThread, pyqtSignal
-from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.backend.src.services.job_service import JobService
+from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
 import logging, wandb
 
 def format_time(seconds):
@@ -18,7 +18,7 @@ class TrainingTaskManager:
 
     def __init__(self, global_params=None):
         self.logger = logging.getLogger(__name__)
-        self.job_manager = JobManager()
+        self.job_service = JobService()
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.current_task = None
         self.stop_requested = False

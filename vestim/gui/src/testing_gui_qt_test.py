@@ -28,10 +28,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Import your services
-from vestim.gateway.src.testing_manager_qt import VEstimTestingManager
-from vestim.gateway.src.job_manager_qt import JobManager
-from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
-from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
+from vestim.backend.src.managers.testing_manager_qt import VEstimTestingManager
+from vestim.backend.src.managers.job_manager_qt import JobManager
+from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
 
 class TestingThread(QThread):
     update_status_signal = pyqtSignal(str)

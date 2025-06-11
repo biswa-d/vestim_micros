@@ -3,8 +3,8 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN # Keep imports for type hinting if model object is used
-from vestim.services import normalization_service as norm_svc # Added for normalization
+from vestim.backend.src.services.model_training.src.LSTM_model_service import LSTMModel
+from vestim.backend.src.services import normalization_service as norm_svc
 import json # For potentially loading metadata
 
 # Removed torch.serialization.add_safe_globals as we are reverting to weights_only=False

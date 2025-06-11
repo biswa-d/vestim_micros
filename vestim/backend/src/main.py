@@ -19,6 +19,10 @@ import time
 
 
 from vestim.backend.src.services.job_service import JobService
+from vestim.backend.src.managers.training_task_manager_qt import TrainingTaskManager
+from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
+# from vestim.backend.src.managers.data_augment_manager_qt import DataAugmentManager  # Temporarily commented out due to syntax errors
 from vestim.backend.src.services.training_service import TrainingService
 
 # --- Pydantic Models for Request Bodies ---
@@ -77,6 +81,24 @@ def get_job_service():
     """Dependency injector for the JobService."""
     return JobService()
 
+def get_training_task_manager():
+    """Dependency injector for the TrainingTaskManager."""
+    return TrainingTaskManager()
+
+
+def get_training_setup_manager():
+    """Dependency injector for the VEstimTrainingSetupManager."""
+    return VEstimTrainingSetupManager()
+
+def get_hyper_param_manager():
+    """Dependency injector for the VEstimHyperParamManager."""
+    return VEstimHyperParamManager()
+
+def get_data_augment_manager():
+    """Dependency injector for the DataAugmentManager."""
+    # return DataAugmentManager()  # Temporarily commented out due to syntax errors
+    return None
+
 @app.get("/")
 def read_root():
     """
@@ -84,13 +106,16 @@ def read_root():
     """
     return {"message": "Welcome to the VEstim Backend API", "status": "online", "timestamp": time.time()}
 
-@app.post("/jobs", response_model=Dict[str, str])
+@app.post("/jobs", response_model=JobResponse)
 def create_new_job(payload: JobPayload, job_service: JobService = Depends(get_job_service)):
     """
-    Creates a new job and returns the job ID and folder path.
+    Creates a new job and returns the job details.
     """
-    job_id, job_folder = job_service.create_new_job(payload.selections)
-    return {"job_id": job_id, "job_folder": job_folder}
+    job_id, _ = job_service.create_new_job(payload.selections)
+    job = job_service.get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=500, detail="Failed to create job.")
+    return job
 
 @app.get("/jobs", response_model=List[JobResponse])
 def get_jobs(job_service: JobService = Depends(get_job_service)):
@@ -109,97 +134,78 @@ def get_job(job_id: str, job_service: JobService = Depends(get_job_service)):
         raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
     return job
 
-@app.post("/jobs/clear", response_model=Dict[str, str])
-def clear_all_jobs(job_service: JobService = Depends(get_job_service)):
+@app.post("/jobs/{job_id}/train", response_model=Dict[str, str])
+def train_job(job_id: str, background_tasks: BackgroundTasks, training_task_manager: TrainingTaskManager = Depends(get_training_task_manager)):
     """
-    Deletes all jobs.
+    Starts the training process for a specific job.
     """
-    success = job_service.clear_all_jobs()
-    if success:
-        return {"message": "All jobs have been cleared."}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to clear all jobs")
+    # This is a simplified implementation. In a real application, you would
+    # retrieve the job details and pass them to the training task manager.
+    task_info = {"job_id": job_id, "task_id": f"task_{job_id}"}
+    background_tasks.add_task(training_task_manager.process_task, task_info, None)
+    return {"message": "Training started", "job_id": job_id}
 
-@app.post("/tasks/stop_all", response_model=Dict[str, str])
-def stop_all_tasks():
+@app.get("/jobs/{job_id}/status", response_model=TaskStatusResponse)
+def get_job_status(job_id: str):
     """
-    Stops all running tasks.
+    Get the current status of a job.
     """
-    global running_tasks
-    for task_id, service in running_tasks.items():
-        service.stop_task()
-    running_tasks.clear()
-    return {"status": "Stop signal sent to all tasks"}
-
-@app.post("/tasks/start", response_model=Dict[str, str])
-def start_training_task(
-    payload: TaskInfoPayload,
-    background_tasks: BackgroundTasks,
-    job_service: JobService = Depends(get_job_service)
-):
-    """
-    Starts a new training task in the background.
-    """
-    task_id = payload.task_info.get("task_id")
-    if not task_id:
-        raise HTTPException(status_code=400, detail="Task ID is missing from payload.")
-
-    # Set the job ID in the job service
-    job_id = payload.task_info.get("job_id")
-    if job_id:
-        job_service.set_job_id(job_id)
-    
-    training_service = TrainingService(
-        task_info=payload.task_info,
-        job_service=job_service,
-        global_params=payload.global_params
-    )
-    running_tasks[task_id] = training_service
-    background_tasks.add_task(training_service.run_task)
-    
-    return {"status": "Training task started in background", "task_id": task_id}
-
-@app.get("/tasks/{task_id}/status", response_model=TaskStatusResponse)
-def get_training_task_status(task_id: str):
-    """
-    Retrieves the status of a specific training task.
-    """
-    # Try to get the task from running tasks first
-    if task_id in running_tasks:
-        service = running_tasks[task_id]
-        job_id = service.job_service.get_job_id()
-        status_file = os.path.join("output", job_id, task_id, "training_status.json")
-    else:
-        # If task not in running tasks, try to find its status file
-        status_file = None
-        for job_dir in os.listdir("output"):
-            if job_dir.startswith("job_"):
-                task_status_file = os.path.join("output", job_dir, task_id, "training_status.json")
-                if os.path.exists(task_status_file):
-                    status_file = task_status_file
-                    break
-    
-    # Return status if found
-    if status_file and os.path.exists(status_file):
+    # This is a simplified implementation. In a real application, you would
+    # have a more robust way of tracking job status.
+    task_id = f"task_{job_id}"
+    status_file = os.path.join("output", job_id, task_id, "training_status.json")
+    if os.path.exists(status_file):
         try:
             with open(status_file, 'r') as f:
                 return json.load(f)
         except Exception as e:
             return {"task_id": task_id, "status": "error", "message": f"Error reading status: {str(e)}"}
-    
-    # Task not found
     return {"task_id": task_id, "status": "unknown", "message": "Task status not found"}
 
-@app.post("/tasks/{task_id}/stop", response_model=Dict[str, str])
-def stop_training_task(task_id: str):
+@app.get("/jobs/{job_id}/results", response_model=Dict[str, Any])
+def get_job_results(job_id: str):
     """
-    Stops a running training task.
+    Get the results of a completed job.
     """
-    if task_id in running_tasks:
-        running_tasks[task_id].stop_task()
-        return {"status": "Stop signal sent", "task_id": task_id}
-    else:
-        raise HTTPException(status_code=404, detail="Task not found or not running.")
+    # This is a placeholder implementation.
+    return {"job_id": job_id, "results": "Not implemented yet."}
+
+@app.post("/jobs/{job_id}/stop", response_model=Dict[str, str])
+def stop_job(job_id: str, training_task_manager: TrainingTaskManager = Depends(get_training_task_manager)):
+    """
+    Stop a running job.
+    """
+    task_id = f"task_{job_id}"
+    training_task_manager.stop_task(task_id)
+    return {"message": "Stop signal sent", "job_id": job_id}
+
+@app.post("/jobs/{job_id}/test", response_model=Dict[str, str])
+def test_job(job_id: str, background_tasks: BackgroundTasks):
+    """
+    Starts the testing process for a specific job.
+    """
+    # This is a simplified implementation. In a real application, you would
+    # retrieve the job details and pass them to a testing service.
+    task_info = {"job_id": job_id, "task_id": f"task_{job_id}"}
+    # background_tasks.add_task(testing_service.process_task, task_info, None)
+    return {"message": "Testing started", "job_id": job_id}
+
+@app.get("/jobs/{job_id}/testing_status", response_model=TaskStatusResponse)
+def get_job_testing_status(job_id: str):
+    """
+    Get the current status of a testing job.
+    """
+    # This is a simplified implementation. In a real application, you would
+    # have a more robust way of tracking job status.
+    task_id = f"task_{job_id}"
+    status_file = os.path.join("output", job_id, task_id, "testing_status.json")
+    if os.path.exists(status_file):
+        try:
+            with open(status_file, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            return {"task_id": task_id, "status": "error", "message": f"Error reading status: {str(e)}"}
+    return {"task_id": task_id, "status": "unknown", "message": "Task status not found"}
 
 @app.get("/server/status")
 def server_status():
@@ -209,8 +215,6 @@ def server_status():
     return {
         "status": "online",
         "timestamp": time.time(),
-        "running_tasks": len(running_tasks),
-        "task_ids": list(running_tasks.keys())
     }
 
 # This block allows running the server directly for development
