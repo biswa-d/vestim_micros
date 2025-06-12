@@ -2,7 +2,6 @@ import os
 import itertools
 import logging
 from vestim.backend.src.managers.job_manager import JobManager
-from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
 
 class JobService:
     """
@@ -76,7 +75,19 @@ class JobService:
         """Saves hyperparameters for a job via the JobManager."""
         self.logger.info(f"Attempting to save hyperparameters for job: {job_id}")
         try:
-            self.job_manager.update_job_details(job_id, {"hyperparameters": params})
+            job_managers = self.job_manager.job_managers.get(job_id)
+            if not job_managers:
+                raise ValueError(f"Managers for job with ID {job_id} not found.")
+
+            job_info = self.job_manager.get_job(job_id)
+            if not job_info:
+                raise ValueError(f"Job with ID {job_id} not found.")
+
+            hyper_param_manager = job_managers["hyper_param_manager"]
+            hyper_param_manager.update_params(params)
+            hyper_param_manager.save_params(job_info["job_folder"])
+            
+            self.job_manager.update_job_details(job_id, {"hyperparameters": hyper_param_manager.get_hyper_params()})
             return True
         except Exception as e:
             self.logger.error(f"Failed to save hyperparameters for job {job_id}: {e}", exc_info=True)
@@ -99,7 +110,11 @@ class JobService:
         Initializes the training setup manager and runs the setup process.
         """
         self.logger.info(f"Setting up training tasks for job {job_id}")
-        job_info = self.get_job_by_id(job_id)
+        job_managers = self.job_manager.job_managers.get(job_id)
+        if not job_managers:
+            raise ValueError(f"Managers for job with ID {job_id} not found.")
+
+        job_info = self.job_manager.get_job(job_id)
         if not job_info:
             raise ValueError(f"Job with ID {job_id} not found.")
 
@@ -107,8 +122,9 @@ class JobService:
         if not hyperparams:
             raise ValueError(f"No hyperparameters found for job {job_id}.")
 
-        # This manager is now used as a standalone utility, not a singleton with state
-        training_setup_manager = VEstimTrainingSetupManager(job_id=job_id, hyperparams=hyperparams)
+        training_setup_manager = job_managers["training_setup_manager"]
+        training_setup_manager.params = hyperparams
+        training_setup_manager.current_hyper_params = hyperparams
         training_setup_manager.setup_training()
         
         task_list = training_setup_manager.get_task_list()

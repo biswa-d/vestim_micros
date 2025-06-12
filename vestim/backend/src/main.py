@@ -133,14 +133,16 @@ def setup_training(job_id: str, job_service: JobService = Depends(get_job_servic
         raise HTTPException(status_code=500, detail=f"Failed to setup training: {str(e)}")
 
 @app.post("/jobs/process-and-create", response_model=JobResponse)
-def process_and_create_job(payload: JobPayload, job_manager: JobManager = Depends(get_job_manager), dps: DataProcessingService = Depends(get_data_processing_service)):
+def process_and_create_job(payload: JobPayload, job_service: JobService = Depends(get_job_service), dps: DataProcessingService = Depends(get_data_processing_service)):
     """
     Creates a new job, processes the associated data, and returns the job details.
     """
     try:
         selections = payload.selections
-        job_id = job_manager.create_job(selections)
-        
+        job_id, _ = job_service.create_new_job(selections)
+        if not job_id:
+            raise HTTPException(status_code=500, detail="Failed to create job.")
+
         dps.process_data(
             job_id=job_id,
             train_files=selections.get("train_files", []),
@@ -148,7 +150,7 @@ def process_and_create_job(payload: JobPayload, job_manager: JobManager = Depend
             data_source=selections.get("data_source")
         )
         
-        job = job_manager.get_job(job_id)
+        job = job_service.get_job_by_id(job_id)
         return job
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process and create job: {str(e)}")

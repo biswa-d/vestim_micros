@@ -1,20 +1,17 @@
 import os, uuid, time
 import json
-from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.backend.src.services.model_training.src.LSTM_model_service import LSTMModelService
-from vestim.backend.src.services.job_service import JobService
 import logging
 import torch
 
 class VEstimTrainingSetupManager:
-    def __init__(self, job_id: str, hyperparams: dict):
+    def __init__(self, job_id: str, job_folder: str, hyperparams: dict):
         self.logger = logging.getLogger(__name__)
         self.job_id = job_id
+        self.job_folder = job_folder
         self.params = hyperparams
         self.current_hyper_params = hyperparams
         self.lstm_model_service = LSTMModelService()
-        self.job_service = JobService()
-        self.job_service.set_job_id(job_id)
         self.models = []
         self.training_tasks = []
 
@@ -94,7 +91,7 @@ class VEstimTrainingSetupManager:
 
                     # Create model directory
                     model_dir = os.path.join(
-                        self.job_service.get_job_folder(),
+                        self.job_folder,
                         'models',
                         f'model_{model_type}_hu_{hidden_units}_layers_{layers}'
                     )
@@ -140,8 +137,7 @@ class VEstimTrainingSetupManager:
         """Create training tasks based on hyperparameters."""
         task_list = []
         job_normalization_metadata = {} # To store data from job_metadata.json once
-        job_folder = self.job_service.get_job_folder()
-        metadata_file_path = os.path.join(job_folder, "job_metadata.json")
+        metadata_file_path = os.path.join(self.job_folder, "job_metadata.json")
 
         if os.path.exists(metadata_file_path):
             try:
@@ -259,7 +255,7 @@ class VEstimTrainingSetupManager:
                     json.dump(serializable_info, f, indent=4)
 
             # Save tasks summary
-            tasks_summary_file = os.path.join(self.job_service.get_job_folder(), 'training_tasks_summary.json')
+            tasks_summary_file = os.path.join(self.job_folder, 'training_tasks_summary.json')
             serializable_tasks = [{k: v for k, v in task.items() if k != 'model'} for task in task_list]
             with open(tasks_summary_file, 'w') as f:
                 json.dump(serializable_tasks, f, indent=4)
@@ -372,7 +368,7 @@ class VEstimTrainingSetupManager:
             'csv_log_file': os.path.join(logs_dir, 'training_progress.csv'),
             'db_log_file': os.path.join(logs_dir, f'{task_id}_training.db'),
             'job_metadata': job_normalization_metadata, # Embed normalization metadata from job_metadata.json
-            'job_folder_augmented_from': self.job_service.get_job_folder() # Add path to job folder for scaler path resolution
+            'job_folder_augmented_from': self.job_folder
         }
 
     def calculate_learnable_parameters(self, layers, input_size, hidden_units):

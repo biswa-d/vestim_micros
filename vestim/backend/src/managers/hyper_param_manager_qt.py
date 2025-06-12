@@ -1,24 +1,12 @@
 import os
 import json
-from vestim.backend.src.services.job_service import JobService
 import logging
 
 class VEstimHyperParamManager:
-    _instance = None
-
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super(VEstimHyperParamManager, cls).__new__(cls)
-        return cls._instance
-    
     def __init__(self):
-        if not hasattr(self, 'initialized'):
-            self.logger = logging.getLogger(__name__)  # Set up logger for this class
-            self.job_service = JobService()
-            self.current_params = {}  # Initialize current_params as None
-            # self.param_sets = []  # Initialize param_sets as an empty list
-            self.initialized = True
-            self.logger.info("VEstimHyperParamManager initialized.")
+        self.logger = logging.getLogger(__name__)
+        self.current_params = {}
+        self.logger.info("VEstimHyperParamManager initialized.")
 
     def load_params(self, filepath):
         """Load and validate parameters from a JSON file."""
@@ -80,13 +68,11 @@ class VEstimHyperParamManager:
         self.logger.info("Parameter validation and normalization completed successfully.")
         return validated_params
 
-    def save_params(self):
+    def save_params(self, job_folder: str):
         """Save the current validated parameters to the job folder in a JSON file."""
-        job_folder = self.job_service.get_job_folder()
-
         if not job_folder:
-            self.logger.error("Job folder is not set. Cannot save parameters.")
-            raise ValueError("Job folder is not set or current parameters are unavailable.")
+            self.logger.error("Job folder is not provided. Cannot save parameters.")
+            raise ValueError("Job folder must be provided to save parameters.")
 
         if not self.current_params:
             self.logger.error("No parameters available to save.")
@@ -145,15 +131,14 @@ class VEstimHyperParamManager:
         # self.param_sets.append(self.current_params)
         self.logger.info("Parameters successfully updated.")
     
-    def get_current_params(self):
+    def get_current_params(self, job_folder: str):
         """Load the parameters from the saved JSON file in the job folder."""
-        job_folder = self.job_service.get_job_folder()
         params_file = os.path.join(job_folder, 'hyperparams.json')
         
         if os.path.exists(params_file):
             with open(params_file, 'r') as file:
                 current_params = json.load(file)
-                self.current_params = current_params  # Set the current_params to the loaded params
+                self.current_params = current_params
                 return current_params
         else:
             self.logger.error(f"Hyperparameters file not found in {job_folder}")

@@ -9,6 +9,8 @@ from vestim.config import OUTPUT_DIR
 from vestim.logger_config import configure_job_specific_logging
 import logging
 import shutil
+from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
+from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
 
 class JobManager:
     _instance = None
@@ -25,6 +27,7 @@ class JobManager:
         if not hasattr(self, 'initialized'):
             self.initialized = True
             self.jobs = {}  # In-memory job registry
+            self.job_managers = {} # For non-serializable manager objects
             self.status_queue = Queue()
             self.logger = logging.getLogger(__name__)
             
@@ -84,8 +87,8 @@ class JobManager:
 
         job_to_persist = self.jobs.get(job_id)
         if job_to_persist:
-            # Don't persist the process object
-            persisted_jobs[job_id] = {k: v for k, v in job_to_persist.items() if k != 'process'}
+            # Don't persist the process or manager objects
+            persisted_jobs[job_id] = {k: v for k, v in job_to_persist.items() if k not in ['process', 'managers']}
         
         with open(self.job_registry_file, 'w') as f:
             json.dump(persisted_jobs, f, indent=4)
@@ -95,6 +98,10 @@ class JobManager:
         job_id = f"job_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
         job_folder = os.path.join(OUTPUT_DIR, job_id)
         os.makedirs(job_folder, exist_ok=True)
+
+        # Create job-specific manager instances
+        hyper_param_manager = VEstimHyperParamManager()
+        training_setup_manager = VEstimTrainingSetupManager(job_id, job_folder, {}) # Initially empty hyperparams
 
         job_info = {
             "job_id": job_id,
@@ -107,6 +114,10 @@ class JobManager:
             "details": {}
         }
         self.jobs[job_id] = job_info
+        self.job_managers[job_id] = {
+            "hyper_param_manager": hyper_param_manager,
+            "training_setup_manager": training_setup_manager,
+        }
         self._persist_job(job_id)
         self.logger.info(f"Created new job {job_id}")
         return job_id
@@ -160,17 +171,41 @@ class JobManager:
         return False
 
     def get_job(self, job_id: str):
-        """Gets a job's details from the in-memory registry."""
-        job = self.jobs.get(job_id)
-        if job:
-            # Return a copy without the process object
-            return {k: v for k, v in job.items() if k != 'process'}
-        return None
+        """
+        Gets a job's details from the in-memory registry, ensuring it's serializable.
+        """
+        job_data = self.jobs.get(job_id)
+        if not job_data:
+            return None
+        
+        # Explicitly build the response to ensure no non-serializable objects are included.
+        serializable_job = {
+            "job_id": job_data.get("job_id"),
+            "status": job_data.get("status"),
+            "created_at": job_data.get("created_at"),
+            "updated_at": job_data.get("updated_at"),
+            "selections": job_data.get("selections"),
+            "job_folder": job_data.get("job_folder"),
+            "details": job_data.get("details", {}),
+        }
+        return serializable_job
 
     def get_all_jobs(self):
-        """Gets all jobs from the in-memory registry."""
-        # Return a copy without the process objects
-        return [{k: v for k, v in job.items() if k != 'process'} for job in self.jobs.values()]
+        """
+        Gets all jobs from the in-memory registry, ensuring they are serializable.
+        """
+        serializable_jobs = []
+        for job_id, job_data in self.jobs.items():
+            serializable_jobs.append({
+                "job_id": job_data.get("job_id"),
+                "status": job_data.get("status"),
+                "created_at": job_data.get("created_at"),
+                "updated_at": job_data.get("updated_at"),
+                "selections": job_data.get("selections"),
+                "job_folder": job_data.get("job_folder"),
+                "details": job_data.get("details", {}),
+            })
+        return serializable_jobs
 
     def delete_job(self, job_id: str):
         """Deletes a job from the registry and cleans up its directory."""
@@ -182,6 +217,8 @@ class JobManager:
                 self.logger.info(f"Removed job folder: {job_folder}")
             
             del self.jobs[job_id]
+            if job_id in self.job_managers:
+                del self.job_managers[job_id]
             
             # Update registry file
             if os.path.exists(self.job_registry_file):
