@@ -21,10 +21,16 @@ def start_server():
     # For Linux/macOS, a simple Popen is usually sufficient.
     creationflags = 0
     if sys.platform == "win32":
-        creationflags = subprocess.DETACHED_PROCESS
+        #creationflags = subprocess.DETACHED_PROCESS
+        pass # Ensure there's an indented block if the above is commented
 
-    server_process = subprocess.Popen(command, creationflags=creationflags)
+    # Ensure this block is correctly indented
+    server_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags)
     print(f"Started server with PID: {server_process.pid}")
+    # stdout, stderr = server_process.communicate() # This line blocks GUI
+    # print(f"Server stdout:\n{stdout.decode()}")
+    # print(f"Server stderr:\n{stderr.decode()}")
+    
     return server_process
 
 def main():

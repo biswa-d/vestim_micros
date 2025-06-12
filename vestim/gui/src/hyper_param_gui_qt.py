@@ -10,9 +10,9 @@ import os
 import json
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
-    QLineEdit, QFileDialog, QMessageBox, QDialog, QGroupBox, QComboBox, QListWidget, QAbstractItemView,QFormLayout, QCheckBox
+    QLineEdit, QFileDialog, QMessageBox, QDialog, QGroupBox, QComboBox, QListWidget, QAbstractItemView,QFormLayout, QCheckBox, QTimeEdit
 )
-from PyQt5.QtCore import Qt, QPropertyAnimation
+from PyQt5.QtCore import Qt, QPropertyAnimation, QTime
 from PyQt5.QtGui import QIcon
 
 import pandas as pd
@@ -597,6 +597,15 @@ class VEstimHyperParamGUI(QWidget):
         self.validation_freq_entry.setToolTip("e.g., '1' means validate after every epoch.")
         self.param_entries["VALIDATION_FREQ"] = self.validation_freq_entry
 
+        # **Repetitions**
+        repetitions_label = QLabel("Repetitions:")
+        repetitions_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
+        repetitions_label.setToolTip("Number of times to repeat each training configuration (e.g., for statistical significance).")
+        self.repetitions_entry = QLineEdit(self.params.get("REPETITIONS", "1"))
+        self.repetitions_entry.setFixedWidth(100)
+        self.repetitions_entry.setToolTip("Enter an integer value (e.g., 1, 3, 5).")
+        self.param_entries["REPETITIONS"] = self.repetitions_entry
+
         # **Add Widgets to Layout**
         validation_layout.addWidget(epochs_label)
         validation_layout.addWidget(self.epochs_entry)
@@ -604,6 +613,8 @@ class VEstimHyperParamGUI(QWidget):
         validation_layout.addWidget(self.early_stopping_entry)
         validation_layout.addWidget(validation_freq_label)
         validation_layout.addWidget(self.validation_freq_entry)
+        validation_layout.addWidget(repetitions_label)
+        validation_layout.addWidget(self.repetitions_entry)
 
         # **Apply to Parent Layout**
         layout.addLayout(validation_layout)
@@ -633,18 +644,20 @@ class VEstimHyperParamGUI(QWidget):
         self.mixed_precision_checkbox.setToolTip("Use 16-bit precision for faster training on compatible GPUs.")
         device_layout.addWidget(self.mixed_precision_checkbox)
 
-        max_time_label = QLabel("Max Training Time (mins):")
+        max_time_label = QLabel("Max Training Time (hh:mm:ss):")
         max_time_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
-        max_time_label.setToolTip("Set a time limit for training. Set to 0 for no limit.")
+        max_time_label.setToolTip("Set a time limit for training (hh:mm:ss). Set to 00:00:00 for no limit.")
         device_layout.addWidget(max_time_label)
 
-        self.max_time_entry = QLineEdit("0")
-        self.max_time_entry.setFixedWidth(100)
-        device_layout.addWidget(self.max_time_entry)
+        self.max_time_edit = QTimeEdit()
+        self.max_time_edit.setDisplayFormat("hh:mm:ss")
+        self.max_time_edit.setTime(QTime(0, 0, 0)) # Default to 00:00:00
+        self.max_time_edit.setFixedWidth(100)
+        device_layout.addWidget(self.max_time_edit)
 
         self.param_entries["DEVICE"] = self.device_combo
         self.param_entries["USE_MIXED_PRECISION"] = self.mixed_precision_checkbox
-        self.param_entries["MAX_TRAINING_TIME_MINS"] = self.max_time_entry
+        self.param_entries["MAX_TRAINING_TIME"] = self.max_time_edit # Updated key
 
         layout.addLayout(device_layout)
 
@@ -739,6 +752,12 @@ class VEstimHyperParamGUI(QWidget):
                         widget.setCurrentIndex(index)
                 elif isinstance(widget, QCheckBox):
                     widget.setChecked(bool(value))
+                elif isinstance(widget, QTimeEdit) and key == "MAX_TRAINING_TIME":
+                    time_value = QTime.fromString(str(value), "hh:mm:ss")
+                    if time_value.isValid():
+                        widget.setTime(time_value)
+                    else:
+                        widget.setTime(QTime(0,0,0)) # Default if parse fails
 
         # Update QListWidget for feature columns
         if "FEATURE_COLUMNS" in self.params and isinstance(self.param_entries["FEATURE_COLUMNS"], QListWidget):
@@ -820,6 +839,8 @@ class VEstimHyperParamGUI(QWidget):
                     params[key] = widget.currentText()
                 elif isinstance(widget, QCheckBox):
                     params[key] = widget.isChecked()
+                elif isinstance(widget, QTimeEdit) and key == "MAX_TRAINING_TIME":
+                    params[key] = widget.time().toString("hh:mm:ss")
             
             # Final check for required fields based on visibility
             required_fields = {
@@ -829,7 +850,8 @@ class VEstimHyperParamGUI(QWidget):
                 "INITIAL_LR": "Initial Learning Rate is required.",
                 "EPOCHS": "Number of epochs is required.",
                 "EARLY_STOPPING_PATIENCE": "Early stopping patience is required.",
-                "VALIDATION_FREQ": "Validation frequency is required."
+                "VALIDATION_FREQ": "Validation frequency is required.",
+                "REPETITIONS": "Number of repetitions is required."
             }
 
             for field, error_msg in required_fields.items():

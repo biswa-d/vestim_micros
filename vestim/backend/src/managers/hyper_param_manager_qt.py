@@ -27,8 +27,7 @@ class VEstimHyperParamManager:
             if isinstance(value, str):
                 # Keep the original string for parameters that might be comma-separated
                 if key in ['LAYERS', 'HIDDEN_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD',
-                        'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS',
-                        'MAX_TRAIN_HOURS', 'MAX_TRAIN_MINUTES', 'MAX_TRAIN_SECONDS']: # Added time fields
+                        'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS']: # Removed old time fields
                     # Validate that all values are valid integers
                     value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
                     try:
@@ -37,6 +36,17 @@ class VEstimHyperParamManager:
                     except ValueError:
                         self.logger.error(f"Invalid integer value for {key}: {value}")
                         raise ValueError(f"Invalid value for {key}: Expected integers, got {value}")
+                
+                elif key == 'MAX_TRAINING_TIME': # New key for hh:mm:ss string
+                    try:
+                        # Validate hh:mm:ss format
+                        h, m, s = map(int, value.split(':'))
+                        if not (0 <= h <= 99 and 0 <= m <= 59 and 0 <= s <= 59): # Allow more than 23 hours
+                            raise ValueError("Time components out of range.")
+                        validated_params[key] = value # Store as string
+                    except ValueError:
+                        self.logger.error(f"Invalid time format for MAX_TRAINING_TIME: {value}. Expected hh:mm:ss")
+                        raise ValueError(f"Invalid format for MAX_TRAINING_TIME: Expected hh:mm:ss, got {value}")
 
                 elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB', 'TRAIN_VAL_SPLIT']:
                     # Validate that all values are valid floats
@@ -84,35 +94,32 @@ class VEstimHyperParamManager:
             # Create a copy to modify for saving, especially for max_training_time_seconds
             params_to_save = self.current_params.copy()
 
-            # Calculate max_training_time_seconds
-            try:
-                hours = int(params_to_save.get("MAX_TRAIN_HOURS", 0) or 0)
-                minutes = int(params_to_save.get("MAX_TRAIN_MINUTES", 0) or 0)
-                seconds = int(params_to_save.get("MAX_TRAIN_SECONDS", 0) or 0)
-                max_training_time_seconds = (hours * 3600) + (minutes * 60) + seconds
-                params_to_save["MAX_TRAINING_TIME_SECONDS"] = max_training_time_seconds
-                self.current_params["MAX_TRAINING_TIME_SECONDS"] = max_training_time_seconds # Update in-memory params
-                self.logger.info(f"Calculated and stored MAX_TRAINING_TIME_SECONDS: {max_training_time_seconds}")
-            except ValueError:
-                self.logger.warning("Could not parse MAX_TRAIN_HOURS/MINUTES/SECONDS to integers. MAX_TRAINING_TIME_SECONDS will not be saved or default to 0 if not already present.")
-                if "MAX_TRAINING_TIME_SECONDS" not in params_to_save: # Only add if not already there from a previous load
-                    params_to_save["MAX_TRAINING_TIME_SECONDS"] = 0
+            # Calculate max_training_time_seconds from MAX_TRAINING_TIME (hh:mm:ss string)
+            if "MAX_TRAINING_TIME" in params_to_save:
+                try:
+                    time_str = params_to_save["MAX_TRAINING_TIME"]
+                    h, m, s = map(int, time_str.split(':'))
+                    max_training_time_seconds = (h * 3600) + (m * 60) + s
+                    params_to_save["MAX_TRAINING_TIME_SECONDS"] = max_training_time_seconds
+                    self.current_params["MAX_TRAINING_TIME_SECONDS"] = max_training_time_seconds # Update in-memory params
+                    self.logger.info(f"Calculated and stored MAX_TRAINING_TIME_SECONDS: {max_training_time_seconds} from {time_str}")
+                except ValueError:
+                    self.logger.warning(f"Could not parse MAX_TRAINING_TIME '{params_to_save.get('MAX_TRAINING_TIME')}' to seconds. MAX_TRAINING_TIME_SECONDS will default to 0 if not already present.")
+                    if "MAX_TRAINING_TIME_SECONDS" not in params_to_save:
+                        params_to_save["MAX_TRAINING_TIME_SECONDS"] = 0
+            elif "MAX_TRAINING_TIME_SECONDS" not in params_to_save: # Ensure it exists if MAX_TRAINING_TIME was not provided
+                 params_to_save["MAX_TRAINING_TIME_SECONDS"] = 0
 
 
-            # Remove individual H, M, S from the dict to be saved to avoid redundancy,
-            # as they are primarily GUI input fields.
-            params_to_save.pop("MAX_TRAIN_HOURS", None)
-            params_to_save.pop("MAX_TRAIN_MINUTES", None)
-            params_to_save.pop("MAX_TRAIN_SECONDS", None)
-
-            # ✅ Validate before saving to avoid corrupt JSON
-            # Note: validate_and_normalize_params might need adjustment if it expects H/M/S and they are removed
-            # For now, we validate self.current_params which still has H/M/S, then save the modified params_to_save
-            _ = self.validate_and_normalize_params(self.current_params) # Validate original structure
+            # Validate before saving. self.current_params should now contain MAX_TRAINING_TIME (string)
+            # and potentially MAX_TRAINING_TIME_SECONDS (int) after the above block.
+            # The validate_and_normalize_params method has been updated to expect MAX_TRAINING_TIME as hh:mm:ss.
+            _ = self.validate_and_normalize_params(self.current_params)
 
             with open(params_file, 'w') as file:
-                json.dump(params_to_save, file, indent=4) # Save the modified dict            self.logger.info(f"Hyperparameters successfully saved to file: {params_file}")
-            self.logger.info(f"Saved content: {params_to_save}")
+                json.dump(params_to_save, file, indent=4)
+            self.logger.info(f"Hyperparameters successfully saved to file: {params_file}")
+            self.logger.info(f"Saved content: {json.dumps(params_to_save, indent=4)}")
 
         except Exception as e:
             self.logger.error(f"Failed to save parameters: {e}")

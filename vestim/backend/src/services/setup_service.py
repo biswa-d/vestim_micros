@@ -52,6 +52,7 @@ class SetupService:
 
             self.logger.info("Setup complete!")
             # In the future, we can write a status file here
+            return len(self.training_tasks)  # Return the number of tasks
             
         except Exception as e:
             self.logger.error(f"Error during setup process: {e}", exc_info=True)
@@ -103,7 +104,7 @@ class SetupService:
                     # This part will need further refactoring to select the model service dynamically
                     # and handle device placement correctly on the server.
                     target_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-                    model = self.lstm_model_service.create_and_save_lstm_model_with_LN(model_params, model_path, target_device)
+                    model = self.lstm_model_service.create_and_save_lstm_model(model_params, model_path)
 
                     self.models.append({
                         'model': model,

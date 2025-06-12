@@ -31,7 +31,7 @@ class VEstimTrainingSetupManager:
         model_map = {
             "LSTM": self.lstm_model_service.create_and_save_lstm_model,
             #"LSTM Batch Norm": self.lstm_model_service.create_and_save_lstm_model_with_BN,
-            "LSTM Layer Norm": self.lstm_model_service.create_and_save_lstm_model_with_LN,
+            "LSTM Layer Norm": self.lstm_model_service.create_and_save_lstm_model,
             #"Transformer": self.transformer_model_service.create_and_save_transformer_model,
             #"FCNN": self.fcnn_model_service.create_and_save_fcnn_model,
             #"GRU": self.gru_model_service.create_and_save_gru_model,
@@ -57,7 +57,7 @@ class VEstimTrainingSetupManager:
                 target_device = torch.device("cpu")
             
             self.logger.info(f"TrainingSetupManager: Passing target_device {target_device} to model creation for {model_type}")
-            return model_map[model_type](model_params, model_path, target_device)
+            return model_map[model_type](model_params, model_path)
         
         raise ValueError(f"Unsupported model type: {model_type}")
 
