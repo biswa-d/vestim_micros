@@ -1,134 +1,155 @@
 import os
-import json
 import itertools
-from datetime import datetime
-from vestim.config import OUTPUT_DIR
-from vestim.logger_config import configure_job_specific_logging
 import logging
-import glob
-import shutil
+from vestim.backend.src.managers.job_manager import JobManager
+from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
 
 class JobService:
-    _instance = None
-
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            cls._instance = super(JobService, cls).__new__(cls, *args, **kwargs)
-        return cls._instance
-
+    """
+    A service layer that acts as a client to the JobManager.
+    This service is responsible for handling job-related operations by delegating them
+    to the central JobManager, which manages job state and execution.
+    """
     def __init__(self):
-        if not hasattr(self, 'initialized'):
-            self.initialized = True
-            self.job_id = None
-            self.logger = logging.getLogger(__name__)
-            
-            # Ensure output directory exists
-            os.makedirs(OUTPUT_DIR, exist_ok=True)
-            
-            # Initialize the job registry file if it doesn't exist
-            self.job_registry_file = os.path.join(OUTPUT_DIR, 'job_registry.json')
-            if not os.path.exists(self.job_registry_file):
-                with open(self.job_registry_file, 'w') as f:
-                    json.dump({"jobs": []}, f, indent=4)
-
+        self.logger = logging.getLogger(__name__)
+        self.job_manager = JobManager()
+        self.current_job_id = None
     def create_new_job(self, selections: dict):
-        """Generates a new job ID and creates the main job directory."""
-        job_id = f"job_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        job_folder = os.path.join(OUTPUT_DIR, job_id)
-        os.makedirs(job_folder, exist_ok=True)
-        
+        """
+        Creates a new job via the JobManager.
+        """
+        self.logger.info(f"Creating new job with selections: {selections}")
         try:
-            configure_job_specific_logging(job_folder)
-            self.logger.info(f"Job-specific logging configured for job: {job_id}")
+            job_id = self.job_manager.create_job(selections)
+            job_info = self.job_manager.get_job(job_id)
+            return job_id, job_info.get("job_folder")
         except Exception as e:
-            self.logger.error(f"Failed to configure job-specific logging for {job_id}: {e}", exc_info=True)
-            
-        # Store the selections and initial status in a status.json file
-        status_file = os.path.join(job_folder, 'status.json')
-        job_info = {
-            "job_id": job_id,
-            "status": "created",
-            "selections": selections,
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
-            "job_folder": job_folder,
-            "state": {}
-        }
-        
-        with open(status_file, 'w') as f:
-            json.dump(job_info, f, indent=4)
-            
-        # Register the job in the global registry
-        self._register_job(job_info)
-            
-        self.logger.info(f"Created new job {job_id} with selections: {selections}")
-        
-        return job_id, job_folder
-    
-    def _register_job(self, job_info):
-        """Add a job to the registry file."""
-        try:
-            with open(self.job_registry_file, 'r') as f:
-                registry = json.load(f)
-            
-            # Add the new job
-            registry["jobs"].append(job_info)
-            
-            # Write back to the registry file
-            with open(self.job_registry_file, 'w') as f:
-                json.dump(registry, f, indent=4)
-                
-            self.logger.info(f"Job {job_info['job_id']} registered in the registry")
-        except Exception as e:
-            self.logger.error(f"Failed to register job in registry: {e}", exc_info=True)
+            self.logger.error(f"Failed to create new job: {e}", exc_info=True)
+            return None, None
 
-    def update_job_status(self, job_id, status, state_payload=None):
-        """Update the status and state of a job."""
-        job_folder = os.path.join(OUTPUT_DIR, job_id)
-        status_file = os.path.join(job_folder, 'status.json')
-        
-        if not os.path.exists(status_file):
-            self.logger.error(f"Status file for job {job_id} not found")
-            return False
-        
+    def start_job(self, job_id: str, target_func, task_info: dict):
+        """
+        Starts a job process via the JobManager.
+        """
+        self.logger.info(f"Attempting to start job: {job_id}")
         try:
-            # Update the job status file
-            with open(status_file, 'r') as f:
-                job_info = json.load(f)
-            
-            job_info["status"] = status
-            job_info["state"] = state_payload if state_payload else {}
-            job_info["updated_at"] = datetime.now().isoformat()
-            
-            with open(status_file, 'w') as f:
-                json.dump(job_info, f, indent=4)
-            
-            # Update the job in the registry
-            self._update_job_in_registry(job_info)
-            
-            self.logger.info(f"Job {job_id} status updated to: {status}")
+            return self.job_manager.start_job(job_id, target_func, task_info)
+        except Exception as e:
+            self.logger.error(f"Failed to start job {job_id}: {e}", exc_info=True)
+            return False
+
+    def stop_job(self, job_id: str):
+        """
+        Stops a job process via the JobManager.
+        """
+        self.logger.info(f"Attempting to stop job: {job_id}")
+        try:
+            return self.job_manager.stop_job(job_id)
+        except Exception as e:
+            self.logger.error(f"Failed to stop job {job_id}: {e}", exc_info=True)
+            return False
+
+    def get_job_by_id(self, job_id: str):
+        """
+        Retrieves job details from the JobManager.
+        """
+        return self.job_manager.get_job(job_id)
+
+    def get_all_jobs(self):
+        """
+        Retrieves all jobs from the JobManager.
+        """
+        return self.job_manager.get_all_jobs()
+
+    def delete_job(self, job_id: str):
+        """
+        Deletes a job via the JobManager.
+        """
+        self.logger.info(f"Attempting to delete job: {job_id}")
+        try:
+            return self.job_manager.delete_job(job_id)
+        except Exception as e:
+            self.logger.error(f"Failed to delete job {job_id}: {e}", exc_info=True)
+            return False
+
+    def save_hyperparameters(self, job_id: str, params: dict):
+        """Saves hyperparameters for a job via the JobManager."""
+        self.logger.info(f"Attempting to save hyperparameters for job: {job_id}")
+        try:
+            self.job_manager.update_job_details(job_id, {"hyperparameters": params})
             return True
         except Exception as e:
-            self.logger.error(f"Failed to update job status: {e}", exc_info=True)
+            self.logger.error(f"Failed to save hyperparameters for job {job_id}: {e}", exc_info=True)
             return False
-    
-    def _update_job_in_registry(self, job_info):
-        """Update a job in the registry file."""
-        try:
-            with open(self.job_registry_file, 'r') as f:
-                registry = json.load(f)
-            
-            # Find and update the job
-            for i, job in enumerate(registry["jobs"]):
-                if job["job_id"] == job_info["job_id"]:
-                    registry["jobs"][i] = job_info
-                    break
-            
-            # Write back to the registry file
-            with open(self.job_registry_file, 'w') as f:
-                json.dump(registry, f, indent=4)
-        except Exception as e:
-            self.logger.error(f"Failed to update job in registry: {e}", exc_info=True)
+
+    def set_job_id(self, job_id: str):
+        """Sets the current job context for the service."""
+        if self.get_job_by_id(job_id):
+            self.current_job_id = job_id
+            self.logger.info(f"JobService context set to job_id: {job_id}")
+        else:
+            raise ValueError(f"Job with ID '{job_id}' not found in JobManager.")
+
+    def get_job_id(self):
+        """Gets the current job context ID."""
+        return self.current_job_id
+
+    def setup_training_tasks(self, job_id: str):
+        """
+        Initializes the training setup manager and runs the setup process.
+        """
+        self.logger.info(f"Setting up training tasks for job {job_id}")
+        job_info = self.get_job_by_id(job_id)
+        if not job_info:
+            raise ValueError(f"Job with ID {job_id} not found.")
+
+        hyperparams = job_info.get("details", {}).get("hyperparameters", {})
+        if not hyperparams:
+            raise ValueError(f"No hyperparameters found for job {job_id}.")
+
+        # This manager is now used as a standalone utility, not a singleton with state
+        training_setup_manager = VEstimTrainingSetupManager(job_id=job_id, hyperparams=hyperparams)
+        training_setup_manager.setup_training()
+        
+        task_list = training_setup_manager.get_task_list()
+        task_count = len(task_list)
+        job_folder = job_info.get("job_folder")
+
+        # Persist the generated tasks
+        self.job_manager.update_job_details(job_id, {"training_tasks": task_list})
+
+        return task_count, job_folder
+
+    def _get_current_job_info(self):
+        """Helper to get the full info dict for the current job."""
+        if not self.current_job_id:
+            self.logger.error("No current job ID is set in JobService.")
+            return None
+        return self.get_job_by_id(self.current_job_id)
+
+    def get_job_folder(self):
+        """Gets the job folder for the current job."""
+        job_info = self._get_current_job_info()
+        return job_info.get('job_folder') if job_info else None
+
+    def get_train_folder(self, subfolder: str = "processed_data"):
+        """Gets the path to the training data folder for the current job."""
+        job_folder = self.get_job_folder()
+        if not job_folder:
+            return None
+        return os.path.join(job_folder, "train_data", subfolder)
+
+    def get_test_folder(self, subfolder: str = "processed_data"):
+        """Gets the path to the testing data folder for the current job."""
+        job_folder = self.get_job_folder()
+        if not job_folder:
+            return None
+        return os.path.join(job_folder, "test_data", subfolder)
+
+    def update_job_status(self, job_id: str, status: str, data: dict = None):
+        """Updates the status of a job via the JobManager's queue."""
+        self.logger.info(f"Queueing status update for job {job_id}: {status}")
+        self.job_manager.status_queue.put((job_id, status, data))
 
     def generate_task_configs(self, hyperparams: dict):
         """
@@ -137,34 +158,28 @@ class JobService:
         """
         self.logger.info("Generating task configurations from hyperparameters.")
         
-        # Separate fixed params from params that need to be iterated over
         fixed_params = {}
         tuning_params = {}
         
         for key, value in hyperparams.items():
             if isinstance(value, str) and ',' in value:
-                # Split string by comma, strip whitespace, and filter out empty strings
                 options = [v.strip() for v in value.split(',') if v.strip()]
                 if options:
                     tuning_params[key] = options
                 else:
-                    # Handle case where a key has a comma but no valid values (e.g., " , ")
                     self.logger.warning(f"Hyperparameter '{key}' contained commas but no valid values. Ignoring.")
             else:
                 fixed_params[key] = value
 
         if not tuning_params:
-            # If no parameters are being tuned, create a single task config
             self.logger.info("No hyperparameter tuning detected. Creating a single task.")
             return [hyperparams]
 
-        # Generate the Cartesian product of all tuning parameter values
         keys, values = zip(*tuning_params.items())
         param_combinations = [dict(zip(keys, v)) for v in itertools.product(*values)]
         
         self.logger.info(f"Generated {len(param_combinations)} unique parameter combinations for tuning.")
 
-        # Create a full task configuration for each combination
         task_configs = []
         for combo in param_combinations:
             config = fixed_params.copy()
@@ -172,114 +187,3 @@ class JobService:
             task_configs.append(config)
             
         return task_configs
-
-    def get_job_id(self):
-        return self.job_id
-    
-    def set_job_id(self, job_id):
-        """Set the current job ID."""
-        self.job_id = job_id
-
-    def get_job_folder(self, job_id=None):
-        """Get the folder path for a job, using current job ID if none provided."""
-        id_to_use = job_id if job_id else self.job_id
-        if id_to_use:
-            return os.path.join(OUTPUT_DIR, id_to_use)
-        return None
-    
-    def get_train_folder(self, job_id=None):
-        id_to_use = job_id if job_id else self.job_id
-        if id_to_use:
-            folder = os.path.join(self.get_job_folder(id_to_use), 'train_data', 'processed_data')
-            os.makedirs(folder, exist_ok=True)
-            return folder
-        return None
-
-    def get_test_folder(self, job_id=None):
-        id_to_use = job_id if job_id else self.job_id
-        if id_to_use:
-            folder = os.path.join(self.get_job_folder(id_to_use), 'test_data', 'processed_data')
-            os.makedirs(folder, exist_ok=True)
-            return folder
-        return None
-    
-    def get_all_jobs(self):
-        """Get all jobs from the registry."""
-        try:
-            if os.path.exists(self.job_registry_file):
-                with open(self.job_registry_file, 'r') as f:
-                    registry = json.load(f)
-                return registry["jobs"]
-            return []
-        except Exception as e:
-            self.logger.error(f"Failed to get all jobs: {e}", exc_info=True)
-            return []
-    
-    def get_job_by_id(self, job_id):
-        """Get a specific job by ID."""
-        try:
-            jobs = self.get_all_jobs()
-            for job in jobs:
-                if job["job_id"] == job_id:
-                    return job
-            return None
-        except Exception as e:
-            self.logger.error(f"Failed to get job by ID: {e}", exc_info=True)
-            return None
-
-    def delete_job(self, job_id):
-        """Delete a specific job by ID."""
-        try:
-            self.logger.info(f"Attempting to delete job {job_id}")
-            jobs = self.get_all_jobs()
-            job_to_delete = None
-            for job in jobs:
-                if job["job_id"] == job_id:
-                    job_to_delete = job
-                    break
-            
-            if job_to_delete:
-                # Remove job folder
-                job_folder = job_to_delete.get("job_folder")
-                if job_folder and os.path.exists(job_folder):
-                    self.logger.info(f"Removing job folder: {job_folder}")
-                    shutil.rmtree(job_folder, ignore_errors=True)
-                
-                # Remove job from registry
-                self.logger.info(f"Removing job {job_id} from registry")
-                updated_jobs = [job for job in jobs if job["job_id"] != job_id]
-                with open(self.job_registry_file, 'w') as f:
-                    json.dump({"jobs": updated_jobs}, f, indent=4)
-                
-                self.logger.info(f"Job {job_id} has been deleted.")
-                return True
-            self.logger.warning(f"Job {job_id} not found in registry.")
-            return False
-        except Exception as e:
-            self.logger.error(f"Failed to delete job: {e}", exc_info=True)
-            return False
-    
-    def clear_all_jobs(self):
-        """Delete all jobs and their data."""
-        try:
-            # Delete job directories
-            job_paths = glob.glob(os.path.join(OUTPUT_DIR, "job_*"))
-            for path in job_paths:
-                shutil.rmtree(path, ignore_errors=True)
-            
-            # Reset the job registry
-            with open(self.job_registry_file, 'w') as f:
-                json.dump({"jobs": []}, f, indent=4)
-                
-            self.logger.info("All jobs have been cleared")
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to clear all jobs: {e}", exc_info=True)
-            return False
-    
-    def get_test_results_folder(self):
-        if self.job_id:
-            results_folder = os.path.join(self.get_job_folder(), 'test', 'results')
-            os.makedirs(results_folder, exist_ok=True)
-            return results_folder
-        return None

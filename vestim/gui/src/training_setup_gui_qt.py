@@ -4,56 +4,38 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 import sys
 import time
-from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.gui.src.api_gateway import APIGateway
 from vestim.gui.src.training_task_gui_qt import VEstimTrainingTaskGUI
-from vestim.backend.src.managers.job_manager_qt import JobManager
 import logging
 
 class SetupWorker(QThread):
     progress_signal = pyqtSignal(str, str, int)  # Signal to update the status in the main GUI
-    finished_signal = pyqtSignal()  # Signal when the setup is finished
+    finished_signal = pyqtSignal(dict)  # Signal when the setup is finished, passing the response data
 
-    def __init__(self, job_manager):
+    def __init__(self, job_id, api_gateway):
         super().__init__()
-        self.logger = logging.getLogger(__name__)  # Set up logger
-        self.job_manager = job_manager
-        # Directly use VEstimTrainingSetupManager(), __new__ ensures singleton
-        self.training_setup_manager = VEstimTrainingSetupManager(progress_signal=self.progress_signal, job_manager=self.job_manager)
+        self.logger = logging.getLogger(__name__)
+        self.job_id = job_id
+        self.api_gateway = api_gateway
 
     def run(self):
-        self.logger.info("Starting training setup in a separate thread.")
-        print("Starting training setup in a separate thread...")
+        self.logger.info(f"Starting training setup for job {self.job_id} via API call.")
         try:
-            # Perform the training setup
-            self.training_setup_manager.setup_training()
-            print("Training setup started successfully!")
-            self.logger.info("Training setup started successfully.")
-
-            # Get the number of training tasks created
-            task_count = len(self.training_setup_manager.get_task_list())
-
-            # Emit a signal to update the status
-            self.progress_signal.emit(
-                "Task summary saved in the job folder",
-                self.job_manager.get_job_folder(),
-                task_count
-            )
-
-            # Emit a signal when finished
-            self.finished_signal.emit()
-
+            # Sending an empty JSON object with the POST request
+            response = self.api_gateway.post(f"jobs/{self.job_id}/setup-training", json={})
+            self.finished_signal.emit(response)
         except Exception as e:
-            # Emit the error message via the progress signal
-            self.logger.error(f"Error occurred during setup: {str(e)}")
+            self.logger.error(f"Error during training setup API call: {e}")
             self.progress_signal.emit(f"Error occurred: {str(e)}", "", 0)
 
 class VEstimTrainSetupGUI(QWidget):
-    def __init__(self, params):
+    def __init__(self, job_id: str, api_gateway: APIGateway):
         super().__init__()
-        self.logger = logging.getLogger(__name__)  # Set up logger
-        self.params = params
-        self.job_manager = JobManager()  # Initialize the JobManager singleton instance directly
-        self.timer_running = True  # Ensure this flag is initialized in __init__
+        self.logger = logging.getLogger(__name__)
+        self.job_id = job_id
+        self.api_gateway = api_gateway
+        self.params = {}
+        self.timer_running = True
         self.param_labels = {
             "LAYERS": "Layers",
             "HIDDEN_UNITS": "Hidden Units",
@@ -68,11 +50,21 @@ class VEstimTrainSetupGUI(QWidget):
             "REPETITIONS": "Repetitions"
         }
 
-        # Setup GUI
-        self.logger.info("Initializing VEstimTrainSetupGUI")
+        self.logger.info(f"Initializing VEstimTrainSetupGUI for job_id: {self.job_id}")
         self.build_gui()
-        # Start the setup process
-        self.start_setup()
+        self.fetch_hyperparameters_and_start()
+
+    def fetch_hyperparameters_and_start(self):
+        try:
+            job_details = self.api_gateway.get_job(self.job_id)
+            self.params = job_details.get("details", {}).get("hyperparameters", {})
+            if not self.params:
+                self.status_label.setText("Could not load hyperparameters.")
+                return
+            self.display_hyperparameters(self.hyperparam_layout)
+            self.start_setup()
+        except Exception as e:
+            self.status_label.setText(f"Error fetching parameters: {e}")
 
     def build_gui(self):
         self.setWindowTitle("VEstim - Setting Up Training")
@@ -102,9 +94,8 @@ class VEstimTrainSetupGUI(QWidget):
 
         # Hyperparameter display area
         self.hyperparam_frame = QFrame()
-        hyperparam_layout = QGridLayout()
-        self.display_hyperparameters(hyperparam_layout)
-        self.hyperparam_frame.setLayout(hyperparam_layout)
+        self.hyperparam_layout = QGridLayout()
+        self.hyperparam_frame.setLayout(self.hyperparam_layout)
         self.main_layout.addWidget(self.hyperparam_frame)
         
         # Status label
@@ -146,9 +137,9 @@ class VEstimTrainSetupGUI(QWidget):
         self.show()
 
         # Move the training setup to a separate thread
-        self.worker = SetupWorker(self.job_manager)
+        self.worker = SetupWorker(self.job_id, self.api_gateway)
         self.worker.progress_signal.connect(self.update_status)
-        self.worker.finished_signal.connect(self.show_proceed_button)
+        self.worker.finished_signal.connect(self.on_setup_finished)
 
         # Start the worker thread
         self.worker.start()
@@ -166,68 +157,61 @@ class VEstimTrainSetupGUI(QWidget):
         self.status_label.setText(formatted_message)
         self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
 
-    def show_proceed_button(self):
-        self.logger.info("Training setup complete, showing proceed button.")
-        print("Training setup complete! Enabling proceed button...")
-        # Stop the timer
+    def on_setup_finished(self, response_data):
+        self.logger.info(f"Training setup finished with response: {response_data}")
         self.timer_running = False
-
-        # Cleanup the worker thread
         self.worker.quit()
         self.worker.wait()
 
-        # Calculate the total elapsed time
-        elapsed_time = time.time() - self.start_time
-        hours, remainder = divmod(elapsed_time, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        total_time_taken = f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s"
+        if response_data and "task_count" in response_data:
+            task_count = response_data.get("task_count", 0)
+            job_folder = response_data.get("job_folder", "N/A")
+            
+            elapsed_time = time.time() - self.start_time
+            hours, remainder = divmod(elapsed_time, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            total_time_taken = f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s"
 
-        # Get task count and job folder path
-        task_list = self.worker.training_setup_manager.get_task_list() 
-        task_count = len(task_list)
-        job_folder = self.job_manager.get_job_folder()
+            formatted_message = f"""
+            Setup Complete!<br><br>
+            <font color='#FF5733' size='+0'><b>{task_count}</b></font> training tasks created and saved to:<br>
+            <font color='#1a73e8' size='-1'><i>{job_folder}</i></font><br><br>
+            Time taken for task setup: <b>{total_time_taken}</b>
+            """
+            self.status_label.setText(formatted_message)
 
-        # Final update: tasks created, job folder, and time taken
-        formatted_message = f"""
-        Setup Complete!<br><br>
-        <font color='#FF5733' size='+0'><b>{task_count}</b></font> training tasks created and saved to:<br>
-        <font color='#1a73e8' size='-1'><i>{job_folder}</i></font><br><br>
-        Time taken for task setup: <b>{total_time_taken}</b>
-        """
-        self.status_label.setText(formatted_message)
+            proceed_button = QPushButton("Proceed to Training")
+            proceed_button.setStyleSheet("""
+                background-color: #0b6337;
+                font-weight: bold;
+                padding: 10px 20px;
+                color: white;
+            """)
+            proceed_button.clicked.connect(self.transition_to_training_gui)
 
-        # Show the proceed button when training setup is done
-        proceed_button = QPushButton("Proceed to Training")
-        proceed_button.setStyleSheet("""
-            background-color: #0b6337; 
-            font-weight: bold; 
-            padding: 10px 20px; 
-            color: white;
-        """)
-        proceed_button.adjustSize()  # Make sure the button size wraps text appropriately
-        proceed_button.clicked.connect(self.transition_to_training_gui)
-
-        # Center the button and control its layout
-        button_layout = QHBoxLayout()
-        button_layout.addStretch(1)
-        button_layout.addWidget(proceed_button, alignment=Qt.AlignCenter)
-        button_layout.addStretch(1)
-        self.main_layout.addLayout(button_layout)
+            button_layout = QHBoxLayout()
+            button_layout.addStretch(1)
+            button_layout.addWidget(proceed_button, alignment=Qt.AlignCenter)
+            button_layout.addStretch(1)
+            self.main_layout.addLayout(button_layout)
+        else:
+            error_message = response_data.get("detail", "An unknown error occurred.") if response_data else "An unknown error occurred."
+            self.status_label.setText(f"Setup Failed: {error_message}")
+            self.status_label.setStyleSheet("color: red; font-size: 12pt; font-weight: bold;")
 
     def transition_to_training_gui(self):
         try:
-            # Initialize the task screen
-            task_list = self.worker.training_setup_manager.get_task_list()  # Get the task list
-            self.training_gui = VEstimTrainingTaskGUI(task_list, self.params)
-            # Get the current window's geometry and set it for the new window
+            # The task list is now managed by the backend.
+            # We can either fetch it again or assume the next GUI will.
+            # For now, we'll just open the next GUI.
+            self.training_gui = VEstimTrainingTaskGUI(job_id=self.job_id, api_gateway=self.api_gateway)
             current_geometry = self.geometry()
-            self.training_gui.setGeometry(current_geometry) 
-            self.training_gui.show()   
-            # After the new window is successfully displayed, close the current one
+            self.training_gui.setGeometry(current_geometry)
+            self.training_gui.show()
             self.logger.info("Transitioning to training task GUI.")
             self.close()
         except Exception as e:
-            print(f"Error while transitioning to the task screen: {e}")
+            self.logger.error(f"Error while transitioning to the task screen: {e}")
 
     def update_elapsed_time(self):
         if self.timer_running:
@@ -242,8 +226,6 @@ class VEstimTrainSetupGUI(QWidget):
 
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    params = {}  # Assuming you pass hyperparameters here
-    gui = VEstimTrainSetupGUI(params)
-    gui.show()
-    sys.exit(app.exec_())
+    # This part is for standalone testing and should be updated or removed
+    # if it's no longer the primary way to run this GUI.
+    pass

@@ -38,23 +38,18 @@ logger = setup_logger(log_file='default.log')  # Log everything to 'default.log'
 DEFAULT_DATA_EXTENSIONS = [".csv", ".txt", ".mat", ".xls", ".xlsx", ".RES"] # Added .RES for Biologic, expand as needed
 
 class DataImportGUI(QMainWindow):
-    def __init__(self):
+    jobCreated = pyqtSignal()
+
+    def __init__(self, api_gateway: APIGateway):
         super().__init__()
         self.logger = logging.getLogger(__name__)
+        self.api_gateway = api_gateway
         self.train_folder_path = ""
         self.test_folder_path = ""
-        self.selected_train_files = []
-        self.selected_test_files = []
-        self.api_gateway = APIGateway()
-        self.data_processor_arbin = DataProcessorArbin()  # Initialize DataProcessor
-        self.data_processor_stla = DataProcessorSTLA()  # Initialize DataProcessor
-        self.data_processor_digatron = DataProcessorDigatron()
-        self.job_id = None  # Will store the current job ID
-
-        # Resampling moved to data augmentation GUI
+        
         self.organizer_thread = None
         self.organizer = None
-        # self.is_selecting_folder_flag = False # Removed flag, will use blockSignals
+        self.data_augment_gui = None
 
         self.initUI()
 
@@ -185,6 +180,9 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(False)  # Initially hidden
         self.main_layout.addWidget(self.progress_bar)
 
+    def show_error(self, message):
+        QMessageBox.critical(self, "Error", message)
+
     def on_data_source_selection_changed(self, index):
         """
         Called when the data source selection changes.
@@ -270,7 +268,16 @@ class DataImportGUI(QMainWindow):
 
 
         if not train_files or not test_files:
-            self.show_error("No files selected for either training or testing.")
+            self.show_error("Please select files for both training and testing.")
+            self.organize_button.setEnabled(True)
+            self.organize_button.setText("Load and Prepare Files")
+            self.organize_button.setStyleSheet("""
+            background-color: #0b6337;
+            font-weight: bold;
+            padding: 10px 20px;  /* Adjust padding for visual appeal */
+            color: white;
+            font-size: 14px;  /* Increase font size */
+        """)
             return
         # Update the button label and color when the process starts
         self.organize_button.setText("Importing and Preprocessing Files")
@@ -288,148 +295,73 @@ class DataImportGUI(QMainWindow):
 
         # Determine which data processor to use based on the selected data source
         selected_source = self.data_source_combo.currentText()
-        if selected_source == "Arbin":
-            data_processor = self.data_processor_arbin
-        elif selected_source == "STLA":
-            data_processor = self.data_processor_stla
-        elif selected_source == "Digatron":
-            data_processor = self.data_processor_digatron
-        else:
-            self.show_error("Invalid data source selected.")
-            return
 
-        # Create and start the file organizer thread with the selected data processor
-        # Removed sampling_frequency parameter as this is now handled in the data augmentation GUI
+        # Create and start the file organizer thread
         self.organizer = FileOrganizer(
-            train_files, 
-            test_files, 
-            data_processor,
-            data_source=selected_source,
-            api_gateway=self.api_gateway
+            train_files,
+            test_files,
+            self.api_gateway,
+            data_source=selected_source
         )
         self.organizer_thread = QThread()
-
-        # Connect signals and slots
-        self.organizer.progress.connect(self.handle_progress_update)
-        self.organizer.job_folder_signal.connect(self.on_files_processed)
-        self.organizer.job_id_signal.connect(self.on_job_created)
-
         self.organizer.moveToThread(self.organizer_thread)
+
+        # Connect signals
+        self.organizer.progress.connect(self.handle_progress_update)
+        self.organizer.finished.connect(self.on_processing_finished)
+        self.organizer.error.connect(self.on_processing_error)
+
         self.organizer_thread.started.connect(self.organizer.run)
         self.organizer_thread.start()
+
+    def on_processing_finished(self, result):
+        """Handle successful completion of the file processing thread."""
+        self.progress_bar.setValue(100)
+        QMessageBox.information(self, "Success", f"Job {result['job_id']} created successfully.")
+        self.jobCreated.emit()
+
+        # In a real app, you might want to hide or close the import window
+        # and open the next one.
+        self.hide()  # Hide the import GUI
+
+        # Transition to the Data Augmentation GUI
+        self.data_augment_gui = DataAugmentGUI(api_gateway=self.api_gateway, job_folder=result['job_folder'])
+        self.data_augment_gui.show()
+        self.close()
+
+    def on_processing_error(self, error_message):
+        """Handle errors from the file processing thread."""
+        self.progress_bar.setVisible(False)
+        self.organize_button.setEnabled(True)
+        self.organize_button.setText("Load and Prepare Files")
+        QMessageBox.critical(self, "Error", f"An error occurred: {error_message}")
     def handle_progress_update(self, progress_value):
         # Update the progress bar with the percentage
         self.progress_bar.setValue(progress_value)
         
-    def on_job_created(self, job_id):
-        """Handle when a job is created via the API."""
-        self.job_id = job_id
-        logger.info(f"Job created with ID: {job_id}")
-
-    def on_files_processed(self, job_folder):
-        # Handle when files are processed and job folder is created
-        logger.info(f"Files processed successfully. Job folder: {job_folder}")
-        self.progress_bar.setVisible(False)
-        
-        # Change the button label to indicate next step and enable it
-        self.organize_button.setText("Continue to Data Augmentation")
-        self.organize_button.setStyleSheet("""
-            background-color: #1f8b4c; 
-            font-weight: bold;
-            padding: 10px 20px;
-            color: white;
-            font-size: 14px;
-        """)
-        self.organize_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.organize_button.setEnabled(True)
-        
-        # Update the button action to move to the next screen
-        self.organize_button.clicked.disconnect()
-        self.organize_button.clicked.connect(lambda: self.move_to_next_screen(job_folder))
-
-    def move_to_next_screen(self, job_folder):
-        # Changed to open the Data Augmentation GUI instead of Hyperparameter GUI
-        self.close()
-        self.data_augment_gui = DataAugmentGUI(job_folder=job_folder)
-        self.data_augment_gui.show()
-
-    def show_error(self, message):
-        # Display error message
-        QMessageBox.critical(self, "Error", message)
-
-    def on_job_created(self, job_id):
-        """Handle when a job is created via the API."""
-        self.job_id = job_id
-        logger.info(f"Job created with ID: {job_id}")
-
 class FileOrganizer(QObject):
-    progress = pyqtSignal(int)  # Emit progress percentage
-    job_folder_signal = pyqtSignal(str)  # To communicate when the job folder is created
-    job_id_signal = pyqtSignal(str)  # To communicate the job ID
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
 
-    def __init__(self, train_files, test_files, data_processor, api_gateway, sampling_frequency=None, data_source=None):
+    def __init__(self, train_files, test_files, api_gateway, data_source=None):
         super().__init__()
         self.train_files = train_files
         self.test_files = test_files
-        self.data_processor = data_processor
         self.api_gateway = api_gateway
-        self.sampling_frequency = sampling_frequency  # Keep for backwards compatibility with existing code
-        self.data_source = data_source  # Add data source info
+        self.data_source = data_source
 
     def run(self):
-        if not self.train_files or not self.test_files:
-            self.progress.emit(0)  # Emit 0% if no files selected
-            return
-
         try:
-            # First create a job via the server API
-            job_id = self.create_job_via_api()
-            if not job_id:
-                self.progress.emit(0)
-                return
-            
-            # Now process the files using the data processor
-            job_folder = self.data_processor.organize_and_convert_files(
-                self.train_files,
-                self.test_files,
-                progress_callback=self.update_progress,
-                sampling_frequency=None,  # Remove resampling here as it's moved to data augmentation
-                job_id=job_id
-            )
-            
-            logger.info(f"Job folder created: {job_folder}")
-            # Emit success message with job folder details and job ID
-            self.job_folder_signal.emit(job_folder)
-            self.job_id_signal.emit(job_id)
-        except Exception as e:
-            logger.error(f"Error in FileOrganizer.run: {str(e)}", exc_info=True)
-            self.progress.emit(0)  # Emit 0% if there is an error
-            
-    def create_job_via_api(self):
-        """Create a new job through the server API."""
-        try:
-            # Prepare job creation payload
             selections = {
-                "train_files": [os.path.basename(f) for f in self.train_files],
-                "test_files": [os.path.basename(f) for f in self.test_files],
-                "train_folder": os.path.dirname(self.train_files[0]) if self.train_files else "",
-                "test_folder": os.path.dirname(self.test_files[0]) if self.test_files else "",
+                "train_files": self.train_files,
+                "test_files": self.test_files,
                 "data_source": self.data_source,
-                "timestamp": datetime.now().isoformat()
             }
-            
-            # Call the server API to create a job
-            result = self.api_gateway.post("jobs", json={"selections": selections})
-            
-            logger.info(f"Job created via API: {result['job_id']}")
-            return result['job_id']
+            job = self.api_gateway.post("jobs/process-and-create", json={"selections": selections})
+            self.finished.emit(job)
         except Exception as e:
-            logger.error(f"Error creating job via API: {str(e)}", exc_info=True)
-            return None
-            
-    def update_progress(self, progress_value):
-        """Emit progress as a percentage."""
-        self.progress.emit(progress_value)
+            self.error.emit(str(e))
 
 def main():
     app = QApplication(sys.argv)

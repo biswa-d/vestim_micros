@@ -20,19 +20,24 @@ import torch
 
 from vestim.gui.src.api_gateway import APIGateway
 from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
+from vestim.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
 
 import logging
 class VEstimHyperParamGUI(QWidget):
-    def __init__(self, job_folder):
-        self.logger = logging.getLogger(__name__)  # Initialize the logger within the instance
-        self.logger.info("Initializing Hyperparameter GUI")
+    def __init__(self, api_gateway: APIGateway, job_folder: str):
         super().__init__()
-        self.params = {}  # Initialize an empty params dictionary
-        self.api_gateway = APIGateway()
+        self.logger = logging.getLogger(__name__)
+        
+        if not job_folder or not os.path.isdir(job_folder):
+            raise ValueError("A valid job_folder must be provided.")
+            
         self.job_folder = job_folder
         self.job_id = os.path.basename(job_folder)
-        self.hyper_param_manager = VEstimHyperParamManager()  # Initialize HyperParamManager
-        self.param_entries = {}  # To store the entry widgets for parameters
+        self.logger.info(f"Initializing Hyperparameter GUI for job_id: {self.job_id}")
+
+        self.api_gateway = api_gateway
+        self.params = {}
+        self.param_entries = {}
 
         self.setup_window()
         self.build_gui()
@@ -604,86 +609,97 @@ class VEstimHyperParamGUI(QWidget):
         layout.addLayout(validation_layout)
 
     def add_device_selection(self, layout):
-        """Adds UI components for device selection with top alignment and tooltips."""
-
-        # **Main Vertical Layout**
+        """Adds device selection UI components with top alignment and tooltips."""
         device_layout = QVBoxLayout()
         device_layout.setAlignment(Qt.AlignTop)
 
-        # **Device Selection**
         device_label = QLabel("Select Device:")
         device_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
-        device_label.setToolTip("Choose the hardware for training.")
+        device_label.setToolTip("Select the hardware device for training.")
+        device_layout.addWidget(device_label)
 
         self.device_combo = QComboBox()
-        
-        # **Check for CUDA Availability**
         if torch.cuda.is_available():
             device_options = ["cuda", "cpu"]
-            self.device_combo.addItems(device_options)
-            self.device_combo.setToolTip("CUDA is available. Select 'cuda' for GPU training.")
+            self.device_combo.setToolTip("CUDA-enabled GPU detected. Select 'cuda' for faster training.")
         else:
             device_options = ["cpu"]
-            self.device_combo.addItems(device_options)
-            self.device_combo.setToolTip("CUDA not available. Training will run on CPU.")
-            self.device_combo.setEnabled(False) # Disable if only CPU is an option
-
-        self.device_combo.setFixedWidth(180)
-        self.param_entries["DEVICE"] = self.device_combo
-
-        # **Add Widgets to Layout**
-        device_layout.addWidget(device_label)
+            self.device_combo.setToolTip("No CUDA-enabled GPU detected. Training will run on the CPU.")
+        self.device_combo.addItems(device_options)
+        self.device_combo.setFixedWidth(120)
         device_layout.addWidget(self.device_combo)
 
-        # **Apply to Parent Layout**
+        self.mixed_precision_checkbox = QCheckBox("Use Mixed Precision")
+        self.mixed_precision_checkbox.setToolTip("Use 16-bit precision for faster training on compatible GPUs.")
+        device_layout.addWidget(self.mixed_precision_checkbox)
+
+        max_time_label = QLabel("Max Training Time (mins):")
+        max_time_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
+        max_time_label.setToolTip("Set a time limit for training. Set to 0 for no limit.")
+        device_layout.addWidget(max_time_label)
+
+        self.max_time_entry = QLineEdit("0")
+        self.max_time_entry.setFixedWidth(100)
+        device_layout.addWidget(self.max_time_entry)
+
+        self.param_entries["DEVICE"] = self.device_combo
+        self.param_entries["USE_MIXED_PRECISION"] = self.mixed_precision_checkbox
+        self.param_entries["MAX_TRAINING_TIME_MINS"] = self.max_time_entry
+
         layout.addLayout(device_layout)
 
 
     def proceed_to_training(self):
-        """Collects parameters, generates task configurations, and starts training."""
-        self.collect_parameters()
-        self.hyper_param_manager.set_params(self.params)
-        
-        try:
-            task_configs = self.hyper_param_manager.generate_task_configs()
-            
-            for i, config in enumerate(task_configs):
-                task_id = f"task_{self.job_id}_{i}"
-                self.api_gateway.post(f"jobs/{self.job_id}/train", json={"task_id": task_id, "params": config})
+        """Collects parameters and sends a request to the backend to start the training job."""
+        params = self.collect_parameters()
+        if params is None:
+            # Error message is shown in collect_parameters, just exit
+            return
 
-            QMessageBox.information(self, "Training Started", f"Started {len(task_configs)} training task(s) for job {self.job_id}.")
+        task_info = {
+            "hyperparams": params,
+            "DEVICE_SELECTION": params.get("DEVICE_SELECTION", "cpu")
+        }
+
+        try:
+            # First, save the hyperparameters
+            self.api_gateway.save_hyperparameters(self.job_id, params)
+            
+            # Transition to the training setup GUI
+            self.training_setup_gui = VEstimTrainSetupGUI(job_id=self.job_id, api_gateway=self.api_gateway)
+            self.training_setup_gui.show()
             self.close()
+
         except Exception as e:
-            self.logger.error(f"Failed to start training: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"Failed to start training: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to proceed to training setup: {e}")
 
 
     def load_column_names(self):
-        """Loads column names from the first CSV file found in the train folder."""
-        train_folder = os.path.join(self.job_folder, 'train_data', 'processed_data')
-        
-        if not os.path.exists(train_folder):
-            self.logger.error(f"Train folder not found at {train_folder}")
-            QMessageBox.critical(self, "Error", f"Train folder not found at {train_folder}")
-            return []
-            
+        """Loads column names by finding a CSV in the job's processed data folder."""
         try:
-            # Find the first CSV file in the directory
-            csv_files = [f for f in os.listdir(train_folder) if f.endswith('.csv')]
-            if not csv_files:
-                self.logger.error("No CSV files found in the processed train data folder.")
-                QMessageBox.critical(self, "Error", "No CSV files found in the processed train data folder.")
+            job_details = self.api_gateway.get_job(self.job_id)
+            if not job_details:
+                self.logger.error("Could not retrieve job details.")
                 return []
+
+            job_folder = job_details.get('job_folder')
+            train_folder = os.path.join(job_folder, 'train_data', 'processed_data')
+
+            if not os.path.exists(train_folder):
+                self.logger.warning(f"Train folder not found: {train_folder}")
+                return []
+
+            for file in os.listdir(train_folder):
+                if file.lower().endswith('.csv'):
+                    csv_path = os.path.join(train_folder, file)
+                    df = pd.read_csv(csv_path, nrows=1)
+                    return df.columns.tolist()
             
-            # Load the first CSV to get column names
-            sample_file_path = os.path.join(train_folder, csv_files[0])
-            df = pd.read_csv(sample_file_path)
-            self.logger.info(f"Loaded columns from {sample_file_path}: {df.columns.tolist()}")
-            return df.columns.tolist()
-            
+            self.logger.warning("No CSV files found in the train folder.")
+            return []
         except Exception as e:
-            self.logger.error(f"Failed to load column names: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"Failed to load column names: {e}")
+            self.logger.error(f"Failed to load column names: {e}")
+            QMessageBox.critical(self, "Error", f"Could not load column names: {e}")
             return []
 
     def load_params_from_json(self):
@@ -769,16 +785,66 @@ class VEstimHyperParamGUI(QWidget):
             QMessageBox.critical(self, "Error", f"Could not open the guide: {e}")
 
     def collect_parameters(self):
-        """Collects all parameters from the UI and stores them in self.params."""
-        self.params = {}
-        for key, widget in self.param_entries.items():
-            if isinstance(widget, QLineEdit):
-                self.params[key] = widget.text()
-            elif isinstance(widget, QComboBox):
-                self.params[key] = widget.currentText()
-            elif isinstance(widget, QListWidget):
-                selected_items = [item.text() for item in widget.selectedItems()]
-                self.params[key] = selected_items
-            elif isinstance(widget, QCheckBox):
-                self.params[key] = widget.isChecked()
-        self.logger.info(f"Collected parameters: {self.params}")
+        """
+        Collects all parameters from the UI, validates them, and returns a dictionary.
+        Returns None if validation fails.
+        """
+        params = {}
+        try:
+            # Feature and Target Columns
+            feature_widget = self.param_entries["FEATURE_COLUMNS"]
+            selected_features = [item.text() for item in feature_widget.selectedItems()]
+            if not selected_features:
+                raise ValueError("At least one feature column must be selected.")
+            params["FEATURE_COLUMNS"] = selected_features
+
+            target_widget = self.param_entries["TARGET_COLUMN"]
+            params["TARGET_COLUMN"] = target_widget.currentText()
+            if not params["TARGET_COLUMN"]:
+                raise ValueError("A target column must be selected.")
+
+            # Model Type
+            params["MODEL_TYPE"] = self.param_entries["MODEL_TYPE"].currentText()
+
+            # Dynamically collect other parameters
+            for key, widget in self.param_entries.items():
+                if key in ["FEATURE_COLUMNS", "TARGET_COLUMN", "MODEL_TYPE"]:
+                    continue  # Already handled
+
+                if not widget.isVisible():
+                    continue # Skip hidden widgets
+
+                if isinstance(widget, QLineEdit):
+                    params[key] = widget.text()
+                elif isinstance(widget, QComboBox):
+                    params[key] = widget.currentText()
+                elif isinstance(widget, QCheckBox):
+                    params[key] = widget.isChecked()
+            
+            # Final check for required fields based on visibility
+            required_fields = {
+                "LOOKBACK": "Lookback window is required for Sequence-to-Sequence.",
+                "BATCH_SIZE": "Batch size is required for batch training.",
+                "TRAIN_VAL_SPLIT": "Train-Valid split is required.",
+                "INITIAL_LR": "Initial Learning Rate is required.",
+                "EPOCHS": "Number of epochs is required.",
+                "EARLY_STOPPING_PATIENCE": "Early stopping patience is required.",
+                "VALIDATION_FREQ": "Validation frequency is required."
+            }
+
+            for field, error_msg in required_fields.items():
+                widget = self.param_entries.get(field)
+                if widget and widget.isVisible() and not params.get(field):
+                    raise ValueError(error_msg)
+
+            self.logger.info(f"Collected parameters: {params}")
+            return params
+
+        except ValueError as ve:
+            QMessageBox.warning(self, "Validation Error", str(ve))
+            self.logger.error(f"Parameter validation failed: {ve}")
+            return None
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred while collecting parameters: {e}")
+            self.logger.error(f"Failed to collect parameters: {e}", exc_info=True)
+            return None

@@ -19,98 +19,117 @@ from vestim.gui.src.api_gateway import APIGateway
 from vestim.gui.src.testing_gui_qt import VEstimTestingGUI
 
 
-class TrainingThread(QThread):
-    # Custom signals to emit data back to the main GUI
-    update_epoch_signal = pyqtSignal(dict)  # Signal to send progress data (e.g., after each epoch)
-    task_completed_signal = pyqtSignal()  # Signal when the task is completed
-    task_error_signal = pyqtSignal(str)  # Signal for any error during the task
-
-    def __init__(self, job_id, task_id, api_gateway):
-        super().__init__()
-        self.job_id = job_id
-        self.task_id = task_id
-        self.api_gateway = api_gateway
-
-    def run(self):
-        try:
-            # Process the task in the background
-            self.api_gateway.post(f"jobs/{self.job_id}/train", json={"task_id": self.task_id})
-            
-            while True:
-                status = self.api_gateway.get(f"jobs/{self.job_id}/status")
-                if not status or status.get("status") in ["complete", "error", "stopped"]:
-                    break
-                self.update_epoch_signal.emit(status)
-                time.sleep(5)
-
-            self.task_completed_signal.emit()
-        except Exception as e:
-            self.task_error_signal.emit(str(e))  # Emit error message
-
-
 class VEstimTrainingTaskGUI(QMainWindow):
-    def __init__(self, job_id):
+    def __init__(self, api_gateway: APIGateway, job_id: str):
         super().__init__()
-        
-        #Logger setup
-        self.logger = logging.getLogger(__name__)
-        # Initialize WandB flag
-        self.use_wandb = False  # Set to False if WandB should not be used
-        self.wandb_enabled = False
-        if self.use_wandb:
-            try:
-                import wandb
-                wandb.init(project="VEstim", config={"task_name": "LSTM Model Training"})
-                self.wandb_enabled = True
-            except Exception as e:
-                self.wandb_enabled = False
-                self.logger.error(f"Failed to initialize WandB in GUI: {e}")
-        
+        self.api = api_gateway
         self.job_id = job_id
-        self.api_gateway = APIGateway()
-        self.task_list = self.api_gateway.get(f"jobs/{self.job_id}/tasks")
-        self.params = self.task_list[0]['hyperparams'] if self.task_list else {}
-
-        # Initialize variables
+        self.logger = logging.getLogger(__name__)
+        
         self.train_loss_values = []
         self.valid_loss_values = []
-        self.valid_x_values = []
-        self.start_time = None
-        self.queue = Queue()
-        self.timer_running = True
-        self.training_process_stopped = False
-        self.task_completed_flag = False
-        self.current_task_index = 0
-        self.current_error_unit_label = "RMS Error" # Default error label
- 
-        self.param_labels = {
-            "LAYERS": "Layers",
-            "HIDDEN_UNITS": "Hidden Units",
-            "BATCH_SIZE": "Batch Size",
-            "MAX_EPOCHS": "Max Epochs",
-            "INITIAL_LR": "Initial LR", # Shorter
-            "LR_DROP_FACTOR": "LR Drop Factor", # Keep for StepLR specific
-            "LR_DROP_PERIOD": "LR Drop Period", # Keep for StepLR specific
-            "PLATEAU_PATIENCE": "Plateau Patience", # For ReduceLROnPlateau
-            "PLATEAU_FACTOR": "Plateau Factor",   # For ReduceLROnPlateau
-            "VALID_PATIENCE": "Validation Patience",
-            "ValidFrequency": "Validation Freq", # Shorter
-            "LOOKBACK": "Lookback", # Shorter
-            "REPETITIONS": "Repetitions",
-            "NUM_LEARNABLE_PARAMS": "# Params", # Shorter
-            "INPUT_SIZE": "Input Size",
-            "OUTPUT_SIZE": "Output Size",
-            "SCHEDULER_TYPE": "LR Scheduler",
-            "TRAINING_METHOD": "Training Method",
-            "DEVICE_SELECTION": "Device", # Added
-            "MAX_TRAINING_TIME_SECONDS": "Max Train Time (Task)", # Added
-            # Add other specific keys from hyperparams if they need special display names
-            # e.g. BATCH_TRAINING, MODEL_TYPE are already strings from QComboBox
-        }
-
+        self.epoch_points = []
+        
         self.initUI()
-        self.build_gui(self.task_list[self.current_task_index])
-        self.start_task_processing()
+        self.start_polling()
+
+    def initUI(self):
+        self.setWindowTitle(f"VEstim - Training Job: {self.job_id}")
+        self.setGeometry(100, 100, 900, 700)
+        
+        container = QWidget()
+        self.setCentralWidget(container)
+        self.main_layout = QVBoxLayout(container)
+
+        # Title
+        title_label = QLabel("Training Job Progress")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
+        self.main_layout.addWidget(title_label)
+
+        # Status
+        self.status_label = QLabel("Connecting...")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.main_layout.addWidget(self.status_label)
+
+        # Plot
+        self.figure = Figure(figsize=(6, 4), dpi=100)
+        self.canvas = FigureCanvas(self.figure)
+        self.ax = self.figure.add_subplot(111)
+        self.train_line, = self.ax.plot([], [], 'r-', label='Train Loss')
+        self.valid_line, = self.ax.plot([], [], 'b-', label='Validation Loss')
+        self.ax.legend()
+        self.main_layout.addWidget(self.canvas)
+
+        # Log
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.main_layout.addWidget(self.log_text)
+
+        # Stop Button
+        self.stop_button = QPushButton("Stop Training")
+        self.stop_button.clicked.connect(self.stop_training)
+        self.main_layout.addWidget(self.stop_button)
+
+    def start_polling(self):
+        self.poll_timer = QTimer(self)
+        self.poll_timer.timeout.connect(self.update_status)
+        self.poll_timer.start(2000) # Poll every 2 seconds
+        self.update_status()
+
+    def update_status(self):
+        try:
+            status_data = self.api.get_job(self.job_id)
+            if not status_data:
+                self.status_label.setText("Could not fetch job status.")
+                return
+
+            status = status_data.get('status')
+            details = status_data.get('details', {})
+            self.status_label.setText(f"Status: {status} - {details.get('message', '')}")
+
+            if 'history' in details and details['history']:
+                self.update_plot(details['history'])
+                self.update_log(details['history'])
+
+            if status in ['complete', 'error', 'stopped']:
+                self.poll_timer.stop()
+                self.stop_button.setEnabled(False)
+                self.stop_button.setText(f"Job {status.capitalize()}")
+
+        except Exception as e:
+            self.logger.error(f"Error updating status for job {self.job_id}: {e}")
+            self.status_label.setText(f"Error: {e}")
+            self.poll_timer.stop()
+
+    def update_plot(self, history):
+        epochs = [item['epoch'] for item in history]
+        train_loss = [item['train_loss'] for item in history]
+        val_loss = [item['val_loss'] for item in history]
+
+        self.train_line.set_data(epochs, train_loss)
+        self.valid_line.set_data(epochs, val_loss)
+        
+        self.ax.relim()
+        self.ax.autoscale_view()
+        self.canvas.draw()
+
+    def update_log(self, history):
+        self.log_text.clear()
+        for item in history:
+            self.log_text.append(f"Epoch {item['epoch']}: {item['message']}")
+
+    def stop_training(self):
+        try:
+            self.api.stop_job(self.job_id)
+            self.status_label.setText("Stop signal sent. Waiting for confirmation...")
+            self.stop_button.setEnabled(False)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to send stop signal: {e}")
+
+    def closeEvent(self, event):
+        self.poll_timer.stop()
+        super().closeEvent(event)
 
     def initUI(self):
         self.setWindowTitle(f"VEstim - Training Task {self.current_task_index + 1}")

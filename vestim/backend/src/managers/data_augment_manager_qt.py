@@ -25,6 +25,7 @@ from PyQt5.QtCore import QObject, pyqtSignal # Import QObject and pyqtSignal
 # Removed QMessageBox import as it will be handled in the GUI thread
 # from PyQt5.QtWidgets import QMessageBox 
 
+from vestim.gui.src.api_gateway import APIGateway
 from vestim.logger_config import setup_logger
 from vestim.backend.src.services.data_processor.src.data_augment_service import DataAugmentService
 from vestim.backend.src.services.job_service import JobService # Fixed to use JobService instead of JobManager
@@ -46,12 +47,13 @@ class DataAugmentManager(QObject): # Inherit from QObject
     # Signal to indicate completion (success or failure type)
     augmentationFinished = pyqtSignal(str, list) # job_folder, metadata list
 
-    def __init__(self):
+    def __init__(self, api_gateway: APIGateway):
         """Initialize the DataAugmentManager"""
         super().__init__() # Call QObject constructor
         self.logger = logging.getLogger(__name__)
         self.service = DataAugmentService()
         self.job_service = JobService() # Instantiate JobService
+        self.api_gateway = api_gateway
 
     def _set_job_context(self, job_folder: str):
         """Sets the JobService's context to the given job_folder."""
@@ -402,6 +404,10 @@ class DataAugmentManager(QObject): # Inherit from QObject
                current_progress = int(((i + 1) / total_files) * 95)
                self.augmentationProgress.emit(current_progress)
            self.service.update_augmentation_metadata(job_folder, processed_files_metadata)
+
+           # Update job status if all files were processed successfully
+           if all(f.get('status') == 'Success' for f in processed_files_metadata):
+               self.job_service.update_job_status(os.path.basename(job_folder), "data_augmented")
 
            self.augmentationProgress.emit(100)
            self.logger.info(f"File-by-file augmentation completed (or stopped) for job: {job_folder}")

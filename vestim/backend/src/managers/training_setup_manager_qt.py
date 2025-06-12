@@ -7,65 +7,26 @@ import logging
 import torch
 
 class VEstimTrainingSetupManager:
-    _instance = None
-    
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super(VEstimTrainingSetupManager, cls).__new__(cls)
-        return cls._instance
-    
-    def __init__(self, progress_signal=None, job_service=None):
-        if not hasattr(self, 'initialized'):  # Ensure initialization only happens once
-            self.logger = logging.getLogger(__name__)  # Initialize logger
-            self.params = None
-            self.current_hyper_params = None
-            self.hyper_param_manager = VEstimHyperParamManager()  # Initialize your hyperparameter manager here
-            self.lstm_model_service = LSTMModelService()  # Initialize your model service here
-            self.job_service = job_service if job_service else JobService()  # JobService should be passed in or initialized separately
-            self.models = []  # Store model information
-            self.training_tasks = []  # Store created tasks
-            self.progress_signal = progress_signal  # Signal to communicate progress with the GUI
-            self.initialized = True  # Mark as initialized
+    def __init__(self, job_id: str, hyperparams: dict):
+        self.logger = logging.getLogger(__name__)
+        self.job_id = job_id
+        self.params = hyperparams
+        self.current_hyper_params = hyperparams
+        self.lstm_model_service = LSTMModelService()
+        self.job_service = JobService()
+        self.job_service.set_job_id(job_id)
+        self.models = []
+        self.training_tasks = []
 
     def setup_training(self):
-        print("Setting up training by the manager...")
-        self.logger.info("Setting up training...")
-        self.logger.info("Fetching hyperparameters...")
         """Set up the training process, including building models and creating training tasks."""
+        self.logger.info(f"Setting up training for job {self.job_id}")
         try:
-            print("Fetching hyperparameters...")
-            self.params = self.hyper_param_manager.get_hyper_params()
-            self.current_hyper_params = self.params
-            self.logger.info(f"Params after updating: {self.current_hyper_params}")
-
-            # Emit progress signal to indicate model building is starting
-            if self.progress_signal:
-                self.progress_signal.emit("Building models...", "", 0)
-
-            # Build models
             self.build_models()
-
-            # Emit progress signal to indicate training task creation is starting
-            if self.progress_signal:
-                self.progress_signal.emit("Creating training tasks...", "", 0)
-
-            # Create training tasks
             self.create_training_tasks()
-
-            # Emit final progress signal after tasks are created
-            task_count = len(self.training_tasks)
-            if self.progress_signal:
-                self.progress_signal.emit(
-                    f"Setup complete! Task info saved in {self.job_service.get_job_folder()}.",
-                    self.job_service.get_job_folder(),
-                    task_count
-                )
-
         except Exception as e:
-            self.logger.error(f"Error during setup: {str(e)}")
-            # Handle any error during setup and pass it to the GUI
-            if self.progress_signal:
-                self.progress_signal.emit(f"Error during setup: {str(e)}", "", 0)
+            self.logger.error(f"Error during setup for job {self.job_id}: {e}")
+            raise
 
     def create_selected_model(self, model_type, model_params, model_path):
         """Creates and saves the selected model based on the dropdown selection."""

@@ -13,11 +13,11 @@ from vestim.backend.src.services.model_training.src.training_task_service import
 class TrainingService:
     """Manages the execution of a single model training task."""
 
-    def __init__(self, task_info: dict, job_service: JobService, global_params: dict):
+    def __init__(self, task_info: dict, global_params: dict, status_queue=None):
         self.logger = logging.getLogger(__name__)
         self.task_info = task_info
-        self.job_service = job_service
         self.global_params = global_params
+        self.status_queue = status_queue
         self.data_loader_service = DataLoaderService()
         self.model_training_service = ModelTrainingService()
         self.stop_requested = False
@@ -34,7 +34,6 @@ class TrainingService:
         """The main entry point to start processing the training task."""
         self.logger.info(f"Starting training task: {self.task_info.get('task_id')}")
         try:
-            self.job_service.update_job_status(self.task_info['job_id'], "training")
             self.update_status("started", "Initializing...")
             
             self.setup_job_logging()
@@ -44,17 +43,14 @@ class TrainingService:
 
             if not self.stop_requested:
                 self.update_status("complete", "Training finished successfully.")
-                self.job_service.update_job_status(self.task_info['job_id'], "complete")
                 self.logger.info(f"Training task {self.task_info.get('task_id')} completed successfully.")
             else:
                 self.update_status("stopped", "Training was stopped by user.")
-                self.job_service.update_job_status(self.task_info['job_id'], "stopped")
                 self.logger.info(f"Training task {self.task_info.get('task_id')} was stopped.")
 
         except Exception as e:
             self.logger.error(f"Error during training task {self.task_info.get('task_id')}: {e}", exc_info=True)
             self.update_status("error", str(e))
-            self.job_service.update_job_status(self.task_info['job_id'], "error", {"error_message": str(e)})
             raise
 
     def run_training(self, train_loader, val_loader):
@@ -123,8 +119,7 @@ class TrainingService:
                 "val_loss_history": self.val_loss_history,
                 "log_history": self.log_history,
             }
-            self.update_status("running", f"Epoch {epoch} complete", **status_payload)
-            self.job_service.update_job_status(self.task_info['job_id'], "training", status_payload)
+            self.update_status("training", f"Epoch {epoch} complete", **status_payload)
 
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
@@ -145,25 +140,21 @@ class TrainingService:
         }, checkpoint_path)
         self.logger.info(f"Saved new best model to {checkpoint_path} at epoch {epoch} with validation loss {val_loss:.4f}")
 
-    def update_status(self, status: str, message: str, epoch: int = 0, total_epochs: int = 0, train_loss: float = 0.0, val_loss: float = 0.0):
-        """Writes the current task status to a JSON file."""
-        status_payload = {
-            "task_id": self.task_info.get('task_id'),
-            "status": status,
+    def update_status(self, status: str, message: str, **kwargs):
+        """Puts the current task status onto the status queue for the JobManager."""
+        if not self.status_queue:
+            return
+
+        payload = {
             "message": message,
-            "epoch": epoch,
-            "total_epochs": total_epochs,
-            "train_loss": train_loss,
-            "val_loss": val_loss,
             "timestamp": time.time()
         }
+        payload.update(kwargs)
         
-        status_file_path = os.path.join(self.task_info['task_dir'], 'training_status.json')
         try:
-            with open(status_file_path, 'w') as f:
-                json.dump(status_payload, f, indent=4)
+            self.status_queue.put((self.task_info['job_id'], status, payload))
         except Exception as e:
-            self.logger.error(f"Could not write status file to {status_file_path}: {e}")
+            self.logger.error(f"Could not put status on queue: {e}")
 
     def setup_job_logging(self):
         """Sets up the database and logging for the specific task."""
@@ -198,7 +189,7 @@ class TrainingService:
         params = self.task_info['hyperparams']
         
         train_loader, val_loader = self.data_loader_service.create_data_loaders(
-            folder_path=self.job_service.get_train_folder(),
+            folder_path=os.path.join(self.task_info['job_folder'], 'train_data', 'processed_data'),
             training_method=params.get('TRAINING_METHOD', 'Sequence-to-Sequence'),
             lookback=int(params.get('LOOKBACK', 50)),
             feature_cols=self.global_params['FEATURE_COLUMNS'],

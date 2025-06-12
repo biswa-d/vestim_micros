@@ -9,61 +9,50 @@ import sys
 import os
 # Add the project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
-from fastapi import FastAPI, Depends, BackgroundTasks, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 import uvicorn
 import json
 import time
+import os
 
-
+from vestim.backend.src.managers.job_manager import JobManager
 from vestim.backend.src.services.job_service import JobService
 from vestim.backend.src.managers.training_task_manager_qt import TrainingTaskManager
 from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
 from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
-# from vestim.backend.src.managers.data_augment_manager_qt import DataAugmentManager  # Temporarily commented out due to syntax errors
+# from vestim.backend.src.managers.data_augment_manager_qt import DataAugmentManager
 from vestim.backend.src.services.training_service import TrainingService
+from vestim.backend.src.services.data_processing_service import DataProcessingService
 
-# --- Pydantic Models for Request Bodies ---
-class HyperparameterPayload(BaseModel):
-    """Defines the expected structure for the hyperparameter configuration."""
-    params: Dict[str, Any] = Field(..., description="A dictionary containing all hyperparameter settings.")
-
-class TaskInfoPayload(BaseModel):
-    """Defines the expected structure for starting a training task."""
-    task_info: Dict[str, Any]
-    global_params: Dict[str, Any]
-
+# --- Pydantic Models ---
 class JobPayload(BaseModel):
-    """Defines the expected structure for creating a new job."""
     selections: Dict[str, Any]
 
 class JobResponse(BaseModel):
-    """Defines the structure for job response data."""
     job_id: str
     status: str
     created_at: str
     updated_at: str
     selections: Dict[str, Any]
-    message: Optional[str] = None
+    job_folder: str
+    details: Optional[Dict[str, Any]] = None
 
-class TaskStatusResponse(BaseModel):
-    """Defines the structure for task status response."""
-    task_id: str
-    status: str
-    progress: Optional[float] = None
-    message: Optional[str] = None
-    error: Optional[str] = None
+class TaskInfoPayload(BaseModel):
+    task_info: Dict[str, Any]
 
-# Create the FastAPI application instance
+class HyperparametersPayload(BaseModel):
+    hyperparameters: Dict[str, Any]
+
+# --- FastAPI App ---
 app = FastAPI(
     title="VEstim Backend Service",
     description="Handles all computational tasks for the VEstim application.",
-    version="1.0.0"
+    version="2.0.0"
 )
 
-# Enable CORS for all origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -72,149 +61,141 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# A simple in-memory dictionary to store running background tasks
-# In a production scenario, a more robust solution like Redis or a database would be used.
-running_tasks: Dict[str, TrainingService] = {}
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Middleware to log every incoming request."""
+    print(f"Incoming request: {request.method} {request.url}")
+    print(f"Headers: {request.headers}")
+    response = await call_next(request)
+    return response
 
 # --- Dependency Injection ---
+def get_job_manager():
+    return JobManager()
+
 def get_job_service():
-    """Dependency injector for the JobService."""
     return JobService()
 
 def get_training_task_manager():
-    """Dependency injector for the TrainingTaskManager."""
     return TrainingTaskManager()
 
+def get_data_processing_service():
+    return DataProcessingService()
 
-def get_training_setup_manager():
-    """Dependency injector for the VEstimTrainingSetupManager."""
-    return VEstimTrainingSetupManager()
-
-def get_hyper_param_manager():
-    """Dependency injector for the VEstimHyperParamManager."""
-    return VEstimHyperParamManager()
-
-def get_data_augment_manager():
-    """Dependency injector for the DataAugmentManager."""
-    # return DataAugmentManager()  # Temporarily commented out due to syntax errors
-    return None
-
+# --- API Endpoints ---
 @app.get("/")
 def read_root():
-    """
-    Root endpoint for the API. Provides a simple welcome message.
-    """
     return {"message": "Welcome to the VEstim Backend API", "status": "online", "timestamp": time.time()}
 
 @app.post("/jobs", response_model=JobResponse)
 def create_new_job(payload: JobPayload, job_service: JobService = Depends(get_job_service)):
-    """
-    Creates a new job and returns the job details.
-    """
     job_id, _ = job_service.create_new_job(payload.selections)
-    job = job_service.get_job_by_id(job_id)
-    if not job:
+    if not job_id:
         raise HTTPException(status_code=500, detail="Failed to create job.")
+    job = job_service.get_job_by_id(job_id)
     return job
 
 @app.get("/jobs", response_model=List[JobResponse])
 def get_jobs(job_service: JobService = Depends(get_job_service)):
-    """
-    Returns a list of all jobs.
-    """
     return job_service.get_all_jobs()
 
 @app.get("/jobs/{job_id}", response_model=JobResponse)
 def get_job(job_id: str, job_service: JobService = Depends(get_job_service)):
-    """
-    Returns details of a specific job.
-    """
     job = job_service.get_job_by_id(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
     return job
 
+@app.post("/jobs/{job_id}/hyperparameters", response_model=Dict[str, str])
+def save_hyperparameters(job_id: str, payload: HyperparametersPayload, job_service: JobService = Depends(get_job_service)):
+    try:
+        job_service.save_hyperparameters(job_id, payload.hyperparameters)
+        return {"message": "Hyperparameters saved successfully", "job_id": job_id}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save hyperparameters: {str(e)}")
+
 @app.delete("/jobs/{job_id}", response_model=Dict[str, str])
 def delete_job(job_id: str, job_service: JobService = Depends(get_job_service)):
-    """
-    Deletes a job.
-    """
     if not job_service.delete_job(job_id):
         raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
     return {"message": f"Job {job_id} deleted"}
 
-@app.post("/jobs/{job_id}/train", response_model=Dict[str, str])
-def train_job(job_id: str, background_tasks: BackgroundTasks, training_task_manager: TrainingTaskManager = Depends(get_training_task_manager)):
-    """
-    Starts the training process for a specific job.
-    """
-    # This is a simplified implementation. In a real application, you would
-    # retrieve the job details and pass them to the training task manager.
-    task_info = {"job_id": job_id, "task_id": f"task_{job_id}"}
-    background_tasks.add_task(training_task_manager.process_task, task_info, None)
-    return {"message": "Training started", "job_id": job_id}
+@app.post("/jobs/{job_id}/setup-training", response_model=Dict[str, Any])
+def setup_training(job_id: str, job_service: JobService = Depends(get_job_service)):
+    try:
+        task_count, job_folder = job_service.setup_training_tasks(job_id)
+        return {"message": "Training setup completed successfully", "task_count": task_count, "job_folder": job_folder}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to setup training: {str(e)}")
 
-@app.get("/jobs/{job_id}/status", response_model=TaskStatusResponse)
-def get_job_status(job_id: str):
+@app.post("/jobs/process-and-create", response_model=JobResponse)
+def process_and_create_job(payload: JobPayload, job_manager: JobManager = Depends(get_job_manager), dps: DataProcessingService = Depends(get_data_processing_service)):
     """
-    Get the current status of a job.
+    Creates a new job, processes the associated data, and returns the job details.
     """
-    # This is a simplified implementation. In a real application, you would
-    # have a more robust way of tracking job status.
-    task_id = f"task_{job_id}"
-    status_file = os.path.join("output", job_id, task_id, "training_status.json")
-    if os.path.exists(status_file):
-        try:
-            with open(status_file, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            return {"task_id": task_id, "status": "error", "message": f"Error reading status: {str(e)}"}
-    return {"task_id": task_id, "status": "unknown", "message": "Task status not found"}
+    try:
+        selections = payload.selections
+        job_id = job_manager.create_job(selections)
+        
+        dps.process_data(
+            job_id=job_id,
+            train_files=selections.get("train_files", []),
+            test_files=selections.get("test_files", []),
+            data_source=selections.get("data_source")
+        )
+        
+        job = job_manager.get_job(job_id)
+        return job
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process and create job: {str(e)}")
 
-@app.get("/jobs/{job_id}/results", response_model=Dict[str, Any])
-def get_job_results(job_id: str):
+@app.post("/jobs/{job_id}/start", response_model=Dict[str, str])
+def start_job(job_id: str, payload: TaskInfoPayload, job_manager: JobManager = Depends(get_job_manager), ttm: TrainingTaskManager = Depends(get_training_task_manager)):
     """
-    Get the results of a completed job.
+    Starts a specific task for a job (e.g., training) in a separate process.
     """
-    # This is a placeholder implementation.
-    return {"job_id": job_id, "results": "Not implemented yet."}
+    try:
+        # Here, you would determine which target function to run based on job type
+        # For now, we'll assume it's always a training task.
+        target_func = ttm.process_task_in_background
+        
+        # The task_info for the process needs to be self-contained
+        task_info = payload.task_info
+        task_info['job_id'] = job_id
+
+        job_manager.start_job(job_id, target_func, task_info)
+        return {"message": "Job started successfully", "job_id": job_id}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start job: {str(e)}")
+
+@app.get("/jobs/{job_id}/status", response_model=JobResponse)
+def get_job_status(job_id: str, job_manager: JobManager = Depends(get_job_manager)):
+    """
+    Get the current status and details of a job from the in-memory registry.
+    """
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+    return job
 
 @app.post("/jobs/{job_id}/stop", response_model=Dict[str, str])
-def stop_job(job_id: str, training_task_manager: TrainingTaskManager = Depends(get_training_task_manager)):
+def stop_job(job_id: str, job_manager: JobManager = Depends(get_job_manager)):
     """
-    Stop a running job.
+    Stop a running job process.
     """
-    task_id = f"task_{job_id}"
-    training_task_manager.stop_task(task_id)
-    return {"message": "Stop signal sent", "job_id": job_id}
-
-@app.post("/jobs/{job_id}/test", response_model=Dict[str, str])
-def test_job(job_id: str, background_tasks: BackgroundTasks):
-    """
-    Starts the testing process for a specific job.
-    """
-    # This is a simplified implementation. In a real application, you would
-    # retrieve the job details and pass them to a testing service.
-    task_info = {"job_id": job_id, "task_id": f"task_{job_id}"}
-    # background_tasks.add_task(testing_service.process_task, task_info, None)
-    return {"message": "Testing started", "job_id": job_id}
-
-@app.get("/jobs/{job_id}/testing_status", response_model=TaskStatusResponse)
-def get_job_testing_status(job_id: str):
-    """
-    Get the current status of a testing job.
-    """
-    # This is a simplified implementation. In a real application, you would
-    # have a more robust way of tracking job status.
-    task_id = f"task_{job_id}"
-    status_file = os.path.join("output", job_id, task_id, "testing_status.json")
-    if os.path.exists(status_file):
-        try:
-            with open(status_file, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            return {"task_id": task_id, "status": "error", "message": f"Error reading status: {str(e)}"}
-    return {"task_id": task_id, "status": "unknown", "message": "Task status not found"}
+    try:
+        if job_manager.stop_job(job_id):
+            return {"message": "Stop signal sent", "job_id": job_id}
+        else:
+            raise HTTPException(status_code=400, detail="Job is not running.")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @app.get("/server/status")
 def server_status():
