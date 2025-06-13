@@ -107,7 +107,8 @@ venv/
 testenv/
 packenv/
 new_env/
-
+jobs/
+.vestim_web/
 # Spyder project settings
 .spyderproject
 .spyproject
