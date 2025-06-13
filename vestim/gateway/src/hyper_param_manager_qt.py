@@ -61,7 +61,7 @@ class VEstimHyperParamManager:
                         raise ValueError(f"Invalid value for {key}: Expected floats, got {value}")
 
                 # ✅ Ensure boolean conversion for checkboxes (if applicable)
-                elif key in ['BATCH_TRAINING']:
+                elif key in ['BATCH_TRAINING', 'PREDICT_NEXT_STEP']:
                     validated_params[key] = value.lower() in ['true', '1', 'yes']
 
                 else:

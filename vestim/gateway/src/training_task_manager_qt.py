@@ -310,6 +310,8 @@ class TrainingTaskManager:
 
             self.logger.info(f"Using standard sequence loader. Batch training enabled: {batch_training_enabled}, User batch size: {user_batch_size}, Use full train batch flag: {use_full_train_batch_flag}, Lookback: {lookback}")
             
+            predict_next_step = task['hyperparams'].get('PREDICT_NEXT_STEP', False)
+
             train_loader, val_loader = self.data_loader_service.create_data_loaders(
                 folder_path=self.job_manager.get_train_folder(),
                 training_method=training_method,
@@ -318,6 +320,7 @@ class TrainingTaskManager:
                 target_col=target_col,
                 batch_size=user_batch_size,
                 num_workers=num_workers,
+                predict_next_step=predict_next_step,
                 # use_full_train_batch=use_full_train_batch_flag, # Removed as it's not an accepted arg by production DataLoaderService
                 train_split=train_val_split,
                 seed=seed

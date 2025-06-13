@@ -17,6 +17,7 @@ class DataLoaderService:
                               batch_size: int, num_workers: int,
                               lookback: int = None, # Optional, only for SequenceRNN
                               concatenate_raw_data: bool = False, # Optional, for SequenceRNN
+                              predict_next_step: bool = False, # Optional, for SequenceRNN
                               train_split: float = 0.7, seed: int = None):
         """
         Creates DataLoaders for training and validation data using a specified data handling strategy.
@@ -29,6 +30,7 @@ class DataLoaderService:
         :param num_workers: Number of subprocesses to use for data loading.
         :param lookback: The lookback window (required for "SequenceRNN").
         :param concatenate_raw_data: For "SequenceRNN", if True, concatenates raw data before sequencing.
+        :param predict_next_step: For "SequenceRNN", if True, the target is the next time step (t+1).
         :param train_split: Fraction of data to use for training.
         :param seed: Random seed for reproducibility.
         :return: A tuple of (train_loader, val_loader) PyTorch DataLoader objects.
@@ -44,7 +46,7 @@ class DataLoaderService:
             if lookback is None or lookback <= 0:
                 self.logger.error("Lookback must be a positive integer for SequenceRNN training method.")
                 raise ValueError("Lookback must be a positive integer for SequenceRNN training method.")
-            handler = SequenceRNNDataHandler(feature_cols, target_col, lookback, concatenate_raw_data)
+            handler = SequenceRNNDataHandler(feature_cols, target_col, lookback, concatenate_raw_data, predict_next_step)
             handler_kwargs['lookback'] = lookback # Though already in init, pass for clarity if load_and_process_data uses it
         elif training_method == "WholeSequenceFNN":
             handler = WholeSequenceFNNDataHandler(feature_cols, target_col)

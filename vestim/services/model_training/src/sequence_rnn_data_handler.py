@@ -10,20 +10,22 @@ class SequenceRNNDataHandler(BaseDataHandler):
     Data handler for creating lookback-based sequences suitable for RNN models.
     """
 
-    def __init__(self, feature_cols, target_col, lookback, concatenate_raw_data=False):
+    def __init__(self, feature_cols, target_col, lookback, concatenate_raw_data=False, predict_next_step=False):
         """
         :param feature_cols: List of feature column names.
         :param target_col: Target column name.
         :param lookback: The lookback window size.
-        :param concatenate_raw_data: If True, concatenates raw data from all files 
+        :param concatenate_raw_data: If True, concatenates raw data from all files
                                      before creating sequences. Otherwise, creates sequences
                                      per file and then concatenates the sequences.
+        :param predict_next_step: If True, the target is the next time step (t+1).
         """
         super().__init__(feature_cols, target_col)
         if not isinstance(lookback, int) or lookback <= 0:
             raise ValueError("lookback must be a positive integer.")
         self.lookback = lookback
         self.concatenate_raw_data = concatenate_raw_data
+        self.predict_next_step = predict_next_step
         self.logger = logging.getLogger(__name__) # Or get it passed in
 
     def _create_sequences_from_array(self, X_data_arr: np.ndarray, Y_data_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -31,14 +33,20 @@ class SequenceRNNDataHandler(BaseDataHandler):
         Creates input-output sequences from given X and Y numpy arrays based on the lookback period.
         """
         X_sequences, y_sequences = [], []
+        
+        end_index = len(X_data_arr) -1 if self.predict_next_step else len(X_data_arr)
+        
         if len(X_data_arr) <= self.lookback:
             if self.logger:
                 self.logger.warning(f"Data length ({len(X_data_arr)}) is less than or equal to lookback ({self.lookback}). No sequences created.")
             return np.array(X_sequences), np.array(y_sequences) # Return empty arrays matching expected type
 
-        for i in range(self.lookback, len(X_data_arr)):
+        for i in range(self.lookback, end_index):
             X_sequences.append(X_data_arr[i - self.lookback:i, :]) # X_data_arr is already [timesteps, features]
-            y_sequences.append(Y_data_arr[i])
+            if self.predict_next_step:
+                y_sequences.append(Y_data_arr[i + 1])
+            else:
+                y_sequences.append(Y_data_arr[i])
         
         if not X_sequences: # If loop didn't run, return empty arrays of correct dimension
              return np.empty((0, self.lookback, X_data_arr.shape[1])), np.empty((0,))

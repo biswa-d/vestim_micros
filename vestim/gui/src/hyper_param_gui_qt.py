@@ -254,6 +254,15 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["BATCH_SIZE"] = self.batch_size_entry
         self.param_entries["TRAIN_VAL_SPLIT"] = self.train_val_split_entry
 
+        # **Prediction Mode Checkbox**
+        self.predict_mode_checkbox = QCheckBox("Predict Next Timestep (Temperature Only)")
+        self.predict_mode_checkbox.setToolTip(
+            "Enable this to predict the value for the next timestep (t+1) using data from (t-k to t).\n"
+            "This is primarily designed for temperature forecasting."
+        )
+        self.predict_mode_checkbox.setChecked(False)
+        self.param_entries["PREDICT_NEXT_STEP"] = self.predict_mode_checkbox
+
         # Initially hide lookback if Whole Sequence is selected
         self.lookback_label.setVisible(self.training_method_combo.currentText() == "Sequence-to-Sequence")
         self.lookback_entry.setVisible(self.training_method_combo.currentText() == "Sequence-to-Sequence")
@@ -264,6 +273,7 @@ class VEstimHyperParamGUI(QWidget):
         # **Add Widgets to Layout in Vertical Order**
         training_layout.addWidget(training_method_label)
         training_layout.addWidget(self.training_method_combo)
+        training_layout.addWidget(self.predict_mode_checkbox)
         training_layout.addWidget(self.lookback_label)
         training_layout.addWidget(self.lookback_entry)
         training_layout.addWidget(self.batch_training_checkbox)
@@ -746,6 +756,9 @@ class VEstimHyperParamGUI(QWidget):
                 return
             if not new_params.get("TARGET_COLUMN"):
                 QMessageBox.critical(self, "Selection Error", "Please select a target column.")
+                return
+            if not new_params.get("PREDICT_NEXT_STEP") and new_params.get("TARGET_COLUMN") in new_params.get("FEATURE_COLUMNS", []):
+                QMessageBox.critical(self, "Selection Error", "Please select a different column as target column from feature column.")
                 return
             if not new_params.get("MODEL_TYPE"):
                 QMessageBox.critical(self, "Selection Error", "Please select a model type.")
