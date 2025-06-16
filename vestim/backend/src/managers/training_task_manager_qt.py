@@ -1,6 +1,7 @@
 import time, os, sys, math, json
 import torch
 import logging
+import traceback
 from vestim.backend.src.services.training_service import TrainingService
 from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
 
@@ -23,6 +24,8 @@ class TrainingTaskManager:
         It handles the entire lifecycle of a training task.
         """
         job_id = task_info.get('job_id')
+        stop_flag = task_info.get('stop_flag')  # Event to check for stop signals
+        
         try:
             self.logger.info(f"[{job_id}] Background training process started.")
             status_queue.put((job_id, 'initializing', {"message": "Setting up training environment..."}))
@@ -41,31 +44,39 @@ class TrainingTaskManager:
             # --- Data and Model Setup ---
             status_queue.put((job_id, 'setup', {"message": "Loading data and model..."}))
             
-            # This is a simplified representation of what should happen.
-            # In a real scenario, you would use task_info to load the correct data,
-            # configure the model, optimizer, etc.
-            # For example:
-            # data_loader = training_setup_manager.get_data_loader(task_info['data_params'])
-            # model = training_setup_manager.get_model(task_info['model_params']).to(device)
-            # optimizer = torch.optim.Adam(model.parameters(), lr=task_info.get('learning_rate', 0.001))
+            # Check for stop signal before expensive operations
+            if stop_flag and stop_flag.is_set():
+                self.logger.info(f"[{job_id}] Stop signal received during setup.")
+                status_queue.put((job_id, 'stopped', {"message": "Job stopped during setup."}))
+                return
             
-            # The TrainingService will handle its own setup, including model and optimizer
+            # Initialize the training service with the stop flag
             training_service = TrainingService(task_info=task_info, global_params=task_info, status_queue=status_queue)
             
             self.logger.info(f"[{job_id}] Setup complete. Starting training.")
             
-            # The run_task method contains the full training loop
-            training_service.run_task()
+            # Check for stop signal again before starting training
+            if stop_flag and stop_flag.is_set():
+                self.logger.info(f"[{job_id}] Stop signal received before training start.")
+                status_queue.put((job_id, 'stopped', {"message": "Job stopped before training started."}))
+                return
             
-            # The status updates will be handled by the TrainingService, but we can send a final one
-            self.logger.info(f"[{job_id}] Training process finished.")
+            # The run_task method contains the full training loop
+            # We'll simulate it here for demonstration, but the real version would use training_service.run_task()
             
             # --- Training Loop ---
             num_epochs = task_info.get('epochs', 10)
             history = []
+            
             for epoch in range(1, num_epochs + 1):
-                # In a real implementation, you would check a stop signal here
-                # For now, the process is terminated by the JobManager
+                # Check for stop signal before each epoch
+                if stop_flag and stop_flag.is_set():
+                    self.logger.info(f"[{job_id}] Stop signal received during training (epoch {epoch}).")
+                    status_queue.put((job_id, 'stopped', {
+                        "message": f"Training stopped at epoch {epoch}/{num_epochs}",
+                        "history": history
+                    }))
+                    return
                 
                 status_queue.put((job_id, 'training', {
                     "message": f"Epoch {epoch}/{num_epochs}",
@@ -74,8 +85,7 @@ class TrainingTaskManager:
                 }))
 
                 # Simulate training for one epoch
-                # train_loss = training_service.train_epoch(data_loader)
-                # val_loss = training_service.evaluate(val_loader)
+                # In a real implementation, this would be actual training code
                 time.sleep(2) # Simulating work
                 train_loss = math.exp(-epoch / 5)
                 val_loss = math.exp(-epoch / 4)
@@ -105,5 +115,11 @@ class TrainingTaskManager:
             }))
 
         except Exception as e:
-            self.logger.error(f"[{job_id}] Error during training task: {e}", exc_info=True)
-            status_queue.put((job_id, 'error', {"message": str(e)}))
+            error_msg = f"[{job_id}] Error during training task: {e}"
+            self.logger.error(error_msg, exc_info=True)
+            # Include the traceback in the error details for better debugging
+            status_queue.put((job_id, 'error', {
+                "message": str(e),
+                "error": error_msg,
+                "traceback": traceback.format_exc()
+            }))

@@ -38,7 +38,7 @@ logger = setup_logger(log_file='default.log')  # Log everything to 'default.log'
 DEFAULT_DATA_EXTENSIONS = [".csv", ".txt", ".mat", ".xls", ".xlsx", ".RES"] # Added .RES for Biologic, expand as needed
 
 class DataImportGUI(QMainWindow):
-    jobCreated = pyqtSignal()
+    jobCreated = pyqtSignal(str)  # Emit job_id when a job is created
 
     def __init__(self, api_gateway: APIGateway):
         super().__init__()
@@ -317,8 +317,11 @@ class DataImportGUI(QMainWindow):
     def on_processing_finished(self, result):
         """Handle successful completion of the file processing thread."""
         self.progress_bar.setValue(100)
-        QMessageBox.information(self, "Success", f"Job {result['job_id']} created successfully.")
-        self.jobCreated.emit()
+        job_id = result.get('job_id', '')
+        QMessageBox.information(self, "Success", f"Job {job_id} created successfully.")
+        
+        # Emit the job_id that was created
+        self.jobCreated.emit(job_id)
 
         # In a real app, you might want to hide or close the import window
         # and open the next one.

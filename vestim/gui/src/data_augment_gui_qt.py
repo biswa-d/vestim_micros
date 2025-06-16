@@ -170,18 +170,38 @@ class AugmentationWorker(QObject):
             self.criticalError.emit(f"Critical augmentation failure: {e}")
 
 class DataAugmentGUI(QMainWindow):
-    def __init__(self, api_gateway: APIGateway, job_folder=None):
-        super().__init__()
+    def __init__(self, api_gateway: APIGateway = None, job_folder=None, parent=None):
+        super().__init__(parent)
         self.logger = logging.getLogger(__name__)
         self.job_folder = job_folder
         self.api_gateway = api_gateway
+        
+        # Extract job_id from job_folder
+        if self.job_folder:
+            self.job_id = os.path.basename(self.job_folder)
+            self.logger.info(f"DataAugmentGUI initialized with job_folder: {self.job_folder}, job_id: {self.job_id}")
+              # First, ensure job exists in the backend
+            try:
+                # Try to ensure the job exists via API before creating manager
+                result = self.api_gateway.ensure_job_exists(self.job_id)
+                if result.get("status") == "success":
+                    self.logger.info(f"Successfully ensured job {self.job_id} exists in backend.")
+                else:
+                    self.logger.warning(f"Failed to ensure job {self.job_id} exists: {result.get('message')}")
+            except Exception as e:
+                self.logger.error(f"Error ensuring job {self.job_id} in backend: {e}", exc_info=True)
+                QMessageBox.warning(self, "Warning", f"Error ensuring job exists: {str(e)}\nSome functionality may be limited.")
+        else:
+            self.job_id = None
+            self.logger.warning("DataAugmentGUI initialized without a job_folder.")
+        
         self.data_augment_manager = DataAugmentManager(api_gateway=self.api_gateway)
         self.augmentation_thread = None
         self.augmentation_worker = None
         self.hyper_param_gui = None 
         
         if self.job_folder:
-            self.logger.info(f"DataAugmentGUI initialized with job_folder: {self.job_folder}. Loading sample data.")
+            self.logger.info(f"Loading sample data for job folder: {self.job_folder}")
             try:
                 sample_train_df = self.data_augment_manager.get_sample_train_dataframe(self.job_folder)
                 if sample_train_df is not None and not sample_train_df.empty:

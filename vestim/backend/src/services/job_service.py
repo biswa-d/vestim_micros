@@ -95,11 +95,25 @@ class JobService:
 
     def set_job_id(self, job_id: str):
         """Sets the current job context for the service."""
-        if self.get_job_by_id(job_id):
+        job = self.get_job_by_id(job_id)
+        if job:
             self.current_job_id = job_id
             self.logger.info(f"JobService context set to job_id: {job_id}")
-        else:
-            raise ValueError(f"Job with ID '{job_id}' not found in JobManager.")
+            return
+
+        # If we got here, the job wasn't found in the regular way - try to ensure it exists
+        job_folder = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 
+                                 'output', job_id)
+                                 
+        if os.path.isdir(job_folder):
+            self.logger.info(f"Job folder exists at {job_folder}, attempting to register job {job_id}")
+            if self.job_manager.ensure_job_exists(job_id, job_folder):
+                self.current_job_id = job_id
+                self.logger.info(f"JobService context set to newly registered job_id: {job_id}")
+                return
+                
+        # If we reach here, the job couldn't be found or created
+        raise ValueError(f"Job with ID '{job_id}' not found in JobManager and could not be created.")
 
     def get_job_id(self):
         """Gets the current job context ID."""
@@ -144,9 +158,14 @@ class JobService:
         return self.get_job_by_id(self.current_job_id)
 
     def get_job_folder(self):
-        """Gets the job folder for the current job."""
-        job_info = self._get_current_job_info()
-        return job_info.get('job_folder') if job_info else None
+        """Gets the current job folder path."""
+        if not self.current_job_id:
+            return None
+        
+        job = self.get_job_by_id(self.current_job_id)
+        if job:
+            return job.get("job_folder")
+        return None
 
     def get_train_folder(self, subfolder: str = "processed_data"):
         """Gets the path to the training data folder for the current job."""

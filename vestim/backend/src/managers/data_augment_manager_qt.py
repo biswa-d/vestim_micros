@@ -65,12 +65,27 @@ class DataAugmentManager(QObject): # Inherit from QObject
         if not job_id.startswith("job_"): # Basic validation
              self.logger.warning(f"Job folder '{job_id}' might not be a valid job ID format.")
 
-        if self.job_service.get_job_id() != job_id:
-            self.logger.info(f"Setting JobService's current job_id to: {job_id} (from path: {job_folder})")
-            self.job_service.set_job_id(job_id) 
-        elif self.job_service.get_job_folder() != job_folder:
-            self.logger.info(f"JobService's job_id '{job_id}' matches, but ensuring folder context is updated using path: {job_folder}")
-            self.job_service.set_job_id(job_id)
+        try:
+            if self.job_service.get_job_id() != job_id:
+                self.logger.info(f"Setting JobService's current job_id to: {job_id} (from path: {job_folder})")
+                self.job_service.set_job_id(job_id) 
+            elif self.job_service.get_job_folder() != job_folder:
+                self.logger.info(f"JobService's job_id '{job_id}' matches, but ensuring folder context is updated using path: {job_folder}")
+                self.job_service.set_job_id(job_id)
+        except ValueError as e:
+            # Try to create the job if it doesn't exist
+            self.logger.warning(f"Job {job_id} not found in JobManager, attempting to register it: {str(e)}")
+            
+            if hasattr(self.job_service.job_manager, 'ensure_job_exists'):
+                success = self.job_service.job_manager.ensure_job_exists(job_id, job_folder)
+                if success:
+                    self.logger.info(f"Successfully registered job {job_id} with JobManager")
+                    self.job_service.current_job_id = job_id
+                else:
+                    raise ValueError(f"Failed to register job {job_id} with JobManager")
+            else:
+                # Fall back to old behavior if ensure_job_exists doesn't exist
+                raise
 
     # This method is deprecated as apply_augmentations now handles file-by-file loading.
     # def load_data(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -303,7 +318,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
                    df = pd.read_csv(file_path)
                    file_metadata['original_shape'] = df.shape
                     
-                   actual_resampling_frequency_for_padding = None # Store the frequency used for padding time
+                   actual_resampling_frequency_for_padding = None # Store the frequency used for padding
 
                    # 1. Resampling
                    if resampling_frequency and df is not None and not df.empty:
