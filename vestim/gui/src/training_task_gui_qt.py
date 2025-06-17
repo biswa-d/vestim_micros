@@ -221,10 +221,15 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.poll_timer.stop()
             
         # Stop any running training threads
-        if hasattr(self, 'training_thread') and self.training_thread.isRunning():
-            self.training_thread.cancel()  # Set the cancellation flag
-            self.training_thread.quit()
-            self.training_thread.wait(3000)  # Wait up to 3 seconds for thread to finish
+        if hasattr(self, 'training_thread') and self.training_thread is not None:
+            try:
+                if self.training_thread.isRunning():
+                    self.training_thread.cancel()  # Set the cancellation flag
+                    self.training_thread.quit()
+                    self.training_thread.wait(3000)  # Wait up to 3 seconds for thread to finish
+            except RuntimeError:
+                # QThread object has already been deleted by Qt - this is normal during close
+                pass
             
         super().closeEvent(event)
 
@@ -665,8 +670,6 @@ class VEstimTrainingTaskGUI(QMainWindow):
         except Exception as e:
             self.logger.error(f"Failed to stop training: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Failed to stop training: {e}")
-
-
     def check_if_stopped(self):
         """
         Checks if the training process has been stopped by the user.
@@ -699,8 +702,3 @@ class VEstimTrainingTaskGUI(QMainWindow):
     def show_proceed_to_testing_button(self):
         self.proceed_button.show()
         self.stop_button.hide()
-
-    def transition_to_testing_gui(self):
-        self.testing_gui = VEstimTestingGUI(self.job_id)
-        self.testing_gui.show()
-        self.close()

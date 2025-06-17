@@ -290,7 +290,7 @@ class VEstimTrainSetupGUI(QWidget):
             # The task list is now managed by the backend.
             # We can either fetch it again or assume the next GUI will.
             # For now, we'll just open the next GUI.
-            self.training_gui = VEstimTrainingTaskGUI(job_id=self.job_id, api_gateway=self.api_gateway)
+            self.training_gui = VEstimTrainingTaskGUI(api_gateway=self.api_gateway, job_id=self.job_id)
             current_geometry = self.geometry()
             self.training_gui.setGeometry(current_geometry)
             self.training_gui.show()

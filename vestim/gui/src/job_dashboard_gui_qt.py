@@ -10,6 +10,7 @@ import os
 from datetime import datetime
 from vestim.gui.src.data_import_gui_qt import DataImportGUI
 from vestim.gui.src.training_task_gui_qt import VEstimTrainingTaskGUI
+from vestim.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
 from vestim.gui.src.testing_gui_qt import VEstimTestingGUI
 from vestim.gui.src.api_gateway import APIGateway
 from vestim.gui.src.hyper_param_gui_qt import VEstimHyperParamGUI
@@ -24,23 +25,31 @@ class JobDashboard(QMainWindow):
         super().__init__()
         self.api = APIGateway()
         self.setWindowTitle("VEstim Job Dashboard")
-        self.setGeometry(100, 100, 900, 600)
-
-        # A dictionary to keep track of open GUI windows for each job
+        self.setGeometry(100, 100, 900, 600)        # A dictionary to keep track of open GUI windows for each job
         self.open_windows = {}
+        
+        # Track data import GUIs to allow multiple concurrent job creation
+        self.data_import_guis = []
+        
+        # Initialize thread references
+        self.check_thread = None
         
         # Track server connection status
         self.server_connected = False
         self.connection_attempts = 0
-        self.max_connection_attempts = 10  # Maximum number of connection attempts before showing error
-        
-        # Map job statuses to the GUI component that should handle them
+        self.max_connection_attempts = 10  # Maximum number of connection attempts before showing error        # Map job statuses to the correct workflow sequence
+        # Data Import → Data Augment → Hyperparameters → Training Setup → Training Task → Testing
         self.gui_map = {
-            "created": VEstimHyperParamGUI,
-            "data_augmented": VEstimHyperParamGUI,
-            "hyperparameters_set": VEstimTrainingTaskGUI,  # Assuming this status is set by the hyper_param_gui
-            "training": VEstimTrainingTaskGUI,
-            "testing": VEstimTestingGUI,
+            "created": "DataAugmentGUI",  # After data import, go to data augmentation
+            "data_augmented": "VEstimHyperParamGUI",  # After data augment, set hyperparameters  
+            "hyperparameters_set": "VEstimTrainSetupGUI",  # After hyperparams, training setup
+            "training_setup": "VEstimTrainSetupGUI",  # Training setup configuration
+            "training_setup_completed": "VEstimTrainingTaskGUI",  # After setup, training execution
+            "training": "VEstimTrainingTaskGUI",  # Training in progress
+            "training_completed": "VEstimTestingGUI",  # After training, go to testing
+            "testing": "VEstimTestingGUI",  # Testing in progress
+            "completed": "VEstimTestingGUI",  # Completed jobs show testing results
+            "failed": "VEstimTestingGUI",  # Failed jobs for debugging
         }
 
         # Connect API gateway signals
@@ -98,10 +107,17 @@ class JobDashboard(QMainWindow):
         self.connection_status.setText("Connecting to server...")
         self.connection_status.setStyleSheet("color: orange; font-weight: bold;")
         self.retry_connection_button.setVisible(False)
-        
-        # Disable buttons during connection check
+          # Disable buttons during connection check
         self.new_job_button.setEnabled(False)
         self.stop_server_button.setEnabled(False)
+        
+        # Clean up any existing check thread first
+        if hasattr(self, 'check_thread') and self.check_thread is not None:
+            if self.check_thread.isRunning():
+                self.check_thread.quit()
+                self.check_thread.wait(1000)  # Wait up to 1 second
+            self.check_thread.deleteLater()
+            self.check_thread = None
         
         # Use a separate thread to check server availability to avoid UI freezing
         # during network operations
@@ -113,9 +129,14 @@ class JobDashboard(QMainWindow):
                 self.api = api
                 
             def run(self):
-                result = self.api.is_server_available()
-                self.resultReady.emit(result)
-          # Create and start the thread
+                try:
+                    result = self.api.is_server_available()
+                    self.resultReady.emit(result)
+                except Exception as e:
+                    print(f"Error in server check thread: {e}")
+                    self.resultReady.emit(False)
+        
+        # Create and start the thread
         self.check_thread = ServerCheckThread(self.api)
         self.check_thread.resultReady.connect(self._handle_connection_check_result)
         # Ensure the thread is cleaned up when finished
@@ -278,7 +299,7 @@ class JobDashboard(QMainWindow):
             self.job_table.setItem(row_index, 4, QTableWidgetItem(""))
 
     def open_job_gui(self, job_id, status):
-        """Opens the appropriate GUI for a job based on its status."""
+        """Opens the appropriate GUI for a job based on its current status."""
         if not self.server_connected:
             QMessageBox.warning(self, "Warning", "Cannot open job: Not connected to server.")
             return
@@ -287,19 +308,75 @@ class JobDashboard(QMainWindow):
             self.open_windows[job_id].activateWindow()
             return
 
-        gui_class = self.gui_map.get(status)
-        if gui_class:
-            # Pass the API gateway and job_id to the specific GUI
-            try:
-                gui_instance = gui_class(api_gateway=self.api, job_id=job_id)
+        try:
+            # Get the job details to determine the correct GUI and parameters
+            job_details = self.api.get(f"jobs/{job_id}")
+            if not job_details:
+                QMessageBox.warning(self, "Warning", f"Could not retrieve details for job {job_id}")
+                return
+            
+            gui_instance = None
+              # Determine which GUI to open based on job status - always show the CURRENT status GUI
+            if status in ["created"]:
+                # Job just created - should go to data augmentation first
+                gui_instance = self._create_data_augment_gui(job_id, job_details)
+                
+            elif status in ["data_augmented"]:
+                # Data augmentation completed - show hyperparameters GUI
+                job_folder = job_details.get('job_folder', f"output/{job_id}")
+                gui_instance = VEstimHyperParamGUI(api_gateway=self.api, job_folder=job_folder)
+                
+            elif status in ["hyperparameters_set", "training_setup"]:
+                # Hyperparameters set - show training SETUP GUI
+                # VEstimTrainSetupGUI constructor: (job_id, api_gateway)
+                gui_instance = VEstimTrainSetupGUI(job_id=job_id, api_gateway=self.api)
+                
+            elif status in ["training_setup_completed", "training"]:
+                # Training setup completed - show training TASK GUI for execution/monitoring
+                # VEstimTrainingTaskGUI constructor: (api_gateway, job_id)
+                gui_instance = VEstimTrainingTaskGUI(api_gateway=self.api, job_id=job_id)
+                
+            elif status in ["training_completed", "testing", "completed", "failed"]:
+                # Training completed or testing phase - show testing GUI
+                # VEstimTestingGUI constructor: (job_id, api_gateway)
+                gui_instance = VEstimTestingGUI(job_id=job_id, api_gateway=self.api)
+            
+            if gui_instance:
                 self.open_windows[job_id] = gui_instance
+                
+                # Connect cleanup signal when GUI is closed (not auto-transition)
+                if hasattr(gui_instance, 'destroyed'):
+                    gui_instance.destroyed.connect(lambda: self.cleanup_job_window(job_id))
+                
+                # Show the GUI and restore its state from backend
                 gui_instance.show()
-            except Exception as e:
-                print(f"Failed to open job GUI for {job_id}: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to open job GUI: {e}")
-                # Don't crash the dashboard, just show the error
-        else:
-            QMessageBox.information(self, "Info", f"No specific GUI for status '{status}'.")
+                
+                # Each GUI should fetch its current state from backend when opened
+                if hasattr(gui_instance, 'refresh_from_backend'):
+                    gui_instance.refresh_from_backend()
+                
+                print(f"Successfully opened GUI for job {job_id} with status {status}")
+            else:
+                QMessageBox.information(self, "Info", f"No specific GUI available for status '{status}'.")
+                
+        except Exception as e:
+            print(f"Failed to open job GUI for {job_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Error", f"Failed to open job GUI: {e}")            # Clean up any partial window creation
+            if job_id in self.open_windows:
+                del self.open_windows[job_id]
+
+    def _create_data_augment_gui(self, job_id, job_details):
+        """Create data augmentation GUI for a job."""
+        try:
+            # Import here to avoid circular imports
+            from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI
+            job_folder = job_details.get('job_folder', f"output/{job_id}")
+            return DataAugmentGUI(api_gateway=self.api, job_folder=job_folder)
+        except ImportError:
+            print("DataAugmentGUI not available")
+            return None
 
     def create_new_job(self):
         """Launches the Data Import GUI to start the new job workflow."""
@@ -308,16 +385,25 @@ class JobDashboard(QMainWindow):
             return
             
         try:
-            # This instance should be a member of the class to prevent it from
-            # being garbage collected immediately.
-            self.data_import_gui = DataImportGUI(api_gateway=self.api)
+            # Create a new data import GUI instance (don't overwrite previous ones)
+            data_import_gui = DataImportGUI(api_gateway=self.api)
             
-            # Connect the jobCreated signal to the refresh_jobs slot
-            self.data_import_gui.jobCreated.connect(self.on_job_created)
+            # Add to the list of active data import GUIs
+            self.data_import_guis.append(data_import_gui)
+              # Connect the jobCreated signal to the refresh_jobs slot
+            data_import_gui.jobCreated.connect(self.on_job_created)
             
-            self.data_import_gui.show()
+            data_import_gui.show()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to open Data Import GUI: {e}")
+    
+    def cleanup_data_import_gui(self, gui_instance):
+        """Clean up a data import GUI reference when it's closed."""
+        if gui_instance in self.data_import_guis:
+            try:
+                self.data_import_guis.remove(gui_instance)
+            except:
+                pass  # Ignore cleanup errors
     
     @pyqtSlot(str)
     def on_job_created(self, job_id):
@@ -370,10 +456,10 @@ class JobDashboard(QMainWindow):
                     QMessageBox.information(self, "Server Shutdown", "Server successfully terminated. The application will now close.")
                 else:
                     QMessageBox.information(self, "Server Shutdown", "Server shutdown signal sent. The application will now close.")
-                
-                # Close the application regardless
+                  # Close the application regardless
                 self.close()
-            except Exception as e:                # The shutdown request might not get a response, which is okay.
+            except Exception as e:
+                # The shutdown request might not get a response, which is okay.
                 print(f"Error during server shutdown: {e}")
                 
                 # Try to forcefully terminate using ServerManager as a fallback
@@ -392,14 +478,37 @@ class JobDashboard(QMainWindow):
             self.poll_timer.stop()
             
         # Stop and wait for the server check thread to finish
-        if hasattr(self, 'check_thread') and self.check_thread.isRunning():
-            self.check_thread.quit()
-            self.check_thread.wait(3000)  # Wait up to 3 seconds for thread to finish
-            
-        # Close all child windows
+        if hasattr(self, 'check_thread') and self.check_thread is not None:
+            if self.check_thread.isRunning():
+                self.check_thread.quit()
+                self.check_thread.wait(3000)  # Wait up to 3 seconds for thread to finish
+            self.check_thread.deleteLater()
+            self.check_thread = None
+              # Close all child windows
         for window in list(self.open_windows.values()):
-            window.close()
+            try:
+                window.close()
+            except:
+                pass  # Ignore errors during window cleanup
+        self.open_windows.clear()
+        
+        # Close all data import GUIs
+        for gui in list(self.data_import_guis):
+            try:
+                gui.close()
+            except:
+                pass  # Ignore errors during window cleanup
+        self.data_import_guis.clear()
+            
         super().closeEvent(event)
+
+    def cleanup_job_window(self, job_id):
+        """Clean up a job window reference when it's closed."""
+        if job_id in self.open_windows:
+            try:
+                del self.open_windows[job_id]
+            except:
+                pass  # Ignore cleanup errors
 
 
 if __name__ == "__main__":

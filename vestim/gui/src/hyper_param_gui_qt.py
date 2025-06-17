@@ -663,15 +663,13 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["MAX_TRAINING_TIME"] = self.max_time_edit # Updated key
 
         layout.addLayout(device_layout)
-
-
     def proceed_to_training(self):
         """Collects parameters and sends a request to the backend to start the training job."""
         params = self.collect_parameters()
         if params is None:
             # Error message is shown in collect_parameters, just exit
             return
-
+            
         task_info = {
             "hyperparams": params,
             "DEVICE_SELECTION": params.get("DEVICE_SELECTION", "cpu")
