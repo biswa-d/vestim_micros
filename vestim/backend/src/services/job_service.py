@@ -32,6 +32,10 @@ class JobService:
         """
         self.logger.info(f"Attempting to start job: {job_id}")
         try:
+            # Update job status to indicate training has started
+            self.update_job_status(job_id, "training")
+            self.logger.info(f"Updated job {job_id} status to 'training'")
+            
             return self.job_manager.start_job(job_id, target_func, task_info)
         except Exception as e:
             self.logger.error(f"Failed to start job {job_id}: {e}", exc_info=True)
@@ -88,6 +92,11 @@ class JobService:
             hyper_param_manager.save_params(job_info["job_folder"])
             
             self.job_manager.update_job_details(job_id, {"hyperparameters": hyper_param_manager.get_hyper_params()})
+            
+            # Update job status to indicate hyperparameters have been set
+            self.update_job_status(job_id, "hyperparameters_set")
+            self.logger.info(f"Updated job {job_id} status to 'hyperparameters_set'")
+            
             return True
         except Exception as e:
             self.logger.error(f"Failed to save hyperparameters for job {job_id}: {e}", exc_info=True)
@@ -190,15 +199,17 @@ class JobService:
         task_count = len(task_list)
         job_folder = job_info.get("job_folder")
 
-        self.logger.info(f"Generated {task_count} training tasks for job {job_id}")
-
-        # Persist the generated tasks
+        self.logger.info(f"Generated {task_count} training tasks for job {job_id}")        # Persist the generated tasks
         try:
             self.job_manager.update_job_details(job_id, {"training_tasks": task_list})
             self.logger.info(f"Updated job details with training tasks for job {job_id}")
         except Exception as e:
             self.logger.error(f"Error updating job details for job {job_id}: {e}", exc_info=True)
             raise ValueError(f"Failed to update job details: {str(e)}")
+        
+        # Update job status to indicate training setup is completed
+        self.update_job_status(job_id, "training_setup_completed")
+        self.logger.info(f"Updated job {job_id} status to 'training_setup_completed'")
         
         # Return information about the tasks
         return {
