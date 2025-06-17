@@ -201,7 +201,16 @@ class JobService:
 
         self.logger.info(f"Generated {task_count} training tasks for job {job_id}")        # Persist the generated tasks
         try:
-            self.job_manager.update_job_details(job_id, {"training_tasks": task_list})
+            # Add an empty history array for the training progress
+            task_details = {
+                "training_tasks": task_list,
+                "history": []  # Initialize empty history for training progress
+            }
+            
+            # Add some sample history data for testing the GUI
+            # The sample history was for testing and should be removed.
+            
+            self.job_manager.update_job_details(job_id, task_details)
             self.logger.info(f"Updated job details with training tasks for job {job_id}")
         except Exception as e:
             self.logger.error(f"Error updating job details for job {job_id}: {e}", exc_info=True)

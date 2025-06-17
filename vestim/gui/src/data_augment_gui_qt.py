@@ -568,14 +568,23 @@ class DataAugmentGUI(QMainWindow):
         
         # Display the concise formula error message from the manager/service
         QMessageBox.critical(self, "Formula Error", error_msg) 
-        
-        # Re-enable buttons
+          # Re-enable buttons
         self.apply_button.setEnabled(True)
         self.cancel_button.setEnabled(True)
     
     def go_to_hyperparameter_gui(self):
         self.logger.info("Scheduling transition to hyperparameter GUI...")
         try:
+            # Ensure job status is updated to data_augmented when transitioning to hyperparameters
+            # This covers cases where user skips augmentation or doesn't run any processing
+            if self.job_folder:
+                job_id = os.path.basename(self.job_folder)
+                try:
+                    self.data_augment_manager.job_service.update_job_status(job_id, "data_augmented")
+                    self.logger.info(f"Updated job {job_id} status to 'data_augmented' during GUI transition")
+                except Exception as e:
+                    self.logger.warning(f"Failed to update job status during transition: {e}")
+            
             # Create the new window instance but don't show it immediately.
             # Store it on self temporarily so the slot can access it.
             self._next_hyper_param_gui = VEstimHyperParamGUI(api_gateway=self.data_augment_manager.api_gateway, job_folder=self.job_folder)

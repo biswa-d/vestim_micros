@@ -280,14 +280,31 @@ class JobManager:
                     return None
                 
                 # Explicitly build the response to ensure no non-serializable objects are included.
+                # Only include basic data types (str, int, float, bool, dict, list)
+                def make_serializable(obj):
+                    """Recursively ensure an object is JSON serializable"""
+                    if obj is None or isinstance(obj, (str, int, float, bool)):
+                        return obj
+                    elif isinstance(obj, dict):
+                        return {k: make_serializable(v) for k, v in obj.items() 
+                               if isinstance(k, str) and not k.startswith('_')}
+                    elif isinstance(obj, (list, tuple)):
+                        return [make_serializable(item) for item in obj]
+                    else:
+                        # For any other type, convert to string or skip
+                        try:
+                            return str(obj) if obj is not None else None
+                        except:
+                            return None
+                
                 serializable_job = {
-                    "job_id": job_data.get("job_id"),
-                    "status": job_data.get("status"),
-                    "created_at": job_data.get("created_at"),
-                    "updated_at": job_data.get("updated_at"),
-                    "selections": job_data.get("selections"),
-                    "job_folder": job_data.get("job_folder"),
-                    "details": job_data.get("details", {}),
+                    "job_id": str(job_data.get("job_id", "")),
+                    "status": str(job_data.get("status", "")),
+                    "created_at": str(job_data.get("created_at", "")),
+                    "updated_at": str(job_data.get("updated_at", "")),
+                    "selections": make_serializable(job_data.get("selections", {})),
+                    "job_folder": str(job_data.get("job_folder", "")),
+                    "details": make_serializable(job_data.get("details", {})),
                 }
                 return serializable_job
         except Exception as e:
@@ -299,16 +316,15 @@ class JobManager:
         Gets all jobs from the in-memory registry, ensuring they are serializable.
         """
         try:
-            serializable_jobs = []
-            # Use a copy to avoid concurrent modification issues
+            serializable_jobs = {}
             job_ids = list(self.jobs.keys())
             
             for job_id in job_ids:
                 job_data = self.get_job(job_id)
                 if job_data:
-                    serializable_jobs.append(job_data)
+                    serializable_jobs[job_id] = job_data
             
-            return serializable_jobs
+            return list(serializable_jobs.values())
         except Exception as e:
             self.logger.error(f"Error getting all jobs: {e}", exc_info=True)
             return []
