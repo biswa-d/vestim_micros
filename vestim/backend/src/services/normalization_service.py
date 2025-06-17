@@ -1,8 +1,22 @@
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
-import joblib
 import os
 import numpy as np
+import logging
+
+# Make scikit-learn optional to avoid startup issues
+try:
+    from sklearn.preprocessing import MinMaxScaler, StandardScaler
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+    logging.warning("scikit-learn not available. Using simple min-max normalization instead.")
+
+try:
+    import joblib
+    JOBLIB_AVAILABLE = True
+except ImportError:
+    JOBLIB_AVAILABLE = False
+    logging.warning("joblib not available. Scalers will not be saved/loaded.")
 
 # Define a logger if you have a central logging setup, e.g.:
 # from vestim.logger_config import setup_logger
@@ -303,6 +317,104 @@ def inverse_transform_data(data_df, scaler, feature_columns):
     except Exception as e:
         print(f"Error during data inverse transformation: {e}")
         return data_df # Return original on error
+
+# Simple MinMaxScaler fallback when scikit-learn is not available
+class SimpleMinMaxScaler:
+    """A simple implementation of MinMaxScaler when scikit-learn is not available."""
+    
+    def __init__(self, feature_range=(0, 1)):
+        self.feature_range = feature_range
+        self.min_ = None
+        self.scale_ = None
+        self.data_min_ = None
+        self.data_max_ = None
+        self.data_range_ = None
+    
+    def fit(self, X):
+        """Compute the minimum and maximum to be used for scaling."""
+        X = np.asarray(X)
+        self.data_min_ = np.min(X, axis=0)
+        self.data_max_ = np.max(X, axis=0)
+        self.data_range_ = self.data_max_ - self.data_min_
+        # Handle zeros in data_range to avoid division by zero
+        self.data_range_[self.data_range_ == 0.0] = 1.0
+        
+        # Compute scale and min
+        feature_min, feature_max = self.feature_range
+        self.scale_ = (feature_max - feature_min) / self.data_range_
+        self.min_ = feature_min - self.data_min_ * self.scale_
+        
+        return self
+    
+    def transform(self, X):
+        """Scale the data."""
+        X = np.asarray(X)
+        return self.min_ + X * self.scale_
+    
+    def fit_transform(self, X):
+        """Fit to data, then transform it."""
+        return self.fit(X).transform(X)
+    
+    def inverse_transform(self, X):
+        """Undo the scaling."""
+        X = np.asarray(X)
+        return (X - self.min_) / self.scale_
+
+class SimpleStandardScaler:
+    """A simple implementation of StandardScaler when scikit-learn is not available."""
+    
+    def __init__(self, with_mean=True, with_std=True):
+        self.with_mean = with_mean
+        self.with_std = with_std
+        self.mean_ = None
+        self.scale_ = None
+        self.var_ = None
+    
+    def fit(self, X):
+        """Compute the mean and std to be used for scaling."""
+        X = np.asarray(X)
+        if self.with_mean:
+            self.mean_ = np.mean(X, axis=0)
+        else:
+            self.mean_ = np.zeros(X.shape[1])
+            
+        if self.with_std:
+            self.var_ = np.var(X, axis=0)
+            self.scale_ = np.sqrt(self.var_)
+            # Handle zeros in scale to avoid division by zero
+            self.scale_[self.scale_ == 0.0] = 1.0
+        else:
+            self.scale_ = np.ones(X.shape[1])
+            self.var_ = np.ones(X.shape[1])
+            
+        return self
+    
+    def transform(self, X):
+        """Scale the data."""
+        X = np.asarray(X)
+        if self.with_mean:
+            X = X - self.mean_
+        if self.with_std:
+            X = X / self.scale_
+        return X
+    
+    def fit_transform(self, X):
+        """Fit to data, then transform it."""
+        return self.fit(X).transform(X)
+    
+    def inverse_transform(self, X):
+        """Undo the scaling."""
+        X = np.asarray(X)
+        if self.with_std:
+            X = X * self.scale_
+        if self.with_mean:
+            X = X + self.mean_
+        return X
+
+# Define the appropriate scaler classes based on availability
+if not SKLEARN_AVAILABLE:
+    MinMaxScaler = SimpleMinMaxScaler
+    StandardScaler = SimpleStandardScaler
 
 if __name__ == '__main__':
     # Example Usage (Illustrative - replace with actual file paths and columns)

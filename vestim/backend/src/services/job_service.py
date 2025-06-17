@@ -111,44 +111,101 @@ class JobService:
                 self.current_job_id = job_id
                 self.logger.info(f"JobService context set to newly registered job_id: {job_id}")
                 return
-                
-        # If we reach here, the job couldn't be found or created
+                  # If we reach here, the job couldn't be found or created
         raise ValueError(f"Job with ID '{job_id}' not found in JobManager and could not be created.")
-
+        
     def get_job_id(self):
         """Gets the current job context ID."""
         return self.current_job_id
-
+        
     def setup_training_tasks(self, job_id: str):
         """
         Initializes the training setup manager and runs the setup process.
+        
+        Returns:
+            dict: Information about the training tasks that were set up
         """
         self.logger.info(f"Setting up training tasks for job {job_id}")
+        
+        # Check job_managers first
         job_managers = self.job_manager.job_managers.get(job_id)
         if not job_managers:
-            raise ValueError(f"Managers for job with ID {job_id} not found.")
-
+            self.logger.error(f"Job managers for {job_id} not found. Available job managers: {list(self.job_manager.job_managers.keys())}")
+            
+            # Try to recreate job managers if possible
+            job_info = self.job_manager.get_job(job_id)
+            if job_info and "job_folder" in job_info:
+                self.logger.info(f"Attempting to recreate job managers for {job_id}")
+                try:
+                    self.job_manager.ensure_job_exists(job_id, job_info["job_folder"])
+                    job_managers = self.job_manager.job_managers.get(job_id)
+                    if not job_managers:
+                        raise ValueError(f"Failed to recreate job managers for {job_id}")
+                except Exception as e:
+                    self.logger.error(f"Error recreating job managers: {e}")
+                    raise ValueError(f"Managers for job with ID {job_id} could not be created: {str(e)}")
+            else:
+                raise ValueError(f"Job with ID {job_id} not found or missing folder information")
+                
+        # Get job info
         job_info = self.job_manager.get_job(job_id)
         if not job_info:
+            self.logger.error(f"Job {job_id} not found in JobManager")
             raise ValueError(f"Job with ID {job_id} not found.")
+            
+        # Print job info for debugging
+        self.logger.info(f"Job info for {job_id}: status={job_info.get('status')}, folder={job_info.get('job_folder')}")
+        self.logger.info(f"Job details: {job_info.get('details', {})}")
 
+        # Get hyperparameters
         hyperparams = job_info.get("details", {}).get("hyperparameters", {})
         if not hyperparams:
+            self.logger.error(f"No hyperparameters found for job {job_id}")
             raise ValueError(f"No hyperparameters found for job {job_id}.")
+        
+        self.logger.info(f"Hyperparameters for job {job_id}: {hyperparams}")
 
+        # Get training setup manager
         training_setup_manager = job_managers["training_setup_manager"]
         training_setup_manager.params = hyperparams
         training_setup_manager.current_hyper_params = hyperparams
-        training_setup_manager.setup_training()
         
-        task_list = training_setup_manager.get_task_list()
+        # Run the training setup process
+        self.logger.info(f"Starting training setup process for job {job_id}")
+        try:
+            training_setup_manager.setup_training()
+            self.logger.info(f"Training setup process completed successfully for job {job_id}")
+        except Exception as e:
+            self.logger.error(f"Error during training setup process for job {job_id}: {e}", exc_info=True)
+            raise ValueError(f"Training setup failed: {str(e)}")
+        
+        # Get the task list that was generated
+        try:
+            task_list = training_setup_manager.get_task_list()
+            self.logger.info(f"Retrieved task list for job {job_id}: {[task.get('task_id') for task in task_list]}")
+        except Exception as e:
+            self.logger.error(f"Error getting task list for job {job_id}: {e}", exc_info=True)
+            raise ValueError(f"Failed to get task list: {str(e)}")
+            
         task_count = len(task_list)
         job_folder = job_info.get("job_folder")
 
-        # Persist the generated tasks
-        self.job_manager.update_job_details(job_id, {"training_tasks": task_list})
+        self.logger.info(f"Generated {task_count} training tasks for job {job_id}")
 
-        return task_count, job_folder
+        # Persist the generated tasks
+        try:
+            self.job_manager.update_job_details(job_id, {"training_tasks": task_list})
+            self.logger.info(f"Updated job details with training tasks for job {job_id}")
+        except Exception as e:
+            self.logger.error(f"Error updating job details for job {job_id}: {e}", exc_info=True)
+            raise ValueError(f"Failed to update job details: {str(e)}")
+        
+        # Return information about the tasks
+        return {
+            "task_count": task_count,
+            "tasks": task_list,
+            "job_folder": job_folder
+        }
 
     def _get_current_job_info(self):
         """Helper to get the full info dict for the current job."""

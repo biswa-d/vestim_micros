@@ -17,16 +17,36 @@ class SetupWorker(QThread):
         self.logger = logging.getLogger(__name__)
         self.job_id = job_id
         self.api_gateway = api_gateway
+        self.is_cancelled = False
 
     def run(self):
         self.logger.info(f"Starting training setup for job {self.job_id} via API call.")
+        self.progress_signal.emit("Setting up training tasks...", "", 0)
+        
         try:
-            # Sending an empty JSON object with the POST request
-            response = self.api_gateway.post(f"jobs/{self.job_id}/setup-training", json={})
-            self.finished_signal.emit(response)
+            # First, log that we're about to make the API call
+            self.logger.info(f"Making API call to setup training for job {self.job_id}")
+            self.progress_signal.emit("Sending setup request to server...", "", 0)
+              # Use the new setup_training method with a longer timeout
+            response = self.api_gateway.setup_training(self.job_id, timeout=60)
+            
+            if response and response.get("status") == "success":
+                task_count = response.get("task_count", 0)
+                message = response.get("message", f"Setup completed with {task_count} tasks.")
+                self.progress_signal.emit(message, "", task_count)
+                self.logger.info(f"Training setup successful: {message}")
+            else:
+                error_message = response.get("detail", response.get("message", "Unknown error")) if response else "No response"
+                self.progress_signal.emit(f"Error: {error_message}", "", 0)
+                self.logger.error(f"Training setup failed: {error_message}")
+                
+            # Always emit the finished signal with whatever response we got
+            self.finished_signal.emit(response or {"status": "error", "message": "No response from server"})
+            
         except Exception as e:
-            self.logger.error(f"Error during training setup API call: {e}")
+            self.logger.error(f"Error during training setup API call: {e}", exc_info=True)
             self.progress_signal.emit(f"Error occurred: {str(e)}", "", 0)
+            self.finished_signal.emit({"status": "error", "message": str(e)})
 
 class VEstimTrainSetupGUI(QWidget):
     def __init__(self, job_id: str, api_gateway: APIGateway):
@@ -36,18 +56,37 @@ class VEstimTrainSetupGUI(QWidget):
         self.api_gateway = api_gateway
         self.params = {}
         self.timer_running = True
+        self.setup_completed = False
+        self.setup_in_progress = False
+        self.training_task_gui = None
+        
+        # Get job details including hyperparameters
+        try:
+            job_info = self.api_gateway.get(f"jobs/{self.job_id}")
+            self.params = job_info.get("details", {}).get("hyperparameters", {})
+            self.logger.info(f"Retrieved hyperparameters for job {self.job_id}: {self.params}")
+        except Exception as e:
+            self.logger.error(f"Error retrieving job information: {e}")
+            self.params = {}
+        
         self.param_labels = {
             "LAYERS": "Layers",
             "HIDDEN_UNITS": "Hidden Units",
             "BATCH_SIZE": "Batch Size",
-            "MAX_EPOCHS": "Max Epochs",
+            "MAX_EPOCHS": "Max Epochs",  # Updated to match the correct parameter name
+            "EPOCHS": "Max Epochs",  # Keep for backward compatibility
             "INITIAL_LR": "Initial Learning Rate",
-            "LR_DROP_FACTOR": "LR Drop Factor",
-            "LR_DROP_PERIOD": "LR Drop Period",
-            "VALID_PATIENCE": "Validation Patience",
-            "ValidFrequency": "Validation Frequency",
+            "LR_PARAM": "LR Parameter",
+            "LR_PERIOD": "LR Period",
+            "EARLY_STOPPING_PATIENCE": "Validation Patience",
+            "VALIDATION_FREQ": "Validation Frequency",
             "LOOKBACK": "Lookback Sequence Length",
-            "REPETITIONS": "Repetitions"
+            "REPETITIONS": "Repetitions",
+            "FEATURE_COLUMNS": "Feature Columns",
+            "TARGET_COLUMN": "Target Column",
+            "MODEL_TYPE": "Model Type",
+            "TRAINING_METHOD": "Training Method",
+            "DEVICE": "Device"
         }
 
         self.logger.info(f"Initializing VEstimTrainSetupGUI for job_id: {self.job_id}")
@@ -129,9 +168,19 @@ class VEstimTrainSetupGUI(QWidget):
             layout.addWidget(value_label, row, col + 1)
 
     def start_setup(self):
+        """Starts the training setup process via API call."""
+        if self.setup_in_progress:
+            self.logger.info("Setup is already in progress, ignoring request.")
+            return
+            
+        self.setup_in_progress = True
         print("Starting training setup...")
         self.logger.info("Starting training setup...")
         self.start_time = time.time()
+        
+        # Update UI to show setup is starting
+        self.status_label.setText("Initializing training setup...")
+        self.status_label.setStyleSheet("color: #FF8C00; font-size: 12pt; font-weight: bold;")  # Orange color for processing
 
         # Ensure the window is fully built and ready
         self.show()
@@ -158,28 +207,44 @@ class VEstimTrainSetupGUI(QWidget):
         self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
 
     def on_setup_finished(self, response_data):
+        """Handle completion of training setup process."""
         self.logger.info(f"Training setup finished with response: {response_data}")
         self.timer_running = False
-        self.worker.quit()
-        self.worker.wait()
+        self.setup_in_progress = False
+        
+        if hasattr(self, 'worker') and self.worker:
+            self.worker.quit()
+            self.worker.wait()
 
-        if response_data and "task_count" in response_data:
+        # Calculate time taken
+        elapsed_time = time.time() - self.start_time
+        hours, remainder = divmod(elapsed_time, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        total_time_taken = f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s"
+
+        # Check if setup was successful
+        if response_data and response_data.get("status") == "success":
+            self.setup_completed = True
             task_count = response_data.get("task_count", 0)
-            job_folder = response_data.get("job_folder", "N/A")
-            
-            elapsed_time = time.time() - self.start_time
-            hours, remainder = divmod(elapsed_time, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            total_time_taken = f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s"
+            job_id = response_data.get("job_id", self.job_id)
+
+            # Fetch job details to get folder path
+            try:
+                job_info = self.api_gateway.get(f"jobs/{job_id}")
+                job_folder = job_info.get("job_folder", "Unknown")
+            except:
+                job_folder = "Unknown"
 
             formatted_message = f"""
             Setup Complete!<br><br>
-            <font color='#FF5733' size='+0'><b>{task_count}</b></font> training tasks created and saved to:<br>
-            <font color='#1a73e8' size='-1'><i>{job_folder}</i></font><br><br>
+            <font color='#FF5733' size='+0'><b>{task_count}</b></font> training tasks created and saved for job:<br>
+            <font color='#1a73e8' size='-1'><i>{job_id}</i></font><br><br>
             Time taken for task setup: <b>{total_time_taken}</b>
             """
             self.status_label.setText(formatted_message)
+            self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold; text-align: center;")
 
+            # Add "Proceed to Training" button
             proceed_button = QPushButton("Proceed to Training")
             proceed_button.setStyleSheet("""
                 background-color: #0b6337;
@@ -195,9 +260,30 @@ class VEstimTrainSetupGUI(QWidget):
             button_layout.addStretch(1)
             self.main_layout.addLayout(button_layout)
         else:
-            error_message = response_data.get("detail", "An unknown error occurred.") if response_data else "An unknown error occurred."
+            # Handle error case
+            if isinstance(response_data, dict):
+                error_message = response_data.get("detail", response_data.get("message", "An unknown error occurred."))
+            else:
+                error_message = "An unknown error occurred during setup."
+                
             self.status_label.setText(f"Setup Failed: {error_message}")
             self.status_label.setStyleSheet("color: red; font-size: 12pt; font-weight: bold;")
+            
+            # Add retry button
+            retry_button = QPushButton("Retry Setup")
+            retry_button.setStyleSheet("""
+                background-color: #d94a38;
+                font-weight: bold;
+                padding: 10px 20px;
+                color: white;
+            """)
+            retry_button.clicked.connect(self.start_setup)
+            
+            button_layout = QHBoxLayout()
+            button_layout.addStretch(1)
+            button_layout.addWidget(retry_button, alignment=Qt.AlignCenter)
+            button_layout.addStretch(1)
+            self.main_layout.addLayout(button_layout)
 
     def transition_to_training_gui(self):
         try:

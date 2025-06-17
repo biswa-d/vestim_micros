@@ -13,6 +13,7 @@ from vestim.gui.src.training_task_gui_qt import VEstimTrainingTaskGUI
 from vestim.gui.src.testing_gui_qt import VEstimTestingGUI
 from vestim.gui.src.api_gateway import APIGateway
 from vestim.gui.src.hyper_param_gui_qt import VEstimHyperParamGUI
+from vestim.gui.src.server_manager import ServerManager
 
 class JobDashboard(QMainWindow):
     # Define signals
@@ -114,10 +115,11 @@ class JobDashboard(QMainWindow):
             def run(self):
                 result = self.api.is_server_available()
                 self.resultReady.emit(result)
-        
-        # Create and start the thread
+          # Create and start the thread
         self.check_thread = ServerCheckThread(self.api)
         self.check_thread.resultReady.connect(self._handle_connection_check_result)
+        # Ensure the thread is cleaned up when finished
+        self.check_thread.finished.connect(self.check_thread.deleteLater)
         self.check_thread.start()
         
         # Show status in UI while checking
@@ -191,8 +193,7 @@ class JobDashboard(QMainWindow):
         # If this is the first successful response after a connection loss, update status
         if not self.server_connected:
             self.handle_successful_connection()
-            
-        # If this is a jobs list, update the job table
+              # If this is a jobs list, update the job table
         self.refresh_jobs_with_data(response)
 
     def start_polling(self):
@@ -215,10 +216,11 @@ class JobDashboard(QMainWindow):
             # The jobs data will be handled by the requestListCompleted signal
             self.api.get_all_jobs()
         except Exception as e:
+            print(f"Error refreshing jobs: {e}")
             self.statusBar().showMessage(f"Error refreshing jobs: {e}")
-            # Check if server is still connected
-            if self.server_connected:
-                QTimer.singleShot(5000, self.check_server_connection)
+            # Don't immediately disconnect, just log the error
+            # Check if server is still connected after some time
+            QTimer.singleShot(5000, self.check_server_connection)
 
     def refresh_jobs_with_data(self, jobs):
         """Updates the jobs table with provided job data."""
@@ -269,8 +271,7 @@ class JobDashboard(QMainWindow):
             self.job_table.setCellWidget(row_index, 4, kill_button)
         except Exception as e:
             print(f"Error populating job row: {e}")
-            # Create a row with error information
-            self.job_table.setItem(row_index, 0, QTableWidgetItem("Error"))
+            # Create a row with error information            self.job_table.setItem(row_index, 0, QTableWidgetItem("Error"))
             self.job_table.setItem(row_index, 1, QTableWidgetItem(""))
             self.job_table.setItem(row_index, 2, QTableWidgetItem(str(e)))
             self.job_table.setItem(row_index, 3, QTableWidgetItem(""))
@@ -294,7 +295,9 @@ class JobDashboard(QMainWindow):
                 self.open_windows[job_id] = gui_instance
                 gui_instance.show()
             except Exception as e:
+                print(f"Failed to open job GUI for {job_id}: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to open job GUI: {e}")
+                # Don't crash the dashboard, just show the error
         else:
             QMessageBox.information(self, "Info", f"No specific GUI for status '{status}'.")
 
@@ -334,8 +337,7 @@ class JobDashboard(QMainWindow):
             try:
                 result = self.api.delete_job(job_id)
                 if result.get('status') == 'success':
-                    QMessageBox.information(self, "Success", f"Job {job_id} killed successfully.")
-                    # Close the GUI if it's open
+                    QMessageBox.information(self, "Success", f"Job {job_id} killed successfully.")                    # Close the GUI if it's open
                     if job_id in self.open_windows and self.open_windows[job_id].isVisible():
                         self.open_windows[job_id].close()
                         del self.open_windows[job_id]
@@ -344,8 +346,9 @@ class JobDashboard(QMainWindow):
                     QMessageBox.warning(self, "Warning", f"Job kill response: {result.get('message', 'Unknown error')}")
                 self.refresh_jobs()
             except Exception as e:
+                print(f"Failed to kill job {job_id}: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to kill job: {e}")
-
+                
     def stop_server(self):
         """Shuts down the backend server and closes the application."""
         if not self.server_connected:
@@ -356,19 +359,43 @@ class JobDashboard(QMainWindow):
         reply = QMessageBox.question(self, 'Confirm Shutdown', "Are you sure you want to stop the server?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
-            try:
+            try:                # First try the API shutdown method
                 self.api.shutdown_server()
-                QMessageBox.information(self, "Server Shutdown", "Server shutdown signal sent. The application will now close.")
+                
+                # Also terminate the process directly using the ServerManager
+                server_manager = ServerManager()
+                terminated = server_manager.terminate_server(api_gateway=self.api)
+                
+                if terminated:
+                    QMessageBox.information(self, "Server Shutdown", "Server successfully terminated. The application will now close.")
+                else:
+                    QMessageBox.information(self, "Server Shutdown", "Server shutdown signal sent. The application will now close.")
+                
+                # Close the application regardless
                 self.close()
-            except Exception as e:
-                # The shutdown request might not get a response, which is okay.
+            except Exception as e:                # The shutdown request might not get a response, which is okay.
+                print(f"Error during server shutdown: {e}")
+                
+                # Try to forcefully terminate using ServerManager as a fallback
+                try:
+                    server_manager = ServerManager()
+                    server_manager.terminate_server(api_gateway=self.api)
+                except Exception as e2:
+                    print(f"Final termination attempt failed: {e2}")
+                
                 QMessageBox.information(self, "Server Shutdown", "Server shutdown attempted. The application will now close.")
                 self.close()
-    
+
     def closeEvent(self, event):
         """Ensure the polling timer is stopped when the window closes."""
         if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
             self.poll_timer.stop()
+            
+        # Stop and wait for the server check thread to finish
+        if hasattr(self, 'check_thread') and self.check_thread.isRunning():
+            self.check_thread.quit()
+            self.check_thread.wait(3000)  # Wait up to 3 seconds for thread to finish
+            
         # Close all child windows
         for window in list(self.open_windows.values()):
             window.close()

@@ -16,7 +16,13 @@ from PyQt5.QtCore import Qt, QPropertyAnimation, QTime
 from PyQt5.QtGui import QIcon
 
 import pandas as pd
-import torch
+# Make PyTorch optional in the frontend
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("PyTorch not available in frontend. This is normal - PyTorch is only required in the backend.")
 
 from vestim.gui.src.api_gateway import APIGateway
 from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
@@ -568,16 +574,14 @@ class VEstimHyperParamGUI(QWidget):
 
         # **Main Vertical Layout**
         validation_layout = QVBoxLayout()
-        validation_layout.setAlignment(Qt.AlignTop)
-
-        # **Epochs**
+        validation_layout.setAlignment(Qt.AlignTop)        # **Epochs**
         epochs_label = QLabel("Epochs:")
         epochs_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
         epochs_label.setToolTip("Total number of training cycles.")
-        self.epochs_entry = QLineEdit(self.params.get("EPOCHS", "10"))
+        self.epochs_entry = QLineEdit(self.params.get("MAX_EPOCHS", "10"))
         self.epochs_entry.setFixedWidth(100)
         self.epochs_entry.setToolTip("More epochs can improve accuracy but risk overfitting.")
-        self.param_entries["EPOCHS"] = self.epochs_entry
+        self.param_entries["MAX_EPOCHS"] = self.epochs_entry
 
         # **Early Stopping**
         early_stopping_label = QLabel("Early Stopping Patience:")
@@ -614,23 +618,22 @@ class VEstimHyperParamGUI(QWidget):
         validation_layout.addWidget(validation_freq_label)
         validation_layout.addWidget(self.validation_freq_entry)
         validation_layout.addWidget(repetitions_label)
-        validation_layout.addWidget(self.repetitions_entry)
-
-        # **Apply to Parent Layout**
+        validation_layout.addWidget(self.repetitions_entry)        # **Apply to Parent Layout**
         layout.addLayout(validation_layout)
-
+        
     def add_device_selection(self, layout):
         """Adds device selection UI components with top alignment and tooltips."""
+        
         device_layout = QVBoxLayout()
         device_layout.setAlignment(Qt.AlignTop)
-
+        
         device_label = QLabel("Select Device:")
         device_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
         device_label.setToolTip("Select the hardware device for training.")
         device_layout.addWidget(device_label)
-
+        
         self.device_combo = QComboBox()
-        if torch.cuda.is_available():
+        if TORCH_AVAILABLE and torch.cuda.is_available():
             device_options = ["cuda", "cpu"]
             self.device_combo.setToolTip("CUDA-enabled GPU detected. Select 'cuda' for faster training.")
         else:
@@ -848,7 +851,7 @@ class VEstimHyperParamGUI(QWidget):
                 "BATCH_SIZE": "Batch size is required for batch training.",
                 "TRAIN_VAL_SPLIT": "Train-Valid split is required.",
                 "INITIAL_LR": "Initial Learning Rate is required.",
-                "EPOCHS": "Number of epochs is required.",
+                "MAX_EPOCHS": "Number of epochs is required.",
                 "EARLY_STOPPING_PATIENCE": "Early stopping patience is required.",
                 "VALIDATION_FREQ": "Validation frequency is required.",
                 "REPETITIONS": "Number of repetitions is required."

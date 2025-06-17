@@ -14,6 +14,7 @@ import psutil
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from vestim.gui.src.job_dashboard_gui_qt import JobDashboard
+from vestim.gui.src.server_manager import ServerManager
 
 def start_server():
     """Starts the FastAPI server in a separate process."""
@@ -24,6 +25,12 @@ def start_server():
         try:
             if 'python' in proc.info['name'].lower() and any('vestim.backend.src.main' in cmd for cmd in proc.info['cmdline'] if cmd):
                 print(f"Found existing server process with PID: {proc.info['pid']}")
+                # Try to register the existing process
+                try:
+                    server_manager = ServerManager()
+                    server_manager.set_server_process(psutil.Process(proc.info['pid']).as_dict())
+                except:
+                    pass
                 return None, None
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
@@ -44,6 +51,11 @@ def start_server():
             start_new_session=True if platform.system() != "Windows" else False
         )
         print(f"Started server with PID: {server_process.pid}")
+        
+        # Register with the ServerManager
+        server_manager = ServerManager()
+        server_manager.set_server_process(server_process, server_log)
+        
         return server_process, server_log
     except Exception as e:
         print(f"Error starting server: {e}")
@@ -127,27 +139,47 @@ def main():
         
         # Run the application
         exit_code = app.exec_()
-        
-        # Clean up server on exit
+          # Clean up server on exit
         if server_process and server_process.poll() is None:
             print("Stopping server...")
-            try:
-                if platform.system() == "Windows":
-                    os.kill(server_process.pid, signal.CTRL_C_EVENT)
+            try:                # Let ServerManager handle termination
+                from vestim.gui.src.server_manager import ServerManager
+                from vestim.gui.src.api_gateway import APIGateway
+                
+                # Create API gateway for job cleanup
+                api = APIGateway()
+                
+                server_manager = ServerManager()
+                server_manager.set_server_process(server_process, server_log)
+                terminated = server_manager.terminate_server(api_gateway=api)
+                
+                if terminated:
+                    print("Server process successfully terminated")
                 else:
-                    os.killpg(os.getpgid(server_process.pid), signal.SIGTERM)
-                
-                # Wait a bit for graceful shutdown
-                server_process.wait(timeout=5)
-                
-                # Force terminate if needed
-                if server_process.poll() is None:
-                    server_process.terminate()
-            except:
-                pass
+                    print("Server termination failed, but will continue shutdown")
+            except Exception as e:
+                print(f"Error during server shutdown: {e}")
+                # Fallback to original termination code
+                try:
+                    if platform.system() == "Windows":
+                        os.kill(server_process.pid, signal.CTRL_C_EVENT)
+                    else:
+                        os.killpg(os.getpgid(server_process.pid), signal.SIGTERM)
+                    
+                    # Wait a bit for graceful shutdown
+                    server_process.wait(timeout=5)
+                    
+                    # Force terminate if needed
+                    if server_process.poll() is None:
+                        server_process.terminate()
+                except:
+                    pass
         
         if server_log:
-            server_log.close()
+            try:
+                server_log.close()
+            except:
+                pass
             
         sys.exit(exit_code)
         

@@ -106,16 +106,40 @@ async def log_requests(request: Request, call_next):
 
 # --- Dependency Injection ---
 def get_job_manager():
-    return JobManager()
+    try:
+        from vestim.backend.src.managers.job_manager import JobManager
+        return JobManager()
+    except Exception as e:
+        print(f"Error initializing JobManager: {e}")
+        print(traceback.format_exc())
+        raise
 
 def get_job_service():
-    return JobService()
+    try:
+        from vestim.backend.src.services.job_service import JobService
+        return JobService()
+    except Exception as e:
+        print(f"Error initializing JobService: {e}")
+        print(traceback.format_exc())
+        raise
 
 def get_training_task_manager():
-    return TrainingTaskManager()
+    try:
+        from vestim.backend.src.managers.training_task_manager_qt import TrainingTaskManager
+        return TrainingTaskManager()
+    except Exception as e:
+        print(f"Error initializing TrainingTaskManager: {e}")
+        print(traceback.format_exc())
+        raise
 
 def get_data_processing_service():
-    return DataProcessingService()
+    try:
+        from vestim.backend.src.services.data_processing_service import DataProcessingService
+        return DataProcessingService()
+    except Exception as e:
+        print(f"Error initializing DataProcessingService: {e}")
+        print(traceback.format_exc())
+        raise
 
 # --- API Endpoints ---
 @app.get("/")
@@ -302,9 +326,169 @@ def ensure_job_exists(job_id: str, job_service: JobService = Depends(get_job_ser
 @app.post("/server/shutdown")
 def shutdown():
     """Shutdown the server gracefully."""
-    # We would need to implement a proper shutdown mechanism
-    # For now, just return a message that we received the request
+    print("Shutdown signal received. Server will stop within 5 seconds.")
+    # Create a task to shutdown the server after sending the response
+    import threading
+    def shutdown_server():
+        import time
+        time.sleep(1)  # Give time for the response to be sent
+        import os, signal
+        # Send SIGTERM to self
+        os.kill(os.getpid(), signal.SIGTERM)
+    
+    threading.Thread(target=shutdown_server).start()
     return {"message": "Shutdown signal received. Server will stop."}
+
+@app.post("/jobs/{job_id}/setup-training")
+async def setup_training_tasks(
+    job_id: str, 
+    job_service: JobService = Depends(get_job_service)
+):
+    """
+    Sets up training tasks for the specified job.
+    This endpoint is called after hyperparameters are set and before actual training begins.
+    It analyzes the job data, creates the necessary training tasks, and prepares the model architecture.
+    """
+    try:
+        print(f"Setting up training tasks for job {job_id}")
+        
+        # Get job info before setup to confirm it exists
+        job_info_before = job_service.get_job_by_id(job_id)
+        if not job_info_before:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+            
+        # Setup training tasks
+        try:
+            result = job_service.setup_training_tasks(job_id)
+            print(f"Setup training tasks result: {result}")
+        except Exception as setup_error:
+            print(f"Error in setup_training_tasks: {setup_error}")
+            print(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"Training setup failed: {str(setup_error)}")
+            
+        # Get updated job info with training tasks
+        job_info = job_service.get_job_by_id(job_id)
+        if not job_info:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found after setup.")
+        
+        # Extract task information for the response
+        tasks = job_info.get("details", {}).get("training_tasks", [])
+        task_count = len(tasks)
+        
+        # Update job status to indicate training is ready
+        job_service.job_manager.update_job_details(
+            job_id, 
+            {"status": "training_setup_complete"}
+        )
+        
+        return {
+            "status": "success", 
+            "message": f"Training setup completed successfully with {task_count} tasks.",
+            "task_count": task_count,
+            "job_id": job_id
+        }
+    except ValueError as ve:
+        print(f"Value error during training setup for job {job_id}: {ve}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        print(f"Error setting up training tasks for job {job_id}: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to set up training: {str(e)}")
+
+@app.post("/jobs/{job_id}/tasks/{task_id}/start")
+def start_training_task(
+    job_id: str,
+    task_id: str,
+    job_service: JobService = Depends(get_job_service),
+    training_task_manager: TrainingTaskManager = Depends(get_training_task_manager)
+):
+    """
+    Start a specific training task for a job.
+    """
+    try:
+        print(f"Starting training task {task_id} for job {job_id}")
+        
+        # Get job information
+        job_info = job_service.get_job_by_id(job_id)
+        if not job_info:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+            
+        # Extract task information
+        task_list = job_info.get("details", {}).get("training_tasks", [])
+        matching_tasks = [task for task in task_list if task.get("task_id") == task_id]
+        
+        if not matching_tasks:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found for job {job_id}")
+            
+        task_info = matching_tasks[0]
+        task_info["job_id"] = job_id
+        
+        # Start the training process
+        success = job_service.start_job(
+            job_id, 
+            training_task_manager.process_task_in_background, 
+            task_info
+        )
+        
+        if not success:
+            raise HTTPException(status_code=500, detail=f"Failed to start training task {task_id}")
+            
+        # Update job status to indicate training is in progress
+        job_service.job_manager.update_job_details(job_id, {"status": "training"})
+        
+        return {
+            "status": "success",
+            "message": f"Training task {task_id} started for job {job_id}",
+            "task_id": task_id,
+            "job_id": job_id
+        }
+    except ValueError as ve:
+        print(f"Value error starting task {task_id} for job {job_id}: {ve}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        print(f"Error starting training task {task_id} for job {job_id}: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to start training task: {str(e)}")
+
+@app.get("/jobs/{job_id}/tasks/{task_id}/status")
+def get_training_task_status(
+    job_id: str,
+    task_id: str,
+    job_service: JobService = Depends(get_job_service)
+):
+    """
+    Get the status and progress of a specific training task.
+    """
+    try:
+        # Get job information
+        job_info = job_service.get_job_by_id(job_id)
+        if not job_info:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+            
+        # Check if task exists
+        task_list = job_info.get("details", {}).get("training_tasks", [])
+        matching_tasks = [task for task in task_list if task.get("task_id") == task_id]
+        
+        if not matching_tasks:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found for job {job_id}")
+            
+        # Get task progress from job details
+        task_progress = job_info.get("details", {}).get("task_progress", {}).get(task_id, {})
+        
+        return {
+            "status": "success",
+            "task_id": task_id,
+            "job_id": job_id,
+            "progress": task_progress
+        }
+    except Exception as e:
+        print(f"Error getting status for task {task_id} of job {job_id}: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
 
 # --- Server Startup ---
 def start_server(host="0.0.0.0", port=8001):

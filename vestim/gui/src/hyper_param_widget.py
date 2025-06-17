@@ -7,7 +7,15 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QIcon
 import pandas as pd
-import torch
+
+# Make PyTorch optional in the frontend
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("PyTorch not available in frontend. This is normal - PyTorch is only required in the backend.")
+
 from vestim.backend.src.services.job_service import JobService
 from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
 import logging
@@ -188,7 +196,7 @@ class VEstimHyperParamWidget(QWidget):
         scheduler_layout.addWidget(scheduler_label)
         scheduler_layout.addWidget(self.scheduler_combo)
         scheduler_layout.addWidget(initial_lr_label)
-        scheduler_layout.addWidget(self.initial_lr_entry)
+        scheduler_layout.addWidget(self.initial_lr_entry)        
         scheduler_layout.addWidget(self.lr_param_label)
         scheduler_layout.addWidget(self.lr_param_entry)
         layout.addLayout(scheduler_layout)
@@ -206,12 +214,16 @@ class VEstimHyperParamWidget(QWidget):
         validation_layout.addWidget(patience_label)
         validation_layout.addWidget(self.patience_entry)
         layout.addLayout(validation_layout)
-
+        
     def add_device_selection(self, layout):
         device_layout = QVBoxLayout()
+        
         device_label = QLabel("Device:")
         self.device_combo = QComboBox()
-        self.device_combo.addItems(["cuda" if torch.cuda.is_available() else "cpu"])
+        if TORCH_AVAILABLE and torch.cuda.is_available():
+            self.device_combo.addItems(["cuda", "cpu"])
+        else:
+            self.device_combo.addItems(["cpu"])
         self.param_entries["DEVICE"] = self.device_combo
         device_layout.addWidget(device_label)
         device_layout.addWidget(self.device_combo)

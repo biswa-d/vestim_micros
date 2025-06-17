@@ -107,6 +107,18 @@ class TrainingTaskManager:
                     "history": history
                 }))
 
+                # Update and persist metrics
+                self.update_task_metrics(
+                    job_folder=task_info.get('job_folder', '.'),
+                    task_id=job_id,
+                    epoch=epoch,
+                    train_loss=train_loss,
+                    valid_loss=val_loss,
+                    learning_rate=task_info.get('learning_rate', 0.001),
+                    status="running",
+                    progress=(epoch / num_epochs) * 100
+                )
+
             # --- Completion ---
             self.logger.info(f"[{job_id}] Training completed successfully.")
             status_queue.put((job_id, 'complete', {
@@ -123,3 +135,71 @@ class TrainingTaskManager:
                 "error": error_msg,
                 "traceback": traceback.format_exc()
             }))
+            
+    def update_task_metrics(self, job_folder, task_id, epoch, train_loss, valid_loss, learning_rate, 
+                          best_epoch=None, status="running", progress=0):
+        """
+        Updates metrics for a training task and persists them to disk.
+        This ensures metrics are available when the GUI reconnects.
+        
+        Args:
+            job_folder: The folder for the current job
+            task_id: The ID of the task being run
+            epoch: Current epoch number
+            train_loss: Training loss for the current epoch
+            valid_loss: Validation loss for the current epoch
+            learning_rate: Current learning rate
+            best_epoch: Best epoch so far (optional)
+            status: Task status (running, completed, failed, stopped)
+            progress: Percentage completion
+        """
+        try:
+            # Create metrics directory if it doesn't exist
+            metrics_dir = os.path.join(job_folder, 'metrics')
+            os.makedirs(metrics_dir, exist_ok=True)
+            
+            # Load existing metrics if available
+            metrics_file = os.path.join(metrics_dir, f"{task_id}_metrics.json")
+            if os.path.exists(metrics_file):
+                try:
+                    with open(metrics_file, 'r') as f:
+                        metrics_data = json.load(f)
+                except Exception:
+                    metrics_data = {
+                        "epoch_history": [],
+                        "train_loss": [],
+                        "valid_loss": [],
+                        "learning_rates": []
+                    }
+            else:
+                metrics_data = {
+                    "epoch_history": [],
+                    "train_loss": [],
+                    "valid_loss": [],
+                    "learning_rates": []
+                }
+            
+            # Update metrics
+            if epoch not in metrics_data["epoch_history"]:
+                metrics_data["epoch_history"].append(epoch)
+                metrics_data["train_loss"].append(float(train_loss))
+                metrics_data["valid_loss"].append(float(valid_loss))
+                metrics_data["learning_rates"].append(float(learning_rate))
+            
+            metrics_data["status"] = status
+            metrics_data["progress"] = progress
+            metrics_data["last_updated"] = time.time()
+            
+            if best_epoch is not None:
+                metrics_data["best_epoch"] = best_epoch
+            
+            # Save updated metrics
+            with open(metrics_file, 'w') as f:
+                json.dump(metrics_data, f, indent=2)
+                
+            self.logger.debug(f"Updated metrics for task {task_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error updating metrics for task {task_id}: {e}", exc_info=True)
+            return False

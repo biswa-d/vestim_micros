@@ -1,8 +1,17 @@
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QHBoxLayout, QVBoxLayout, QPushButton, QWidget, QFrame, QTextEdit, QGridLayout, QGroupBox
+    QApplication, QMainWindow, QLabel, QHBoxLayout, QVBoxLayout, QPushButton, 
+    QWidget, QFrame, QTextEdit, QGridLayout, QGroupBox, QMessageBox
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-import torch
+
+# Make PyTorch optional in the frontend
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("PyTorch not available in frontend. This is normal - PyTorch is only required in the backend.")
+
 import json, time
 import numpy as np
 from matplotlib.figure import Figure
@@ -18,6 +27,49 @@ import matplotlib.pyplot as plt
 from vestim.gui.src.api_gateway import APIGateway
 from vestim.gui.src.testing_gui_qt import VEstimTestingGUI
 
+class TrainingThread(QThread):
+    update_signal = pyqtSignal(dict)  # Signal to send progress data
+    finished_signal = pyqtSignal(dict)  # Signal when the task is completed
+    error_signal = pyqtSignal(str)  # Signal for any error during the task
+
+    def __init__(self, job_id, task_id, api_gateway):
+        super().__init__()
+        self.job_id = job_id
+        self.task_id = task_id
+        self.api_gateway = api_gateway
+        self.is_cancelled = False
+        self.logger = logging.getLogger(__name__)
+
+    def run(self):
+        try:
+            # Start the training task via API
+            response = self.api_gateway.post(f"jobs/{self.job_id}/tasks/{self.task_id}/start")
+            if response.get("status") != "success":
+                self.error_signal.emit(f"Failed to start task: {response.get('message', 'Unknown error')}")
+                return
+                
+            # Poll for updates until task is completed
+            while not self.is_cancelled:
+                status_response = self.api_gateway.get(f"jobs/{self.job_id}/tasks/{self.task_id}/status")
+                
+                # Send update signal with the latest status
+                self.update_signal.emit(status_response)
+                
+                # Check if task is complete
+                task_status = status_response.get("status")
+                if task_status in ["completed", "failed", "stopped"]:
+                    self.finished_signal.emit(status_response)
+                    break
+                    
+                # Wait before polling again
+                time.sleep(2)
+                
+        except Exception as e:
+            self.logger.error(f"Error in training thread: {e}", exc_info=True)
+            self.error_signal.emit(str(e))
+
+    def cancel(self):
+        self.is_cancelled = True
 
 class VEstimTrainingTaskGUI(QMainWindow):
     def __init__(self, api_gateway: APIGateway, job_id: str):
@@ -25,11 +77,28 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.api = api_gateway
         self.job_id = job_id
         self.logger = logging.getLogger(__name__)
-        
         self.train_loss_values = []
         self.valid_loss_values = []
         self.epoch_points = []
+        self.current_task_index = 0  # Add missing attribute
         
+        # Verify job exists and get training tasks
+        try:
+            job_info = self.api.get(f"jobs/{self.job_id}")
+            self.job_info = job_info
+            self.hyperparams = job_info.get("details", {}).get("hyperparameters", {})
+            
+            # Check if we have training tasks
+            self.training_tasks = job_info.get("details", {}).get("training_tasks", [])
+            if not self.training_tasks:
+                self.logger.warning(f"No training tasks found for job {self.job_id}")
+                
+            self.logger.info(f"Successfully initialized training task GUI for job {self.job_id}")
+        except Exception as e:
+            self.logger.error(f"Error retrieving job {self.job_id} information: {e}", exc_info=True)
+            self.job_info = {}
+            self.hyperparams = {}
+            self.training_tasks = []        
         self.initUI()
         self.start_polling()
 
@@ -70,6 +139,24 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.stop_button = QPushButton("Stop Training")
         self.stop_button.clicked.connect(self.stop_training)
         self.main_layout.addWidget(self.stop_button)
+        
+        # Initialize the Proceed to Testing button
+        self.proceed_button = QPushButton("Proceed to Testing")
+        self.proceed_button.setStyleSheet("""
+            background-color: #0b6337;
+            color: white;
+            font-size: 12pt;
+            font-weight: bold;
+            padding: 10px 20px;
+        """)
+        self.proceed_button.hide()
+        self.proceed_button.clicked.connect(self.transition_to_testing_gui)
+          # Layout for proceed button
+        proceed_button_layout = QHBoxLayout()
+        proceed_button_layout.addStretch(1)
+        proceed_button_layout.addWidget(self.proceed_button)
+        proceed_button_layout.addStretch(1)
+        self.main_layout.addLayout(proceed_button_layout)
 
     def start_polling(self):
         self.poll_timer = QTimer(self)
@@ -80,6 +167,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
     def update_status(self):
         try:
             status_data = self.api.get_job(self.job_id)
+            
             if not status_data:
                 self.status_label.setText("Could not fetch job status.")
                 return
@@ -113,12 +201,12 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.ax.relim()
         self.ax.autoscale_view()
         self.canvas.draw()
-
+        
     def update_log(self, history):
         self.log_text.clear()
         for item in history:
             self.log_text.append(f"Epoch {item['epoch']}: {item['message']}")
-
+            
     def stop_training(self):
         try:
             self.api.stop_job(self.job_id)
@@ -128,12 +216,27 @@ class VEstimTrainingTaskGUI(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to send stop signal: {e}")
 
     def closeEvent(self, event):
-        self.poll_timer.stop()
+        # Stop the poll timer if it exists
+        if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
+            self.poll_timer.stop()
+            
+        # Stop any running training threads
+        if hasattr(self, 'training_thread') and self.training_thread.isRunning():
+            self.training_thread.cancel()  # Set the cancellation flag
+            self.training_thread.quit()
+            self.training_thread.wait(3000)  # Wait up to 3 seconds for thread to finish
+            
         super().closeEvent(event)
 
-    def initUI(self):
-        self.setWindowTitle(f"VEstim - Training Task {self.current_task_index + 1}")
-        self.setGeometry(100, 100, 900, 600)
+    def transition_to_testing_gui(self):
+        """Transition to the testing GUI after training is complete."""
+        try:
+            testing_gui = VEstimTestingGUI(api_gateway=self.api, job_id=self.job_id)
+            testing_gui.show()
+            self.close()
+        except Exception as e:
+            self.logger.error(f"Error while transitioning to the testing screen: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to open testing interface: {e}")
 
     def build_gui(self, task):
         # Create a main widget to set as central widget in QMainWindow

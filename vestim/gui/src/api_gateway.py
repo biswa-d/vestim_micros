@@ -38,8 +38,7 @@ class APIGateway(QObject):
         while retries < self.max_retries:
             try:
                 response = requests.request(method, url, **kwargs)
-                
-                # Handle HTTP errors
+                  # Handle HTTP errors
                 if response.status_code >= 400:
                     error_detail = f"HTTP Error {response.status_code}"
                     try:
@@ -47,15 +46,19 @@ class APIGateway(QObject):
                         if 'detail' in error_json:
                             error_detail = f"{error_detail}: {error_json['detail']}"
                     except:
-                        error_detail = f"{error_detail}: {response.text}"
+                        try:
+                            error_detail = f"{error_detail}: {response.text}"
+                        except:
+                            pass
                     
                     self.logger.error(f"HTTP Error for {method.upper()} {url}: {error_detail}")
                     
                     # Emit the connection error signal
                     self.connectionError.emit(error_detail)
                     
-                    # Raise the exception to be caught by the caller
-                    response.raise_for_status()
+                    # Return detailed error information instead of raising an exception
+                    # This allows the caller to handle the error gracefully
+                    return {"status": "error", "message": error_detail, "detail": error_detail, "http_status": response.status_code}
                 
                 # Success case - parse JSON
                 try:
@@ -86,19 +89,21 @@ class APIGateway(QObject):
                 self.logger.error(f"Request failed for {method.upper()} {url}: {e}")
                 last_exception = str(e)
                 break  # Don't retry other types of errors
-        
-        # If we get here, all retries failed or a non-retryable error occurred
+          # If we get here, all retries failed or a non-retryable error occurred
         error_message = last_exception or "Unknown error occurred"
         self.connectionError.emit(error_message)
         return {"status": "error", "message": error_message}
-
+        
     def get(self, endpoint, params=None):
         """Sends a GET request."""
         return self._make_request("get", endpoint, params=params)
-
-    def post(self, endpoint, data=None, json=None):
+        
+    def post(self, endpoint, data=None, json=None, timeout=None):
         """Sends a POST request."""
-        return self._make_request("post", endpoint, data=data, json=json)
+        kwargs = {'data': data, 'json': json}
+        if timeout:
+            kwargs['timeout'] = timeout
+        return self._make_request("post", endpoint, **kwargs)
 
     def delete(self, endpoint):
         """Sends a DELETE request."""
@@ -123,8 +128,7 @@ class APIGateway(QObject):
                         return True
                 except:
                     pass
-            
-            # If we get here, both checks failed
+              # If we get here, both checks failed
             self.logger.error("Server is not available - all endpoint checks failed")
             return False
         except Exception as e:
@@ -135,9 +139,14 @@ class APIGateway(QObject):
     def get_all_jobs(self):
         """Get all jobs with proper error handling."""
         try:
-            return self.get("jobs")
+            result = self.get("jobs")
+            if isinstance(result, dict) and result.get("status") == "error":
+                self.logger.error(f"Error getting jobs: {result.get('message', 'Unknown error')}")
+                return []  # Return empty list on error
+            return result if isinstance(result, list) else []
         except Exception as e:
             self.logger.error(f"Failed to get all jobs: {e}")
+            self.connectionError.emit(f"Failed to retrieve jobs: {str(e)}")
             return []  # Return empty list instead of None to avoid NoneType errors
 
     def get_job(self, job_id):
@@ -188,3 +197,28 @@ class APIGateway(QObject):
         except requests.exceptions.RequestException:
             # This is expected as the server will shut down before responding
             return {"message": "Shutdown signal sent."}
+    
+    # --- Training task-specific methods ---
+    def start_training_task(self, job_id, task_id):
+        """Start a specific training task for a job."""
+        try:
+            return self.post(f"jobs/{job_id}/tasks/{task_id}/start")
+        except Exception as e:
+            self.logger.error(f"Failed to start training task {task_id} for job {job_id}: {e}")
+            return {"status": "error", "message": str(e)}
+    
+    def get_training_task_status(self, job_id, task_id):
+        """Get the status and progress of a specific training task."""
+        try:
+            return self.get(f"jobs/{job_id}/tasks/{task_id}/status")
+        except Exception as e:
+            self.logger.error(f"Failed to get status for training task {task_id} of job {job_id}: {e}")
+            return {"status": "error", "message": str(e)}
+    
+    def setup_training(self, job_id, timeout=60):
+        """Set up the training tasks for a job."""
+        try:
+            return self.post(f"jobs/{job_id}/setup-training", timeout=timeout)
+        except Exception as e:
+            self.logger.error(f"Failed to set up training tasks for job {job_id}: {e}")
+            return {"status": "error", "message": str(e)}

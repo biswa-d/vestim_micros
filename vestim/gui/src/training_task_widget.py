@@ -2,7 +2,15 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QHBoxLayout, QVBoxLayout, QPushButton, QFrame, QTextEdit, QGridLayout, QGroupBox
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-import torch
+
+# Make PyTorch optional in the frontend
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("PyTorch not available in frontend. This is normal - PyTorch is only required in the backend.")
+
 import json, time
 import numpy as np
 from matplotlib.figure import Figure

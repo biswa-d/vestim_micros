@@ -106,14 +106,11 @@ class VEstimTrainingSetupManager:
                         "OUTPUT_SIZE": output_size,  # Single target output
                         "HIDDEN_UNITS": hidden_units,
                         "LAYERS": layers
-                    }
-
-                    # Create and save the LSTM model
+                    }                    # Create and save the LSTM model
                     model = self.create_selected_model(model_type, model_params, model_path)
 
-                    # Store model information
+                    # Store model information without the actual model object to prevent serialization issues
                     self.models.append({
-                        'model': model,
                         'model_type': model_type,
                         'model_dir': model_dir,
                         "FEATURE_COLUMNS": feature_columns,
@@ -146,18 +143,33 @@ class VEstimTrainingSetupManager:
                 self.logger.info(f"Loaded job_metadata.json for task creation: {job_normalization_metadata}")
             except Exception as e:
                 self.logger.error(f"Error loading job_metadata.json in create_training_tasks: {e}")
-                # Proceed without normalization info if file is corrupt or unreadable
-        else:
+                # Proceed without normalization info if file is corrupt or unreadable        else:
             self.logger.info("job_metadata.json not found. Tasks will not include normalization metadata.")
-
+            
         try:
-            # Parse all comma-separated values
-            max_epochs_list = [int(e.strip()) for e in str(self.current_hyper_params['MAX_EPOCHS']).split(',')]
-            learning_rates = [float(lr.strip()) for lr in str(self.current_hyper_params['INITIAL_LR']).split(',')]
-            train_val_splits = [float(self.current_hyper_params['TRAIN_VAL_SPLIT'])]
-            lookbacks = [int(lb.strip()) for lb in str(self.current_hyper_params['LOOKBACK']).split(',')]
-            batch_sizes = [int(bs.strip()) for bs in str(self.current_hyper_params['BATCH_SIZE']).split(',')]
-            valid_patience = [int(vp.strip()) for vp in str(self.current_hyper_params['VALID_PATIENCE']).split(',')]
+            # Parse all comma-separated values            # Handle the case if MAX_EPOCHS is not present or empty
+            max_epochs_param = self.current_hyper_params.get('MAX_EPOCHS', '')
+            # Also check for the older parameter name 'EPOCHS' for backward compatibility
+            if not max_epochs_param and 'EPOCHS' in self.current_hyper_params:
+                max_epochs_param = self.current_hyper_params.get('EPOCHS', '')
+                self.logger.warning(f"Using deprecated 'EPOCHS' parameter instead of 'MAX_EPOCHS'")
+                
+            # Log all hyperparameters for debugging
+            self.logger.info(f"Current hyperparameters: {self.current_hyper_params}")
+                
+            if not max_epochs_param:
+                self.logger.error(f"MAX_EPOCHS parameter is missing or empty. Hyperparams: {self.current_hyper_params}")
+                # Default to 10 epochs if not specified to avoid failing
+                max_epochs_param = "10"
+                self.logger.warning(f"Using default value of {max_epochs_param} for MAX_EPOCHS")
+                
+            max_epochs_list = [int(e.strip()) for e in str(max_epochs_param).split(',')]
+            
+            learning_rates = [float(lr.strip()) for lr in str(self.current_hyper_params.get('INITIAL_LR', '0.001')).split(',')]
+            train_val_splits = [float(self.current_hyper_params.get('TRAIN_VAL_SPLIT', '0.8'))]
+            lookbacks = [int(lb.strip()) for lb in str(self.current_hyper_params.get('LOOKBACK', '10')).split(',')]
+            batch_sizes = [int(bs.strip()) for bs in str(self.current_hyper_params.get('BATCH_SIZE', '32')).split(',')]
+            valid_patience = [int(vp.strip()) for vp in str(self.current_hyper_params.get('VALID_PATIENCE', '5')).split(',')]
             valid_frequency = int(self.current_hyper_params.get('VALID_FREQUENCY', '3'))
             repetitions = int(self.current_hyper_params.get('REPETITIONS', '1'))
             
@@ -298,18 +310,15 @@ class VEstimTrainingSetupManager:
         hidden_units = model_task['hyperparams']['HIDDEN_UNITS']
         layers = model_task['hyperparams']['LAYERS']
         input_size = model_task['hyperparams']['INPUT_SIZE']
-        output_size = model_task['hyperparams']['OUTPUT_SIZE']
-
-        # Calculate num_learnable_params
+        output_size = model_task['hyperparams']['OUTPUT_SIZE']        # Calculate num_learnable_params
         num_learnable_params = self.calculate_learnable_parameters(
             layers,
             input_size,
             hidden_units
         )
-
+        
         return {
             'task_id': task_id,
-            'model': model_task['model'],
             'model_dir': task_dir,
             'task_dir': task_dir,
             'model_path': os.path.join(task_dir, 'model.pth'),
@@ -420,7 +429,19 @@ class VEstimTrainingSetupManager:
 
     def get_task_list(self):
         """Returns the list of training tasks."""
-        return self.training_tasks
+        try:
+            self.logger.info(f"Getting task list for job {self.job_id}")
+            if not self.training_tasks:
+                self.logger.warning(f"No training tasks found for job {self.job_id}")
+            else:
+                self.logger.info(f"Returning {len(self.training_tasks)} training tasks for job {self.job_id}")
+                for i, task in enumerate(self.training_tasks):
+                    task_id = task.get("task_id", "unknown")
+                    self.logger.info(f"Task {i+1}/{len(self.training_tasks)}: ID={task_id}")
+            return self.training_tasks
+        except Exception as e:
+            self.logger.error(f"Error getting task list for job {self.job_id}: {e}", exc_info=True)
+            return []
 
     def validate_parameters(self, params):
         """Validate and convert parameters to appropriate types."""
@@ -443,3 +464,67 @@ class VEstimTrainingSetupManager:
             return validated
         except (ValueError, KeyError) as e:
             raise ValueError(f"Parameter validation failed: {str(e)}")
+    
+    def save_task_metrics(self, task_id, metrics_data):
+        """
+        Saves training metrics for a specific task to disk.
+        This allows the GUI to reconnect and display current training progress.
+        
+        Args:
+            task_id (str): The ID of the training task
+            metrics_data (dict): Dictionary containing metrics like:
+                - epoch_history: List of completed epochs
+                - train_loss: List of training losses
+                - valid_loss: List of validation losses
+                - learning_rates: List of learning rates used
+                - best_epoch: Best epoch number
+                - status: Current status (running, completed, failed)
+                - progress: Percentage completion
+        """
+        try:
+            # Create metrics directory if it doesn't exist
+            metrics_dir = os.path.join(self.job_folder, 'metrics')
+            os.makedirs(metrics_dir, exist_ok=True)
+            
+            # Save metrics to a JSON file
+            metrics_file = os.path.join(metrics_dir, f"{task_id}_metrics.json")
+            
+            # Add timestamp to track when metrics were last updated
+            metrics_data['last_updated'] = time.time()
+            
+            with open(metrics_file, 'w') as f:
+                json.dump(metrics_data, f, indent=2)
+                
+            self.logger.info(f"Saved metrics for task {task_id} to {metrics_file}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error saving metrics for task {task_id}: {e}", exc_info=True)
+            return False
+            
+    def get_task_metrics(self, task_id):
+        """
+        Retrieves training metrics for a specific task from disk.
+        
+        Args:
+            task_id (str): The ID of the training task
+            
+        Returns:
+            dict: Dictionary containing the saved metrics, or empty dict if not found
+        """
+        try:
+            metrics_file = os.path.join(self.job_folder, 'metrics', f"{task_id}_metrics.json")
+            
+            if not os.path.exists(metrics_file):
+                self.logger.warning(f"No metrics file found for task {task_id}")
+                return {}
+                
+            with open(metrics_file, 'r') as f:
+                metrics_data = json.load(f)
+                
+            self.logger.info(f"Loaded metrics for task {task_id} from {metrics_file}")
+            return metrics_data
+            
+        except Exception as e:
+            self.logger.error(f"Error loading metrics for task {task_id}: {e}", exc_info=True)
+            return {}
