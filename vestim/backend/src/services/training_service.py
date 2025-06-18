@@ -117,8 +117,7 @@ class TrainingService:
                 "val_loss": avg_val_loss,
                 "train_loss_history": self.train_loss_history,
                 "val_loss_history": self.val_loss_history,
-                "log_history": self.log_history,
-            }
+                "log_history": self.log_history,            }
             self.update_status("training", f"Epoch {epoch} complete", **status_payload)
 
             if avg_val_loss < best_val_loss:
@@ -147,9 +146,21 @@ class TrainingService:
 
         payload = {
             "message": message,
-            "timestamp": time.time()
+            "timestamp": time.time(),
+            "task_id": self.task_info.get('task_id')
         }
         payload.update(kwargs)
+        
+        # Also add task-specific progress to the payload
+        task_progress_data = {
+            f"task_progress.{self.task_info.get('task_id')}": {
+                "status": status,
+                "message": message,
+                "timestamp": time.time(),
+                **kwargs
+            }
+        }
+        payload.update(task_progress_data)
         
         try:
             self.status_queue.put((self.task_info['job_id'], status, payload))

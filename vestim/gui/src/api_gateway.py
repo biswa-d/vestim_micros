@@ -196,13 +196,11 @@ class APIGateway(QObject):
             return self.post("server/shutdown")
         except requests.exceptions.RequestException:
             # This is expected as the server will shut down before responding
-            return {"message": "Shutdown signal sent."}
-    
-    # --- Training task-specific methods ---
+            return {"message": "Shutdown signal sent."}    # --- Training task-specific methods ---
     def start_training_task(self, job_id, task_id):
         """Start a specific training task for a job."""
         try:
-            return self.post(f"jobs/{job_id}/tasks/{task_id}/start")
+            return self.post(f"jobs/{job_id}/tasks/{task_id}/start_training")
         except Exception as e:
             self.logger.error(f"Failed to start training task {task_id} for job {job_id}: {e}")
             return {"status": "error", "message": str(e)}

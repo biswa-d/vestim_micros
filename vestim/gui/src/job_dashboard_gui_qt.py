@@ -110,14 +110,18 @@ class JobDashboard(QMainWindow):
           # Disable buttons during connection check
         self.new_job_button.setEnabled(False)
         self.stop_server_button.setEnabled(False)
-        
-        # Clean up any existing check thread first
+          # Clean up any existing check thread first
         if hasattr(self, 'check_thread') and self.check_thread is not None:
-            if self.check_thread.isRunning():
-                self.check_thread.quit()
-                self.check_thread.wait(1000)  # Wait up to 1 second
-            self.check_thread.deleteLater()
-            self.check_thread = None
+            try:
+                if self.check_thread.isRunning():
+                    self.check_thread.quit()
+                    self.check_thread.wait(1000)  # Wait up to 1 second
+                self.check_thread.deleteLater()
+            except RuntimeError:
+                # Thread object was already deleted by Qt
+                pass
+            finally:
+                self.check_thread = None
         
         # Use a separate thread to check server availability to avoid UI freezing
         # during network operations
@@ -135,12 +139,10 @@ class JobDashboard(QMainWindow):
                 except Exception as e:
                     print(f"Error in server check thread: {e}")
                     self.resultReady.emit(False)
-        
-        # Create and start the thread
+          # Create and start the thread
         self.check_thread = ServerCheckThread(self.api)
         self.check_thread.resultReady.connect(self._handle_connection_check_result)
-        # Ensure the thread is cleaned up when finished
-        self.check_thread.finished.connect(self.check_thread.deleteLater)
+        # Note: We handle thread cleanup manually in closeEvent()
         self.check_thread.start()
         
         # Show status in UI while checking
@@ -461,8 +463,7 @@ class JobDashboard(QMainWindow):
             except Exception as e:
                 # The shutdown request might not get a response, which is okay.
                 print(f"Error during server shutdown: {e}")
-                
-                # Try to forcefully terminate using ServerManager as a fallback
+                  # Try to forcefully terminate using ServerManager as a fallback
                 try:
                     server_manager = ServerManager()
                     server_manager.terminate_server(api_gateway=self.api)
@@ -479,11 +480,16 @@ class JobDashboard(QMainWindow):
             
         # Stop and wait for the server check thread to finish
         if hasattr(self, 'check_thread') and self.check_thread is not None:
-            if self.check_thread.isRunning():
-                self.check_thread.quit()
-                self.check_thread.wait(3000)  # Wait up to 3 seconds for thread to finish
-            self.check_thread.deleteLater()
-            self.check_thread = None
+            try:
+                if self.check_thread.isRunning():
+                    self.check_thread.quit()
+                    self.check_thread.wait(3000)  # Wait up to 3 seconds for thread to finish
+                self.check_thread.deleteLater()
+            except RuntimeError:
+                # Thread object was already deleted by Qt
+                pass
+            finally:
+                self.check_thread = None
               # Close all child windows
         for window in list(self.open_windows.values()):
             try:

@@ -12,6 +12,7 @@ import shutil
 import traceback
 from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.backend.src.managers.job_container import JobContainer
 
 class JobManager:
     _instance = None
@@ -27,8 +28,7 @@ class JobManager:
     def __init__(self):
         if not hasattr(self, 'initialized'):
             self.initialized = True
-            self.jobs = {}  # In-memory job registry
-            self.job_managers = {} # For non-serializable manager objects
+            self.job_containers = {}  # Job containers registry (main data structure)
             self.job_locks = {}  # Locks for thread-safe job operations
             self.status_queue = Queue()
             self.logger = logging.getLogger(__name__)
@@ -41,26 +41,29 @@ class JobManager:
             os.makedirs(OUTPUT_DIR, exist_ok=True)
             self.job_registry_file = os.path.join(OUTPUT_DIR, 'job_registry.json')
             self._load_jobs_from_registry()
-            
-            # Signal flags for all jobs
-            self.stop_flags = {}
 
     def _listen_for_status_updates(self):
-        """Listens for status updates from the queue and updates the job registry."""
+        """Listens for status updates from the queue and updates job containers."""
         while True:
             try:
                 job_id, status, data = self.status_queue.get()
-                if job_id in self.jobs:
+                if job_id in self.job_containers:
                     self.logger.info(f"Received status update for job {job_id}: {status}")
                     with self._get_job_lock(job_id):
-                        self.jobs[job_id]['status'] = status
-                        self.jobs[job_id]['updated_at'] = datetime.now().isoformat()
-                        if data:
-                            # Merge details rather than replace to preserve any fields
-                            if 'details' not in self.jobs[job_id]:
-                                self.jobs[job_id]['details'] = {}
-                            self.jobs[job_id]['details'].update(data)
-                        self._persist_job(job_id)
+                        job_container = self.job_containers[job_id]
+                        
+                        # Update job container status
+                        progress_percent = data.get('progress_percent') if data else None
+                        message = data.get('message', f'Status: {status}') if data else f'Status: {status}'
+                        job_container.update_status(status, message, progress_percent)
+                        
+                        # Update task-specific progress if provided
+                        if data and 'task_id' in data:
+                            task_id = data['task_id']
+                            task_data = {k: v for k, v in data.items() if k != 'task_id'}
+                            job_container.update_task_progress(task_id, task_data)
+                        
+                        self._persist_job_container(job_id)
                 else:
                     self.logger.warning(f"Received status for unknown job_id: {job_id}")
             except Exception as e:
@@ -75,28 +78,39 @@ class JobManager:
         return self.job_locks[job_id]
 
     def _load_jobs_from_registry(self):
-        """Load jobs from the registry file on startup."""
+        """Load jobs from the registry file on startup and create job containers."""
         if os.path.exists(self.job_registry_file):
             try:
                 with open(self.job_registry_file, 'r') as f:
                     persisted_jobs = json.load(f)
                 for job_id, job_info in persisted_jobs.items():
                     if isinstance(job_info, dict):
-                        # We don't try to resurrect the process, just load the metadata
-                        job_info['process'] = None
-                        self.jobs[job_id] = job_info
-                        # Initialize a stop flag for each job
-                        self.stop_flags[job_id] = Event()
+                        # Create job container from persisted data
+                        job_folder = job_info.get('job_folder', os.path.join(OUTPUT_DIR, job_id))
+                        selections = job_info.get('selections', {})
+                        
+                        job_container = JobContainer(job_id, job_folder, selections)
+                        job_container.status = job_info.get('status', 'loaded')
+                        job_container.created_at = job_info.get('created_at', datetime.now().isoformat())
+                        job_container.updated_at = job_info.get('updated_at', datetime.now().isoformat())
+                        job_container.details = job_info.get('details', {})
+                        job_container.task_progress = job_info.get('task_progress', {})
+                        
+                        # Reset process state - processes can't be persisted
+                        job_container.process = None
+                        job_container.stop_flag.clear()
+                        
+                        self.job_containers[job_id] = job_container
                     else:
                         self.logger.warning(f"Skipping malformed job entry in registry for job_id '{job_id}'. Expected a dictionary, got {type(job_info)}.")
-                self.logger.info(f"Loaded {len(self.jobs)} jobs from registry.")
+                self.logger.info(f"Loaded {len(self.job_containers)} job containers from registry.")
             except Exception as e:
                 self.logger.error(f"Failed to load job registry: {e}", exc_info=True)
                 # Create an empty registry if loading fails
-                self.jobs = {}
+                self.job_containers = {}
 
-    def _persist_job(self, job_id):
-        """Persist a single job's state to the registry file."""
+    def _persist_job_container(self, job_id):
+        """Persist a job container's state to the registry file."""
         try:
             if os.path.exists(self.job_registry_file):
                 try:
@@ -107,72 +121,72 @@ class JobManager:
             else:
                 persisted_jobs = {}
 
-            job_to_persist = self.jobs.get(job_id)
-            if job_to_persist:
-                # Don't persist the process or manager objects
-                persisted_jobs[job_id] = {k: v for k, v in job_to_persist.items() if k not in ['process', 'managers']}
+            job_container = self.job_containers.get(job_id)
+            if job_container:
+                # Get serializable state from job container
+                job_state = job_container.get_detailed_state()
+                # Remove non-serializable fields
+                job_state.pop('is_running', None)  # This is computed
+                job_state.pop('active_managers', None)  # This is computed
+                persisted_jobs[job_id] = job_state
             
             with open(self.job_registry_file, 'w') as f:
                 json.dump(persisted_jobs, f, indent=4)
         except Exception as e:
-            self.logger.error(f"Error persisting job {job_id}: {e}", exc_info=True)
+            self.logger.error(f"Error persisting job container {job_id}: {e}", exc_info=True)
 
     def create_job(self, selections: dict):
-        """Creates a new job and adds it to the in-memory registry."""
+        """Creates a new job and adds it to the in-memory registry using JobContainer."""
         try:
+            print(f"JobManager: Creating job with selections: {selections}")
             job_id = f"job_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
             job_folder = os.path.join(OUTPUT_DIR, job_id)
+            print(f"JobManager: Generated job_id: {job_id}")
+            print(f"JobManager: Job folder will be: {job_folder}")
+            
             os.makedirs(job_folder, exist_ok=True)
+            print(f"JobManager: Created job folder: {job_folder}")
 
-            # Create job-specific manager instances
-            hyper_param_manager = VEstimHyperParamManager()
-            training_setup_manager = VEstimTrainingSetupManager(job_id, job_folder, {}) # Initially empty hyperparams
-
-            job_info = {
-                "job_id": job_id,
-                "status": "created",
-                "selections": selections,
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
-                "job_folder": job_folder,
-                "process": None,
-                "details": {}
-            }
+            # Create JobContainer which will manage all job-specific resources
+            print(f"JobManager: Creating JobContainer...")
+            job_container = JobContainer(job_id, job_folder, selections)
+            print(f"JobManager: JobContainer created successfully")
             
             with self._get_job_lock(job_id):
-                self.jobs[job_id] = job_info
-                self.job_managers[job_id] = {
-                    "hyper_param_manager": hyper_param_manager,
-                    "training_setup_manager": training_setup_manager,
-                }
-                # Create a stop flag for the job
-                self.stop_flags[job_id] = Event()
-                self._persist_job(job_id)
+                self.job_containers[job_id] = job_container
+                print(f"JobManager: Added job container to registry")
+                self._persist_job_container(job_id)
+                print(f"JobManager: Persisted job container")
             
-            self.logger.info(f"Created new job {job_id}")
+            self.logger.info(f"Created new job container {job_id}")
+            print(f"JobManager: Successfully created job {job_id}")
             return job_id
         except Exception as e:
             self.logger.error(f"Error creating job: {e}", exc_info=True)
+            print(f"JobManager ERROR: Exception in create_job: {e}")
+            import traceback
+            traceback.print_exc()
             # Clean up any partially created job resources
             if 'job_folder' in locals() and os.path.exists(job_folder):
                 try:
                     shutil.rmtree(job_folder)
+                    print(f"JobManager: Cleaned up job folder after error: {job_folder}")
                 except Exception as cleanup_error:
                     self.logger.error(f"Error cleaning up job folder after creation failure: {cleanup_error}")
+                    print(f"JobManager: Error cleaning up job folder: {cleanup_error}")
             raise
 
     def update_job_details(self, job_id: str, details: dict):
-        """Updates the details of a specific job."""
+        """Updates the details of a specific job container."""
         try:
-            if job_id not in self.jobs:
+            if job_id not in self.job_containers:
                 raise ValueError(f"Job {job_id} not found.")
             
             with self._get_job_lock(job_id):
-                if 'details' not in self.jobs[job_id]:
-                    self.jobs[job_id]['details'] = {}
-                self.jobs[job_id]['details'].update(details)
-                self.jobs[job_id]['updated_at'] = datetime.now().isoformat()
-                self._persist_job(job_id)
+                job_container = self.job_containers[job_id]
+                job_container.details.update(details)
+                job_container.updated_at = datetime.now().isoformat()
+                self._persist_job_container(job_id)
             
             self.logger.info(f"Updated details for job {job_id}")
         except Exception as e:
@@ -180,46 +194,43 @@ class JobManager:
             raise
 
     def start_job(self, job_id: str, target_func, task_info: dict):
-        """Starts a job in a new process."""
+        """Starts a job in a new process using job container."""
         try:
-            if job_id not in self.jobs:
+            if job_id not in self.job_containers:
                 raise ValueError(f"Job {job_id} not found.")
                 
             with self._get_job_lock(job_id):
-                if self.jobs[job_id].get('process') and self.jobs[job_id]['process'].is_alive():
+                job_container = self.job_containers[job_id]
+                
+                if job_container.is_running():
                     self.logger.warning(f"Job {job_id} is already running.")
                     return False
 
                 self.logger.info(f"Starting job {job_id}")
                 
                 # Reset the stop flag
-                if job_id in self.stop_flags:
-                    self.stop_flags[job_id].clear()
-                else:
-                    self.stop_flags[job_id] = Event()
+                job_container.stop_flag.clear()
                 
                 # Inject job-specific details into the task_info
-                task_info['job_folder'] = self.jobs[job_id]['job_folder']
-                task_info['stop_flag'] = self.stop_flags[job_id]
+                task_info['job_folder'] = job_container.job_folder
+                task_info['stop_flag'] = job_container.stop_flag
                 
                 # Start the process
                 process = Process(target=self._run_job_with_error_handling, 
                                  args=(job_id, target_func, self.status_queue, task_info))
-                self.jobs[job_id]['process'] = process
-                self.jobs[job_id]['status'] = 'running'
-                self.jobs[job_id]['updated_at'] = datetime.now().isoformat()
+                job_container.set_process(process)
+                job_container.update_status('running', 'Job started')
                 process.start()
-                self._persist_job(job_id)
+                self._persist_job_container(job_id)
                 
             return True
         except Exception as e:
             self.logger.error(f"Error starting job {job_id}: {e}", exc_info=True)
-            # Update job status to indicate error
-            with self._get_job_lock(job_id):
-                self.jobs[job_id]['status'] = 'error'
-                self.jobs[job_id]['updated_at'] = datetime.now().isoformat()
-                self.jobs[job_id]['details']['error'] = str(e)
-                self._persist_job(job_id)
+            # Update job container status to indicate error
+            if job_id in self.job_containers:
+                job_container = self.job_containers[job_id]
+                job_container.update_status('error', f'Failed to start: {str(e)}')
+                self._persist_job_container(job_id)
             return False
 
     def _run_job_with_error_handling(self, job_id, target_func, status_queue, task_info):
@@ -233,34 +244,19 @@ class JobManager:
             status_queue.put((job_id, 'error', {"error": str(e), "message": "Job failed with error"}))
 
     def stop_job(self, job_id: str):
-        """Stops a running job."""
+        """Stops a running job using job container."""
         try:
-            if job_id not in self.jobs:
+            if job_id not in self.job_containers:
                 raise ValueError(f"Job {job_id} not found.")
             
-            # Set the stop flag to signal the process to exit gracefully
-            if job_id in self.stop_flags:
-                self.stop_flags[job_id].set()
-                self.logger.info(f"Set stop flag for job {job_id}")
+            job_container = self.job_containers[job_id]
             
             with self._get_job_lock(job_id):
-                process = self.jobs[job_id].get('process')
-                if process and process.is_alive():
+                if job_container.is_running():
                     self.logger.info(f"Stopping job {job_id}")
-                    # Give the process some time to shut down gracefully
-                    time.sleep(2)
-                    # If still alive, terminate it
-                    if process.is_alive():
-                        process.terminate()
-                        process.join(timeout=5)
-                        if process.is_alive():
-                            # If still alive, kill it forcefully
-                            self.logger.warning(f"Job {job_id} did not terminate gracefully, forcefully killing")
-                            process.kill()
-                    
-                    self.jobs[job_id]['status'] = 'stopped'
-                    self.jobs[job_id]['updated_at'] = datetime.now().isoformat()
-                    self._persist_job(job_id)
+                    job_container.stop()
+                    job_container.update_status('stopped', 'Job stopped by user')
+                    self._persist_job_container(job_id)
                     return True
                 else:
                     self.logger.warning(f"Job {job_id} is not running.")
@@ -271,86 +267,60 @@ class JobManager:
 
     def get_job(self, job_id: str):
         """
-        Gets a job's details from the in-memory registry, ensuring it's serializable.
+        Gets a job's details from job container, ensuring it's serializable.
         """
         try:
             with self._get_job_lock(job_id):
-                job_data = self.jobs.get(job_id)
-                if not job_data:
+                job_container = self.job_containers.get(job_id)
+                if not job_container:
                     return None
                 
-                # Explicitly build the response to ensure no non-serializable objects are included.
-                # Only include basic data types (str, int, float, bool, dict, list)
-                def make_serializable(obj):
-                    """Recursively ensure an object is JSON serializable"""
-                    if obj is None or isinstance(obj, (str, int, float, bool)):
-                        return obj
-                    elif isinstance(obj, dict):
-                        return {k: make_serializable(v) for k, v in obj.items() 
-                               if isinstance(k, str) and not k.startswith('_')}
-                    elif isinstance(obj, (list, tuple)):
-                        return [make_serializable(item) for item in obj]
-                    else:
-                        # For any other type, convert to string or skip
-                        try:
-                            return str(obj) if obj is not None else None
-                        except:
-                            return None
-                
-                serializable_job = {
-                    "job_id": str(job_data.get("job_id", "")),
-                    "status": str(job_data.get("status", "")),
-                    "created_at": str(job_data.get("created_at", "")),
-                    "updated_at": str(job_data.get("updated_at", "")),
-                    "selections": make_serializable(job_data.get("selections", {})),
-                    "job_folder": str(job_data.get("job_folder", "")),
-                    "details": make_serializable(job_data.get("details", {})),
-                }
-                return serializable_job
+                # Get serializable state from job container
+                return job_container.get_detailed_state()
         except Exception as e:
             self.logger.error(f"Error getting job {job_id}: {e}", exc_info=True)
             return None
 
     def get_all_jobs(self):
         """
-        Gets all jobs from the in-memory registry, ensuring they are serializable.
+        Gets all jobs from job containers, ensuring they are serializable.
         """
         try:
-            serializable_jobs = {}
-            job_ids = list(self.jobs.keys())
+            jobs_list = []
+            job_ids = list(self.job_containers.keys())
             
             for job_id in job_ids:
                 job_data = self.get_job(job_id)
                 if job_data:
-                    serializable_jobs[job_id] = job_data
+                    jobs_list.append(job_data)
             
-            return list(serializable_jobs.values())
+            return jobs_list
         except Exception as e:
             self.logger.error(f"Error getting all jobs: {e}", exc_info=True)
             return []
 
     def delete_job(self, job_id: str):
-        """Deletes a job from the registry and cleans up its directory."""
+        """Deletes a job container and cleans up its directory."""
         try:
-            if job_id in self.jobs:
+            if job_id in self.job_containers:
+                job_container = self.job_containers[job_id]
+                
                 # Stop the job if it's running
                 self.stop_job(job_id)
                 
-                # Get the job folder path before deleting the job info
                 with self._get_job_lock(job_id):
-                    job_folder = self.jobs[job_id].get("job_folder")
+                    job_folder = job_container.job_folder
+                    
+                    # Clean up managers
+                    job_container.cleanup_managers()
                     
                     # Clean up resources
                     if job_folder and os.path.exists(job_folder):
                         shutil.rmtree(job_folder, ignore_errors=True)
                         self.logger.info(f"Removed job folder: {job_folder}")
                     
-                    # Remove job from dictionaries
-                    del self.jobs[job_id]
-                    if job_id in self.job_managers:
-                        del self.job_managers[job_id]
-                    if job_id in self.stop_flags:
-                        del self.stop_flags[job_id]
+                    # Remove job container
+                    del self.job_containers[job_id]
                     if job_id in self.job_locks:
                         del self.job_locks[job_id]
                 
@@ -373,6 +343,10 @@ class JobManager:
             self.logger.error(f"Error deleting job {job_id}: {e}", exc_info=True)
             return False
 
+    def get_job_container(self, job_id: str):
+        """Get the job container for a specific job."""
+        return self.job_containers.get(job_id)
+    
     def ensure_job_exists(self, job_id: str, job_folder: str = None):
         """
         Ensures that a job exists in the manager. If it doesn't exist, creates it.
@@ -385,11 +359,11 @@ class JobManager:
             bool: True if the job exists or was created successfully, False otherwise
         """
         try:
-            if job_id in self.jobs:
-                self.logger.info(f"Job {job_id} already exists in JobManager")
+            if job_id in self.job_containers:
+                self.logger.info(f"Job container {job_id} already exists")
                 return True
                 
-            self.logger.info(f"Job {job_id} not found in JobManager, attempting to create registry entry")
+            self.logger.info(f"Job container {job_id} not found, creating new one")
             
             if not job_folder:
                 job_folder = os.path.join(OUTPUT_DIR, job_id)
@@ -399,33 +373,38 @@ class JobManager:
                 os.makedirs(job_folder, exist_ok=True)
                 self.logger.info(f"Created job folder {job_folder} for {job_id}")
             
-            # Create job-specific manager instances
-            hyper_param_manager = VEstimHyperParamManager()
-            training_setup_manager = VEstimTrainingSetupManager(job_id, job_folder, {})  # Empty hyperparams initially
-            
-            job_info = {
-                "job_id": job_id,
-                "status": "imported",  # Using a special status to indicate it was imported
-                "selections": {},  # Empty selections since we don't know the original
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
-                "job_folder": job_folder,
-                "process": None,
-                "details": {"imported": True}
-            }
+            # Create new job container
+            job_container = JobContainer(job_id, job_folder, {})
+            job_container.status = "imported"  # Special status for imported jobs
+            job_container.details["imported"] = True
             
             with self._get_job_lock(job_id):
-                self.jobs[job_id] = job_info
-                self.job_managers[job_id] = {
-                    "hyper_param_manager": hyper_param_manager,
-                    "training_setup_manager": training_setup_manager,
-                }
-                # Create a stop flag for the job
-                self.stop_flags[job_id] = Event()
-                self._persist_job(job_id)
+                self.job_containers[job_id] = job_container
+                self._persist_job_container(job_id)
             
-            self.logger.info(f"Successfully created registry entry for existing job {job_id}")
+            self.logger.info(f"Successfully created job container for existing job {job_id}")
             return True
         except Exception as e:
             self.logger.error(f"Error ensuring job {job_id} exists: {e}", exc_info=True)
             return False
+
+    def get_training_task_manager(self, job_id: str):
+        """Get the job-specific training task manager instance."""
+        try:
+            if job_id not in self.job_containers:
+                raise ValueError(f"Job {job_id} not found.")
+            
+            job_container = self.job_containers[job_id]
+            return job_container.get_training_task_manager()
+            
+        except Exception as e:
+            self.logger.error(f"Error getting training task manager for job {job_id}: {e}", exc_info=True)
+            raise
+
+    def get_job_managers(self, job_id: str):
+        """Get all managers for a specific job."""
+        if job_id not in self.job_containers:
+            raise ValueError(f"No job container found for job {job_id}.")
+        
+        job_container = self.job_containers[job_id]
+        return job_container.managers

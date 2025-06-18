@@ -13,17 +13,40 @@ class JobService:
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
         self.current_job_id = None
+
     def create_new_job(self, selections: dict):
         """
         Creates a new job via the JobManager.
         """
         self.logger.info(f"Creating new job with selections: {selections}")
         try:
+            print(f"JobService: About to call job_manager.create_job with selections: {selections}")
             job_id = self.job_manager.create_job(selections)
+            print(f"JobService: job_manager.create_job returned job_id: {job_id}")
+            
+            if not job_id:
+                self.logger.error("JobManager.create_job returned None or empty job_id")
+                return None, None
+            
             job_info = self.job_manager.get_job(job_id)
-            return job_id, job_info.get("job_folder")
+            print(f"JobService: Retrieved job_info: {job_info}")
+            
+            if not job_info:
+                self.logger.error(f"JobManager.get_job returned None for job_id: {job_id}")
+                return None, None
+                
+            job_folder = job_info.get("job_folder")
+            if not job_folder:
+                self.logger.error(f"Job info missing job_folder for job_id: {job_id}")
+                return None, None
+                
+            print(f"JobService: Successfully created job {job_id} with folder {job_folder}")
+            return job_id, job_folder
         except Exception as e:
             self.logger.error(f"Failed to create new job: {e}", exc_info=True)
+            print(f"JobService ERROR: Exception in create_new_job: {e}")
+            import traceback
+            traceback.print_exc()
             return None, None
 
     def start_job(self, job_id: str, target_func, task_info: dict):
@@ -76,25 +99,25 @@ class JobService:
             return False
 
     def save_hyperparameters(self, job_id: str, params: dict):
-        """Saves hyperparameters for a job via the JobManager."""
+        """Saves hyperparameters for a job via the JobContainer."""
         self.logger.info(f"Attempting to save hyperparameters for job: {job_id}")
         try:
-            job_managers = self.job_manager.job_managers.get(job_id)
-            if not job_managers:
-                raise ValueError(f"Managers for job with ID {job_id} not found.")
+            job_container = self.job_manager.get_job_container(job_id)
+            if not job_container:
+                raise ValueError(f"Job container for job with ID {job_id} not found.")
 
             job_info = self.job_manager.get_job(job_id)
             if not job_info:
                 raise ValueError(f"Job with ID {job_id} not found.")
 
-            hyper_param_manager = job_managers["hyper_param_manager"]
+            hyper_param_manager = job_container.get_hyperparams_manager()
             hyper_param_manager.update_params(params)
-            hyper_param_manager.save_params(job_info["job_folder"])
+            hyper_param_manager.save_params(job_container.job_folder)
             
             self.job_manager.update_job_details(job_id, {"hyperparameters": hyper_param_manager.get_hyper_params()})
             
-            # Update job status to indicate hyperparameters have been set
-            self.update_job_status(job_id, "hyperparameters_set")
+            # Update job container status to indicate hyperparameters have been set
+            job_container.update_status("hyperparameters_set", "Hyperparameters configured")
             self.logger.info(f"Updated job {job_id} status to 'hyperparameters_set'")
             
             return True
@@ -126,33 +149,33 @@ class JobService:
     def get_job_id(self):
         """Gets the current job context ID."""
         return self.current_job_id
-        
+
     def setup_training_tasks(self, job_id: str):
         """
-        Initializes the training setup manager and runs the setup process.
+        Initializes the training setup manager and runs the setup process using JobContainer.
         
         Returns:
             dict: Information about the training tasks that were set up
         """
         self.logger.info(f"Setting up training tasks for job {job_id}")
         
-        # Check job_managers first
-        job_managers = self.job_manager.job_managers.get(job_id)
-        if not job_managers:
-            self.logger.error(f"Job managers for {job_id} not found. Available job managers: {list(self.job_manager.job_managers.keys())}")
+        # Get job container
+        job_container = self.job_manager.get_job_container(job_id)
+        if not job_container:
+            self.logger.error(f"Job container for {job_id} not found.")
             
-            # Try to recreate job managers if possible
+            # Try to recreate job container if possible
             job_info = self.job_manager.get_job(job_id)
             if job_info and "job_folder" in job_info:
-                self.logger.info(f"Attempting to recreate job managers for {job_id}")
+                self.logger.info(f"Attempting to recreate job container for {job_id}")
                 try:
                     self.job_manager.ensure_job_exists(job_id, job_info["job_folder"])
-                    job_managers = self.job_manager.job_managers.get(job_id)
-                    if not job_managers:
-                        raise ValueError(f"Failed to recreate job managers for {job_id}")
+                    job_container = self.job_manager.get_job_container(job_id)
+                    if not job_container:
+                        raise ValueError(f"Failed to recreate job container for {job_id}")
                 except Exception as e:
-                    self.logger.error(f"Error recreating job managers: {e}")
-                    raise ValueError(f"Managers for job with ID {job_id} could not be created: {str(e)}")
+                    self.logger.error(f"Error recreating job container: {e}")
+                    raise ValueError(f"Job container for job with ID {job_id} could not be created: {str(e)}")
             else:
                 raise ValueError(f"Job with ID {job_id} not found or missing folder information")
                 
@@ -174,8 +197,8 @@ class JobService:
         
         self.logger.info(f"Hyperparameters for job {job_id}: {hyperparams}")
 
-        # Get training setup manager
-        training_setup_manager = job_managers["training_setup_manager"]
+        # Get training setup manager from job container
+        training_setup_manager = job_container.get_training_setup_manager()
         training_setup_manager.params = hyperparams
         training_setup_manager.current_hyper_params = hyperparams
         

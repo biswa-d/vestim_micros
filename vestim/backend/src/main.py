@@ -46,6 +46,12 @@ class JobResponse(BaseModel):
     job_folder: str
     details: Optional[Dict[str, Any]] = None
 
+class SimpleJobResponse(BaseModel):
+    status: str
+    job_id: str
+    message: str
+    job_folder: str
+
 class TaskInfoPayload(BaseModel):
     task_info: Dict[str, Any]
 
@@ -188,21 +194,6 @@ def get_job(job_id: str, job_service: JobService = Depends(get_job_service)):
         if 'details' not in job:
             job['details'] = {}
             
-        # If this is a training job but has no history, initialize it
-        if job.get('status') in ['training_setup_completed', 'training'] and 'history' not in job.get('details', {}):
-            if 'details' not in job:
-                job['details'] = {}
-            
-            # Add some sample history data for testing
-            job['details']['history'] = [
-                {"epoch": 1, "train_loss": 0.5, "val_loss": 0.6, "message": "Epoch 1 completed"},
-                {"epoch": 2, "train_loss": 0.4, "val_loss": 0.5, "message": "Epoch 2 completed"},
-                {"epoch": 3, "train_loss": 0.3, "val_loss": 0.4, "message": "Epoch 3 completed"}
-            ]
-            
-            # Persist these changes
-            job_service.job_manager.update_job_details(job_id, job['details'])
-            
         return job
     except HTTPException:
         raise
@@ -223,30 +214,6 @@ def save_hyperparameters(job_id: str, payload: HyperparametersPayload, job_servi
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to save hyperparameters: {str(e)}")
 
-@app.post("/jobs/{job_id}/start")
-def start_job(job_id: str, payload: TaskInfoPayload, 
-             job_service: JobService = Depends(get_job_service),
-             training_task_manager: TrainingTaskManager = Depends(get_training_task_manager)):
-    try:
-        # Add the job_id to the task_info
-        task_info = payload.task_info
-        task_info['job_id'] = job_id
-        
-        # Start the training process
-        success = job_service.start_job(
-            job_id, 
-            training_task_manager.process_task_in_background, 
-            task_info
-        )
-        
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to start job.")
-        
-        return {"status": "success", "message": f"Job {job_id} started successfully."}
-    except Exception as e:
-        print(f"Error starting job {job_id}: {e}")
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to start job: {str(e)}")
 
 @app.post("/jobs/{job_id}/stop")
 def stop_job(job_id: str, job_service: JobService = Depends(get_job_service)):
@@ -272,50 +239,68 @@ def delete_job(job_id: str, job_service: JobService = Depends(get_job_service)):
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to delete job: {str(e)}")
 
-@app.post("/jobs/process-and-create", response_model=JobResponse)
+@app.post("/jobs/process-and-create", response_model=SimpleJobResponse)
 def process_and_create_job(
     payload: JobPayload,
-    job_service: JobService = Depends(get_job_service),
-    data_processing_service: DataProcessingService = Depends(get_data_processing_service)
+    job_service: JobService = Depends(get_job_service)
 ):
+    """
+    Complete job creation workflow:
+    1. Create JobContainer with folder structure
+    2. Process and organize data files (train/test folders)
+    3. Perform initial data processing based on data source
+    4. Return job ID and success status
+    """
     try:
         selections = payload.selections
         train_files = selections.get('train_files', [])
         test_files = selections.get('test_files', [])
         data_source = selections.get('data_source', 'Unknown')
         
-        print(f"Processing data for new job. Source: {data_source}")
+        print(f"Starting complete job creation workflow")
+        print(f"Data source: {data_source}")
         print(f"Train files: {train_files}")
         print(f"Test files: {test_files}")
         
-        # Create a new job first to get a job_id and folder
-        job_id, job_folder = job_service.create_new_job(selections)
-        if not job_id or not job_folder:
-            raise HTTPException(status_code=500, detail="Failed to create new job.")
+        # Step 1: Create JobContainer with basic structure
+        print("Step 1: Creating JobContainer...")
+        job_id = job_service.job_manager.create_job(selections)
+        if not job_id:
+            print("ERROR: Failed to create JobContainer")
+            raise HTTPException(status_code=500, detail="Failed to create job container")
         
-        # Process the data files
-        success = data_processing_service.process_data_files(
-            job_id=job_id,
-            job_folder=job_folder,
+        print(f"JobContainer created successfully: {job_id}")
+        
+        # Step 2: Get the JobContainer and start async data processing
+        job_container = job_service.job_manager.get_job_container(job_id)
+        if not job_container:
+            print(f"ERROR: Could not retrieve JobContainer for {job_id}")
+            raise HTTPException(status_code=500, detail=f"Could not retrieve job container for {job_id}")
+        
+        print("Step 2: Starting asynchronous data processing...")
+        
+        def on_data_processing_complete(success):
+            if success:
+                print(f"Background data processing completed successfully for job {job_id}")
+            else:
+                print(f"Background data processing failed for job {job_id}")
+        
+        # Use the job container's async data processing
+        future = job_container.run_data_processing_async(
             train_files=train_files,
             test_files=test_files,
-            data_source=data_source
+            data_source=data_source,
+            callback=on_data_processing_complete        )
+        
+        print(f"Data processing started asynchronously for job {job_id}")
+        
+        # Step 3: Return immediately with job ID and folder - processing continues in background
+        return SimpleJobResponse(
+            status="success",
+            job_id=job_id,
+            job_folder=job_container.job_folder,
+            message=f"Job {job_id} created successfully. Data processing started in background."
         )
-        
-        if not success:
-            # If data processing fails, delete the job and notify the client
-            job_service.delete_job(job_id)
-            raise HTTPException(status_code=500, detail="Failed to process data files.")
-        
-        # Update job status to indicate data has been processed
-        job_service.job_manager.update_job_details(job_id, {
-            "data_processed": True, 
-            "data_source": data_source
-        })
-        
-        # Get the updated job info to return
-        job_info = job_service.get_job_by_id(job_id)
-        return job_info
     except Exception as e:
         print(f"Error processing and creating job: {e}")
         print(traceback.format_exc())
@@ -421,18 +406,26 @@ async def setup_training_tasks(
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to set up training: {str(e)}")
 
-@app.post("/jobs/{job_id}/tasks/{task_id}/start")
+@app.post("/jobs/{job_id}/tasks/{task_id}/start_training")
 def start_training_task(
     job_id: str,
     task_id: str,
-    job_service: JobService = Depends(get_job_service),
-    training_task_manager: TrainingTaskManager = Depends(get_training_task_manager)
+    job_service: JobService = Depends(get_job_service)
 ):
     """
-    Start a specific training task for a job.
+    Start a specific training task for a job using JobContainer architecture.
+    This endpoint gets the job-specific training task manager from the job container.
     """
     try:
         print(f"Starting training task {task_id} for job {job_id}")
+        
+        # Get job container (which contains job-specific managers)
+        job_container = job_service.job_manager.get_job_container(job_id)
+        if not job_container:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+        
+        # Get the job-specific training task manager
+        training_task_manager = job_container.get_training_task_manager()
         
         # Get job information
         job_info = job_service.get_job_by_id(job_id)
@@ -449,7 +442,10 @@ def start_training_task(
         task_info = matching_tasks[0]
         task_info["job_id"] = job_id
         
-        # Start the training process
+        # Update job container status
+        job_container.update_status("starting_training", f"Starting training task {task_id}", 0)
+        
+        # Start the training process using the job-specific manager
         success = job_service.start_job(
             job_id, 
             training_task_manager.process_task_in_background, 
@@ -457,10 +453,11 @@ def start_training_task(
         )
         
         if not success:
+            job_container.update_status("error", f"Failed to start training task {task_id}")
             raise HTTPException(status_code=500, detail=f"Failed to start training task {task_id}")
             
-        # Update job status to indicate training is in progress
-        job_service.job_manager.update_job_details(job_id, {"status": "training"})
+        # Update job container status to indicate training is in progress
+        job_container.update_status("training", f"Training task {task_id} started", 1)
         
         return {
             "status": "success",
@@ -484,9 +481,14 @@ def get_training_task_status(
     job_service: JobService = Depends(get_job_service)
 ):
     """
-    Get the status and progress of a specific training task.
+    Get the status and progress of a specific training task using JobContainer.
     """
     try:
+        # Get job container
+        job_container = job_service.job_manager.get_job_container(job_id)
+        if not job_container:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+            
         # Get job information
         job_info = job_service.get_job_by_id(job_id)
         if not job_info:
@@ -498,15 +500,25 @@ def get_training_task_status(
         
         if not matching_tasks:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found for job {job_id}")
-            
-        # Get task progress from job details
-        task_progress = job_info.get("details", {}).get("task_progress", {}).get(task_id, {})
+        
+        # Get task-specific progress from job container
+        task_progress = job_container.task_progress.get(task_id, {})
+        
+        # If no task-specific progress, create basic response from job container status
+        if not task_progress:
+            task_progress = {
+                "status": job_container.status,
+                "message": job_container.progress_message,
+                "current_epoch": 0,
+                "total_epochs": 0,
+                "progress_percent": job_container.progress_percent            }
         
         return {
             "status": "success",
             "task_id": task_id,
             "job_id": job_id,
-            "progress": task_progress
+            "job_status": job_container.status,
+            "task_progress": task_progress
         }
     except Exception as e:
         print(f"Error getting status for task {task_id} of job {job_id}: {e}")

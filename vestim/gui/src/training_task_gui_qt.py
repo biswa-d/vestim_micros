@@ -79,7 +79,6 @@ class TrainingThread(QThread):
     update_signal = pyqtSignal(dict)  # Signal to send progress data
     finished_signal = pyqtSignal(dict)  # Signal when the task is completed
     error_signal = pyqtSignal(str)  # Signal for any error during the task
-
     def __init__(self, job_id, task_id, api_gateway):
         super().__init__()
         self.job_id = job_id
@@ -91,9 +90,9 @@ class TrainingThread(QThread):
     def run(self):
         try:
             # Start the training task via API
-            response = self.api_gateway.post(f"jobs/{self.job_id}/tasks/{self.task_id}/start")
+            response = self.api_gateway.post(f"jobs/{self.job_id}/tasks/{self.task_id}/start_training")
             if response.get("status") != "success":
-                self.error_signal.emit(f"Failed to start task: {response.get('message', 'Unknown error')}")
+                self.error_signal.emit(f"Failed to start training task: {response.get('message', 'Unknown error')}")
                 return
                 
             # Poll for updates until task is completed
@@ -456,17 +455,12 @@ class VEstimTrainingTaskGUI(QMainWindow):
     def start_polling(self):
         """Start polling for job status updates"""
         self.poll_timer.timeout.connect(self.request_status_update)
-        self.poll_timer.start(2000)  # Poll every 2 seconds
-        self.request_status_update()  # Initial immediate update
+        self.poll_timer.start(2000)  # Poll every 2 seconds        self.request_status_update()  # Initial immediate update
         
     def request_status_update(self):
         """Request status update using background thread"""
-        if (hasattr(self, 'status_update_thread') and 
-            self.status_update_thread is not None and 
-            self.status_update_thread.isRunning()):
-            self.logger.debug("Status update already in progress. Skipping new request.")
+        if hasattr(self, 'status_update_thread') and self.status_update_thread and self.status_update_thread.isRunning():
             return
-            
         self.status_update_thread = StatusUpdateThread(self.api, self.job_id, self)
         self.status_update_thread.status_ready.connect(self._handle_status_ready)
         self.status_update_thread.error_occurred.connect(self._handle_status_update_error)
@@ -573,6 +567,24 @@ class VEstimTrainingTaskGUI(QMainWindow):
                     self.training_thread.wait(3000)  # Wait up to 3 seconds for thread to finish
             except RuntimeError:
                 # QThread object has already been deleted by Qt - this is normal during close
+                pass
+        
+        # Stop status update thread
+        if hasattr(self, 'status_update_thread') and self.status_update_thread is not None:
+            try:
+                if self.status_update_thread.isRunning():
+                    self.status_update_thread.quit()
+                    self.status_update_thread.wait(2000)  # Wait up to 2 seconds
+            except RuntimeError:
+                pass
+                
+        # Stop job data thread  
+        if hasattr(self, 'job_data_thread') and self.job_data_thread is not None:
+            try:
+                if self.job_data_thread.isRunning():
+                    self.job_data_thread.quit()
+                    self.job_data_thread.wait(2000)  # Wait up to 2 seconds
+            except RuntimeError:
                 pass
             
         super().closeEvent(event)
