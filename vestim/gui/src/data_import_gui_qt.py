@@ -340,13 +340,47 @@ class DataImportGUI(QMainWindow):
         """Handle successful completion of the file processing thread."""
         self.progress_bar.setValue(100)
         job_id = result.get('job_id', '')
-        QMessageBox.information(self, "Success", f"Job {job_id} created successfully. You can now open it from the dashboard.")
+        
+        # Update backend phase to data_augmentation
+        try:
+            if self.api_gateway:
+                # Transition the phase in backend
+                response = self.api_gateway.post(f"jobs/{job_id}/transition-phase", 
+                                               json={"new_phase": "data_augmentation"})
+                if response.get("status") == "success":
+                    self.logger.info(f"Successfully transitioned job {job_id} to data_augmentation phase")
+                else:
+                    self.logger.warning(f"Failed to transition phase: {response.get('message')}")
+        except Exception as e:
+            self.logger.error(f"Error transitioning phase: {e}")
+        
+        # Show success message and transition button
+        QMessageBox.information(self, "Success", f"Data import completed for job {job_id}!")
+        
+        # Update UI to show transition option
+        self.organize_button.setText("Proceed to Data Augmentation")
+        self.organize_button.clicked.disconnect()  # Disconnect old handler
+        self.organize_button.clicked.connect(lambda: self.proceed_to_data_augmentation(job_id))
         
         # Emit the job_id that was created
         self.jobCreated.emit(job_id)
 
-        # Don't automatically close/hide - let user decide when to close
-        # The dashboard will show the new job and user can open the next phase when ready
+    def proceed_to_data_augmentation(self, job_id):
+        """Open data augmentation GUI and close this one"""
+        try:
+            from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI
+            job_folder = f"output/job_{job_id}" if not job_id.startswith("job_") else f"output/{job_id}"
+            
+            # Open data augmentation GUI
+            self.data_augment_gui = DataAugmentGUI(api_gateway=self.api_gateway, job_folder=job_folder)
+            self.data_augment_gui.show()
+            
+            # Close this GUI
+            self.close()
+            
+        except Exception as e:
+            self.logger.error(f"Error opening data augmentation GUI: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to open data augmentation GUI: {str(e)}")
 
     def on_processing_error(self, error_message):
         """Handle errors from the file processing thread."""
