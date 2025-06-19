@@ -150,17 +150,20 @@ class VEstimTrainSetupGUI(QWidget):
         self.continue_button = QPushButton("Continue to Training Tasks")
         self.continue_button.setStyleSheet("background-color: #0b6337; color: white; font-size: 12pt; font-weight: bold;")
         self.continue_button.clicked.connect(self.proceed_to_training_task_gui)
-        self.main_layout.addWidget(self.continue_button)
-
-    def fetch_hyperparameters_and_start(self):
+        self.main_layout.addWidget(self.continue_button)    def fetch_hyperparameters_and_start(self):
         try:
             job_details = self.api_gateway.get_job(self.job_id)
             self.params = job_details.get("details", {}).get("hyperparameters", {})
             if not self.params:
                 self.status_label.setText("Could not load hyperparameters.")
                 return
+            
             self.display_hyperparameters(self.hyperparam_layout)
-            self.start_setup()
+            
+            # Only start setup if not already completed or in progress
+            if not self.setup_completed and not self.setup_in_progress:
+                self.start_setup()
+                
         except Exception as e:
             self.status_label.setText(f"Error fetching parameters: {e}")
 

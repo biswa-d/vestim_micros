@@ -7,7 +7,6 @@ from multiprocessing import Event
 from typing import Dict, Any, Optional
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from vestim.backend.src.models.phase_templates import get_phase_template, initialize_phase_data
 
 class JobContainer:
     """
@@ -15,36 +14,25 @@ class JobContainer:
     Acts as a coordinator for job-specific managers and shared services.
     Provides clean isolation between jobs and handles asynchronous task execution.
     """
+    
     def __init__(self, job_id: str, job_folder: str, selections: dict):
         self.job_id = job_id
         self.job_folder = job_folder
         self.selections = selections
-        self.logger = logging.getLogger(f"{__name__}.{job_id}")
-        
-        # Job state and progress with detailed phase tracking
+        self.logger = logging.getLogger(f"{__name__}.{job_id}")        # Job state and progress with detailed phase tracking
         self.status = "created"
         self.progress_message = "Job created"
         self.progress_percent = 0
-        self.current_phase = "data_import"  # Start with data_import phase
-        
-        # Initialize current phase data using templates
-        self.current_phase_data = initialize_phase_data(self.current_phase)
-        
-        # Phase progress tracking for overall job phases
+        self.current_phase = "initialization"  # initialization, data_processing, data_augmentation, training_setup, training, testing, completed
         self.phase_progress = {
             "data_import": {"status": "pending", "progress": 0, "message": "Waiting to start"},
+            "data_processing": {"status": "pending", "progress": 0, "message": "Waiting to start"},
             "data_augmentation": {"status": "pending", "progress": 0, "message": "Waiting to start"},
             "hyperparameters": {"status": "pending", "progress": 0, "message": "Waiting to start"},
             "training_setup": {"status": "pending", "progress": 0, "message": "Waiting to start"},
             "training": {"status": "pending", "progress": 0, "message": "Waiting to start"},
             "testing": {"status": "pending", "progress": 0, "message": "Waiting to start"}
         }
-        
-        # Training history persistence (for GUI restoration)
-        self.training_history = []  # Full training history
-        self.training_logs = []     # Training logs
-        self.stop_training_flag = False  # Flag for graceful training stop
-        
         self.created_at = datetime.now().isoformat()
         self.updated_at = self.created_at
         
@@ -89,13 +77,13 @@ class JobContainer:
                 self.details.update(kwargs)
             
             self.logger.info(f"Status updated: {status} - {message} ({progress_percent}%)")
+    
     def update_task_progress(self, task_id: str, task_data: dict):
         """Update progress for a specific task"""
         with self.manager_lock:
             self.task_progress[task_id] = task_data
             self.updated_at = datetime.now().isoformat()
-    
-    # === SERVICE GETTERS (Shared Services - Microservices Pattern) ===
+      # === SERVICE GETTERS (Shared Services - Microservices Pattern) ===
     
     def get_data_processing_service(self):
         """Get shared data processing service instance"""
@@ -275,7 +263,8 @@ class JobContainer:
                 # Use shared model training service with job-specific manager
                 training_service = self.get_model_training_service()
                 training_manager = self.get_training_task_manager()
-                  # TODO: Implement training coordination
+                
+                # TODO: Implement training coordination
                 # success = training_service.train_model(training_manager, training_params)
                 
                 self.update_status("training_completed", "Model training completed", 100)
@@ -292,122 +281,6 @@ class JobContainer:
         
         future = self.thread_pool.submit(train_model)
         return future
-    
-    # === PHASE MANAGEMENT METHODS ===
-    
-    def update_phase_progress(self, phase: str, progress: float, message: str, **kwargs):
-        """Update progress for a specific phase"""
-        with self.manager_lock:
-            if phase in self.phase_progress:
-                self.phase_progress[phase].update({
-                    "progress": progress,
-                    "message": message,
-                    "status": kwargs.get("status", self.phase_progress[phase]["status"])
-                })
-                
-                # Update current phase data if this is the current phase
-                if phase == self.current_phase:
-                    self.current_phase_data.update(kwargs)
-                    self.current_phase_data["_last_updated"] = datetime.now().isoformat()
-                
-                self.updated_at = datetime.now().isoformat()
-                self.logger.info(f"Phase {phase} progress: {progress}% - {message}")
-    
-    def get_current_phase_data(self) -> Dict[str, Any]:
-        """Get current phase data"""
-        with self.manager_lock:
-            return self.current_phase_data.copy()
-    
-    def update_current_phase_data(self, **updates):
-        """Update current phase data"""
-        with self.manager_lock:
-            self.current_phase_data.update(updates)
-            self.current_phase_data["_last_updated"] = datetime.now().isoformat()
-            self.updated_at = datetime.now().isoformat()
-    
-    def transition_to_phase(self, new_phase: str, **initial_data):
-        """Transition to a new phase"""
-        with self.manager_lock:
-            old_phase = self.current_phase
-            self.current_phase = new_phase
-            
-            # Initialize new phase data
-            self.current_phase_data = initialize_phase_data(new_phase, **initial_data)
-            
-            # Update GUI ready state
-            self.gui_ready_for_phase = new_phase
-            
-            # Update phase status
-            if new_phase in self.phase_progress:
-                self.phase_progress[new_phase]["status"] = "active"
-            
-            # Mark old phase as completed if it exists
-            if old_phase in self.phase_progress:
-                self.phase_progress[old_phase]["status"] = "completed"
-                self.phase_progress[old_phase]["progress"] = 100
-            
-            self.updated_at = datetime.now().isoformat()
-            self.logger.info(f"Transitioned from {old_phase} to {new_phase}")
-    
-    def update_training_progress(self, epoch: int, train_loss: float, val_loss: float = None, 
-                                patience: int = 0, **metrics):
-        """Update training progress with detailed metrics"""
-        with self.manager_lock:
-            # Update current phase data if we're in training
-            if self.current_phase == "training":
-                self.current_phase_data.update({
-                    "current_epoch": epoch,
-                    "current_metrics": {
-                        "train_loss": train_loss,
-                        "val_loss": val_loss or 0.0,
-                        **metrics
-                    },
-                    "patience_counter": patience,
-                    "_last_updated": datetime.now().isoformat()
-                })
-            
-            # Store in persistent training history
-            history_entry = {
-                "epoch": epoch,
-                "train_loss": train_loss,
-                "val_loss": val_loss,
-                "timestamp": datetime.now().isoformat(),
-                **metrics
-            }
-            self.training_history.append(history_entry)
-            
-            # Update phase progress
-            if self.current_phase == "training" and "total_epochs" in self.current_phase_data:
-                progress = (epoch / self.current_phase_data["total_epochs"]) * 100
-                self.update_phase_progress("training", progress, 
-                                         f"Epoch {epoch} - Loss: {train_loss:.4f}")
-    
-    def add_training_log(self, message: str, level: str = "info"):
-        """Add a training log entry"""
-        with self.manager_lock:
-            log_entry = {
-                "timestamp": datetime.now().isoformat(),
-                "level": level,
-                "message": message
-            }
-            self.training_logs.append(log_entry)
-            
-            # Limit log size
-            if len(self.training_logs) > 1000:  # Keep last 1000 entries
-                self.training_logs = self.training_logs[-1000:]
-    
-    def stop_training(self):
-        """Set flag to stop training gracefully"""
-        with self.manager_lock:
-            self.stop_training_flag = True
-            self.update_current_phase_data(training_status="stopping")
-            self.update_phase_progress("training", self.phase_progress["training"]["progress"],
-                                     "Stopping training after current epoch...")
-            self.logger.info("Training stop requested - will stop after current epoch")
-    
-    def is_training_stopped(self) -> bool:
-        """Check if training should be stopped"""
-        return self.stop_training_flag
     
     def cleanup_managers(self):
         """Clean up all managers when job is done"""
@@ -442,60 +315,43 @@ class JobContainer:
             if self.process.is_alive():
                 self.process.terminate()
                 self.logger.warning(f"Had to forcefully terminate process for {self.job_id}")
+    
     def get_summary(self):
         """Get a summary of the job container state"""
-        with self.manager_lock:
-            return {
-                "job_id": self.job_id,
-                "status": self.status,
-                "progress_message": self.progress_message,
-                "progress_percent": self.progress_percent,
-                "current_phase": self.current_phase,
-                "created_at": self.created_at,
-                "updated_at": self.updated_at,
-                "is_running": self.is_running(),
-                "active_managers": list(self.managers.keys()),
-                "task_progress": self.task_progress,
-                "details": self.details
-            }
+        return {
+            "job_id": self.job_id,
+            "status": self.status,
+            "progress_message": self.progress_message,
+            "progress_percent": self.progress_percent,
+            "current_phase": self.current_phase,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "is_running": self.is_running(),
+            "active_managers": list(self.managers.keys()),
+            "task_progress": self.task_progress,
+            "details": self.details
+        }
+    
     def get_detailed_state(self):
         """Get detailed state including all task progress"""
         summary = self.get_summary()
-        summary.update({
-            "job_folder": self.job_folder,
-            "selections": self.selections,
-            "phase_progress": self.phase_progress,
-            "current_phase_data": self.current_phase_data,
-            "gui_ready_for_phase": self.gui_ready_for_phase,
-            "requires_user_input": self.requires_user_input,
-            "training_history": self.training_history,
-            "training_logs": self.training_logs,
-            "stop_training_flag": self.stop_training_flag
-        })
+        summary["job_folder"] = self.job_folder
+        summary["selections"] = self.selections
         return summary
-    
     def get_status_summary(self):
         """Get a comprehensive status summary for dashboard display"""
-        with self.manager_lock:
-            return {
-                "job_id": self.job_id,
-                "status": self.status,
-                "progress_message": self.progress_message,
-                "progress_percent": self.progress_percent,
-                "current_phase": self.current_phase,
-                "phase_progress": self.phase_progress,
-                "current_phase_data": self.current_phase_data,
-                "gui_ready_for_phase": self.gui_ready_for_phase,
-                "requires_user_input": self.requires_user_input,
-                "created_at": self.created_at,
-                "updated_at": self.updated_at,
-                "is_running": self.is_running(),
-                "active_managers": list(self.managers.keys()),
-                "task_progress": self.task_progress,
-                "details": self.details,
-                "job_folder": self.job_folder,
-                "selections": self.selections,
-                "training_history": self.training_history[-100:],  # Last 100 entries for GUI
-                "training_logs": self.training_logs[-50:],  # Last 50 log entries
-                "stop_training_flag": self.stop_training_flag
-            }
+        return {
+            "job_id": self.job_id,
+            "status": self.status,
+            "progress_message": self.progress_message,
+            "progress_percent": self.progress_percent,
+            "current_phase": self.current_phase,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "is_running": self.is_running(),
+            "active_managers": list(self.managers.keys()),
+            "task_progress": self.task_progress,
+            "details": self.details,
+            "job_folder": self.job_folder,
+            "selections": self.selections
+        }
