@@ -340,46 +340,110 @@ class DataImportGUI(QMainWindow):
         """Handle successful completion of the file processing thread."""
         self.progress_bar.setValue(100)
         job_id = result.get('job_id', '')
-        
-        # Update backend phase to data_augmentation
+          # Update backend phase to data_augmentation
         try:
             if self.api_gateway:
-                # Transition the phase in backend
-                response = self.api_gateway.post(f"jobs/{job_id}/transition-phase", 
-                                               json={"new_phase": "data_augmentation"})
+                # Update status to indicate we're moving to data augmentation phase
+                response = self.api_gateway.update_job_status(
+                    job_id, 
+                    "data_augmentation_ready", 
+                    "Ready for data augmentation"
+                )
                 if response.get("status") == "success":
-                    self.logger.info(f"Successfully transitioned job {job_id} to data_augmentation phase")
+                    self.logger.info(f"Successfully updated job {job_id} status for data_augmentation phase")
                 else:
-                    self.logger.warning(f"Failed to transition phase: {response.get('message')}")
+                    self.logger.warning(f"Failed to update job status: {response.get('message')}")
         except Exception as e:
-            self.logger.error(f"Error transitioning phase: {e}")
-        
-        # Show success message and transition button
+            self.logger.error(f"Error updating job status: {e}")
+          # Show success message and transition button
         QMessageBox.information(self, "Success", f"Data import completed for job {job_id}!")
         
-        # Update UI to show transition option
+        # Update UI to show transition option AFTER the message box
         self.organize_button.setText("Proceed to Data Augmentation")
+        
+        # Explicitly enable the button first
+        self.organize_button.setEnabled(True)
+        
+        # Disconnect old handler
         self.organize_button.clicked.disconnect()  # Disconnect old handler
-        self.organize_button.clicked.connect(lambda: self.proceed_to_data_augmentation(job_id))
+        
+        # Debug: Check button state before connection
+        self.logger.info(f"=== BUTTON STATE CHECK ===")
+        self.logger.info(f"Button enabled: {self.organize_button.isEnabled()}")
+        self.logger.info(f"Button visible: {self.organize_button.isVisible()}")
+        self.logger.info(f"Button text: {self.organize_button.text()}")
+        
+        # Debug: Log the connection attempt
+        self.logger.info(f"=== CONNECTING BUTTON - job_id: {job_id} ===")
+        
+        # Store job_id as instance variable to avoid lambda capture issues
+        self.current_job_id = job_id
+        
+        # Try a simple test connection first
+        def test_click():
+            self.logger.info("=== TEST BUTTON CLICKED! ===")
+            self.proceed_to_data_augmentation_wrapper()
+        
+        self.organize_button.clicked.connect(test_click)
+        
+        self.logger.info(f"=== BUTTON CONNECTED SUCCESSFULLY ===")
         
         # Emit the job_id that was created
         self.jobCreated.emit(job_id)
 
+    def proceed_to_data_augmentation_wrapper(self):
+        """Wrapper method to avoid lambda capture issues"""
+        self.logger.info(f"=== WRAPPER CALLED - current_job_id: {getattr(self, 'current_job_id', 'NOT SET')} ===")
+        if hasattr(self, 'current_job_id'):
+            self.proceed_to_data_augmentation(self.current_job_id)
+        else:
+            self.logger.error("No current_job_id set - button connection failed!")
+
     def proceed_to_data_augmentation(self, job_id):
         """Open data augmentation GUI and close this one"""
         try:
+            self.logger.info(f"=== PROCEED BUTTON CLICKED - DEBUG START ===")
+            self.logger.info(f"Job ID: {job_id}")
+            self.logger.info(f"API Gateway: {self.api_gateway}")
+            
+            # Get job details first (like the dashboard does)
+            self.logger.info(f"Getting job details from backend...")
+            job_details = self.api_gateway.get(f"jobs/{job_id}")
+            self.logger.info(f"Job details received: {job_details}")
+            
+            if not job_details:
+                self.logger.error(f"Could not retrieve details for job {job_id}")
+                QMessageBox.critical(self, "Error", f"Could not retrieve job details for {job_id}")
+                return
+            
+            # Create DataAugmentGUI exactly like the dashboard does
+            self.logger.info(f"Importing DataAugmentGUI...")
             from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI
-            job_folder = f"output/job_{job_id}" if not job_id.startswith("job_") else f"output/{job_id}"
             
-            # Open data augmentation GUI
+            job_folder = job_details.get('job_folder', f"output/{job_id}")
+            self.logger.info(f"Job folder: {job_folder}")
+            
+            self.logger.info(f"Creating DataAugmentGUI instance...")
             self.data_augment_gui = DataAugmentGUI(api_gateway=self.api_gateway, job_folder=job_folder)
+            self.logger.info(f"DataAugmentGUI created successfully: {self.data_augment_gui}")
+              # Show the GUI
+            self.logger.info(f"Showing DataAugmentGUI...")
             self.data_augment_gui.show()
+            self.logger.info(f"DataAugmentGUI.show() called")
             
-            # Close this GUI
-            self.close()
+            # Process events to ensure GUI is shown
+            from PyQt5.QtWidgets import QApplication
+            QApplication.processEvents()
+            self.logger.info(f"Processed Qt events")
+            
+            # Delay closing this GUI to let the new one fully initialize
+            from PyQt5.QtCore import QTimer
+            self.logger.info(f"Scheduling DataImportGUI close in 100ms...")
+            QTimer.singleShot(100, self.close)
+            self.logger.info(f"=== PROCEED BUTTON CLICKED - DEBUG END ===")
             
         except Exception as e:
-            self.logger.error(f"Error opening data augmentation GUI: {e}")
+            self.logger.error(f"Error opening data augmentation GUI: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Failed to open data augmentation GUI: {str(e)}")
 
     def on_processing_error(self, error_message):
