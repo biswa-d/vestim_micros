@@ -40,18 +40,40 @@ DEFAULT_DATA_EXTENSIONS = [".csv", ".txt", ".mat", ".xls", ".xlsx", ".RES"] # Ad
 class DataImportGUI(QMainWindow):
     jobCreated = pyqtSignal(str)  # Emit job_id when a job is created
 
-    def __init__(self, api_gateway: APIGateway):
+    def __init__(self, api_gateway: APIGateway, job_id: str = None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.api_gateway = api_gateway
+        self.job_id = job_id
         self.train_folder_path = ""
         self.test_folder_path = ""
         
         self.organizer_thread = None
         self.organizer = None
         self.data_augment_gui = None
+        
+        # If job_id is provided, this is for resuming an existing job
+        if self.job_id:
+            self.logger.info(f"DataImportGUI initialized for existing job: {self.job_id}")
+            # Get job status for state restoration
+            try:
+                self.job_status = self.api_gateway.get_job_detailed_status(self.job_id)
+                if self.job_status:
+                    self.logger.info(f"Retrieved job status: {self.job_status.get('status')} - {self.job_status.get('progress_message')}")
+                else:
+                    self.logger.warning("Could not retrieve detailed job status")
+                    self.job_status = {"status": "created", "phase_progress": {}}
+            except Exception as e:
+                self.logger.error(f"Error retrieving job status: {e}")
+                self.job_status = {"status": "created", "phase_progress": {}}
+        else:
+            self.job_status = None
 
         self.initUI()
+        
+        # Restore GUI state if resuming existing job
+        if self.job_id and self.job_status:
+            self.restore_gui_state()
 
     def initUI(self):
         self.setWindowTitle("VEstim Modelling Tool")
@@ -318,19 +340,13 @@ class DataImportGUI(QMainWindow):
         """Handle successful completion of the file processing thread."""
         self.progress_bar.setValue(100)
         job_id = result.get('job_id', '')
-        QMessageBox.information(self, "Success", f"Job {job_id} created successfully.")
+        QMessageBox.information(self, "Success", f"Job {job_id} created successfully. You can now open it from the dashboard.")
         
         # Emit the job_id that was created
         self.jobCreated.emit(job_id)
 
-        # In a real app, you might want to hide or close the import window
-        # and open the next one.
-        self.hide()  # Hide the import GUI
-
-        # Transition to the Data Augmentation GUI
-        self.data_augment_gui = DataAugmentGUI(api_gateway=self.api_gateway, job_folder=result['job_folder'])
-        self.data_augment_gui.show()
-        self.close()
+        # Don't automatically close/hide - let user decide when to close
+        # The dashboard will show the new job and user can open the next phase when ready
 
     def on_processing_error(self, error_message):
         """Handle errors from the file processing thread."""

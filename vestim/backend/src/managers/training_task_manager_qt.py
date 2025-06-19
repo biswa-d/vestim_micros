@@ -167,8 +167,8 @@ class TrainingTaskManager:
         # Training parameters
         max_epochs = int(hyperparams.get('MAX_EPOCHS', 10))
         model_type = hyperparams.get('MODEL_TYPE', 'LSTM')
-        
-        # Initialize training history for persistence
+          # Initialize training history for persistence with start time
+        training_start_time = time.time()
         training_history = {
             'epoch_data': [],
             'train_losses': [],
@@ -178,7 +178,10 @@ class TrainingTaskManager:
             'best_val_loss': float('inf'),
             'status': 'training',
             'current_epoch': 0,
-            'total_epochs': max_epochs
+            'total_epochs': max_epochs,
+            'training_start_time': training_start_time,
+            'job_id': job_id,
+            'task_id': task_id
         }
         
         try:
@@ -227,22 +230,51 @@ class TrainingTaskManager:
                 # Track best model
                 if val_loss < training_history['best_val_loss']:
                     training_history['best_val_loss'] = val_loss
-                    training_history['best_epoch'] = epoch
+                    training_history['best_epoch'] = epoch                # Enhanced progress update with all GUI requirements
+                current_time = time.time()
+                training_start_time = training_history.get('training_start_time', current_time)
+                time_since_start = current_time - training_start_time
                 
-                # Send detailed progress update
+                # Calculate validation patience remaining
+                early_stopping_patience = int(hyperparams.get('EARLY_STOPPING_PATIENCE', 10))
+                epochs_since_best = epoch - training_history['best_epoch']
+                validation_patience_left = max(0, early_stopping_patience - epochs_since_best)
+                
+                # Send comprehensive progress update
                 status_queue.put((job_id, 'training_progress', {
-                    "message": f"Epoch {epoch}/{max_epochs} completed",
+                    "message": f"Epoch {epoch}/{max_epochs} completed - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}",
                     "current_epoch": epoch,
                     "total_epochs": max_epochs,
                     "train_loss": train_loss,
                     "val_loss": val_loss,
+                    "best_val_loss": training_history['best_val_loss'],
+                    "best_epoch": training_history['best_epoch'],
                     "epoch_time": epoch_duration,
                     "progress_percent": (epoch / max_epochs) * 100,
+                    "time_since_training_start": time_since_start,
+                    "validation_patience_left": validation_patience_left,
+                    "early_stopping_patience": early_stopping_patience,
                     "training_history": training_history,
+                    "hyperparameters": hyperparams,  # Include hyperparameters for GUI display
+                    "training_status": "in_progress",
+                    "task_progress": f"Task {task_id} training",
                     f"task_progress.{task_id}": training_history  # Store task-specific progress
                 }))
                 
-                self.logger.info(f"Epoch {epoch}/{max_epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+                self.logger.info(f"Epoch {epoch}/{max_epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Best: {training_history['best_val_loss']:.4f} (Epoch {training_history['best_epoch']})")
+                
+                # Check for early stopping
+                if validation_patience_left == 0:
+                    self.logger.info(f"Early stopping triggered at epoch {epoch}")
+                    status_queue.put((job_id, 'training_early_stopped', {
+                        "message": f"Training stopped early at epoch {epoch} due to validation patience",
+                        "final_epoch": epoch,
+                        "best_val_loss": training_history['best_val_loss'],
+                        "best_epoch": training_history['best_epoch'],
+                        "training_history": training_history,
+                        "reason": "early_stopping"
+                    }))
+                    break
             
             # Training completed
             training_history['status'] = 'completed'

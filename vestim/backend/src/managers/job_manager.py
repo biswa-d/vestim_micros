@@ -33,17 +33,228 @@ class JobManager:
             self.status_queue = Queue()
             self.logger = logging.getLogger(__name__)
             
-            # Start a thread to listen for status updates from job processes
-            self.status_listener_thread = threading.Thread(target=self._listen_for_status_updates, daemon=True)
-            self.status_listener_thread.start()
-
+            # Resource management - JobManager orchestrates all resources
+            self._initialize_resource_management()
+            
+            # Start a thread to listen for status updates from job processes            self.status_listener_thread = threading.Thread(target=self._listen_for_status_updates, daemon=True)            self.status_listener_thread.start()
+            
             # Ensure output directory exists
             os.makedirs(OUTPUT_DIR, exist_ok=True)
             self.job_registry_file = os.path.join(OUTPUT_DIR, 'job_registry.json')
             self._load_jobs_from_registry()
-
+    
+    def _initialize_resource_management(self):
+        """Initialize resource management based on available hardware"""
+        # Detect available hardware
+        try:
+            import torch
+            self.torch_available = True
+            self.gpu_available = torch.cuda.is_available()
+            self.gpu_count = torch.cuda.device_count() if self.gpu_available else 0
+        except ImportError:
+            self.torch_available = False
+            self.gpu_available = False
+            self.gpu_count = 0
+        
+        # CPU resource management
+        import psutil
+        cpu_cores = psutil.cpu_count()
+        
+        # Resource limits based on available hardware
+        if self.gpu_available:
+            # With GPU: Allow more concurrent jobs since GPU handles heavy lifting
+            self.max_concurrent_cpu_jobs = min(cpu_cores, 8)  # Max 8 CPU jobs
+            self.max_concurrent_gpu_jobs = self.gpu_count  # One job per GPU
+        else:
+            # CPU only: Be more conservative to prevent system overload
+            self.max_concurrent_cpu_jobs = min(cpu_cores // 2, 4)  # Max 4 CPU jobs
+            self.max_concurrent_gpu_jobs = 0
+        
+        # Job tracking - prioritize older jobs (FIFO)
+        self.active_cpu_jobs = []  # List to maintain creation order
+        self.active_gpu_jobs = {}  # {gpu_id: job_id}
+        self.queued_jobs = []  # FIFO queue for jobs waiting for resources
+        self.resource_lock = threading.Lock()
+        
+        self.logger.info(f"Resource management initialized:")
+        self.logger.info(f"  CPU cores: {cpu_cores}")
+        self.logger.info(f"  GPU available: {self.gpu_available}")
+        self.logger.info(f"  GPU count: {self.gpu_count}")
+        self.logger.info(f"  Max concurrent CPU jobs: {self.max_concurrent_cpu_jobs}")
+        self.logger.info(f"  Max concurrent GPU jobs: {self.max_concurrent_gpu_jobs}")
+    
+    def request_training_resources(self, job_id: str, device_preference: str = "cpu"):
+        """
+        Request training resources for a job based on device preference from hyperparameters.
+        Returns: (can_start: bool, allocated_device: str, queue_position: int)
+        """
+        with self.resource_lock:
+            # Parse device preference (e.g., "cuda:0", "cuda:1", "cpu")
+            wants_gpu = device_preference.startswith("cuda") if device_preference else False
+            
+            if wants_gpu and self.gpu_available:
+                # Try to allocate GPU
+                requested_gpu_id = int(device_preference.split(":")[1]) if ":" in device_preference else 0
+                
+                # Check if requested GPU is available
+                if requested_gpu_id < self.gpu_count:
+                    if requested_gpu_id not in self.active_gpu_jobs:
+                        # GPU is available
+                        self.active_gpu_jobs[requested_gpu_id] = job_id
+                        self.logger.info(f"Allocated GPU {requested_gpu_id} to job {job_id}")
+                        return True, f"cuda:{requested_gpu_id}", 0
+                    else:
+                        # Requested GPU is busy, try other GPUs
+                        for gpu_id in range(self.gpu_count):
+                            if gpu_id not in self.active_gpu_jobs:
+                                self.active_gpu_jobs[gpu_id] = job_id
+                                self.logger.info(f"Allocated GPU {gpu_id} to job {job_id} (requested {requested_gpu_id} was busy)")
+                                return True, f"cuda:{gpu_id}", 0
+                
+                # All GPUs busy, queue the job
+                if job_id not in self.queued_jobs:
+                    self.queued_jobs.append(job_id)
+                queue_pos = self.queued_jobs.index(job_id) + 1
+                self.logger.info(f"All GPUs busy, queued job {job_id} for GPU (position: {queue_pos})")
+                return False, "cpu", queue_pos  # Fallback to CPU while waiting
+            
+            # CPU training (either requested or fallback from GPU)
+            if len(self.active_cpu_jobs) < self.max_concurrent_cpu_jobs:
+                self.active_cpu_jobs.append(job_id)
+                device = device_preference if not wants_gpu else "cpu"
+                self.logger.info(f"Allocated CPU to job {job_id} (active CPU jobs: {len(self.active_cpu_jobs)})")
+                return True, device, 0
+            else:
+                # CPU slots full, queue the job
+                if job_id not in self.queued_jobs:
+                    self.queued_jobs.append(job_id)
+                queue_pos = self.queued_jobs.index(job_id) + 1
+                self.logger.info(f"All CPU slots busy, queued job {job_id} (position: {queue_pos})")
+                return False, "cpu", queue_pos
+    
+    def release_training_resources(self, job_id: str):
+        """Release training resources and start next queued job"""
+        with self.resource_lock:
+            released_resource = None
+            
+            # Check if job was using GPU
+            for gpu_id, active_job_id in list(self.active_gpu_jobs.items()):
+                if active_job_id == job_id:
+                    del self.active_gpu_jobs[gpu_id]
+                    released_resource = f"cuda:{gpu_id}"
+                    self.logger.info(f"Released GPU {gpu_id} from job {job_id}")
+                    break
+            
+            # Check if job was using CPU
+            if job_id in self.active_cpu_jobs:
+                self.active_cpu_jobs.remove(job_id)
+                released_resource = "cpu"
+                self.logger.info(f"Released CPU from job {job_id} (active CPU jobs: {len(self.active_cpu_jobs)})")
+            
+            # Start next queued job (FIFO - oldest jobs get priority)
+            if self.queued_jobs and released_resource:
+                next_job_id = self.queued_jobs.pop(0)  # FIFO: take oldest queued job
+                self.logger.info(f"Starting queued job {next_job_id} on {released_resource}")
+                
+                # Notify the job container that resources are available
+                if next_job_id in self.job_containers:
+                    job_container = self.job_containers[next_job_id]
+                    # Allocate the resource immediately
+                    if released_resource.startswith("cuda"):
+                        gpu_id = int(released_resource.split(":")[1])
+                        self.active_gpu_jobs[gpu_id] = next_job_id
+                    else:
+                        self.active_cpu_jobs.append(next_job_id)
+                    
+                    # TODO: Notify job container to start training
+                    # job_container.on_training_resources_available(released_resource)
+    
+    def get_resource_status(self):
+        """Get current resource usage for dashboard display"""
+        with self.resource_lock:
+            return {
+                "gpu_available": self.gpu_available,
+                "gpu_count": self.gpu_count, 
+                "active_gpu_jobs": dict(self.active_gpu_jobs),
+                "active_cpu_jobs": self.active_cpu_jobs.copy(),
+                "queued_jobs": self.queued_jobs.copy(),
+                "max_concurrent_cpu": self.max_concurrent_cpu_jobs,
+                "max_concurrent_gpu": self.max_concurrent_gpu_jobs,
+                "current_cpu_usage": len(self.active_cpu_jobs),
+                "current_gpu_usage": len(self.active_gpu_jobs)
+            }
+            self.logger.info("PyTorch not available, using CPU only")
+            
+    def allocate_training_resources(self, job_id: str):
+        """
+        Allocate training resources (GPU/CPU) for a job.
+        Returns resource allocation info or None if resources not available.
+        """
+        with self.resource_lock:
+            # Check if we can start another training job
+            if len(self.active_training_jobs) >= self.max_concurrent_training_jobs:
+                self.training_queue.append(job_id)
+                self.logger.info(f"Job {job_id} queued for training - resource limit reached")
+                return None
+            
+            # Allocate GPU if available
+            allocated_device = "cpu"  # Default fallback
+            
+            with self.gpu_lock:
+                # Find available GPU
+                for gpu_id in self.available_gpus:
+                    if gpu_id not in self.gpu_allocation.values():
+                        self.gpu_allocation[job_id] = gpu_id
+                        allocated_device = f"cuda:{gpu_id}"
+                        break
+            
+            # Mark job as active
+            self.active_training_jobs.add(job_id)
+            
+            resource_info = {
+                "device": allocated_device,
+                "max_concurrent_tasks": 1 if allocated_device.startswith("cuda") else 2,
+                "allocated_at": datetime.now().isoformat()
+            }
+            
+            self.logger.info(f"Allocated resources for job {job_id}: {resource_info}")
+            return resource_info
+    
+    def release_training_resources(self, job_id: str):
+        """Release training resources when job completes"""
+        with self.resource_lock:
+            # Remove from active jobs
+            self.active_training_jobs.discard(job_id)
+            
+            # Release GPU allocation
+            with self.gpu_lock:
+                if job_id in self.gpu_allocation:
+                    released_gpu = self.gpu_allocation.pop(job_id)
+                    self.logger.info(f"Released GPU {released_gpu} from job {job_id}")
+            
+            # Start next job in queue if any
+            if self.training_queue:
+                next_job_id = self.training_queue.pop(0)
+                self.logger.info(f"Starting queued job {next_job_id}")
+                
+                # Get the next job container and trigger training
+                if next_job_id in self.job_containers:
+                    next_job_container = self.job_containers[next_job_id]
+                    # Notify the job container that resources are now available
+                    next_job_container.on_training_resources_available()
+                    
+    def get_resource_status(self):
+        """Get current resource allocation status for monitoring"""
+        with self.resource_lock:
+            return {                "active_training_jobs": len(self.active_training_jobs),
+                "max_concurrent_jobs": self.max_concurrent_training_jobs,
+                "queued_jobs": len(self.training_queue),
+                "gpu_allocations": dict(self.gpu_allocation),
+                "available_gpus": self.available_gpus
+            }
+    
     def _listen_for_status_updates(self):
-        """Listens for status updates from the queue and updates job containers."""
+        """Listens for status updates from the queue and updates job containers with detailed phase progress."""
         while True:
             try:
                 job_id, status, data = self.status_queue.get()
@@ -57,6 +268,45 @@ class JobManager:
                         message = data.get('message', f'Status: {status}') if data else f'Status: {status}'
                         job_container.update_status(status, message, progress_percent)
                         
+                        # Enhanced: Handle detailed phase progress based on status
+                        if data and status == 'training_progress':
+                            # Training phase detailed progress
+                            job_container.update_phase_progress(
+                                phase="training",
+                                status="in_progress",
+                                progress_percent=data.get('progress_percent', 0),
+                                message=message,
+                                current_epoch=data.get('current_epoch', 0),
+                                total_epochs=data.get('total_epochs', 0),
+                                training_loss=data.get('train_loss', 0.0),
+                                validation_loss=data.get('val_loss', 0.0),
+                                epoch_time=data.get('epoch_time', 0.0)
+                            )
+                            
+                            # Store training history in job details
+                            if 'training_history' in data:
+                                job_container.details['training_history'] = data['training_history']
+                                
+                        elif data and status == 'training_completed':
+                            # Training completion
+                            job_container.update_phase_progress(
+                                phase="training",
+                                status="completed",
+                                progress_percent=100,
+                                message="Training completed successfully"
+                            )
+                            if 'training_history' in data:
+                                job_container.details['training_history'] = data['training_history']
+                                
+                        elif data and status == 'training_error':
+                            # Training error
+                            job_container.update_phase_progress(
+                                phase="training",
+                                status="error",
+                                progress_percent=0,
+                                message=f"Training failed: {data.get('message', 'Unknown error')}"
+                            )
+                            
                         # Update task-specific progress if provided
                         if data and 'task_id' in data:
                             task_id = data['task_id']

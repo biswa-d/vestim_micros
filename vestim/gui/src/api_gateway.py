@@ -148,7 +148,32 @@ class APIGateway(QObject):
             self.logger.error(f"Failed to get all jobs: {e}")
             self.connectionError.emit(f"Failed to retrieve jobs: {str(e)}")
             return []  # Return empty list instead of None to avoid NoneType errors
+    
+    def get_job_detailed_status(self, job_id):
+        """Get detailed status for a specific job including phase progress."""
+        try:
+            result = self.get(f"jobs/{job_id}/detailed-status")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to get detailed status for job {job_id}: {e}")
+            return None
 
+    def update_job_status(self, job_id, status, message, progress_percent=None):
+        """Update job status in the backend."""
+        try:
+            payload = {
+                "status": status,
+                "message": message
+            }
+            if progress_percent is not None:
+                payload["progress_percent"] = progress_percent
+                
+            result = self.post(f"jobs/{job_id}/update-status", json=payload)
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to update status for job {job_id}: {e}")
+            return None
+    
     def get_job(self, job_id):
         """Get a specific job with error handling."""
         try:
@@ -156,26 +181,30 @@ class APIGateway(QObject):
         except Exception as e:
             self.logger.error(f"Failed to get job {job_id}: {e}")
             return None
-
+    
     def create_job(self, selections):
         """Create a new job."""
         return self.post("jobs", json={"selections": selections})
-
+    
     def process_and_create_job(self, selections):
         """Process data files and create a new job."""
         return self.post("jobs/process-and-create", json={"selections": selections})
-
+    
     def start_job(self, job_id, task_info):
         """Start a job with the given task info."""
         return self.post(f"jobs/{job_id}/start", json={"task_info": task_info})
-
+    
     def save_hyperparameters(self, job_id, params):
         """Saves the hyperparameters for a specific job."""
         return self.post(f"jobs/{job_id}/hyperparameters", json={"hyperparameters": params})
-
+    
     def stop_job(self, job_id):
         """Stop a running job."""
         return self.post(f"jobs/{job_id}/stop")
+    
+    def stop_training(self, job_id):
+        """Gracefully stop training for a job after current epoch."""
+        return self.post(f"jobs/{job_id}/stop-training")
 
     def delete_job(self, job_id):
         """Delete a job."""

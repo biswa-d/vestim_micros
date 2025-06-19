@@ -60,9 +60,21 @@ class VEstimTrainSetupGUI(QWidget):
         self.setup_in_progress = False
         self.training_task_gui = None
         
-        # Get job details including hyperparameters
+        # Get job status for state restoration
         try:
-            job_info = self.api_gateway.get(f"jobs/{self.job_id}")
+            self.job_status = self.api_gateway.get_job_detailed_status(self.job_id)
+            if self.job_status:
+                self.logger.info(f"Retrieved job status: {self.job_status.get('status')} - {self.job_status.get('progress_message')}")
+            else:
+                self.logger.warning("Could not retrieve detailed job status")
+                self.job_status = {"status": "hyperparameters_set", "phase_progress": {}}
+        except Exception as e:
+            self.logger.error(f"Error retrieving job status: {e}")
+            self.job_status = {"status": "hyperparameters_set", "phase_progress": {}}
+        
+        # Get job details including hyperparameters from JobContainer's hyperparam manager
+        try:
+            job_info = self.api_gateway.get_job(self.job_id)
             self.params = job_info.get("details", {}).get("hyperparameters", {})
             self.logger.info(f"Retrieved hyperparameters for job {self.job_id}: {self.params}")
         except Exception as e:
@@ -91,7 +103,54 @@ class VEstimTrainSetupGUI(QWidget):
 
         self.logger.info(f"Initializing VEstimTrainSetupGUI for job_id: {self.job_id}")
         self.build_gui()
+        self.restore_gui_state()
         self.fetch_hyperparameters_and_start()
+
+    def restore_gui_state(self):
+        """Restore GUI state based on current job status"""
+        if not hasattr(self, 'job_status') or not self.job_status:
+            return
+        
+        current_status = self.job_status.get('status', '')
+        phase_progress = self.job_status.get('phase_progress', {})
+        
+        self.logger.info(f"Restoring TrainingSetup GUI state for status: {current_status}")
+        
+        # Check if training setup is already completed
+        setup_progress = phase_progress.get('training_setup', {})
+        setup_status = setup_progress.get('status', 'pending')
+        
+        if current_status == 'training_setup_completed' or setup_status == 'completed':
+            # Training setup already completed - show completion state
+            self.logger.info("Training setup already completed, showing completion state")
+            self.setup_completed = True
+            self.setup_in_progress = False
+            
+            # Show completion message
+            task_count = setup_progress.get('task_count', 0)
+            self.status_label.setText(f"Setup completed successfully! {task_count} training tasks created.")
+            self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
+            
+            # Show continue button
+            if hasattr(self, 'continue_button'):
+                self.continue_button.setVisible(True)
+            else:
+                self.add_continue_button()
+                
+        elif setup_status == 'in_progress':
+            # Training setup in progress
+            self.setup_in_progress = True
+            self.status_label.setText("Training setup in progress...")
+            self.status_label.setStyleSheet("color: #FF8C00; font-size: 12pt; font-weight: bold;")
+            
+        # If status is 'hyperparameters_set' or 'pending', show normal initial state (default)
+    
+    def add_continue_button(self):
+        """Add continue button to proceed to training task GUI"""
+        self.continue_button = QPushButton("Continue to Training Tasks")
+        self.continue_button.setStyleSheet("background-color: #0b6337; color: white; font-size: 12pt; font-weight: bold;")
+        self.continue_button.clicked.connect(self.proceed_to_training_task_gui)
+        self.main_layout.addWidget(self.continue_button)
 
     def fetch_hyperparameters_and_start(self):
         try:

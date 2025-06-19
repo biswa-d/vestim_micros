@@ -40,10 +40,21 @@ class VEstimHyperParamGUI(QWidget):
         self.job_folder = job_folder
         self.job_id = os.path.basename(job_folder)
         self.logger.info(f"Initializing Hyperparameter GUI for job_id: {self.job_id}")
-
         self.api_gateway = api_gateway
         self.params = {}
         self.param_entries = {}
+
+        # Get job status for state restoration
+        try:
+            self.job_status = self.api_gateway.get_job_detailed_status(self.job_id)
+            if self.job_status:
+                self.logger.info(f"Retrieved job status: {self.job_status.get('status')} - {self.job_status.get('progress_message')}")
+            else:
+                self.logger.warning("Could not retrieve detailed job status")
+                self.job_status = {"status": "data_augmented", "phase_progress": {}}
+        except Exception as e:
+            self.logger.error(f"Error retrieving job status: {e}")
+            self.job_status = {"status": "data_augmented", "phase_progress": {}}
 
         self.setup_window()
         self.build_gui()
@@ -678,6 +689,15 @@ class VEstimHyperParamGUI(QWidget):
         try:
             # First, save the hyperparameters
             self.api_gateway.save_hyperparameters(self.job_id, params)
+            
+            # Update job status to indicate hyperparameters are set
+            self.api_gateway.update_job_status(
+                job_id=self.job_id,
+                status="hyperparameters_set",
+                message="Hyperparameters configured, ready for training setup",
+                progress_percent=60
+            )
+            self.logger.info(f"Updated job {self.job_id} status to hyperparameters_set")
             
             # Transition to the training setup GUI
             self.training_setup_gui = VEstimTrainSetupGUI(job_id=self.job_id, api_gateway=self.api_gateway)

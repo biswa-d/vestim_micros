@@ -19,15 +19,27 @@ class JobContainer:
         self.job_id = job_id
         self.job_folder = job_folder
         self.selections = selections
-        self.logger = logging.getLogger(f"{__name__}.{job_id}")
-        
-        # Job state and progress
+        self.logger = logging.getLogger(f"{__name__}.{job_id}")        # Job state and progress with detailed phase tracking
         self.status = "created"
         self.progress_message = "Job created"
         self.progress_percent = 0
-        self.current_phase = "initialization"
+        self.current_phase = "initialization"  # initialization, data_processing, data_augmentation, training_setup, training, testing, completed
+        self.phase_progress = {
+            "data_import": {"status": "pending", "progress": 0, "message": "Waiting to start"},
+            "data_processing": {"status": "pending", "progress": 0, "message": "Waiting to start"},
+            "data_augmentation": {"status": "pending", "progress": 0, "message": "Waiting to start"},
+            "hyperparameters": {"status": "pending", "progress": 0, "message": "Waiting to start"},
+            "training_setup": {"status": "pending", "progress": 0, "message": "Waiting to start"},
+            "training": {"status": "pending", "progress": 0, "message": "Waiting to start"},
+            "testing": {"status": "pending", "progress": 0, "message": "Waiting to start"}
+        }
         self.created_at = datetime.now().isoformat()
         self.updated_at = self.created_at
+        
+        # GUI state persistence - determines which GUI to show when reopening
+        self.gui_ready_for_phase = "data_import"  # Which GUI should be shown
+        self.requires_user_input = True  # Whether this job needs user interaction
+        self.current_gui_type = None  # Track current GUI type
         
         # Managers registry - job-specific instances from common scripts
         self.managers = {}

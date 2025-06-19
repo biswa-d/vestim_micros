@@ -193,11 +193,67 @@ def get_job(job_id: str, job_service: JobService = Depends(get_job_service)):
         # Make sure the job has necessary training data structure
         if 'details' not in job:
             job['details'] = {}
-            
         return job
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Error getting job {job_id}: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve job: {str(e)}")
+
+@app.get("/jobs/{job_id}/detailed-status")
+def get_job_detailed_status(job_id: str, job_service: JobService = Depends(get_job_service)):
+    """Get detailed status including phase progress for GUI synchronization"""
+    try:
+        job_container = job_service.job_manager.get_job_container(job_id)
+        if not job_container:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+        
+        # Return detailed status for GUI synchronization
+        return {
+            "job_id": job_id,
+            "status": job_container.status,
+            "current_phase": job_container.current_phase,
+            "progress_percent": job_container.progress_percent,
+            "progress_message": job_container.progress_message,
+            "phase_progress": job_container.phase_progress,
+            "updated_at": job_container.updated_at,
+            "job_folder": job_container.job_folder
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting detailed status for job {job_id}: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to get job status: {str(e)}")
+
+class JobStatusUpdatePayload(BaseModel):
+    status: str
+    message: str
+    progress_percent: Optional[int] = None
+
+@app.post("/jobs/{job_id}/update-status")
+def update_job_status(job_id: str, payload: JobStatusUpdatePayload, job_service: JobService = Depends(get_job_service)):
+    """Update job status from GUI when phases complete"""
+    try:
+        job_container = job_service.job_manager.get_job_container(job_id)
+        if not job_container:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+        
+        # Update the job status
+        job_container.update_status(
+            status=payload.status,
+            message=payload.message,
+            progress_percent=payload.progress_percent
+        )
+        
+        return {"status": "success", "message": f"Job {job_id} status updated to {payload.status}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating status for job {job_id}: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to update job status: {str(e)}")
         print(f"Error getting job {job_id}: {e}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to retrieve job: {str(e)}")
@@ -226,6 +282,33 @@ def stop_job(job_id: str, job_service: JobService = Depends(get_job_service)):
         print(f"Error stopping job {job_id}: {e}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to stop job: {str(e)}")
+
+@app.post("/jobs/{job_id}/stop-training")
+def stop_training(job_id: str, job_service: JobService = Depends(get_job_service)):
+    """Gracefully stop training for a specific job after current epoch"""
+    try:
+        job_container = job_service.job_manager.get_job_container(job_id)
+        if not job_container:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+        
+        # Call the stop training method on the job container
+        success = job_container.stop_training()
+        
+        if success:
+            return {
+                "status": "success", 
+                "message": f"Training stop signal sent to job {job_id}. Training will stop after current epoch."
+            }
+        else:
+            return {
+                "status": "error", 
+                "message": f"Job {job_id} is not currently training or no training process found."
+            }
+            
+    except Exception as e:
+        print(f"Error stopping training for job {job_id}: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to stop training: {str(e)}")
 
 @app.delete("/jobs/{job_id}")
 def delete_job(job_id: str, job_service: JobService = Depends(get_job_service)):

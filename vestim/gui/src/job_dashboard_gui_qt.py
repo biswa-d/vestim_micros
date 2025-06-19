@@ -41,6 +41,7 @@ class JobDashboard(QMainWindow):
         # Data Import → Data Augment → Hyperparameters → Training Setup → Training Task → Testing
         self.gui_map = {
             "created": "DataAugmentGUI",  # After data import, go to data augmentation
+            "data_processed": "DataAugmentGUI",  # After data processing, go to data augmentation
             "data_augmented": "VEstimHyperParamGUI",  # After data augment, set hyperparameters  
             "hyperparameters_set": "VEstimTrainSetupGUI",  # After hyperparams, training setup
             "training_setup": "VEstimTrainSetupGUI",  # Training setup configuration
@@ -317,10 +318,9 @@ class JobDashboard(QMainWindow):
                 QMessageBox.warning(self, "Warning", f"Could not retrieve details for job {job_id}")
                 return
             
-            gui_instance = None
-              # Determine which GUI to open based on job status - always show the CURRENT status GUI
-            if status in ["created"]:
-                # Job just created - should go to data augmentation first
+            gui_instance = None            # Determine which GUI to open based on job status - always show the CURRENT status GUI
+            if status in ["created", "data_processed"]:
+                # Job created or data processing completed - should go to data augmentation
                 gui_instance = self._create_data_augment_gui(job_id, job_details)
                 
             elif status in ["data_augmented"]:

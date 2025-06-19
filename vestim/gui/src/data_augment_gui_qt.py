@@ -180,7 +180,8 @@ class DataAugmentGUI(QMainWindow):
         if self.job_folder:
             self.job_id = os.path.basename(self.job_folder)
             self.logger.info(f"DataAugmentGUI initialized with job_folder: {self.job_folder}, job_id: {self.job_id}")
-              # First, ensure job exists in the backend
+            
+            # First, ensure job exists in the backend
             try:
                 # Try to ensure the job exists via API before creating manager
                 result = self.api_gateway.ensure_job_exists(self.job_id)
@@ -188,9 +189,19 @@ class DataAugmentGUI(QMainWindow):
                     self.logger.info(f"Successfully ensured job {self.job_id} exists in backend.")
                 else:
                     self.logger.warning(f"Failed to ensure job {self.job_id} exists: {result.get('message')}")
+                
+                # Get detailed status to restore GUI state
+                self.job_status = self.api_gateway.get_job_detailed_status(self.job_id)
+                if self.job_status:
+                    self.logger.info(f"Retrieved job status: {self.job_status.get('status')} - {self.job_status.get('progress_message')}")
+                else:
+                    self.logger.warning("Could not retrieve detailed job status")
+                    self.job_status = {"status": "data_processed", "phase_progress": {}}
+                    
             except Exception as e:
                 self.logger.error(f"Error ensuring job {self.job_id} in backend: {e}", exc_info=True)
                 QMessageBox.warning(self, "Warning", f"Error ensuring job exists: {str(e)}\nSome functionality may be limited.")
+                self.job_status = {"status": "data_processed", "phase_progress": {}}
         else:
             self.job_id = None
             self.logger.warning("DataAugmentGUI initialized without a job_folder.")
@@ -344,6 +355,51 @@ class DataAugmentGUI(QMainWindow):
             self.resampling_checkbox.setEnabled(False)
             self.column_creation_checkbox.setEnabled(False)
             self.normalization_checkbox.setEnabled(False) # Disable normalization checkbox
+          # Restore GUI state based on job status
+        self.restore_gui_state()
+    
+    def restore_gui_state(self):
+        """Restore GUI state based on current job status"""
+        if not hasattr(self, 'job_status') or not self.job_status:
+            return
+        
+        current_status = self.job_status.get('status', '')
+        phase_progress = self.job_status.get('phase_progress', {})
+        
+        self.logger.info(f"Restoring GUI state for status: {current_status}")
+        
+        # Check if data augmentation is already completed
+        augmentation_progress = phase_progress.get('data_augmentation', {})
+        augmentation_status = augmentation_progress.get('status', 'pending')
+        
+        if current_status == 'data_augmented' or augmentation_status == 'completed':
+            # Data augmentation already completed - show completion state
+            self.logger.info("Data augmentation already completed, showing completion state")
+            self.progress_bar.setValue(100)
+            self.progress_bar.setVisible(True)
+            
+            # Update button to continue to next phase
+            self.apply_button.setText("Continue to Hyperparameter Selection")
+            try:
+                self.apply_button.clicked.disconnect(self.apply_changes)
+            except TypeError:
+                pass
+            self.apply_button.clicked.connect(self.go_to_hyperparameter_gui)
+            
+            # Show completion message in header
+            self.header_label.setText("Data Augmentation Completed ✓")
+            self.header_label.setStyleSheet("font-size: 18px; font-weight: bold; color: green;")
+            
+        elif augmentation_status == 'in_progress':
+            # Data augmentation in progress - show progress
+            progress = augmentation_progress.get('progress', 0)
+            message = augmentation_progress.get('message', 'Processing...')
+            self.logger.info(f"Data augmentation in progress: {progress}% - {message}")
+            self.progress_bar.setValue(progress)
+            self.progress_bar.setVisible(True)
+            self.apply_button.setEnabled(False)
+            
+        # If status is 'data_processed' or 'pending', show normal initial state (default)
     
     def select_job_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Job Folder")
@@ -504,6 +560,19 @@ class DataAugmentGUI(QMainWindow):
             self.progress_bar.setValue(100)
             if hasattr(self, 'status_label') and self.status_label is not None:
                 self.status_label.setText("Processing complete!")
+              # Update job status in backend
+            try:
+                if self.api_gateway:
+                    self.api_gateway.update_job_status(
+                        job_id=self.job_id,
+                        status="data_augmented",
+                        message="Data augmentation completed successfully",
+                        progress_percent=50
+                    )
+                    self.logger.info(f"Updated job {self.job_id} status to data_augmented")
+            except Exception as e:
+                self.logger.error(f"Failed to update job status: {e}")
+            
             QMessageBox.information(self, "Success", "Data augmentation completed successfully!")
             
             # --- Transition logic ---
