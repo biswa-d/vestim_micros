@@ -20,14 +20,18 @@ class TrainingTaskManager:
     detailed progress updates for the GUI through status queues.
     Based on the working implementation from training_task_manager_qt.py.bak
     """
-    def __init__(self):
+    def __init__(self, tasks: list = None):
         """
         Initialize the TrainingTaskManager.
         Heavy initialization is done in the background process.
         """
         self.logger = logging.getLogger(__name__)
+        self.tasks = tasks or []
         self.stop_requested = False
         self.current_task = None
+        self.logger.info(f"TrainingTaskManager initialized with {len(self.tasks)} tasks.")
+        if self.tasks:
+            self.logger.info(f"Task info: {self.tasks}")
         
 
     def process_all_tasks_in_background(self, status_queue, job_info):

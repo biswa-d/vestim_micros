@@ -49,7 +49,6 @@ class JobContainer:
         self.stop_flag = Event()
         
         # Training tasks storage - jobs contain their own tasks for isolation
-        self.training_tasks = []  # List of training task dictionaries
         self.current_training_task_index = 0  # Track which task is currently being processed
         self.training_history = {}  # Store training progress for all tasks: {task_id: training_data}
         
@@ -113,13 +112,18 @@ class JobContainer:
     
     # === MANAGER GETTERS (Job-Specific Instances from Common Scripts) ===
     
-    def get_training_task_manager(self):
+    def get_training_task_manager(self, tasks: list = None):
         """Get or create job-specific training task manager from common script"""
         with self.manager_lock:
             if 'training_task_manager' not in self.managers:
                 from vestim.backend.src.managers.training_task_manager import TrainingTaskManager
-                self.managers['training_task_manager'] = TrainingTaskManager()
+                self.managers['training_task_manager'] = TrainingTaskManager(tasks)
                 self.logger.info("Created job-specific training task manager")
+            
+            # If tasks are provided, update the existing manager
+            elif tasks is not None:
+                self.managers['training_task_manager'].tasks = tasks
+
             return self.managers['training_task_manager']
     
     def get_data_processing_manager(self):
@@ -343,7 +347,6 @@ class JobContainer:
             "active_managers": list(self.managers.keys()),
             "task_progress": self.task_progress,
             "details": self.details,
-            "training_tasks": self.training_tasks,
             "job_folder": self.job_folder,
             "selections": self.selections
         }
@@ -397,7 +400,7 @@ class JobContainer:
         print(f"[DEBUG] Adding {len(tasks)} training tasks")
         print(f"[DEBUG] Task IDs: {[task.get('task_id', 'no_id') for task in tasks]}")
         
-        self.training_tasks = tasks.copy()  # Store tasks in job container
+        self.details['training_tasks'] = tasks.copy()
         self.current_training_task_index = 0
         self.logger.info(f"Added {len(tasks)} training tasks to job {self.job_id}")
         print(f"[DEBUG] Training tasks stored successfully in job container")
@@ -420,8 +423,9 @@ class JobContainer:
     def get_training_tasks(self):
         """Get all training tasks for this job"""
         print(f"[DEBUG] JobContainer.get_training_tasks called for job {self.job_id}")
-        print(f"[DEBUG] Returning {len(self.training_tasks)} training tasks")
-        return self.training_tasks.copy()
+        tasks = self.details.get('training_tasks', [])
+        print(f"[DEBUG] Returning {len(tasks)} training tasks")
+        return tasks
     
     def get_current_training_task(self):
         """Get the current training task being processed"""
@@ -431,7 +435,7 @@ class JobContainer:
     
     def get_training_task_by_id(self, task_id: str):
         """Get a specific training task by ID"""
-        for task in self.training_tasks:
+        for task in self.get_training_tasks():
             if task.get('task_id') == task_id:
                 return task
         return None

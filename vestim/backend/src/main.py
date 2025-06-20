@@ -488,6 +488,21 @@ async def setup_training_tasks(
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to set up training: {str(e)}")
 
+@app.get("/jobs/{job_id}/tasks")
+def get_training_tasks(job_id: str, job_service: JobService = Depends(get_job_service)):
+    """Get all training tasks for a specific job."""
+    try:
+        job_container = job_service.job_manager.get_job_container(job_id)
+        if not job_container:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+        
+        tasks = job_container.get_training_tasks()
+        print(f"Tasks for job {job_id}: {tasks}")
+        return {"job_id": job_id, "tasks": tasks}
+    except Exception as e:
+        print(f"Error getting tasks for job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get tasks: {str(e)}")
+
 @app.post("/jobs/{job_id}/tasks/{task_id}/start_training")
 def start_training_task(
     job_id: str,
@@ -638,7 +653,7 @@ def start_job_training(
                 raise HTTPException(status_code=500, detail=f"Error setting up training tasks: {e}")
 
         # Get the job-specific training task manager
-        training_task_manager = job_container.get_training_task_manager()
+        training_task_manager = job_container.get_training_task_manager(tasks)
 
         # Start the training process for all tasks
         success = job_service.start_job(
