@@ -90,7 +90,7 @@ class TrainingThread(QThread):
     def run(self):
         try:
             # Start the training task via API
-            response = self.api_gateway.post(f"jobs/{self.job_id}/tasks/{self.task_id}/start_training")
+            response = self.api_gateway.post(f"jobs/{self.job_id}/start_training")
             if response.get("status") != "success":
                 self.error_signal.emit(f"Failed to start training task: {response.get('message', 'Unknown error')}")
                 return
@@ -169,7 +169,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.stop_button.setEnabled(False)
         else:
             self.logger.info(f"Found {len(self.training_tasks)} training tasks")
-            self.status_label.setText(f"Job {self.job_id} data loaded. Starting training...")
+            self.status_label.setText(f"Job data loaded. Starting training for {len(self.training_tasks)} tasks.")
             self.start_training()
             self.start_polling()
 
@@ -409,8 +409,11 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 processed_keys.add(key)
         
         scheduler_sub_params = {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_PARAM', 'LR_DROP_FACTOR', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR'}
+        # Exclude job_folder and other non-displayable keys
+        excluded_keys = scheduler_sub_params.union({'job_folder', 'selections'})
+        
         for key, value in task_params.items():
-            if key not in processed_keys and key not in scheduler_sub_params:
+            if key not in processed_keys and key not in excluded_keys:
                 label_text = param_labels.get(key, key.replace("_", " ").title())
                 display_items_ordered.append((label_text, str(value)))
 

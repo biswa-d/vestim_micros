@@ -53,14 +53,26 @@ class JobService:
         """
         Starts a job process via the JobManager.
         """
+        print(f"[DEBUG] JobService.start_job called for job {job_id}")
+        print(f"[DEBUG] target_func: {target_func}")
+        print(f"[DEBUG] task_info type: {type(task_info)}")
+        print(f"[DEBUG] task_info keys: {list(task_info.keys()) if isinstance(task_info, dict) else 'not a dict'}")
+        
         self.logger.info(f"Attempting to start job: {job_id}")
         try:
             # Update job status to indicate training has started
+            print(f"[DEBUG] Updating job {job_id} status to 'training'")
             self.update_job_status(job_id, "training")
             self.logger.info(f"Updated job {job_id} status to 'training'")
             
-            return self.job_manager.start_job(job_id, target_func, task_info)
+            print(f"[DEBUG] Calling job_manager.start_job for job {job_id}")
+            result = self.job_manager.start_job(job_id, target_func, task_info)
+            print(f"[DEBUG] job_manager.start_job returned: {result}")
+            return result
         except Exception as e:
+            print(f"[DEBUG] Exception in JobService.start_job for job {job_id}: {e}")
+            import traceback
+            print(f"[DEBUG] Exception traceback: {traceback.format_exc()}")
             self.logger.error(f"Failed to start job {job_id}: {e}", exc_info=True)
             return False
 
@@ -197,10 +209,8 @@ class JobService:
         
         self.logger.info(f"Hyperparameters for job {job_id}: {hyperparams}")
 
-        # Get training setup manager from job container
-        training_setup_manager = job_container.get_training_setup_manager()
-        training_setup_manager.params = hyperparams
-        training_setup_manager.current_hyper_params = hyperparams
+        # Get training setup manager from job container and pass hyperparameters
+        training_setup_manager = job_container.get_training_setup_manager(hyperparams)
         
         # Run the training setup process
         self.logger.info(f"Starting training setup process for job {job_id}")
@@ -230,11 +240,11 @@ class JobService:
                 "history": []  # Initialize empty history for training progress
             }
             
-            # Add some sample history data for testing the GUI
-            # The sample history was for testing and should be removed.
+            # Store tasks in job manager details
+            # IMPORTANT: Store tasks directly in the job container for isolation
+            job_container.add_training_tasks(task_list)
+            self.logger.info(f"Added {len(task_list)} training tasks to job container for job {job_id}")
             
-            self.job_manager.update_job_details(job_id, task_details)
-            self.logger.info(f"Updated job details with training tasks for job {job_id}")
         except Exception as e:
             self.logger.error(f"Error updating job details for job {job_id}: {e}", exc_info=True)
             raise ValueError(f"Failed to update job details: {str(e)}")

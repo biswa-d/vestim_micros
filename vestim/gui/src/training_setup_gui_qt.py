@@ -131,17 +131,17 @@ class VEstimTrainSetupGUI(QWidget):
             self.status_label.setText(f"Setup completed successfully! {task_count} training tasks created.")
             self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
             
-            # Show continue button
-            if hasattr(self, 'continue_button'):
-                self.continue_button.setVisible(True)
-            else:
-                self.add_continue_button()
-                
+            # Show continue button (will be added in fetch_hyperparameters_and_start)
+            
         elif setup_status == 'in_progress':
             # Training setup in progress
             self.setup_in_progress = True
             self.status_label.setText("Training setup in progress...")
             self.status_label.setStyleSheet("color: #FF8C00; font-size: 12pt; font-weight: bold;")
+        else:
+            # Default state - ready to create tasks
+            self.status_label.setText("Ready to create training tasks")
+            self.status_label.setStyleSheet("color: #3a3a3a; font-size: 12pt;")
             
         # If status is 'hyperparameters_set' or 'pending', show normal initial state (default)
     
@@ -149,7 +149,7 @@ class VEstimTrainSetupGUI(QWidget):
         """Add continue button to proceed to training task GUI"""
         self.continue_button = QPushButton("Continue to Training Tasks")
         self.continue_button.setStyleSheet("background-color: #0b6337; color: white; font-size: 12pt; font-weight: bold;")
-        self.continue_button.clicked.connect(self.proceed_to_training_task_gui)
+        self.continue_button.clicked.connect(self.transition_to_training_gui)
         self.main_layout.addWidget(self.continue_button)
 
     def fetch_hyperparameters_and_start(self):
@@ -162,12 +162,25 @@ class VEstimTrainSetupGUI(QWidget):
             
             self.display_hyperparameters(self.hyperparam_layout)
             
-            # Only start setup if not already completed or in progress
-            if not self.setup_completed and not self.setup_in_progress:
-                self.start_setup()
+            # Show appropriate button based on current state
+            if self.setup_completed:
+                # Setup already completed - show "Continue to Training" button
+                if not hasattr(self, 'continue_button'):
+                    self.add_continue_button()
+            else:
+                # Setup not completed - show "Create Training Tasks" button
+                if not hasattr(self, 'create_tasks_button'):
+                    self.add_create_tasks_button()
                 
         except Exception as e:
             self.status_label.setText(f"Error fetching parameters: {e}")
+
+    def add_create_tasks_button(self):
+        """Add button to create training tasks"""
+        self.create_tasks_button = QPushButton("Create Training Tasks")
+        self.create_tasks_button.setStyleSheet("background-color: #0b6337; color: white; font-size: 12pt; font-weight: bold;")
+        self.create_tasks_button.clicked.connect(self.start_setup)
+        self.main_layout.addWidget(self.create_tasks_button)
 
     def build_gui(self):
         self.setWindowTitle("VEstim - Setting Up Training")
@@ -284,13 +297,27 @@ class VEstimTrainSetupGUI(QWidget):
         elapsed_time = time.time() - self.start_time
         hours, remainder = divmod(elapsed_time, 3600)
         minutes, seconds = divmod(remainder, 60)
-        total_time_taken = f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s"
-
-        # Check if setup was successful
+        total_time_taken = f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s"        # Check if setup was successful
         if response_data and response_data.get("status") == "success":
             self.setup_completed = True
             task_count = response_data.get("task_count", 0)
             job_id = response_data.get("job_id", self.job_id)
+
+            # Update backend status to indicate training setup is completed
+            try:
+                self.api_gateway.update_job_status(
+                    job_id=self.job_id,
+                    status="training_setup_completed",
+                    message=f"Training setup completed with {task_count} tasks created",
+                    progress_percent=80
+                )
+                self.logger.info(f"Updated job {self.job_id} status to training_setup_completed")
+            except Exception as e:
+                self.logger.error(f"Failed to update job status: {e}")
+
+            # Hide the "Create Training Tasks" button if it exists
+            if hasattr(self, 'create_tasks_button'):
+                self.create_tasks_button.setVisible(False)
 
             # Fetch job details to get folder path
             try:
@@ -351,6 +378,15 @@ class VEstimTrainSetupGUI(QWidget):
 
     def transition_to_training_gui(self):
         try:
+            # Update job status to indicate training setup is completed
+            self.api_gateway.update_job_status(
+                job_id=self.job_id,
+                status="training_setup_completed",
+                message="Training tasks created, ready for training execution",
+                progress_percent=80
+            )
+            self.logger.info(f"Updated job {self.job_id} status to training_setup_completed")
+            
             # The task list is now managed by the backend.
             # We can either fetch it again or assume the next GUI will.
             # For now, we'll just open the next GUI.

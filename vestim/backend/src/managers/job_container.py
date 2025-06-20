@@ -44,10 +44,14 @@ class JobContainer:
         # Managers registry - job-specific instances from common scripts
         self.managers = {}
         self.manager_lock = threading.Lock()
-        
-        # Process management
+          # Process management
         self.process = None
         self.stop_flag = Event()
+        
+        # Training tasks storage - jobs contain their own tasks for isolation
+        self.training_tasks = []  # List of training task dictionaries
+        self.current_training_task_index = 0  # Track which task is currently being processed
+        self.training_history = {}  # Store training progress for all tasks: {task_id: training_data}
         
         # Job details and history
         self.details = {}
@@ -113,7 +117,7 @@ class JobContainer:
         """Get or create job-specific training task manager from common script"""
         with self.manager_lock:
             if 'training_task_manager' not in self.managers:
-                from vestim.backend.src.managers.training_task_manager_qt import TrainingTaskManager
+                from vestim.backend.src.managers.training_task_manager import TrainingTaskManager
                 self.managers['training_task_manager'] = TrainingTaskManager()
                 self.logger.info("Created job-specific training task manager")
             return self.managers['training_task_manager']
@@ -145,20 +149,29 @@ class JobContainer:
         """Get or create job-specific hyperparameters manager"""
         with self.manager_lock:
             if 'hyperparams_manager' not in self.managers:
-                from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
+                from vestim.backend.src.managers.hyper_param_manager import VEstimHyperParamManager
                 self.managers['hyperparams_manager'] = VEstimHyperParamManager()
                 self.logger.info("Created job-specific hyperparams manager")
             return self.managers['hyperparams_manager']
     
-    def get_training_setup_manager(self):
+    def get_training_setup_manager(self, hyperparams: dict = None):
         """Get or create job-specific training setup manager"""
         with self.manager_lock:
             if 'training_setup_manager' not in self.managers:
-                from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
+                from vestim.backend.src.managers.training_setup_manager import VEstimTrainingSetupManager
+                # If hyperparams are not provided, try to get them from details
+                if hyperparams is None:
+                    hyperparams = self.details.get('hyperparameters', {})
+                
                 self.managers['training_setup_manager'] = VEstimTrainingSetupManager(
-                    self.job_id, self.job_folder, {}
+                    self.job_id, self.job_folder, hyperparams
                 )
                 self.logger.info("Created job-specific training setup manager")
+            
+            # If hyperparams are provided, update the existing manager
+            elif hyperparams is not None:
+                self.managers['training_setup_manager'].params = hyperparams
+
             return self.managers['training_setup_manager']
     
     # === ASYNCHRONOUS TASK COORDINATION ===
@@ -329,14 +342,35 @@ class JobContainer:
             "is_running": self.is_running(),
             "active_managers": list(self.managers.keys()),
             "task_progress": self.task_progress,
-            "details": self.details
+            "details": self.details,
+            "training_tasks": self.training_tasks,
+            "job_folder": self.job_folder,
+            "selections": self.selections
         }
     
     def get_detailed_state(self):
-        """Get detailed state including all task progress"""
+        """Get detailed state including all task progress, ensuring serializable output"""
         summary = self.get_summary()
+        
+        # Add additional fields, but filter out non-serializable objects
         summary["job_folder"] = self.job_folder
         summary["selections"] = self.selections
+        
+        # Filter out non-serializable objects from details
+        filtered_details = {}
+        if self.details:
+            for key, value in self.details.items():
+                try:
+                    # Test if the value is JSON serializable
+                    import json
+                    json.dumps(value)
+                    filtered_details[key] = value
+                except (TypeError, ValueError):
+                    # Skip non-serializable objects
+                    self.logger.warning(f"Skipping non-serializable detail key '{key}' of type {type(value)}")
+                    continue
+        summary["details"] = filtered_details
+        
         return summary
     def get_status_summary(self):
         """Get a comprehensive status summary for dashboard display"""
@@ -355,3 +389,103 @@ class JobContainer:
             "job_folder": self.job_folder,
             "selections": self.selections
         }
+      # === TRAINING TASK MANAGEMENT ===
+    
+    def add_training_tasks(self, tasks: list):
+        """Add training tasks to this job container for isolation"""
+        print(f"[DEBUG] JobContainer.add_training_tasks called for job {self.job_id}")
+        print(f"[DEBUG] Adding {len(tasks)} training tasks")
+        print(f"[DEBUG] Task IDs: {[task.get('task_id', 'no_id') for task in tasks]}")
+        
+        self.training_tasks = tasks.copy()  # Store tasks in job container
+        self.current_training_task_index = 0
+        self.logger.info(f"Added {len(tasks)} training tasks to job {self.job_id}")
+        print(f"[DEBUG] Training tasks stored successfully in job container")
+        
+        # Initialize training history for each task
+        print(f"[DEBUG] Initializing training history for tasks")
+        for task in tasks:
+            task_id = task.get('task_id')
+            if task_id:
+                self.training_history[task_id] = {
+                    'status': 'pending',
+                    'epoch_logs': [],
+                    'train_losses': [],
+                    'val_losses': [],
+                    'current_epoch': 0,
+                    'total_epochs': task.get('hyperparams', {}).get('MAX_EPOCHS', 10)
+                }
+                print(f"[DEBUG] Initialized training history for task {task_id}")
+        print(f"[DEBUG] Training history initialization complete")
+    def get_training_tasks(self):
+        """Get all training tasks for this job"""
+        print(f"[DEBUG] JobContainer.get_training_tasks called for job {self.job_id}")
+        print(f"[DEBUG] Returning {len(self.training_tasks)} training tasks")
+        return self.training_tasks.copy()
+    
+    def get_current_training_task(self):
+        """Get the current training task being processed"""
+        if 0 <= self.current_training_task_index < len(self.training_tasks):
+            return self.training_tasks[self.current_training_task_index]
+        return None
+    
+    def get_training_task_by_id(self, task_id: str):
+        """Get a specific training task by ID"""
+        for task in self.training_tasks:
+            if task.get('task_id') == task_id:
+                return task
+        return None
+    
+    def update_training_task_progress(self, task_id: str, training_data: dict):
+        """Update training progress for a specific task"""
+        if task_id in self.training_history:
+            self.training_history[task_id].update(training_data)
+            self.logger.info(f"Updated training progress for task {task_id}")
+    
+    def get_training_task_progress(self, task_id: str):
+        """Get training progress for a specific task"""
+        return self.training_history.get(task_id, {})
+    
+    def start_job_training(self):
+        """Start training for this job (processes all tasks sequentially)"""
+        if not self.training_tasks:
+            raise ValueError(f"No training tasks found for job {self.job_id}")
+        
+        self.logger.info(f"Starting job-level training for {len(self.training_tasks)} tasks")
+        
+        # Get the training task manager for this job
+        training_manager = self.get_training_task_manager()
+        
+        # Start processing tasks sequentially
+        # This will be handled by the JobManager's start_job method
+        return True
+    
+    def get_all_training_progress(self):
+        """Get training progress for all tasks in this job"""
+        return {
+            'job_id': self.job_id,
+            'total_tasks': len(self.training_tasks),
+            'current_task_index': self.current_training_task_index,
+            'task_progress': self.training_history
+        }
+
+    def start_training_task(self, task_id: str):
+        """Mark a task as started."""
+        task = self.get_training_task_by_id(task_id)
+        if task:
+            self.update_training_task_progress(task_id, {"status": "running"})
+            self.logger.info(f"Task {task_id} started.")
+
+    def complete_training_task(self, task_id: str):
+        """Mark a task as completed."""
+        task = self.get_training_task_by_id(task_id)
+        if task:
+            self.update_training_task_progress(task_id, {"status": "completed"})
+            self.logger.info(f"Task {task_id} completed.")
+
+    def fail_training_task(self, task_id: str, error_message: str):
+        """Mark a task as failed."""
+        task = self.get_training_task_by_id(task_id)
+        if task:
+            self.update_training_task_progress(task_id, {"status": "failed", "error": error_message})
+            self.logger.error(f"Task {task_id} failed: {error_message}")

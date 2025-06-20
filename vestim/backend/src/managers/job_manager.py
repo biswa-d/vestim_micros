@@ -10,9 +10,26 @@ from vestim.logger_config import configure_job_specific_logging
 import logging
 import shutil
 import traceback
-from vestim.backend.src.managers.hyper_param_manager_qt import VEstimHyperParamManager
-from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.backend.src.managers.hyper_param_manager import VEstimHyperParamManager
+from vestim.backend.src.managers.training_setup_manager import VEstimTrainingSetupManager
 from vestim.backend.src.managers.job_container import JobContainer
+
+
+def _run_job_process(job_id, target_func, status_queue, task_info):
+    """Wrapper function to run the job with error handling. Must be a top-level function."""
+    logger = logging.getLogger(__name__)
+    print(f"[DEBUG] _run_job_process started for job {job_id}")
+    try:
+        logger.info(f"Starting job process for {job_id}")
+        target_func(status_queue, task_info)
+        print(f"[DEBUG] target_func completed successfully for job {job_id}")
+    except Exception as e:
+        print(f"[DEBUG] Exception in _run_job_process for job {job_id}: {e}")
+        tb_str = traceback.format_exc()
+        print(f"[DEBUG] Exception traceback: {tb_str}")
+        logger.error(f"Error in job process {job_id}: {e}", exc_info=True)
+        status_queue.put((job_id, 'error', {"error": str(e), "message": "Job failed with error", "traceback": tb_str}))
+
 
 class JobManager:
     _instance = None
@@ -445,36 +462,83 @@ class JobManager:
 
     def start_job(self, job_id: str, target_func, task_info: dict):
         """Starts a job in a new process using job container."""
+        print(f"[DEBUG] JobManager.start_job called for job {job_id}")
+        print(f"[DEBUG] target_func: {target_func}")
+        print(f"[DEBUG] task_info type: {type(task_info)}")
+        
         try:
+            print(f"[DEBUG] Checking if job {job_id} exists in job_containers")
             if job_id not in self.job_containers:
+                print(f"[DEBUG] ERROR: Job {job_id} not found in job_containers")
+                print(f"[DEBUG] Available job_containers: {list(self.job_containers.keys())}")
                 raise ValueError(f"Job {job_id} not found.")
+            print(f"[DEBUG] Job {job_id} found in job_containers")
                 
+            print(f"[DEBUG] Acquiring lock for job {job_id}")
             with self._get_job_lock(job_id):
+                print(f"[DEBUG] Lock acquired for job {job_id}")
                 job_container = self.job_containers[job_id]
+                print(f"[DEBUG] Job container retrieved: {type(job_container)}")
                 
+                print(f"[DEBUG] Checking if job {job_id} is already running")
                 if job_container.is_running():
+                    print(f"[DEBUG] WARNING: Job {job_id} is already running")
                     self.logger.warning(f"Job {job_id} is already running.")
                     return False
+                print(f"[DEBUG] Job {job_id} is not currently running")
 
                 self.logger.info(f"Starting job {job_id}")
+                print(f"[DEBUG] Starting job {job_id}")
                 
                 # Reset the stop flag
+                print(f"[DEBUG] Resetting stop flag for job {job_id}")
                 job_container.stop_flag.clear()
                 
-                # Inject job-specific details into the task_info
+                # Inject job-specific, serializable details into the task_info
+                print(f"[DEBUG] Injecting job-specific details into task_info")
+                task_info['job_id'] = job_id
                 task_info['job_folder'] = job_container.job_folder
                 task_info['stop_flag'] = job_container.stop_flag
+                task_info['training_tasks'] = job_container.get_training_tasks() # Pass tasks directly
+                
+                # Ensure job_container itself is not in task_info
+                task_info.pop('job_container', None)
+                
+                print(f"[DEBUG] task_info now contains: {list(task_info.keys())}")
                 
                 # Start the process
-                process = Process(target=self._run_job_with_error_handling, 
-                                 args=(job_id, target_func, self.status_queue, task_info))
-                job_container.set_process(process)
-                job_container.update_status('running', 'Job started')
-                process.start()
-                self._persist_job_container(job_id)
+                print(f"[DEBUG] Creating process for job {job_id}")
+                print(f"[DEBUG] Process target: {_run_job_process}")
+                print(f"[DEBUG] Process args: job_id={job_id}, target_func={target_func}")
                 
+                # The target function must not be a bound method.
+                # We get the manager and extract the function to be called in the process.
+                training_manager = job_container.get_training_task_manager()
+                
+                process = Process(target=_run_job_process,
+                                 args=(job_id, training_manager.process_all_tasks_in_background, self.status_queue, task_info))
+                print(f"[DEBUG] Process created: {process}")
+                
+                print(f"[DEBUG] Setting process in job container")
+                job_container.set_process(process)
+                
+                print(f"[DEBUG] Updating job container status to 'running'")
+                job_container.update_status('running', 'Job started')
+                
+                print(f"[DEBUG] Starting process for job {job_id}")
+                process.start()
+                print(f"[DEBUG] Process started for job {job_id}")
+                
+                print(f"[DEBUG] Persisting job container for job {job_id}")
+                self._persist_job_container(job_id)
+                print(f"[DEBUG] Job container persisted for job {job_id}")
+                
+            print(f"[DEBUG] Job {job_id} successfully started")
             return True
         except Exception as e:
+            print(f"[DEBUG] Exception in JobManager.start_job for job {job_id}: {e}")
+            import traceback
+            print(f"[DEBUG] Exception traceback: {traceback.format_exc()}")
             self.logger.error(f"Error starting job {job_id}: {e}", exc_info=True)
             # Update job container status to indicate error
             if job_id in self.job_containers:
@@ -482,16 +546,6 @@ class JobManager:
                 job_container.update_status('error', f'Failed to start: {str(e)}')
                 self._persist_job_container(job_id)
             return False
-
-    def _run_job_with_error_handling(self, job_id, target_func, status_queue, task_info):
-        """Wrapper function to run the job with error handling."""
-        try:
-            self.logger.info(f"Starting job process for {job_id}")
-            target_func(status_queue, task_info)
-        except Exception as e:
-            self.logger.error(f"Error in job process {job_id}: {e}", exc_info=True)
-            # Send error status back to main process
-            status_queue.put((job_id, 'error', {"error": str(e), "message": "Job failed with error"}))
 
     def stop_job(self, job_id: str):
         """Stops a running job using job container."""

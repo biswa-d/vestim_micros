@@ -1,10 +1,12 @@
 import itertools
 import logging
 
-class TrainingSetupManager:
+class VEstimTrainingSetupManager:
     """Manages the setup of training tasks for a specific job."""
-    def __init__(self, params=None):
+    def __init__(self, job_id, job_folder, params=None):
         self.logger = logging.getLogger(__name__)
+        self.job_id = job_id
+        self.job_folder = job_folder
         self.params = params or {}
         self.task_list = []
 
@@ -33,15 +35,21 @@ class TrainingSetupManager:
                 fixed_params[key] = value
 
         if not tuning_params:
-            return [hyperparams]
+            self.logger.info("No hyperparameter tuning detected. Creating a single task.")
+            config = fixed_params.copy()
+            config['task_id'] = 'task_0'
+            return [config]
 
         keys, values = zip(*tuning_params.items())
         param_combinations = [dict(zip(keys, v)) for v in itertools.product(*values)]
+        
+        self.logger.info(f"Generated {len(param_combinations)} unique parameter combinations for tuning.")
 
         task_configs = []
-        for combo in param_combinations:
+        for i, combo in enumerate(param_combinations):
             config = fixed_params.copy()
             config.update(combo)
+            config['task_id'] = f'task_{i}'  # Add unique task ID
             task_configs.append(config)
             
         return task_configs

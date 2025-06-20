@@ -204,7 +204,11 @@ class APIGateway(QObject):
     
     def stop_training(self, job_id):
         """Gracefully stop training for a job after current epoch."""
-        return self.post(f"jobs/{job_id}/stop-training")
+        return self.post(f"jobs/{job_id}/stop_training")
+
+    def get_training_status(self, job_id):
+        """Get detailed training status and history for a job."""
+        return self.get(f"jobs/{job_id}/training_status")
 
     def delete_job(self, job_id):
         """Delete a job."""

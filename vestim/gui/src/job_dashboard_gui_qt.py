@@ -316,9 +316,9 @@ class JobDashboard(QMainWindow):
             job_details = self.api.get(f"jobs/{job_id}")
             if not job_details:
                 QMessageBox.warning(self, "Warning", f"Could not retrieve details for job {job_id}")
-                return
-            
-            gui_instance = None            # Determine which GUI to open based on job status - always show the CURRENT status GUI
+                return            
+            gui_instance = None
+            # Determine which GUI to open based on job status - always show the CURRENT status GUI
             if status in ["created", "data_processed"]:
                 # Job created or data processing completed - should go to data augmentation
                 gui_instance = self._create_data_augment_gui(job_id, job_details)
@@ -328,13 +328,18 @@ class JobDashboard(QMainWindow):
                 job_folder = job_details.get('job_folder', f"output/{job_id}")
                 gui_instance = VEstimHyperParamGUI(api_gateway=self.api, job_folder=job_folder)
                 
-            elif status in ["hyperparameters_set", "training_setup"]:
+            elif status in ["hyperparameters_set"]:
                 # Hyperparameters set - show training SETUP GUI
                 # VEstimTrainSetupGUI constructor: (job_id, api_gateway)
                 gui_instance = VEstimTrainSetupGUI(job_id=job_id, api_gateway=self.api)
                 
-            elif status in ["training_setup_completed", "training"]:
-                # Training setup completed - show training TASK GUI for execution/monitoring
+            elif status in ["training_setup_completed"]:
+                # Training setup completed but not yet started - show training SETUP GUI with completion state
+                # This allows user to see the tasks created and proceed to training when ready
+                gui_instance = VEstimTrainSetupGUI(job_id=job_id, api_gateway=self.api)
+                
+            elif status in ["training", "training_in_progress"]:
+                # Training is actually running - show training TASK GUI for execution/monitoring
                 # VEstimTrainingTaskGUI constructor: (api_gateway, job_id)
                 gui_instance = VEstimTrainingTaskGUI(api_gateway=self.api, job_id=job_id)
                 

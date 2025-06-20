@@ -5,7 +5,7 @@ import torch
 import logging
 import traceback
 from vestim.backend.src.services.training_service import TrainingService
-from vestim.backend.src.managers.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.backend.src.managers.training_setup_manager import VEstimTrainingSetupManager
 
 def format_time(seconds):
     """Convert seconds to mm:ss format."""
@@ -29,61 +29,24 @@ class TrainingTaskManager:
         self.stop_requested = False
         self.current_task = None
         
-    def process_task_in_background(self, status_queue, task_info):
-        """
-        Entry point for background process - handles a single task.
-        This method is called by JobManager for individual task execution.
-        """
-        job_id = task_info.get('job_id')
-        task_id = task_info.get('task_id')
-        stop_flag = task_info.get('stop_flag')
-        
-        try:
-            self.logger.info(f"[{job_id}] Starting background training for task {task_id}")
-            status_queue.put((job_id, 'initializing', {"message": f"Initializing task {task_id}..."}))
-
-            # Initialize services in the background process
-            from vestim.backend.src.services.model_training.src.data_loader_service import DataLoaderService
-            from vestim.backend.src.services.model_training.src.training_task_service import TrainingTaskService
-            from vestim.backend.src.services.model_training.src.LSTM_model_service import LSTMModelService
-            
-            data_loader_service = DataLoaderService()
-            training_service = TrainingTaskService()
-            model_service = LSTMModelService()
-            
-            # Determine device
-            hyperparams = task_info.get('hyperparams', {})
-            selected_device_str = hyperparams.get('DEVICE', 'cpu')
-            if selected_device_str.startswith("cuda") and torch.cuda.is_available():
-                device = torch.device(selected_device_str)
-            else:
-                device = torch.device("cpu")
-            self.logger.info(f"[{job_id}] Using device: {device}")
-
-            # Process this single task
-            self.process_single_task_api(task_info, status_queue, device, 
-                                       data_loader_service, training_service, model_service, stop_flag)
-
-        except Exception as e:
-            error_msg = f"[{job_id}] Error during task {task_id}: {e}"
-            self.logger.error(error_msg, exc_info=True)
-            status_queue.put((job_id, 'error', {
-                "message": str(e),
-                "error": error_msg,
-                "traceback": traceback.format_exc(),
-                "task_id": task_id
-            }))
 
     def process_all_tasks_in_background(self, status_queue, job_info):
         """
         Entry point for background process - handles all tasks in a job sequentially.
         This method processes multiple tasks within a single job.
         """
-        job_id = job_info.get('job_id')
-        training_tasks = job_info.get('training_tasks', [])
-        stop_flag = job_info.get('stop_flag')
+        job_container = job_info.get('job_container')
+        if not job_container:
+            raise ValueError("JobContainer not provided in job_info")
+
+        job_id = job_container.job_id
+        training_tasks = job_container.get_training_tasks()
+        stop_flag = job_container.stop_flag
         
         try:
+            if not training_tasks:
+                raise ValueError(f"No training tasks found in job_info for job {job_id}")
+
             self.logger.info(f"[{job_id}] Starting background training for {len(training_tasks)} tasks")
             status_queue.put((job_id, 'initializing', {"message": f"Starting training for {len(training_tasks)} tasks..."}))
 
@@ -123,8 +86,8 @@ class TrainingTaskManager:
                 'status': 'training'
             }
             
-            for task_idx, task_info in enumerate(training_tasks):
-                task_id = task_info.get('task_id')
+            for task_idx, task_info_loop in enumerate(training_tasks):
+                task_id = task_info_loop.get('task_id')
                 
                 # Check for stop signal
                 if stop_flag and stop_flag.is_set():
@@ -147,13 +110,13 @@ class TrainingTaskManager:
                 }))
                 
                 # Add job context to task_info
-                task_info['job_id'] = job_id
-                task_info['job_folder'] = job_info.get('job_folder')
-                task_info['stop_flag'] = stop_flag
+                task_info_loop['job_id'] = job_id
+                task_info_loop['job_folder'] = job_info.get('job_folder')
+                task_info_loop['stop_flag'] = stop_flag
                 
                 try:
                     # Process individual task
-                    self.process_single_task_api(task_info, status_queue, device, 
+                    self.process_single_task_api(task_info_loop, status_queue, device, 
                                                data_loader_service, training_service, model_service, stop_flag)
                     
                     completed_tasks += 1
@@ -679,7 +642,7 @@ class TrainingTaskManager:
         Set up the database and logging environment for the job.
         This ensures that the database tables are created if they do not exist.
         """
-        job_id = self.job_manager.get_job_id()  # Get the job ID
+        job_id = task.get('job_id')
         model_dir = task.get('model_dir')  # Path where task-related logs are stored
 
         # Retrieve log file paths from the task
@@ -687,7 +650,7 @@ class TrainingTaskManager:
         db_log_file = task.get('db_log_file')
 
         # Log information about the task and log file paths
-        output_dir_root = os.path.dirname(self.job_manager.get_job_folder()) # e.g., 'output'
+        output_dir_root = os.path.dirname(task.get('job_folder')) # e.g., 'output'
         
         log_model_dir = os.path.relpath(model_dir, output_dir_root) if model_dir and output_dir_root in model_dir else model_dir
         log_csv_file = os.path.relpath(csv_log_file, output_dir_root) if csv_log_file and output_dir_root in csv_log_file else csv_log_file
@@ -709,7 +672,7 @@ class TrainingTaskManager:
         try:
             # Ensure the database file path is valid
             if not os.path.isfile(db_log_file):
-                output_dir_root_db = os.path.dirname(self.job_manager.get_job_folder())
+                output_dir_root_db = os.path.dirname(db_log_file)
                 log_db_path_create = os.path.relpath(db_log_file, output_dir_root_db) if db_log_file and output_dir_root_db in db_log_file else db_log_file
                 self.logger.info(f"Creating new database file at (relative to output): {log_db_path_create}")
 
@@ -804,76 +767,3 @@ class TrainingTaskManager:
                 self.logger.error(f"Error loading normalization metadata from {metadata_file_path}: {e}")
         else:
             self.logger.info(f"job_metadata.json not found at {metadata_file_path}. Assuming no normalization or scaler to load.")
-
-    def process_all_tasks_in_background(self, status_queue, task_info):
-        """
-        Process all training tasks in a job sequentially.
-        This is the job-level training entry point called by JobManager.
-        """
-        try:
-            job_container = task_info.get('job_container')
-            if not job_container:
-                raise ValueError("No job_container provided in task_info")
-            
-            job_id = job_container.job_id
-            training_tasks = job_container.get_training_tasks()
-            
-            if not training_tasks:
-                raise ValueError(f"No training tasks found in job container for job {job_id}")
-            
-            self.logger.info(f"[{job_id}] Starting sequential processing of {len(training_tasks)} tasks")
-            
-            # Process each task sequentially
-            for i, task in enumerate(training_tasks):
-                if not task:
-                    self.logger.warning(f"[{job_id}] Skipping empty task at index {i}")
-                    continue
-                    
-                task_id = task.get('task_id', f'task_{i}')
-                self.logger.info(f"[{job_id}] Processing task {i+1}/{len(training_tasks)}: {task_id}")
-                
-                # Update job container progress
-                progress = ((i) / len(training_tasks)) * 100
-                job_container.update_status(
-                    "training", 
-                    f"Processing task {i+1}/{len(training_tasks)}: {task_id}", 
-                    progress
-                )
-                
-                # Check for stop signal
-                stop_flag = job_container.get_stop_flag()
-                if stop_flag and stop_flag.is_set():
-                    self.logger.info(f"[{job_id}] Stop signal received, stopping task processing")
-                    status_queue.put((job_id, 'stopped', {"message": "Job stopped during task processing"}))
-                    return
-                
-                # Process individual task
-                try:
-                    self.process_task_in_background(status_queue, task)
-                except Exception as e:
-                    self.logger.error(f"[{job_id}] Error processing task {task_id}: {e}", exc_info=True)
-                    status_queue.put((job_id, 'task_error', {
-                        "message": f"Error in task {task_id}: {str(e)}",
-                        "task_id": task_id,
-                        "error": str(e)
-                    }))
-                    # Continue with next task unless it's a critical error
-                    continue
-            
-            # All tasks completed
-            self.logger.info(f"[{job_id}] All {len(training_tasks)} tasks completed successfully")
-            job_container.update_status("completed", f"All {len(training_tasks)} tasks completed", 100)
-            status_queue.put((job_id, 'all_tasks_completed', {
-                "message": f"All {len(training_tasks)} tasks completed successfully",
-                "total_tasks": len(training_tasks)
-            }))
-            
-        except Exception as e:
-            error_msg = f"Error during job-level task processing: {e}"
-            self.logger.error(error_msg, exc_info=True)
-            if 'job_id' in locals():
-                status_queue.put((job_id, 'error', {
-                    "message": str(e),
-                    "error": error_msg,
-                    "traceback": traceback.format_exc()
-                }))
