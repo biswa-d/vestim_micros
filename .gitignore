@@ -152,3 +152,7 @@ build/
 dist/
 analytics_notebooks/
 starter_codes/
+"output/" 
+"jobs/" 
+".vestim_web/" 
+"*.log" 
