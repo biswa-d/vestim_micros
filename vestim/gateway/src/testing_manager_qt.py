@@ -23,6 +23,7 @@ import numpy as np
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.services.model_testing.src.testing_service import VEstimTestingService # Corrected import
 from vestim.services.model_testing.src.test_data_service import VEstimTestDataService # Corrected import
+from vestim.services.model_testing.src.continuous_testing_service import ContinuousTestingService # New continuous testing
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 import logging
 
@@ -32,7 +33,8 @@ class VEstimTestingManager:
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()  # Singleton instance of JobManager
         self.training_setup_manager = VEstimTrainingSetupManager()
-        self.testing_service = VEstimTestingService()
+        self.testing_service = VEstimTestingService()  # Keep old service for fallback
+        self.continuous_testing_service = ContinuousTestingService()  # New continuous testing
         self.test_data_service = VEstimTestDataService()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.max_workers = 4  # Number of concurrent threads
@@ -104,6 +106,9 @@ class VEstimTestingManager:
             self.logger.info(f"--- Starting _test_single_model for task_id: {task.get('task_id', 'UnknownTask')} (list index: {idx}) ---") # Added detailed log
             print(f"Preparing test data for Task {idx + 1}...")
             
+            # Reset continuous testing service for each new model
+            self.continuous_testing_service.reset_for_new_model()
+            
             # Get required paths and parameters
             lookback = task['hyperparams']['LOOKBACK']
             # model_path = task['model_path'] # This was pointing to the untrained template
@@ -146,35 +151,61 @@ class VEstimTestingManager:
                 file_name = os.path.splitext(test_file)[0]
                 test_file_path = os.path.join(test_folder, test_file)
                 
-                # Create test loader for the current file
-                data_loader_params = task.get('data_loader_params', {})
-                feature_cols = data_loader_params.get('feature_columns')
-                target_col = data_loader_params.get('target_column')
-                # LOOKBACK and BATCH_SIZE for test loader might come from task hyperparams or a specific test config
-                # Using hyperparams for now, ensure these are appropriate for test data creation
+                # IMPORTANT: Two different testing approaches:
+                # 1. CONTINUOUS TESTING (NEW - DEFAULT): Processes one sample at a time as single timesteps
+                #    - No sequence creation, no DataLoader, no lookback buffer
+                #    - Each sample fed as single timestep to LSTM: (1, 1, features)
+                #    - Hidden states persist across all test files for a single model
+                #    - Uses LSTM's natural recurrent memory for temporal dependencies
+                #    - More realistic for deployment scenarios (streaming inference)
+                # 2. SEQUENCE-BASED TESTING (OLD - FALLBACK): Creates sequences with padding, uses DataLoader
+                #    - Pads data and creates sequences of lookback length
+                #    - Resets hidden states for each sequence but maintains across batches
+                #    - More traditional approach
+                
+                # Default to new method, fallback to old dataloader method if needed
+                use_continuous_testing = True  # Set to False to use old dataloader method
+                
+                # Get lookback value for warmup
                 lookback_val = task.get('hyperparams', {}).get('LOOKBACK', 200) # Default if not found
-                batch_size_val = task.get('hyperparams', {}).get('BATCH_SIZE', 100) # Default if not found
+                
+                if use_continuous_testing:
+                    # Use continuous testing - no test loader needed
+                    file_results = self.continuous_testing_service.run_continuous_testing(
+                        task=task,
+                        model_path=model_path,
+                        test_file_path=test_file_path,
+                        is_first_file=(test_file_index == 0),
+                        warmup_samples=lookback_val  # Use lookback as warmup period
+                    )
+                else:
+                    # Fallback to old dataloader method - create test loader only when needed
+                    data_loader_params = task.get('data_loader_params', {})
+                    feature_cols = data_loader_params.get('feature_columns')
+                    target_col = data_loader_params.get('target_column')
+                    # LOOKBACK and BATCH_SIZE for test loader might come from task hyperparams or a specific test config
+                    # Using hyperparams for now, ensure these are appropriate for test data creation
+                    batch_size_val = task.get('hyperparams', {}).get('BATCH_SIZE', 100) # Default if not found
 
-                if not feature_cols or not target_col:
-                    self.logger.error(f"Missing feature_cols or target_col in task for {test_file_path}")
-                    # Optionally, put an error in the queue or skip this file
-                    continue
+                    if not feature_cols or not target_col:
+                        self.logger.error(f"Missing feature_cols or target_col in task for {test_file_path}")
+                        # Optionally, put an error in the queue or skip this file
+                        continue
 
-                test_loader = self.test_data_service.create_test_file_loader(
-                    test_file_path=test_file_path,
-                    lookback=int(lookback_val),
-                    batch_size=int(batch_size_val),
-                    feature_cols=feature_cols,
-                    target_col=target_col
-                )
-
-                # Run test for single file using the created loader
-                file_results = self.testing_service.run_testing(
-                    task=task,
-                    model_path=model_path,
-                    test_loader=test_loader,
-                    test_file_path=test_file_path
-                )
+                    test_loader = self.test_data_service.create_test_file_loader(
+                        test_file_path=test_file_path,
+                        lookback=int(lookback_val),
+                        batch_size=int(batch_size_val),
+                        feature_cols=feature_cols,
+                        target_col=target_col
+                    )
+                    
+                    file_results = self.testing_service.run_testing(
+                        task=task,
+                        model_path=model_path,
+                        test_loader=test_loader,
+                        test_file_path=test_file_path
+                    )
                 
                 if file_results is None: # Handle case where testing service run_testing fails
                     self.logger.error(f"Testing failed for {test_file_path}, skipping results processing for this file.")

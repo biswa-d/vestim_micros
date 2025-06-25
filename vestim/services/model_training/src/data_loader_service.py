@@ -64,25 +64,30 @@ class DataLoaderService:
             empty_loader = DataLoader(empty_dataset, batch_size=batch_size)
             return empty_loader, empty_loader
 
-        # Convert to PyTorch tensors
-        # Ensure y_tensor is 2D [N, 1] if it's a single target, or [N, num_targets]
-        # The handlers should ideally return y in the correct shape already (e.g. [N,] or [N,1])
-        # If y is [N,], LSTM/FNN might expect [N,1] if output_size=1.
-        # For simplicity, let's assume handlers return y that's compatible or can be squeezed/unsqueezed later if needed.
-        X_tensor = torch.tensor(X, dtype=torch.float32)
+        # Memory-efficient tensor conversion using zero-copy where possible
+        self.logger.info(f"Converting numpy arrays to PyTorch tensors...")
+        self.logger.info(f"X shape: {X.shape}, y shape: {y.shape}")
+        
+        # Ensure arrays are float32 for memory efficiency and compatibility
+        if X.dtype != np.float32:
+            X = X.astype(np.float32)
+        if y.dtype != np.float32:
+            y = y.astype(np.float32)
+        
+        # Use torch.from_numpy for zero-copy conversion (much faster and no memory duplication)
+        X_tensor = torch.from_numpy(X)  # Zero-copy conversion
+        
+        # Handle y tensor shape and conversion
         if y.ndim == 1: # If y is [N,], reshape to [N,1] for consistency if model expects 2D target
-            y_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
-        else: # Assumes y is already [N, num_targets]
-            y_tensor = torch.tensor(y, dtype=torch.float32)
+            y_tensor = torch.from_numpy(y).unsqueeze(1)
+        else: # y is already [N, num_targets]
+            y_tensor = torch.from_numpy(y)
         
         self.logger.info(f"Data loaded. X_tensor shape: {X_tensor.shape}, y_tensor shape: {y_tensor.shape}")
         
         # Clean up numpy arrays after conversion to tensors
-        y_tensor = torch.tensor(y, dtype=torch.float32)
-
-        # Clean up numpy arrays after conversion to tensors
         del X, y
-        # gc.collect()
+        gc.collect()
 
         # Create a TensorDataset
         dataset = TensorDataset(X_tensor, y_tensor)
@@ -91,7 +96,6 @@ class DataLoaderService:
 
         # Train-validation split
         train_size = int(dataset_size * train_split)
-        # valid_size = dataset_size - train_size # Not used
 
         np.random.seed(seed)
         np.random.shuffle(indices)
@@ -101,9 +105,34 @@ class DataLoaderService:
         train_sampler = SubsetRandomSampler(train_indices)
         valid_sampler = SubsetRandomSampler(valid_indices)
 
-        # Create DataLoaders with num_workers included
-        train_loader = DataLoader(dataset, batch_size=batch_size, sampler=train_sampler, drop_last=True, num_workers=num_workers)
-        val_loader = DataLoader(dataset, batch_size=batch_size, sampler=valid_sampler, drop_last=True, num_workers=num_workers)
+        # Create DataLoaders with memory optimization
+        # MEMORY FIX: Set num_workers=0 to prevent memory duplication for large datasets
+        # Large in-memory datasets are faster with single-threaded loading (no IPC overhead)
+        optimized_num_workers = 0  # Always use 0 for memory efficiency
+        
+        if num_workers > 0:
+            self.logger.info(f"Setting num_workers=0 (was {num_workers}) for memory optimization with large datasets")
+        
+        train_loader = DataLoader(
+            dataset, 
+            batch_size=batch_size, 
+            sampler=train_sampler, 
+            drop_last=True, 
+            num_workers=optimized_num_workers,
+            pin_memory=False,  # Disable pin_memory to reduce GPU memory duplication
+            prefetch_factor=1,   # Reduce prefetching to minimize memory usage
+            persistent_workers=False  # Don't keep workers alive between epochs
+        )
+        val_loader = DataLoader(
+            dataset, 
+            batch_size=batch_size, 
+            sampler=valid_sampler, 
+            drop_last=True, 
+            num_workers=optimized_num_workers,
+            pin_memory=False,
+            prefetch_factor=1,
+            persistent_workers=False
+        )
 
         # Clean up cache variables after DataLoaders are created
         del X_tensor, y_tensor, indices, train_indices, valid_indices
