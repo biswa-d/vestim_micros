@@ -85,9 +85,8 @@ class DataLoaderService:
         
         self.logger.info(f"Data loaded. X_tensor shape: {X_tensor.shape}, y_tensor shape: {y_tensor.shape}")
         
-        # Clean up numpy arrays after conversion to tensors
-        del X, y
-        gc.collect()
+        # NOTE: Do NOT delete X, y numpy arrays here since tensors share memory with them
+        # They will be cleaned up when tensors are deleted
 
         # Create a TensorDataset
         dataset = TensorDataset(X_tensor, y_tensor)
@@ -106,12 +105,19 @@ class DataLoaderService:
         valid_sampler = SubsetRandomSampler(valid_indices)
 
         # Create DataLoaders with memory optimization
-        # MEMORY FIX: Set num_workers=0 to prevent memory duplication for large datasets
-        # Large in-memory datasets are faster with single-threaded loading (no IPC overhead)
-        optimized_num_workers = 0  # Always use 0 for memory efficiency
+        # MEMORY FIX: Adaptive num_workers based on dataset size for optimal memory usage
+        # Large datasets benefit more from reduced workers than parallel loading
+        optimized_num_workers = min(num_workers, 2) if len(dataset) > 100000 else num_workers
         
-        if num_workers > 0:
-            self.logger.info(f"Setting num_workers=0 (was {num_workers}) for memory optimization with large datasets")
+        # CRITICAL: For large datasets, disable multiprocessing entirely to prevent memory duplication
+        if len(dataset) > 1000000:  # > 1M sequences
+            optimized_num_workers = 0
+            self.logger.info(f"Disabled multiprocessing for large dataset ({len(dataset)} sequences) to prevent memory duplication")
+        elif optimized_num_workers != num_workers:
+            self.logger.info(f"Reduced num_workers from {num_workers} to {optimized_num_workers} for dataset memory optimization")
+        
+        # CRITICAL FIX: Set prefetch_factor based on num_workers (must be None when num_workers=0)
+        prefetch_factor_value = 1 if optimized_num_workers > 0 else None
         
         train_loader = DataLoader(
             dataset, 
@@ -120,7 +126,7 @@ class DataLoaderService:
             drop_last=True, 
             num_workers=optimized_num_workers,
             pin_memory=False,  # Disable pin_memory to reduce GPU memory duplication
-            prefetch_factor=1,   # Reduce prefetching to minimize memory usage
+            prefetch_factor=prefetch_factor_value,  # None when num_workers=0, 1 otherwise
             persistent_workers=False  # Don't keep workers alive between epochs
         )
         val_loader = DataLoader(
@@ -130,12 +136,20 @@ class DataLoaderService:
             drop_last=True, 
             num_workers=optimized_num_workers,
             pin_memory=False,
-            prefetch_factor=1,
+            prefetch_factor=prefetch_factor_value,  # None when num_workers=0, 1 otherwise
             persistent_workers=False
         )
 
         # Clean up cache variables after DataLoaders are created
         del X_tensor, y_tensor, indices, train_indices, valid_indices
         gc.collect()
+        
+        # Memory monitoring
+        try:
+            import psutil
+            current_memory = psutil.Process().memory_info().rss / 1024 / 1024
+            self.logger.info(f"Memory after DataLoader creation: {current_memory:.1f} MB")
+        except ImportError:
+            pass
 
         return train_loader, val_loader
