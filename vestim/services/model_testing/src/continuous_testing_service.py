@@ -84,50 +84,31 @@ class ContinuousTestingService:
             original_len = len(df)
             print(f"Processing {original_len} samples from {test_file_path}")
             
-            # Check if test file is already processed/scaled
-            is_processed_file = ('processed' in test_file_path.lower() or 
-                               'processed_data' in test_file_path.lower())
+            # Check if normalization was applied during training
+            job_meta = task.get('job_metadata', {})
+            normalization_applied = job_meta.get('normalization_applied', False)
             
-            if is_processed_file:
-                print(f"Detected processed/scaled test file: {test_file_path}")
-                # For processed files, use data directly (already scaled)
-                all_required_cols = feature_cols + [target_col]
-                df_scaled = df[all_required_cols].select_dtypes(include=[np.number])
-                print("Using processed data directly without additional normalization")
+            # Fallback: check hyperparams if not in job_metadata
+            if not normalization_applied:
+                hyperparams = task.get('hyperparams', {})
+                normalization_applied = hyperparams.get('NORMALIZATION_APPLIED', False)
+                if normalization_applied:
+                    print("Found normalization flag in hyperparams")
+            
+            print(f"Normalization applied during training: {normalization_applied}")
+            
+            # Load processed test data - processed files contain all data augmentations
+            # including normalization if it was applied during data augmentation
+            print(f"Loading processed test file: {test_file_path}")
+            all_required_cols = feature_cols + [target_col]
+            df_scaled = df[all_required_cols].select_dtypes(include=[np.number])
+            
+            if normalization_applied:
+                print("Using processed data (already normalized during data augmentation)")
             else:
-                print(f"Detected raw test file: {test_file_path}")
-                # Preprocess columns for raw data
-                if self.scaler is not None:
-                    expected_cols = list(self.scaler.feature_names_in_)
-                    
-                    # Handle TimeStamp conversion
-                    if 'TimeStamp' in df.columns and not np.issubdtype(df['TimeStamp'].dtype, np.number):
-                        df['TimeStamp'] = pd.to_datetime(df['TimeStamp'], errors='coerce')
-                        df['TimeStamp'] = (df['TimeStamp'] - df['TimeStamp'].iloc[0]).dt.total_seconds().fillna(0)
-                    
-                    # Handle Status conversion
-                    if 'Status' in df.columns and not np.issubdtype(df['Status'].dtype, np.number):
-                        try:
-                            df['Status'] = pd.to_numeric(df['Status'], errors='coerce').fillna(0)
-                        except:
-                            df['Status'] = 0
-                    
-                    # Add missing columns and reorder
-                    for col in expected_cols:
-                        if col not in df.columns:
-                            df[col] = 0
-                    df = df[expected_cols]
-                    
-                    # Apply normalization only for raw data
-                    df_scaled = pd.DataFrame(self.scaler.transform(df), columns=expected_cols)
-                    print("Applied normalization to raw data")
-                else:
-                    # No scaler - use original data but ensure correct columns
-                    all_required_cols = feature_cols + [target_col]
-                    df_scaled = df[all_required_cols].select_dtypes(include=[np.number])
-                    print("No scaler available - using raw data directly")
+                print("Using processed data (no normalization was applied during data augmentation)")
             
-            # Handle warmup for first file (like your reference)
+            # Always handle warmup for first file (regardless of normalization)
             if is_first_file:
                 print(f"Adding {warmup_samples} warmup samples for first file")
                 first_row = df_scaled.iloc[0]
@@ -173,9 +154,10 @@ class ContinuousTestingService:
             y_pred_arr = y_preds.cpu().numpy()
             
             print(f"Generated {len(y_pred_arr)} predictions (after warmup: {warmup_samples if is_first_file else 0})")
-            print(f"Data processing mode: {'processed file' if is_processed_file else 'raw file'}")
+            print(f"Data processing mode: processed file (from data augmentation pipeline)")
+            print(f"Normalization was applied during training: {normalization_applied}")
             print(f"Data shapes - Predictions: {y_pred_arr.shape}, True values: {y_true.shape}")
-            print(f"Sample scaled values - Pred: {y_pred_arr[:3]}, True: {y_true[:3]}")
+            print(f"Sample values - Pred: {y_pred_arr[:3]}, True: {y_true[:3]}")
             
             # Ensure proper alignment
             min_len = min(len(y_pred_arr), len(y_true))
@@ -184,12 +166,19 @@ class ContinuousTestingService:
                 y_pred_arr = y_pred_arr[:min_len]
                 y_true = y_true[:min_len]
             
-            # Denormalize if scaler was used
-            if self.scaler is not None:
-                print("Denormalizing predictions and true values")
+            # Check if normalization was applied during training to determine if denormalization is needed
+            job_meta = task.get('job_metadata', {})
+            normalization_applied = job_meta.get('normalization_applied', False)
+            
+            # Denormalize only if normalization was applied during training AND scaler is available
+            if normalization_applied and self.scaler is not None:
+                print("Normalization was applied during training - denormalizing predictions and true values")
                 y_pred_denorm, y_true_denorm = self._denormalize_values(y_pred_arr, y_true, target_col)
             else:
-                print("No denormalization needed - no scaler available")
+                if not normalization_applied:
+                    print("No normalization was applied during training - using values as-is")
+                else:
+                    print("Normalization was applied but no scaler available - using scaled values")
                 y_pred_denorm, y_true_denorm = y_pred_arr, y_true
             
             # Calculate metrics and format results
@@ -238,10 +227,11 @@ class ContinuousTestingService:
             return None
     
     def _denormalize_values(self, y_pred, y_true, target_col):
-        """Denormalize predictions and true values using MinMaxScaler formula."""
+        """Denormalize predictions and true values using MinMaxScaler formula.
+        This should only be called when normalization was applied during training."""
         try:
             if self.scaler is None:
-                print("No scaler available for denormalization")
+                print("WARNING: Denormalization requested but no scaler available")
                 return y_pred, y_true
             
             # Get target column index
@@ -258,7 +248,7 @@ class ContinuousTestingService:
             print(f"  Scale (max-min): {target_scale}")
             
             # Show sample values before denormalization
-            print(f"Sample scaled values - Pred: {y_pred[:3]}, True: {y_true[:3]}")
+            print(f"Sample normalized values - Pred: {y_pred[:3]}, True: {y_true[:3]}")
             
             # Apply MinMaxScaler denormalization formula: X_orig = X_scaled * (max - min) + min
             y_pred_denorm = y_pred * target_scale + target_min
@@ -275,7 +265,7 @@ class ContinuousTestingService:
             print(f"Error denormalizing values: {e}")
             import traceback
             traceback.print_exc()
-            print("Returning original scaled values")
+            print("Returning original values")
             return y_pred, y_true
     
     def _calculate_metrics_and_format_results(self, y_pred, y_true, target_col, task):
