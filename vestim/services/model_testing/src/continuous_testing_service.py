@@ -84,34 +84,48 @@ class ContinuousTestingService:
             original_len = len(df)
             print(f"Processing {original_len} samples from {test_file_path}")
             
-            # Preprocess columns (similar to your reference code)
-            if self.scaler is not None:
-                expected_cols = list(self.scaler.feature_names_in_)
-                
-                # Handle TimeStamp conversion
-                if 'TimeStamp' in df.columns and not np.issubdtype(df['TimeStamp'].dtype, np.number):
-                    df['TimeStamp'] = pd.to_datetime(df['TimeStamp'], errors='coerce')
-                    df['TimeStamp'] = (df['TimeStamp'] - df['TimeStamp'].iloc[0]).dt.total_seconds().fillna(0)
-                
-                # Handle Status conversion
-                if 'Status' in df.columns and not np.issubdtype(df['Status'].dtype, np.number):
-                    try:
-                        df['Status'] = pd.to_numeric(df['Status'], errors='coerce').fillna(0)
-                    except:
-                        df['Status'] = 0
-                
-                # Add missing columns and reorder
-                for col in expected_cols:
-                    if col not in df.columns:
-                        df[col] = 0
-                df = df[expected_cols]
-                
-                # Apply normalization
-                df_scaled = pd.DataFrame(self.scaler.transform(df), columns=expected_cols)
-            else:
-                # No scaler - use original data but ensure correct columns
+            # Check if test file is already processed/scaled
+            is_processed_file = ('processed' in test_file_path.lower() or 
+                               'processed_data' in test_file_path.lower())
+            
+            if is_processed_file:
+                print(f"Detected processed/scaled test file: {test_file_path}")
+                # For processed files, use data directly (already scaled)
                 all_required_cols = feature_cols + [target_col]
                 df_scaled = df[all_required_cols].select_dtypes(include=[np.number])
+                print("Using processed data directly without additional normalization")
+            else:
+                print(f"Detected raw test file: {test_file_path}")
+                # Preprocess columns for raw data
+                if self.scaler is not None:
+                    expected_cols = list(self.scaler.feature_names_in_)
+                    
+                    # Handle TimeStamp conversion
+                    if 'TimeStamp' in df.columns and not np.issubdtype(df['TimeStamp'].dtype, np.number):
+                        df['TimeStamp'] = pd.to_datetime(df['TimeStamp'], errors='coerce')
+                        df['TimeStamp'] = (df['TimeStamp'] - df['TimeStamp'].iloc[0]).dt.total_seconds().fillna(0)
+                    
+                    # Handle Status conversion
+                    if 'Status' in df.columns and not np.issubdtype(df['Status'].dtype, np.number):
+                        try:
+                            df['Status'] = pd.to_numeric(df['Status'], errors='coerce').fillna(0)
+                        except:
+                            df['Status'] = 0
+                    
+                    # Add missing columns and reorder
+                    for col in expected_cols:
+                        if col not in df.columns:
+                            df[col] = 0
+                    df = df[expected_cols]
+                    
+                    # Apply normalization only for raw data
+                    df_scaled = pd.DataFrame(self.scaler.transform(df), columns=expected_cols)
+                    print("Applied normalization to raw data")
+                else:
+                    # No scaler - use original data but ensure correct columns
+                    all_required_cols = feature_cols + [target_col]
+                    df_scaled = df[all_required_cols].select_dtypes(include=[np.number])
+                    print("No scaler available - using raw data directly")
             
             # Handle warmup for first file (like your reference)
             if is_first_file:
@@ -159,11 +173,23 @@ class ContinuousTestingService:
             y_pred_arr = y_preds.cpu().numpy()
             
             print(f"Generated {len(y_pred_arr)} predictions (after warmup: {warmup_samples if is_first_file else 0})")
+            print(f"Data processing mode: {'processed file' if is_processed_file else 'raw file'}")
+            print(f"Data shapes - Predictions: {y_pred_arr.shape}, True values: {y_true.shape}")
+            print(f"Sample scaled values - Pred: {y_pred_arr[:3]}, True: {y_true[:3]}")
+            
+            # Ensure proper alignment
+            min_len = min(len(y_pred_arr), len(y_true))
+            if len(y_pred_arr) != len(y_true):
+                print(f"Warning: Length mismatch detected. Truncating to {min_len} samples.")
+                y_pred_arr = y_pred_arr[:min_len]
+                y_true = y_true[:min_len]
             
             # Denormalize if scaler was used
             if self.scaler is not None:
+                print("Denormalizing predictions and true values")
                 y_pred_denorm, y_true_denorm = self._denormalize_values(y_pred_arr, y_true, target_col)
             else:
+                print("No denormalization needed - no scaler available")
                 y_pred_denorm, y_true_denorm = y_pred_arr, y_true
             
             # Calculate metrics and format results
@@ -212,28 +238,44 @@ class ContinuousTestingService:
             return None
     
     def _denormalize_values(self, y_pred, y_true, target_col):
-        """Denormalize predictions and true values."""
+        """Denormalize predictions and true values using MinMaxScaler formula."""
         try:
             if self.scaler is None:
+                print("No scaler available for denormalization")
                 return y_pred, y_true
             
             # Get target column index
             target_idx = list(self.scaler.feature_names_in_).index(target_col)
             
-            # Get denormalization parameters
+            # Get denormalization parameters for MinMaxScaler: X_orig = X_scaled * (max - min) + min
             target_min = self.scaler.data_min_[target_idx]
             target_max = self.scaler.data_max_[target_idx]
             target_scale = target_max - target_min
             
-            # Denormalize
+            print(f"Denormalization parameters for {target_col}:")
+            print(f"  Data min: {target_min}")
+            print(f"  Data max: {target_max}")
+            print(f"  Scale (max-min): {target_scale}")
+            
+            # Show sample values before denormalization
+            print(f"Sample scaled values - Pred: {y_pred[:3]}, True: {y_true[:3]}")
+            
+            # Apply MinMaxScaler denormalization formula: X_orig = X_scaled * (max - min) + min
             y_pred_denorm = y_pred * target_scale + target_min
             y_true_denorm = y_true * target_scale + target_min
+            
+            # Show sample values after denormalization
+            print(f"Sample denormalized values - Pred: {y_pred_denorm[:3]}, True: {y_true_denorm[:3]}")
+            print(f"Denormalized value ranges - Pred: [{y_pred_denorm.min():.3f}, {y_pred_denorm.max():.3f}], True: [{y_true_denorm.min():.3f}, {y_true_denorm.max():.3f}]")
             
             print(f"Successfully denormalized values for {target_col}")
             return y_pred_denorm, y_true_denorm
             
         except Exception as e:
             print(f"Error denormalizing values: {e}")
+            import traceback
+            traceback.print_exc()
+            print("Returning original scaled values")
             return y_pred, y_true
     
     def _calculate_metrics_and_format_results(self, y_pred, y_true, target_col, task):
