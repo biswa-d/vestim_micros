@@ -616,6 +616,7 @@ class TrainingTaskManager:
                         'patience_counter': patience_counter,
                     }
                     update_progress_callback.emit(progress_data)
+                    self.logger.info(f"GUI updated for validation epoch {epoch} (ValidFreq={valid_freq})")
 
                     if patience_counter > valid_patience:
                         early_stopping = True
@@ -730,7 +731,9 @@ class TrainingTaskManager:
                             'learning_rate': current_lr, 
                             'status': f"Epoch {epoch}/{max_epochs} - Training..."
                         }
-                        update_progress_callback.emit(progress_data_train_only)
+                        # DON'T update GUI for non-validation epochs - only during validation
+                        # update_progress_callback.emit(progress_data_train_only)
+                        self.logger.info(f"Epoch {epoch}/{max_epochs} - Training only (no validation, ValidFreq={valid_freq}) - GUI not updated")
 # This block is for epochs where validation did not run.
                         current_time_train_only = time.time()
                         elapsed_time_train_only = current_time_train_only - loop_start_time # Changed start_time to loop_start_time
@@ -816,7 +819,8 @@ class TrainingTaskManager:
                             'learning_rate': current_lr, 
                             'status': f"Epoch {epoch}/{max_epochs} - Training..."
                         }
-                        update_progress_callback.emit(progress_data_train_only)
+                        # DON'T update GUI for non-validation epochs - only during validation
+                        # update_progress_callback.emit(progress_data_train_only)
                         # self.log_to_sqlite(
                         #     task=task, epoch=epoch, train_loss=train_loss_norm,
                         #     val_loss=float('nan'),

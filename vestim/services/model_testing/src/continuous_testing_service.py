@@ -103,6 +103,24 @@ class ContinuousTestingService:
             all_required_cols = feature_cols + [target_col]
             df_scaled = df[all_required_cols].select_dtypes(include=[np.number])
             
+            # Debug: Check what the processed data looks like
+            print(f"DEBUG - Processed test data analysis:")
+            print(f"  Available columns: {df_scaled.columns.tolist()}")
+            print(f"  Target column '{target_col}' sample values: {df_scaled[target_col].iloc[:5].values}")
+            print(f"  Target column range: [{df_scaled[target_col].min():.6f}, {df_scaled[target_col].max():.6f}]")
+            
+            # Debug: Check if scaler is available and what type it is
+            if self.scaler is not None:
+                print(f"  Scaler type: {type(self.scaler)}")
+                print(f"  Scaler feature names: {list(self.scaler.feature_names_in_) if hasattr(self.scaler, 'feature_names_in_') else 'None'}")
+                if hasattr(self.scaler, 'data_min_') and hasattr(self.scaler, 'data_max_'):
+                    print(f"  Scaler data_min_: {self.scaler.data_min_}")
+                    print(f"  Scaler data_max_: {self.scaler.data_max_}")
+                if hasattr(self.scaler, 'feature_range'):
+                    print(f"  Scaler feature_range: {self.scaler.feature_range}")
+            else:
+                print(f"  Scaler: None (not loaded)")
+            
             if normalization_applied:
                 print("Using processed data (already normalized during data augmentation)")
             else:
@@ -170,6 +188,13 @@ class ContinuousTestingService:
             job_meta = task.get('job_metadata', {})
             normalization_applied = job_meta.get('normalization_applied', False)
             
+            # Debug: Show raw values before any denormalization
+            print(f"DEBUG - Before denormalization:")
+            print(f"  Raw predictions (first 5): {y_pred_arr[:5]}")
+            print(f"  Raw true values (first 5): {y_true[:5]}")
+            print(f"  Prediction range: [{y_pred_arr.min():.6f}, {y_pred_arr.max():.6f}]")
+            print(f"  True values range: [{y_true.min():.6f}, {y_true.max():.6f}]")
+            
             # Denormalize only if normalization was applied during training AND scaler is available
             if normalization_applied and self.scaler is not None:
                 print("Normalization was applied during training - denormalizing predictions and true values")
@@ -180,6 +205,14 @@ class ContinuousTestingService:
                 else:
                     print("Normalization was applied but no scaler available - using scaled values")
                 y_pred_denorm, y_true_denorm = y_pred_arr, y_true
+            
+            # Debug: Show final values after denormalization
+            print(f"DEBUG - After denormalization (final values for metrics):")
+            print(f"  Final predictions (first 5): {y_pred_denorm[:5]}")
+            print(f"  Final true values (first 5): {y_true_denorm[:5]}")
+            print(f"  Final prediction range: [{y_pred_denorm.min():.6f}, {y_pred_denorm.max():.6f}]")
+            print(f"  Final true values range: [{y_true_denorm.min():.6f}, {y_true_denorm.max():.6f}]")
+            print(f"  Values are in original physical units: {not normalization_applied or (normalization_applied and self.scaler is not None)}")
             
             # Calculate metrics and format results
             results = self._calculate_metrics_and_format_results(
@@ -220,6 +253,17 @@ class ContinuousTestingService:
             
             scaler = joblib.load(scaler_path)
             print(f"Loaded scaler from {scaler_path}")
+            print(f"DEBUG - Scaler details:")
+            print(f"  Type: {type(scaler)}")
+            print(f"  Feature names: {list(scaler.feature_names_in_) if hasattr(scaler, 'feature_names_in_') else 'None'}")
+            if hasattr(scaler, 'data_min_') and hasattr(scaler, 'data_max_'):
+                print(f"  data_min_: {scaler.data_min_}")
+                print(f"  data_max_: {scaler.data_max_}")
+            if hasattr(scaler, 'feature_range'):
+                print(f"  feature_range: {scaler.feature_range}")
+            if hasattr(scaler, 'mean_') and hasattr(scaler, 'scale_'):
+                print(f"  mean_: {scaler.mean_}")
+                print(f"  scale_: {scaler.scale_}")
             return scaler
             
         except Exception as e:
@@ -237,12 +281,22 @@ class ContinuousTestingService:
             # Get target column index
             target_idx = list(self.scaler.feature_names_in_).index(target_col)
             
-            # Get denormalization parameters for MinMaxScaler: X_orig = X_scaled * (max - min) + min
-            target_min = self.scaler.data_min_[target_idx]
-            target_max = self.scaler.data_max_[target_idx]
+            # Handle both 1D and 2D scaler arrays (matching reference code exactly)
+            if isinstance(self.scaler.data_min_, np.ndarray) and len(self.scaler.data_min_.shape) == 2:
+                # 2D array case: shape (1, n_features)
+                target_min = self.scaler.data_min_[0][target_idx]
+                target_max = self.scaler.data_max_[0][target_idx]
+            else:
+                # 1D array case: shape (n_features,)
+                target_min = self.scaler.data_min_[target_idx]
+                target_max = self.scaler.data_max_[target_idx]
+            
             target_scale = target_max - target_min
             
             print(f"Denormalization parameters for {target_col}:")
+            print(f"  Target index: {target_idx}")
+            print(f"  Scaler data_min_ shape: {self.scaler.data_min_.shape}")
+            print(f"  Scaler data_max_ shape: {self.scaler.data_max_.shape}")
             print(f"  Data min: {target_min}")
             print(f"  Data max: {target_max}")
             print(f"  Scale (max-min): {target_scale}")
