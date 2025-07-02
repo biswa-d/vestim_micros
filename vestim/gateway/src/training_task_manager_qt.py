@@ -910,6 +910,18 @@ class TrainingTaskManager:
             update_progress_callback.emit({'task_error': str(e)})
         # Correctly indented finally for the try block starting at line 318
         finally:
+            # Clean up dataloaders to free memory
+            try:
+                if 'train_loader' in locals():
+                    del train_loader
+                if 'val_loader' in locals():
+                    del val_loader
+                import gc
+                gc.collect()
+                self.logger.info("Cleaned up dataloaders and performed garbage collection")
+            except Exception as cleanup_error:
+                self.logger.warning(f"Error during dataloader cleanup: {cleanup_error}")
+            
             best_model_path_final = task.get('training_params', {}).get('best_model_path', 'N/A')
             job_folder_final = self.job_manager.get_job_folder()
             if best_model_path_final != 'N/A' and job_folder_final in best_model_path_final:
