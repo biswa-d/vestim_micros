@@ -4,7 +4,7 @@
 # Version: 1.1.0
 # Description: 
 # Entry file for the program and gives the user an UI and to choose folders to select train and test data from.
-# Now it has Arbin, STLA and Digatron data sources to choose from from the dropdown menu
+# Now it has Digatron, Arbin, STLA and Biologic data sources to choose from from the dropdown menu (Digatron as default)
 # Shows the progress bar for file conversion and the STLA and Arbin data processors are used to convert the files from mat to csv and organize them
 # The job folder is created and the files are copied and converted to the respective folders as train raw and processed and similar for test files
 # 
@@ -136,7 +136,7 @@ class DataImportGUI(QMainWindow):
 
         # Data source selection with consistent height and styling
         self.data_source_combo = QComboBox(self)
-        self.data_source_combo.addItems(["Arbin", "STLA", "Digatron", "Biologic"])  # Added Biologic
+        self.data_source_combo.addItems(["Digatron", "Arbin", "STLA", "Biologic"])  # Digatron as default/top option
         self.data_source_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
         self.data_source_combo.setFixedWidth(120)  # Set a specific width for the ComboBox
         self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
