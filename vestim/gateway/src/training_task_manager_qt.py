@@ -15,6 +15,13 @@ def format_time(seconds):
     seconds = int(seconds % 60)
     return f"{minutes:02d}:{seconds:02d}"
 
+def format_time_long(seconds):
+    """Convert seconds to hh:mm:ss format for longer durations."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = int(seconds % 60)
+    return f"{hours:02d}h:{minutes:02d}m:{seconds:02d}s"
+
 class TrainingTaskManager:
     def __init__(self, global_params=None):
         self.logger = logging.getLogger(__name__)
@@ -27,6 +34,9 @@ class TrainingTaskManager:
         self.global_params = global_params if global_params else {}
         self.loaded_scaler = None # For storing the loaded scaler
         self.scaler_metadata = {} # For storing normalization metadata (path, columns, target)
+        
+        # Initialize job-level timer (will be set when first task starts)
+        self.job_start_time = None
         
         # Determine device based on global_params or fallback
         selected_device_str = self.global_params.get('DEVICE_SELECTION', 'cuda:0')
@@ -103,6 +113,11 @@ class TrainingTaskManager:
 
     def process_task(self, task, update_progress_callback):
         """Process a single training task and set up logging."""
+        # Initialize job-level timer on first task
+        if self.job_start_time is None:
+            self.job_start_time = time.time()
+            self.logger.info("Job-level timer started for first task")
+        
         # Initialize task timer at the very beginning
         self.task_start_time = time.time()
         
@@ -616,6 +631,9 @@ class TrainingTaskManager:
                     # Calculate task-level elapsed time
                     task_elapsed_time = time.time() - self.task_start_time if hasattr(self, 'task_start_time') else elapsed_time
                     
+                    # Calculate job-level elapsed time
+                    job_elapsed_time = time.time() - self.job_start_time if hasattr(self, 'job_start_time') and self.job_start_time is not None else 0
+                    
                     progress_data = {
                         'epoch': epoch,
                         'train_loss': train_loss_norm,
@@ -625,6 +643,9 @@ class TrainingTaskManager:
                         'error_unit_label': error_unit_label,
                         'elapsed_time': elapsed_time,
                         'task_elapsed_time': task_elapsed_time,  # Total task time
+                        'job_elapsed_time': job_elapsed_time,   # Total job time (all tasks)
+                        'formatted_task_time': format_time(task_elapsed_time),  # Formatted task time
+                        'formatted_job_time': format_time_long(job_elapsed_time),  # Formatted job time
                         'delta_t_epoch': formatted_epoch_time,
                         'learning_rate': current_lr,
                         'best_val_loss': best_validation_loss, # This is normalized best MSE
@@ -925,12 +946,18 @@ class TrainingTaskManager:
             final_task_elapsed_time = time.time() - self.task_start_time if hasattr(self, 'task_start_time') else 0
             formatted_task_time = format_time(final_task_elapsed_time)
             
+            # Calculate final job elapsed time
+            final_job_elapsed_time = time.time() - self.job_start_time if hasattr(self, 'job_start_time') and self.job_start_time is not None else 0
+            formatted_job_time = format_time_long(final_job_elapsed_time)
+            
             update_progress_callback.emit({
                 'task_completed': True, 
                 'final_task_elapsed_time': final_task_elapsed_time,
-                'formatted_task_time': formatted_task_time
+                'formatted_task_time': formatted_task_time,
+                'final_job_elapsed_time': final_job_elapsed_time,
+                'formatted_job_time': formatted_job_time
             })
-            self.logger.info(f"Training task completed in {formatted_task_time}")
+            self.logger.info(f"Training task completed in {formatted_task_time}. Total job time: {formatted_job_time}")
         # Correctly indented except for the try block starting at line 318
         except Exception as e:
             self.logger.error(f"Error during training for task {task.get('task_id', 'N/A')}: {str(e)}", exc_info=True)

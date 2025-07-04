@@ -318,19 +318,34 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Time Layout
         time_layout = QHBoxLayout()
 
-        # Time tracking label (move it just below the title)
-        time_layout = QHBoxLayout()
+        # Time tracking labels (current task and total job time)
+        # Current Task Time
+        task_time_layout = QHBoxLayout()
         self.static_text_label = QLabel("Current Task Time:") # Changed label
         self.static_text_label.setStyleSheet("color: blue; font-size: 10pt;")
         self.time_value_label = QLabel("00h:00m:00s")
         self.time_value_label.setStyleSheet("color: purple; font-size: 11pt; font-weight: bold;")
         # Align both the label and the value in the same row, close to each other
-        time_layout.addStretch(1)  # Adds space to push both labels to the center
-        time_layout.addWidget(self.static_text_label)
-        time_layout.addWidget(self.time_value_label)
-        time_layout.addStretch(1)  # Adds space after the labels to keep them centered
-        # Add the time layout to the main layout
-        self.main_layout.addLayout(time_layout)
+        task_time_layout.addStretch(1)  # Adds space to push both labels to the center
+        task_time_layout.addWidget(self.static_text_label)
+        task_time_layout.addWidget(self.time_value_label)
+        task_time_layout.addStretch(1)  # Adds space after the labels to keep them centered
+        
+        # Total Job Time
+        job_time_layout = QHBoxLayout()
+        self.job_text_label = QLabel("Total Training Time:")
+        self.job_text_label.setStyleSheet("color: green; font-size: 10pt;")
+        self.job_time_value_label = QLabel("00h:00m:00s")
+        self.job_time_value_label.setStyleSheet("color: darkgreen; font-size: 11pt; font-weight: bold;")
+        # Align both the label and the value in the same row, close to each other
+        job_time_layout.addStretch(1)  # Adds space to push both labels to the center
+        job_time_layout.addWidget(self.job_text_label)
+        job_time_layout.addWidget(self.job_time_value_label)
+        job_time_layout.addStretch(1)  # Adds space after the labels to keep them centered
+        
+        # Add both time layouts to the main layout
+        self.main_layout.addLayout(task_time_layout)
+        self.main_layout.addLayout(job_time_layout)
 
         # Plot Setup
         max_epochs = int(task['hyperparams']['MAX_EPOCHS'])
@@ -424,7 +439,9 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.status_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: #004d99;")
 
         # Start processing tasks sequentially
-        self.start_time = time.time()
+        # Only set start_time for the first task (job start time)
+        if self.current_task_index == 0:
+            self.start_time = time.time()
         self.clear_plot()
 
         # Start the training task in a background thread
@@ -448,12 +465,16 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
     def update_elapsed_time(self):
         if self.timer_running:
+            # Calculate total job elapsed time for smooth real-time display
             elapsed_time = time.time() - self.start_time
             hours, remainder = divmod(elapsed_time, 3600)
             minutes, seconds = divmod(remainder, 60)
 
-            # Update the time label to show the elapsed time
-            self.time_value_label.setText(f" {int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
+            # Update the job time label (Total Training Time) with smooth real-time updates
+            self.job_time_value_label.setText(f" {int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
+            
+            # Note: Current Task Time is updated by backend data in update_gui_after_epoch()
+            # This provides accurate task-specific timing while job timer updates smoothly
 
             # Call this method again after 1 second
             QTimer.singleShot(1000, self.update_elapsed_time)
@@ -494,7 +515,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
                 # Handle task completion messages
                 elif 'task_completed' in progress_data:
-                    self.task_completed()
+                    self.task_completed(progress_data)
                     break
 
         except Empty:
@@ -552,6 +573,14 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
             # Ensure the log scrolls to the bottom
             self.log_text.moveCursor(self.log_text.textCursor().End)
+            
+            # Update timer display with task elapsed time from progress data
+            if 'formatted_task_time' in progress_data:
+                self.time_value_label.setText(f" {progress_data['formatted_task_time']}")
+                # Note: Current Task Time is updated from backend for accuracy
+            
+            # Job timer (Total Training Time) is updated by GUI's real-time timer for smooth updates
+            # No need to update job_time_value_label here
 
             # Update the plot data with actual epoch numbers
             if not hasattr(self, 'epoch_points'):
@@ -722,28 +751,23 @@ class VEstimTrainingTaskGUI(QMainWindow):
             print(f"Failed to save training history plot: {str(e)}")
 
         if self.isVisible():  # Check if the window still exists
-            total_training_time = time.time() - self.start_time
-            total_hours, total_remainder = divmod(total_training_time, 3600)
-            total_minutes, total_seconds = divmod(total_remainder, 60)
-            formatted_total_time = f"{int(total_hours):02}h:{int(total_minutes):02}m:{int(total_seconds):02}s"
-
-            # Update time label
-            self.static_text_label.setText("Total Training Time:")
-            self.static_text_label.setStyleSheet("color: blue; font-size: 12pt; font-weight: bold;")
-            self.time_value_label.setText(formatted_total_time)
-            self.time_value_label.setStyleSheet("color: purple; font-size: 12pt; font-weight: bold;")
-
             # Check if the training process was stopped early
             if getattr(self, 'training_process_stopped', False):
                 self.status_label.setText("Training stopped early. Saving model to task folder...")
                 self.status_label.setStyleSheet("color: #b22222; font-size: 14pt; font-weight: bold;")  # Reddish color
             else:
-                self.status_label.setText("All Training Tasks Completed!")
-                self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
+                # Only show completion message if this is the last task
+                if self.current_task_index >= len(self.task_list) - 1:
+                    self.status_label.setText("All Training Tasks Completed!")
+                    self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
+                else:
+                    self.status_label.setText(f"Task {self.current_task_index + 1}/{len(self.task_list)} completed. Preparing next task...")
+                    self.status_label.setStyleSheet("color: #004d99; font-size: 12pt; font-weight: bold;")
 
-            # Ensure the "Proceed to Testing" button is displayed in both cases
-            self.stop_button.hide()
-            self.show_proceed_to_testing_button()
+            # Only show the "Proceed to Testing" button if training is stopped or all tasks are completed
+            if getattr(self, 'training_process_stopped', False) or self.current_task_index >= len(self.task_list) - 1:
+                self.stop_button.hide()
+                self.show_proceed_to_testing_button()
 
         # Handle the case where the window has been destroyed
         else:
@@ -754,6 +778,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             print(f"Completed task {self.current_task_index + 1}/{len(self.task_list)}.")
             self.current_task_index += 1
             self.task_completed_flag = False  # Reset the flag for the next task
+            self.timer_running = True  # Re-enable timer for the next task
             self.build_gui(self.task_list[self.current_task_index])
             self.start_task_processing()
         else:
