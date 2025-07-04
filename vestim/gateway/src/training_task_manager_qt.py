@@ -103,6 +103,9 @@ class TrainingTaskManager:
 
     def process_task(self, task, update_progress_callback):
         """Process a single training task and set up logging."""
+        # Initialize task timer at the very beginning
+        self.task_start_time = time.time()
+        
         try:
             # Concise log for starting task
             h_params_summary = {
@@ -328,6 +331,14 @@ class TrainingTaskManager:
     def run_training(self, task, update_progress_callback, train_loader, val_loader, device):
         """Run the training process for a single task."""
         try:
+            # Proactive cleanup of any existing dataloaders before starting new task
+            try:
+                import gc
+                gc.collect()  # Initial cleanup
+                self.logger.info("Performed initial garbage collection before starting new training task")
+            except Exception as initial_cleanup_error:
+                self.logger.warning(f"Error during initial cleanup: {initial_cleanup_error}")
+            
             self.logger.info(f"--- Starting run_training for task: {task['task_id']} ---") # Added detailed log
             self.logger.info("Starting training loop")
             # Initialize/reset task-specific best original scale validation RMSE tracker
@@ -601,6 +612,10 @@ class TrainingTaskManager:
                         ])
                     
                     self.logger.info(f"Epoch {epoch} | Train Loss (Norm): {train_loss_norm:.6f} | Val Loss (Norm): {val_loss_norm:.6f} | GUI Train RMSE: {train_rmse_for_gui:.4f} {error_unit_label} | GUI Val RMSE: {val_rmse_for_gui:.4f} {error_unit_label} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss (Norm): {best_validation_loss:.6f} | GUI Best Val RMSE: {best_val_rmse_for_gui:.4f} {error_unit_label} | Patience: {patience_counter}")
+                    
+                    # Calculate task-level elapsed time
+                    task_elapsed_time = time.time() - self.task_start_time if hasattr(self, 'task_start_time') else elapsed_time
+                    
                     progress_data = {
                         'epoch': epoch,
                         'train_loss': train_loss_norm,
@@ -609,6 +624,7 @@ class TrainingTaskManager:
                         'val_rmse_scaled': val_rmse_for_gui,
                         'error_unit_label': error_unit_label,
                         'elapsed_time': elapsed_time,
+                        'task_elapsed_time': task_elapsed_time,  # Total task time
                         'delta_t_epoch': formatted_epoch_time,
                         'learning_rate': current_lr,
                         'best_val_loss': best_validation_loss, # This is normalized best MSE
@@ -717,6 +733,8 @@ class TrainingTaskManager:
                             ])
                         
                         # Update GUI via signal (for non-validation epochs)
+                        task_elapsed_time_train_only = time.time() - self.task_start_time if hasattr(self, 'task_start_time') else elapsed_time_train_only
+                        
                         progress_data_train_only = {
                             'epoch': epoch,
                             'train_loss_norm': train_loss_norm, 
@@ -727,6 +745,7 @@ class TrainingTaskManager:
                             'error_unit_label': current_error_unit_label_no_val, 
                             'delta_t_epoch': formatted_epoch_time, 
                             'elapsed_time': format_time(elapsed_time_train_only), 
+                            'task_elapsed_time': task_elapsed_time_train_only,  # Total task time
                             'patience_counter': patience_counter, 
                             'learning_rate': current_lr, 
                             'status': f"Epoch {epoch}/{max_epochs} - Training..."
@@ -902,14 +921,34 @@ class TrainingTaskManager:
             # REMOVED unconditional final save: self.save_model(task)
             self.logger.info(f"Training loop finished for task {task['task_id']}. Best model is at: {task.get('training_params', {}).get('best_model_path')}")
 
-            update_progress_callback.emit({'task_completed': True})
-            self.logger.info("Training task completed")
+            # Calculate final task elapsed time
+            final_task_elapsed_time = time.time() - self.task_start_time if hasattr(self, 'task_start_time') else 0
+            formatted_task_time = format_time(final_task_elapsed_time)
+            
+            update_progress_callback.emit({
+                'task_completed': True, 
+                'final_task_elapsed_time': final_task_elapsed_time,
+                'formatted_task_time': formatted_task_time
+            })
+            self.logger.info(f"Training task completed in {formatted_task_time}")
         # Correctly indented except for the try block starting at line 318
         except Exception as e:
             self.logger.error(f"Error during training for task {task.get('task_id', 'N/A')}: {str(e)}", exc_info=True)
             update_progress_callback.emit({'task_error': str(e)})
         # Correctly indented finally for the try block starting at line 318
         finally:
+            # Clean up dataloaders to free memory
+            try:
+                if 'train_loader' in locals():
+                    del train_loader
+                if 'val_loader' in locals():
+                    del val_loader
+                import gc
+                gc.collect()
+                self.logger.info("Cleaned up dataloaders and performed garbage collection")
+            except Exception as cleanup_error:
+                self.logger.warning(f"Error during dataloader cleanup: {cleanup_error}")
+            
             best_model_path_final = task.get('training_params', {}).get('best_model_path', 'N/A')
             job_folder_final = self.job_manager.get_job_folder()
             if best_model_path_final != 'N/A' and job_folder_final in best_model_path_final:
