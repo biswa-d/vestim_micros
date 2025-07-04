@@ -502,7 +502,7 @@ class VEstimHyperParamGUI(QWidget):
         self.lr_period_label = QLabel("LR Drop Period:")
         self.lr_period_label.setStyleSheet("font-size: 11pt; font-weight: bold;") # Make bold
         self.lr_period_label.setToolTip("Number of epochs after which LR is reduced.")
-        self.lr_period_entry = QLineEdit(self.params.get("LR_DROP_PERIOD", "1000"))
+        self.lr_period_entry = QLineEdit(self.params.get("LR_DROP_PERIOD", "10"))
         self.lr_period_entry.setFixedWidth(100)
         self.lr_period_entry.setToolTip("Set higher values if you want the LR to stay stable for longer periods.")
         self.param_entries["LR_PERIOD"] = self.lr_period_entry
@@ -609,7 +609,7 @@ class VEstimHyperParamGUI(QWidget):
         freq_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
         freq_label.setToolTip("Enter validation frequency. Use commas for multiple values (e.g., 1,3,5)")
 
-        self.freq_entry = QLineEdit(self.params.get("ValidFrequency", "3"))
+        self.freq_entry = QLineEdit(self.params.get("ValidFrequency", "1"))
         self.freq_entry.setFixedWidth(100)
         self.freq_entry.setToolTip("Enter validation frequency. Use commas for multiple values (e.g., 1,3,5)")
 
@@ -639,7 +639,7 @@ class VEstimHyperParamGUI(QWidget):
         time_layout.addWidget(self.max_time_hours_entry)
         time_layout.addWidget(QLabel("H :"))
         
-        self.max_time_minutes_entry = QLineEdit(self.params.get("MAX_TRAIN_MINUTES", "30"))
+        self.max_time_minutes_entry = QLineEdit(self.params.get("MAX_TRAIN_MINUTES", "0"))
         self.max_time_minutes_entry.setFixedWidth(40)
         self.max_time_minutes_entry.setPlaceholderText("MM")
         time_layout.addWidget(self.max_time_minutes_entry)
@@ -917,12 +917,12 @@ class VEstimHyperParamGUI(QWidget):
                     self.logger.info(f"Populated Max Training Time H:M:S from loaded MAX_TRAINING_TIME_SECONDS ({total_seconds}s).")
                 else:
                     if hasattr(self, 'max_time_hours_entry'): self.max_time_hours_entry.setText("0")
-                    if hasattr(self, 'max_time_minutes_entry'): self.max_time_minutes_entry.setText("30")
+                    if hasattr(self, 'max_time_minutes_entry'): self.max_time_minutes_entry.setText("0")
                     if hasattr(self, 'max_time_seconds_entry'): self.max_time_seconds_entry.setText("0")
             except (ValueError, TypeError) as e:
                 self.logger.warning(f"Could not parse MAX_TRAINING_TIME_SECONDS ('{self.params.get('MAX_TRAINING_TIME_SECONDS')}') for GUI: {e}. Setting H:M:S to defaults.")
                 if hasattr(self, 'max_time_hours_entry'): self.max_time_hours_entry.setText("0")
-                if hasattr(self, 'max_time_minutes_entry'): self.max_time_minutes_entry.setText("30")
+                if hasattr(self, 'max_time_minutes_entry'): self.max_time_minutes_entry.setText("0")
                 if hasattr(self, 'max_time_seconds_entry'): self.max_time_seconds_entry.setText("0")
         # If MAX_TRAINING_TIME_SECONDS is not in params, the QLineEdit defaults (set during creation) will be used.
 
