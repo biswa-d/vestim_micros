@@ -379,6 +379,15 @@ class FileOrganizer(QObject):
 
 def main():
     app = QApplication(sys.argv)
+    
+    # Initialize configuration manager early
+    from vestim.config_manager import get_config_manager
+    config_manager = get_config_manager()
+    
+    # Log the projects directory being used
+    projects_dir = config_manager.get_projects_directory()
+    logger.info(f"Vestim starting - Projects directory: {projects_dir}")
+    
     gui = DataImportGUI()
     gui.show()
     sys.exit(app.exec_())

@@ -7,7 +7,7 @@ from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from vestim.services.model_training.src.data_loader_service import DataLoaderService
 from vestim.services.model_training.src.training_task_service import TrainingTaskService
-import logging, wandb
+import logging
 
 def format_time(seconds):
     """Convert seconds to mm:ss format."""
@@ -66,18 +66,9 @@ class TrainingTaskManager:
 
         self.training_thread = None  # Initialize the training thread here for PyQt
        
-        # WandB setup (optional)
-        self.use_wandb = False  # Set to False to disable WandB
+        # WandB disabled for distribution
+        self.use_wandb = False  # WandB functionality removed
         self.wandb_enabled = False
-        if self.use_wandb:
-            try:
-                import wandb
-                wandb.init(project="VEstim", config={"task_name": "LSTM Model Training"})
-                self.wandb_enabled = True
-                self.logger.info("WandB initialized successfully.")
-            except Exception as e:
-                self.wandb_enabled = False
-                self.logger.error(f"Failed to initialize WandB: {e}")
 
     def log_to_csv(self, task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_val_loss, delta_t_epoch):
         """Log richer data to CSV file."""

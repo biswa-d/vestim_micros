@@ -59,7 +59,15 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
 
+[CustomMessages]
+ProjectsFolderPage_Caption=Select Projects Location
+ProjectsFolderPage_Description=Choose where Vestim will store your project files
+ProjectsFolderPage_SubCaption=Vestim will create a "vestim_projects" folder in the location you select.
+
 [Code]
+var
+  ProjectsFolderPage: TInputDirWizardPage;
+
 function GetUninstallString(): String;
 var
   sUnInstPath: String;
@@ -95,12 +103,84 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ProjectsBasePath: String;
+  ProjectsFullPath: String;
+  ConfigFile: String;
+  ConfigContent: String;
+  EscapedPath: String;
+  I: Integer;
 begin
+  // Handle the existing upgrade logic
   if (CurStep=ssInstall) then
   begin
     if (IsUpgrade()) then
     begin
       UnInstallOldVersion();
+    end;
+  end;
+  
+  // Create projects folder and save config after installation
+  if CurStep = ssPostInstall then
+  begin
+    // Get the selected base path and create vestim_projects folder
+    ProjectsBasePath := ProjectsFolderPage.Values[0];
+    ProjectsFullPath := ProjectsBasePath + '\vestim_projects';
+    
+    // Create the vestim_projects directory
+    if not DirExists(ProjectsFullPath) then
+      ForceDirectories(ProjectsFullPath);
+    
+    // Escape backslashes for JSON - manual replacement
+    EscapedPath := '';
+    for I := 1 to Length(ProjectsFullPath) do
+    begin
+      if ProjectsFullPath[I] = '\' then
+        EscapedPath := EscapedPath + '\\'
+      else
+        EscapedPath := EscapedPath + ProjectsFullPath[I];
+    end;
+    
+    // Build JSON config content step by step
+    ConfigContent := '{';
+    ConfigContent := ConfigContent + #13#10;
+    ConfigContent := ConfigContent + '  "projects_directory": "' + EscapedPath + '",';
+    ConfigContent := ConfigContent + #13#10;
+    ConfigContent := ConfigContent + '  "created_by_installer": true';
+    ConfigContent := ConfigContent + #13#10;
+    ConfigContent := ConfigContent + '}';
+    
+    // Save the config file
+    ConfigFile := ExpandConstant('{app}\vestim_config.json');
+    SaveStringToFile(ConfigFile, ConfigContent, False);
+  end;
+end;
+
+procedure InitializeWizard;
+begin
+  // Create the projects folder selection page (after installation directory)
+  ProjectsFolderPage := CreateInputDirPage(wpSelectDir,
+    CustomMessage('ProjectsFolderPage_Caption'),
+    CustomMessage('ProjectsFolderPage_Description'), 
+    CustomMessage('ProjectsFolderPage_SubCaption'),
+    False, '');
+  
+  // Add input field with default path (user's Documents folder)
+  ProjectsFolderPage.Add('&Location for vestim_projects folder:');
+  ProjectsFolderPage.Values[0] := ExpandConstant('{userdocs}');
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  
+  // Validate the projects folder path
+  if CurPageID = ProjectsFolderPage.ID then
+  begin
+    if ProjectsFolderPage.Values[0] = '' then
+    begin
+      MsgBox('Please select a valid location for the vestim_projects folder.', mbError, MB_OK);
+      Result := False;
     end;
   end;
 end;

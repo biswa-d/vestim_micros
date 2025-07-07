@@ -57,5 +57,5 @@ typing_extensions==4.12.2
 tzdata==2024.1
 urllib3==2.2.2
 h5py==3.11.0
-wandb==0.17.9
+
 nvidia-ml-py3==7.352.0
