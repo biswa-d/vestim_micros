@@ -153,3 +153,12 @@ build/
 dist/
 analytics_notebooks/
 starter_codes/
+
+# Installer output
+installer_output/
+*.exe
+*.msi
+
+# Keep build scripts but ignore their outputs
+!build_exe.py
+!vestim_installer.iss
