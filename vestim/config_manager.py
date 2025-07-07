@@ -22,7 +22,7 @@ class ConfigManager:
                 # Running as compiled executable
                 app_dir = Path(sys.executable).parent
             else:
-                # Running as script
+                # Running as script - look in script directory
                 app_dir = Path(__file__).parent
             
             config_path = app_dir / "vestim_config.json"
@@ -36,24 +36,38 @@ class ConfigManager:
                         print(f"Using projects directory from installer: {self._projects_dir}")
                         return
         except Exception as e:
-            print(f"Could not load installer config: {e}")
+            # Only show error for compiled executable, not during development
+            if getattr(sys, 'frozen', False):
+                print(f"Could not load installer config: {e}")
         
         # Fallback to default location
         self._projects_dir = self._get_default_projects_dir()
-        print(f"Using default projects directory: {self._projects_dir}")
+        
+        # Only show message for compiled executable, be quiet during development
+        if getattr(sys, 'frozen', False):
+            print(f"Using default projects directory: {self._projects_dir}")
+        # For development, just use default silently
     
     def _get_default_projects_dir(self):
         """Get default projects directory"""
-        # Default to user's Documents/vestim_projects
-        docs_dir = os.path.expanduser("~/Documents")
-        return os.path.join(docs_dir, "vestim_projects")
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable - use user's Documents folder
+            docs_dir = os.path.expanduser("~/Documents")
+            return os.path.join(docs_dir, "vestim_projects")
+        else:
+            # Running as Python script - use repository's output directory
+            script_dir = Path(__file__).parent  # vestim/
+            repo_root = script_dir.parent  # repo root
+            return str(repo_root / "output")
     
     def get_projects_directory(self):
         """Get the projects directory path"""
         # Ensure directory exists
         if not os.path.exists(self._projects_dir):
             os.makedirs(self._projects_dir, exist_ok=True)
-            print(f"Created projects directory: {self._projects_dir}")
+            # Only show message for compiled executable
+            if getattr(sys, 'frozen', False):
+                print(f"Created projects directory: {self._projects_dir}")
         
         return self._projects_dir
     
