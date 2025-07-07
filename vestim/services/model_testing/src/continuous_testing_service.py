@@ -61,11 +61,23 @@ class ContinuousTestingService:
             
             # Initialize hidden states only once for the first file
             if is_first_file or self.hidden_states is None:
-                self.hidden_states = {
-                    'h_s': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
-                    'h_c': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device)
-                }
-                print("Hidden states initialized for continuous testing")
+                model_metadata = task.get('model_metadata', {})
+                model_type = model_metadata.get('model_type', 'LSTM')
+                
+                if model_type == 'GRU':
+                    # GRU only has hidden state (h_s), no cell state (h_c)
+                    self.hidden_states = {
+                        'h_s': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
+                        'model_type': 'GRU'
+                    }
+                else:
+                    # LSTM has both hidden state (h_s) and cell state (h_c)
+                    self.hidden_states = {
+                        'h_s': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
+                        'h_c': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
+                        'model_type': 'LSTM'
+                    }
+                print(f"Hidden states initialized for continuous testing ({model_type})")
             
             # Load scaler only once
             if self.scaler is None:
@@ -143,20 +155,27 @@ class ContinuousTestingService:
             # Allocate prediction buffer for actual test length
             y_preds = torch.zeros(original_len, dtype=torch.float32).to(self.device)
             
-            # Process each sample one at a time through LSTM
+            # Process each sample one at a time through RNN
             with torch.no_grad():
                 for t in range(len(df_test_full)):
                     x_t = X_all[t].unsqueeze(0)  # Shape: (1, 1, features) - single timestep
                     
-                    # Forward pass through LSTM with persistent hidden states
-                    output, (h_s, h_c) = self.model_instance.lstm(x_t, (self.hidden_states['h_s'], self.hidden_states['h_c']))
-                    
-                    # Get final prediction
-                    y_pred = self.model_instance.linear(output[:, -1, :])
-                    
-                    # Update hidden states for next sample
-                    self.hidden_states['h_s'] = h_s.detach()
-                    self.hidden_states['h_c'] = h_c.detach()
+                    # Forward pass through RNN with persistent hidden states
+                    if self.hidden_states['model_type'] == 'GRU':
+                        # GRU forward pass
+                        output, h_s = self.model_instance.gru(x_t, self.hidden_states['h_s'])
+                        # Get final prediction
+                        y_pred = self.model_instance.fc(output[:, -1, :])
+                        # Update hidden state for next sample
+                        self.hidden_states['h_s'] = h_s.detach()
+                    else:
+                        # LSTM forward pass
+                        output, (h_s, h_c) = self.model_instance.lstm(x_t, (self.hidden_states['h_s'], self.hidden_states['h_c']))
+                        # Get final prediction
+                        y_pred = self.model_instance.linear(output[:, -1, :])
+                        # Update hidden states for next sample
+                        self.hidden_states['h_s'] = h_s.detach()
+                        self.hidden_states['h_c'] = h_c.detach()
                     
                     # Skip predictions during warmup for first file
                     if is_first_file and t < warmup_samples:
@@ -379,6 +398,7 @@ class ContinuousTestingService:
             
             # Import model classes
             from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN
+            from vestim.services.model_training.src.GRU_model import GRUModel
             
             # Get model parameters
             input_size = len(task.get('data_loader_params', {}).get('feature_columns', []))
@@ -392,6 +412,8 @@ class ContinuousTestingService:
                 model = LSTMModelLN(input_size, hidden_units, num_layers, output_size, dropout)
             elif model_type == 'LSTM_BN':
                 model = LSTMModelBN(input_size, hidden_units, num_layers, output_size, dropout)
+            elif model_type == 'GRU':
+                model = GRUModel(input_size, hidden_units, num_layers, output_size, dropout)
             else:  # Default LSTM
                 model = LSTMModel(input_size, hidden_units, num_layers, output_size, dropout)
             

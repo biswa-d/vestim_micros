@@ -83,7 +83,7 @@ class VEstimTrainSetupGUI(QWidget):
         self.main_layout = QVBoxLayout()
 
         # Title label
-        title_label = QLabel("Building LSTM Models and Training Tasks\nwith Hyperparameter Set")
+        title_label = QLabel("Building Models and Training Tasks\nwith Hyperparameter Set")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 14pt; font-weight: bold; color: #3a3a3a;")
         self.main_layout.addWidget(title_label)

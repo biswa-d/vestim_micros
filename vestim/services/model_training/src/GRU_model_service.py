@@ -61,14 +61,20 @@ class GRUModelService:
         torch.save(model.state_dict(), model_path)
         self.logger.info(f"GRU Model saved to {model_path}")
 
-    def create_and_save_gru_model(self, params: dict, model_path: str):
+    def create_and_save_gru_model(self, params: dict, model_path: str, target_device=None):
         """
         Build and save a GRU model using the provided parameters.
 
         :param params: Dictionary containing model parameters.
         :param model_path: The file path where the model will be saved.
+        :param target_device: Target device for the model (optional, will override self.device if provided).
         :return: The built GRUModel.
         """
+        # Update device if target_device is specified
+        if target_device is not None:
+            self.device = target_device
+            self.logger.info(f"GRU model service device updated to: {target_device}")
+        
         model = self.build_gru_model(params)
         self.save_model(model, model_path)
         return model

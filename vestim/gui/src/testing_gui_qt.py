@@ -112,7 +112,7 @@ class VEstimTestingGUI(QMainWindow):
         self.main_layout = QVBoxLayout(self.central_widget)
 
         # Title Label
-        title_label = QLabel("Testing LSTM Models")
+        title_label = QLabel("Testing Models")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
         self.main_layout.addWidget(title_label)

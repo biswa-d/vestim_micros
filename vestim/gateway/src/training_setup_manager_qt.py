@@ -2,6 +2,7 @@ import os, uuid, time
 import json
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.services.model_training.src.LSTM_model_service_test import LSTMModelService
+from vestim.services.model_training.src.GRU_model_service import GRUModelService
 from vestim.gateway.src.job_manager_qt import JobManager
 import logging
 import torch
@@ -21,6 +22,7 @@ class VEstimTrainingSetupManager:
             self.current_hyper_params = None
             self.hyper_param_manager = VEstimHyperParamManager()  # Initialize your hyperparameter manager here
             self.lstm_model_service = LSTMModelService()  # Initialize your model service here
+            self.gru_model_service = GRUModelService()  # Initialize GRU model service
             self.job_manager = job_manager  # JobManager should be passed in or initialized separately
             self.models = []  # Store model information
             self.training_tasks = []  # Store created tasks
@@ -76,7 +78,7 @@ class VEstimTrainingSetupManager:
             "LSTM Layer Norm": self.lstm_model_service.create_and_save_lstm_model_with_LN,
             #"Transformer": self.transformer_model_service.create_and_save_transformer_model,
             #"FCNN": self.fcnn_model_service.create_and_save_fcnn_model,
-            #"GRU": self.gru_model_service.create_and_save_gru_model,
+            "GRU": self.gru_model_service.create_and_save_gru_model,
         }
 
         # Call the function from the dictionary or raise an error if not found
@@ -104,11 +106,19 @@ class VEstimTrainingSetupManager:
         raise ValueError(f"Unsupported model type: {model_type}")
 
     def build_models(self):
-        """Build and store the LSTM models based on hyperparameters."""
+        """Build and store models based on hyperparameters and model type."""
         try:
-            # Ensure HIDDEN_UNITS and LAYERS are properly formatted
-            hidden_units_value = str(self.params['HIDDEN_UNITS'])  # Convert to string if it's an integer
-            layers_value = str(self.params['LAYERS'])  # Convert to string if it's an integer
+            model_type = self.params.get("MODEL_TYPE", "")
+            
+            # Handle model-specific parameter extraction
+            if model_type == "GRU":
+                # For GRU models, use GRU-specific parameters
+                hidden_units_value = str(self.params.get('GRU_HIDDEN_UNITS', '10'))
+                layers_value = str(self.params.get('GRU_LAYERS', '1'))
+            else:
+                # For LSTM and other models, use standard parameters
+                hidden_units_value = str(self.params['HIDDEN_UNITS'])
+                layers_value = str(self.params['LAYERS'])
 
             hidden_units_list = [int(h) for h in hidden_units_value.split(',')]  # Parse hidden units
             layers_list = [int(l) for l in layers_value.split(',')]  # Parse layers
@@ -116,7 +126,6 @@ class VEstimTrainingSetupManager:
             # **Get input and output feature sizes**
             feature_columns = self.params.get("FEATURE_COLUMNS", [])
             target_column = self.params.get("TARGET_COLUMN", "")
-            model_type = self.params.get("MODEL_TYPE", "")
 
             if not feature_columns or not target_column:
                 raise ValueError("Feature columns or target column not set in hyperparameters.")
@@ -142,15 +151,25 @@ class VEstimTrainingSetupManager:
                     model_name = "untrained_model_template.pth" # Changed filename
                     model_path = os.path.join(model_dir, model_name)
 
-                    # Model parameters
-                    model_params = {
-                        "INPUT_SIZE": input_size,  # Dynamically set input size
-                        "OUTPUT_SIZE": output_size,  # Single target output
-                        "HIDDEN_UNITS": hidden_units,
-                        "LAYERS": layers
-                    }
+                    # Model parameters - handle different model types
+                    if model_type == "GRU":
+                        # GRU model service expects NUM_LAYERS instead of LAYERS
+                        model_params = {
+                            "INPUT_SIZE": input_size,
+                            "OUTPUT_SIZE": output_size,
+                            "HIDDEN_UNITS": hidden_units,
+                            "NUM_LAYERS": layers  # GRU uses NUM_LAYERS
+                        }
+                    else:
+                        # LSTM and other models use LAYERS
+                        model_params = {
+                            "INPUT_SIZE": input_size,
+                            "OUTPUT_SIZE": output_size,
+                            "HIDDEN_UNITS": hidden_units,
+                            "LAYERS": layers
+                        }
 
-                    # Create and save the LSTM model
+                    # Create and save the model
                     model = self.create_selected_model(model_type, model_params, model_path)
 
                     # Store model information
@@ -342,12 +361,14 @@ class VEstimTrainingSetupManager:
         layers = model_task['hyperparams']['LAYERS']
         input_size = model_task['hyperparams']['INPUT_SIZE']
         output_size = model_task['hyperparams']['OUTPUT_SIZE']
+        model_type = model_task.get('model_type', 'LSTM')
 
-        # Calculate num_learnable_params
+        # Calculate num_learnable_params with model type
         num_learnable_params = self.calculate_learnable_parameters(
             layers,
             input_size,
-            hidden_units
+            hidden_units,
+            model_type
         )
 
         return {
@@ -414,32 +435,41 @@ class VEstimTrainingSetupManager:
             'job_folder_augmented_from': self.job_manager.get_job_folder() # Add path to job folder for scaler path resolution
         }
 
-    def calculate_learnable_parameters(self, layers, input_size, hidden_units):
+    def calculate_learnable_parameters(self, layers, input_size, hidden_units, model_type="LSTM"):
         """
-        Calculate the number of learnable parameters for an LSTM model.
+        Calculate the number of learnable parameters for RNN models (LSTM or GRU).
 
-        :param layers: Number of layers (an integer representing the number of LSTM layers)
+        :param layers: Number of layers (an integer representing the number of RNN layers)
         :param input_size: The size of the input features (e.g., 3 for [SOC, Current, Temp])
         :param hidden_units: An integer representing the number of hidden units in each layer
+        :param model_type: Type of model ("LSTM" or "GRU")
         :return: Total number of learnable parameters
         """
 
         # Initialize the number of parameters
         learnable_params = 0
 
-        # Input-to-hidden weights for the first layer (4 * hidden_units * (input_size + hidden_units))
-        # We account for 4 gates (input, forget, output, and candidate gates)
-        input_layer_params = 4 * (input_size + hidden_units) * hidden_units
+        if model_type == "GRU":
+            # GRU has 3 gates: reset, update, and new gate (fewer than LSTM's 4)
+            gates = 3
+        else:  # LSTM or default
+            # LSTM has 4 gates: input, forget, output, and candidate gates
+            gates = 4
+
+        # Input-to-hidden weights for the first layer
+        # For LSTM: 4 * hidden_units * (input_size + hidden_units)
+        # For GRU: 3 * hidden_units * (input_size + hidden_units)
+        input_layer_params = gates * (input_size + hidden_units) * hidden_units
 
         # Add bias terms for each gate in the first layer
-        input_layer_bias = 4 * hidden_units
+        input_layer_bias = gates * hidden_units
 
         learnable_params += input_layer_params + input_layer_bias
 
-        # For each additional LSTM layer, it's hidden_units -> hidden_units
+        # For each additional layer, it's hidden_units -> hidden_units
         for i in range(1, layers):
-            hidden_layer_params = 4 * (hidden_units + hidden_units) * hidden_units
-            hidden_layer_bias = 4 * hidden_units
+            hidden_layer_params = gates * (hidden_units + hidden_units) * hidden_units
+            hidden_layer_bias = gates * hidden_units
             learnable_params += hidden_layer_params + hidden_layer_bias
 
         # Output layer (assuming 1 output)

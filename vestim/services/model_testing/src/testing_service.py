@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN # Keep imports for type hinting if model object is used
+from vestim.services.model_training.src.GRU_model import GRUModel # Add GRU model import
 from vestim.services import normalization_service as norm_svc # Added for normalization
 import json # For potentially loading metadata
 
@@ -32,7 +33,7 @@ class VEstimTestingService:
         return model
 
     def test_model(self, model, test_loader, hidden_units, num_layers, target_column_name: str,
-                   task_info: dict = None): # Added task_info to access scaler details
+                   task_info: dict = None, model_type: str = "LSTM"): # Added model_type parameter
         """
         Tests the model on the provided test data and calculates multiple evaluation metrics.
         If normalization was applied during training, attempts to inverse_transform predictions and true values.
@@ -43,6 +44,7 @@ class VEstimTestingService:
         :param num_layers: Number of layers in the model.
         :param target_column_name: Name of the target column to determine units.
         :param task_info: Dictionary containing task details, potentially including normalization info.
+        :param model_type: Type of model ("LSTM" or "GRU")
         :return: A dictionary containing the predictions and evaluation metrics.
         """
         all_predictions, y_test_normalized_list = [], [] # y_test is initially normalized if data was normalized
@@ -50,7 +52,10 @@ class VEstimTestingService:
         with torch.no_grad():
             # Initialize hidden states for the first sample (removing batch dimension)
             h_s = torch.zeros(num_layers, 1, hidden_units).to(self.device)
-            h_c = torch.zeros(num_layers, 1, hidden_units).to(self.device)
+            if model_type == "LSTM":
+                h_c = torch.zeros(num_layers, 1, hidden_units).to(self.device)
+            else:  # GRU
+                h_c = None
 
             # Loop over the test set one sequence at a time
             for X_batch, y_batch in test_loader:
@@ -61,10 +66,16 @@ class VEstimTestingService:
                     y_true = y_batch[i].unsqueeze(0).to(self.device)
 
                     # Forward pass with current hidden states
-                    y_out, (h_s, h_c) = model(x_seq, h_s, h_c)
-
-                    # Detach hidden states to avoid accumulation of gradients
-                    h_s, h_c = h_s.detach(), h_c.detach()
+                    if model_type == "LSTM":
+                        y_out, (h_s, h_c) = model(x_seq, h_s, h_c)
+                        # Detach hidden states to avoid accumulation of gradients
+                        h_s, h_c = h_s.detach(), h_c.detach()
+                    elif model_type == "GRU":
+                        y_out, h_s = model(x_seq, h_s)
+                        # Detach hidden state to avoid accumulation of gradients
+                        h_s = h_s.detach()
+                    else:
+                        raise ValueError(f"Unsupported model_type in test_model: {model_type}")
 
                     # Store the last timestep prediction and corresponding true value
                     all_predictions.append(y_out[:, -1].cpu().numpy())
@@ -212,6 +223,7 @@ class VEstimTestingService:
 
             # Run the testing process (returns results but does NOT save them)
             target_column = task['data_loader_params'].get('target_column', 'unknown_target')
+            model_type = task.get('model_metadata', {}).get('model_type', 'LSTM')  # Get model type from task
             # Pass the whole 'task' dictionary as 'task_info'
             results = self.test_model(
                 model=model,
@@ -219,7 +231,8 @@ class VEstimTestingService:
                 hidden_units=task['model_metadata']["hidden_units"],
                 num_layers=task['model_metadata']["num_layers"],
                 target_column_name=target_column,
-                task_info=task # Pass the entire task dictionary
+                task_info=task, # Pass the entire task dictionary
+                model_type=model_type  # Pass model type
             )
 
             print(f"Model testing completed for file: {test_file_path}")

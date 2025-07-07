@@ -122,8 +122,9 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Create a main layout
         self.main_layout = QVBoxLayout()
 
-        # Title Label
-        title_label = QLabel("Training LSTM Model with Hyperparameters")
+        # Title Label with dynamic model type
+        model_type = self.params.get("MODEL_TYPE", "Model")  # Get model type from params
+        title_label = QLabel(f"Training {model_type} Model with Hyperparameters")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
         self.main_layout.addWidget(title_label)

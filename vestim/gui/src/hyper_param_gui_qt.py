@@ -366,7 +366,7 @@ class VEstimHyperParamGUI(QWidget):
         # --- Clear previous model-specific QLineEdit entries from self.param_entries ---
         # Define keys for model-specific parameters that might exist from a previous selection
         lstm_specific_keys = ["LAYERS", "HIDDEN_UNITS"] # Add any other LSTM specific QLineEdit keys
-        gru_specific_keys = ["GRU_LAYERS"] # Add any other GRU specific QLineEdit keys
+        gru_specific_keys = ["GRU_LAYERS", "GRU_HIDDEN_UNITS"] # Add any other GRU specific QLineEdit keys
         fnn_specific_keys = ["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB"] # Add FNN specific QLineEdit keys
         
         all_model_specific_keys = lstm_specific_keys + gru_specific_keys + fnn_specific_keys
@@ -421,15 +421,26 @@ class VEstimHyperParamGUI(QWidget):
             gru_layers_label.setStyleSheet("font-size: 11pt; font-weight: bold;") # Make bold
             gru_layers_label.setToolTip("Number of GRU layers in the model.")
 
-            self.gru_layers_entry = QLineEdit(self.params.get("GRU_LAYERS", "2"))
+            self.gru_layers_entry = QLineEdit(self.params.get("GRU_LAYERS", "1"))
             self.gru_layers_entry.setFixedWidth(100)
             self.gru_layers_entry.setToolTip("Enter the number of stacked GRU layers.")
 
+            gru_hidden_units_label = QLabel("GRU Hidden Units:")
+            gru_hidden_units_label.setStyleSheet("font-size: 11pt; font-weight: bold;") # Make bold
+            gru_hidden_units_label.setToolTip("Number of hidden units per GRU layer.")
+
+            self.gru_hidden_units_entry = QLineEdit(self.params.get("GRU_HIDDEN_UNITS", "10"))
+            self.gru_hidden_units_entry.setFixedWidth(100)
+            self.gru_hidden_units_entry.setToolTip("Enter the number of hidden units per GRU layer.")
+
             self.model_param_container.addWidget(gru_layers_label)
             self.model_param_container.addWidget(self.gru_layers_entry)
+            self.model_param_container.addWidget(gru_hidden_units_label)
+            self.model_param_container.addWidget(self.gru_hidden_units_entry)
 
             # ✅ Store in param_entries
             model_params["GRU_LAYERS"] = self.gru_layers_entry
+            model_params["GRU_HIDDEN_UNITS"] = self.gru_hidden_units_entry
 
         elif selected_model == "FNN":
             fnn_hidden_layers_label = QLabel("FNN Hidden Layers:")

@@ -66,12 +66,8 @@ class GRUModel(nn.Module):
         if self.dropout:
             out = self.dropout(out) # Apply dropout to the GRU outputs
 
-        # Apply the fully connected layer to each time step's output
-        # This is a common approach for sequence tagging or if every step's output is needed.
-        # If you only want to predict based on the last time step:
-        # out = self.fc(out[:, -1, :]) # This would change output shape to [batch_size, output_size]
-        # For now, let's apply to all time steps, consistent with how LSTMModel was structured.
-        out = self.fc(out)
-        # out shape: (batch_size, seq_len, output_size)
+        # Apply the fully connected layer to the last time step only (for sequence-to-one prediction)
+        # This matches the behavior of LSTMModel and avoids shape mismatches during training
+        out = self.fc(out[:, -1, :])  # Shape: (batch_size, output_size)
 
         return out, h_n

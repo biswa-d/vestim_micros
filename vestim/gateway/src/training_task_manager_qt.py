@@ -152,7 +152,8 @@ class TrainingTaskManager:
             print(f" dataloader size, Train: {len(train_loader)} | Validation: {len(val_loader)}")
 
             # Update progress for starting training
-            update_progress_callback.emit({'status': f'Training LSTM model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
+            model_type = task.get('model_metadata', {}).get('model_type', 'LSTM')
+            update_progress_callback.emit({'status': f'Training {model_type} model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
 
             # Run training with all necessary parameters
             self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
