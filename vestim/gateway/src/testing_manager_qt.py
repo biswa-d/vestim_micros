@@ -363,8 +363,9 @@ class VEstimTestingManager:
     def generate_shorthand_name(task):
         """Generate a shorthand name for the task based on hyperparameters."""
         hyperparams = task['hyperparams']
-        layers = hyperparams.get('LAYERS', 'NA')
-        hidden_units = hyperparams.get('HIDDEN_UNITS', 'NA')
+        model_type = hyperparams.get('MODEL_TYPE', 'LSTM')
+        
+        # Get common parameters
         batch_size = hyperparams.get('BATCH_SIZE', 'NA')
         max_epochs = hyperparams.get('MAX_EPOCHS', 'NA')
         lr = hyperparams.get('INITIAL_LR', 'NA')
@@ -373,13 +374,34 @@ class VEstimTestingManager:
         valid_frequency = hyperparams.get('ValidFrequency', 'NA')
         lookback = hyperparams.get('LOOKBACK', 'NA')
         repetitions = hyperparams.get('REPETITIONS', 'NA')
+        
+        # Get model-specific parameters
+        if model_type in ['LSTM', 'GRU']:
+            layers = hyperparams.get('LAYERS', 'NA')
+            hidden_units = hyperparams.get('HIDDEN_UNITS', 'NA')
+            arch_suffix = f"L{layers}_H{hidden_units}"
+        elif model_type == 'FNN':
+            # For FNN, use hidden layer config as architecture identifier
+            hidden_layers = hyperparams.get('HIDDEN_LAYER_SIZES', 'NA')
+            # Create a short representation of the layer config
+            if isinstance(hidden_layers, list):
+                arch_suffix = f"FNN{'_'.join(map(str, hidden_layers))}"
+            else:
+                arch_suffix = f"FNN{str(hidden_layers).replace(',', '_')}"
+        else:
+            arch_suffix = f"{model_type}_NA"
 
-        short_name = (f"L{layers}_H{hidden_units}_B{batch_size}_Lk{lookback}_"
+        short_name = (f"{arch_suffix}_B{batch_size}_Lk{lookback}_"
                       f"E{max_epochs}_LR{lr}_LD{lr_drop_period}_VP{valid_patience}_"
                       f"VF{valid_frequency}_R{repetitions}")
 
-        param_string = f"{layers}_{hidden_units}_{batch_size}_{lookback}_{lr}_{valid_patience}_{max_epochs}"
-        short_hash = hashlib.md5(param_string.encode()).hexdigest()[:3]  # First 6 chars for uniqueness
+        # Create parameter string for hash (include model-specific params)
+        if model_type in ['LSTM', 'GRU']:
+            param_string = f"{layers}_{hidden_units}_{batch_size}_{lookback}_{lr}_{valid_patience}_{max_epochs}"
+        else:  # FNN
+            param_string = f"{hidden_layers}_{batch_size}_{lookback}_{lr}_{valid_patience}_{max_epochs}"
+            
+        short_hash = hashlib.md5(param_string.encode()).hexdigest()[:3]  # First 3 chars for uniqueness
         shorthand_name = f"{short_name}_{short_hash}"
         return shorthand_name
     

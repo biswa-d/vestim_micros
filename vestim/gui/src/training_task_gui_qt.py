@@ -84,6 +84,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.param_labels = {
             "LAYERS": "Layers",
             "HIDDEN_UNITS": "Hidden Units",
+            "HIDDEN_LAYER_SIZES": "Hidden Layers",  # For FNN
+            "DROPOUT_PROB": "Dropout Prob",         # For FNN
             "BATCH_SIZE": "Batch Size",
             "MAX_EPOCHS": "Max Epochs",
             "INITIAL_LR": "Initial LR", # Shorter
@@ -219,10 +221,18 @@ class VEstimTrainingTaskGUI(QMainWindow):
         
         display_items_ordered = []
         processed_keys = set()
+        
+        # Get model type to determine which parameters to display
+        model_type = task_params.get('MODEL_TYPE', 'LSTM')
 
-        # Define preferred order and sections
+        # Define preferred order and sections - model-type aware
         # Section 1: Model Architecture
-        model_arch_keys = ['MODEL_TYPE', 'LAYERS', 'HIDDEN_UNITS', 'INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_LEARNABLE_PARAMS']
+        model_arch_keys = ['MODEL_TYPE', 'INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_LEARNABLE_PARAMS']
+        if model_type in ['LSTM', 'GRU']:
+            model_arch_keys.extend(['LAYERS', 'HIDDEN_UNITS'])
+        elif model_type == 'FNN':
+            model_arch_keys.extend(['HIDDEN_LAYER_SIZES', 'DROPOUT_PROB'])
+            
         # Section 2: Training Method
         train_method_keys = ['TRAINING_METHOD', 'LOOKBACK', 'BATCH_TRAINING', 'BATCH_SIZE']
         # Section 3: Training Control

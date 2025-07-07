@@ -3,6 +3,7 @@ import json
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.services.model_training.src.LSTM_model_service_test import LSTMModelService
 from vestim.services.model_training.src.GRU_model_service import GRUModelService
+from vestim.services.model_training.src.FNN_model_service import FNNModelService
 from vestim.gateway.src.job_manager_qt import JobManager
 import logging
 import torch
@@ -23,6 +24,7 @@ class VEstimTrainingSetupManager:
             self.hyper_param_manager = VEstimHyperParamManager()  # Initialize your hyperparameter manager here
             self.lstm_model_service = LSTMModelService()  # Initialize your model service here
             self.gru_model_service = GRUModelService()  # Initialize GRU model service
+            self.fnn_model_service = FNNModelService()  # Initialize FNN model service
             self.job_manager = job_manager  # JobManager should be passed in or initialized separately
             self.models = []  # Store model information
             self.training_tasks = []  # Store created tasks
@@ -79,6 +81,7 @@ class VEstimTrainingSetupManager:
             #"Transformer": self.transformer_model_service.create_and_save_transformer_model,
             #"FCNN": self.fcnn_model_service.create_and_save_fcnn_model,
             "GRU": self.gru_model_service.create_and_save_gru_model,
+            "FNN": self.fnn_model_service.create_and_save_fnn_model,
         }
 
         # Call the function from the dictionary or raise an error if not found
@@ -115,13 +118,14 @@ class VEstimTrainingSetupManager:
                 # For GRU models, use GRU-specific parameters
                 hidden_units_value = str(self.params.get('GRU_HIDDEN_UNITS', '10'))
                 layers_value = str(self.params.get('GRU_LAYERS', '1'))
+            elif model_type == "FNN":
+                # For FNN models, use FNN-specific parameters
+                hidden_units_value = str(self.params.get('FNN_HIDDEN_LAYERS', '128,64'))
+                layers_value = "1"  # FNN doesn't use layers like RNN, set to 1 for consistency
             else:
                 # For LSTM and other models, use standard parameters
                 hidden_units_value = str(self.params['HIDDEN_UNITS'])
                 layers_value = str(self.params['LAYERS'])
-
-            hidden_units_list = [int(h) for h in hidden_units_value.split(',')]  # Parse hidden units
-            layers_list = [int(l) for l in layers_value.split(',')]  # Parse layers
 
             # **Get input and output feature sizes**
             feature_columns = self.params.get("FEATURE_COLUMNS", [])
@@ -135,44 +139,75 @@ class VEstimTrainingSetupManager:
 
             self.logger.info(f"Building {model_type} models with INPUT_SIZE={input_size}, OUTPUT_SIZE={output_size}")
 
-            # Iterate over all combinations of hidden_units and layers
-            for hidden_units in hidden_units_list:
-                for layers in layers_list:
-                    self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
-
+            if model_type == "FNN":
+                # For FNN models, hidden_units_value contains layer configurations
+                # Support both formats:
+                # 1. Semicolon-separated: "128,64;100,50,25" 
+                # 2. Bracket format: "[128,64,32], [100,50,25]"
+                fnn_configs = []
+                
+                # Check if using bracket format
+                if '[' in hidden_units_value and ']' in hidden_units_value:
+                    # Parse bracket format: [128,64,32], [100,50,25]
+                    import re
+                    bracket_matches = re.findall(r'\[([^\]]+)\]', hidden_units_value)
+                    for match in bracket_matches:
+                        if match.strip():
+                            fnn_configs.append(match.strip())
+                else:
+                    # Parse semicolon format: 128,64;100,50,25
+                    for config in hidden_units_value.split(';'):
+                        if config.strip():
+                            fnn_configs.append(config.strip())
+                
+                # If no valid configs found, treat the whole string as a single config
+                if not fnn_configs:
+                    fnn_configs = [hidden_units_value.strip()]
+                
+                self.logger.info(f"Found {len(fnn_configs)} FNN configuration(s): {fnn_configs}")
+                
+                # Process each FNN configuration
+                for config_idx, fnn_config in enumerate(fnn_configs):
+                    hidden_units = fnn_config  # This is the config string like "128,64"
+                    layers = 1  # Not applicable for FNN, but set for consistency
+                    
+                    self.logger.info(f"Creating FNN model {config_idx + 1}/{len(fnn_configs)} with layer configuration: {hidden_units}")
+                    
                     # Create model directory
-                    model_dir = os.path.join(
-                        self.job_manager.get_job_folder(),
-                        'models',
-                        f'model_{model_type}_hu_{hidden_units}_layers_{layers}'
-                    )
+                    layer_config = str(hidden_units).replace(',', '_')
+                    if len(fnn_configs) > 1:
+                        # If multiple configs, include config number in directory name
+                        model_dir = os.path.join(
+                            self.job_manager.get_job_folder(),
+                            'models',
+                            f'model_{model_type}_config{config_idx + 1}_layers_{layer_config}'
+                        )
+                    else:
+                        # If single config, use simpler naming
+                        model_dir = os.path.join(
+                            self.job_manager.get_job_folder(),
+                            'models',
+                            f'model_{model_type}_layers_{layer_config}'
+                        )
                     os.makedirs(model_dir, exist_ok=True)
 
-                    model_name = "untrained_model_template.pth" # Changed filename
+                    model_name = "untrained_model_template.pth"
                     model_path = os.path.join(model_dir, model_name)
 
-                    # Model parameters - handle different model types
-                    if model_type == "GRU":
-                        # GRU model service expects NUM_LAYERS instead of LAYERS
-                        model_params = {
-                            "INPUT_SIZE": input_size,
-                            "OUTPUT_SIZE": output_size,
-                            "HIDDEN_UNITS": hidden_units,
-                            "NUM_LAYERS": layers  # GRU uses NUM_LAYERS
-                        }
-                    else:
-                        # LSTM and other models use LAYERS
-                        model_params = {
-                            "INPUT_SIZE": input_size,
-                            "OUTPUT_SIZE": output_size,
-                            "HIDDEN_UNITS": hidden_units,
-                            "LAYERS": layers
-                        }
+                    # FNN model uses different parameter structure
+                    hidden_layer_sizes = [int(h.strip()) for h in str(hidden_units).split(',')]
+                    dropout_prob = float(self.params.get('FNN_DROPOUT_PROB', '0.1'))
+                    model_params = {
+                        "INPUT_SIZE": input_size,
+                        "OUTPUT_SIZE": output_size,
+                        "HIDDEN_LAYER_SIZES": hidden_layer_sizes,
+                        "DROPOUT_PROB": dropout_prob
+                    }
 
                     # Create and save the model
                     model = self.create_selected_model(model_type, model_params, model_path)
 
-                    # Store model information
+                    # Store model information for FNN
                     self.models.append({
                         'model': model,
                         'model_type': model_type,
@@ -182,11 +217,68 @@ class VEstimTrainingSetupManager:
                         'hyperparams': {
                             'INPUT_SIZE': input_size,
                             'OUTPUT_SIZE': output_size,
-                            'LAYERS': layers,
-                            'HIDDEN_UNITS': hidden_units,
+                            'HIDDEN_LAYER_SIZES': hidden_layer_sizes,
+                            'DROPOUT_PROB': dropout_prob,
                             'model_path': model_path
                         }
                     })
+            else:
+                # For RNN models (LSTM/GRU), use the existing logic
+                hidden_units_list = [int(h) for h in hidden_units_value.split(',')]  # Parse hidden units
+                layers_list = [int(l) for l in layers_value.split(',')]  # Parse layers
+
+                # Iterate over all combinations of hidden_units and layers
+                for hidden_units in hidden_units_list:
+                    for layers in layers_list:
+                        self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
+
+                        # Create model directory for RNN models
+                        model_dir = os.path.join(
+                            self.job_manager.get_job_folder(),
+                            'models',
+                            f'model_{model_type}_hu_{hidden_units}_layers_{layers}'
+                        )
+                        os.makedirs(model_dir, exist_ok=True)
+
+                        model_name = "untrained_model_template.pth"
+                        model_path = os.path.join(model_dir, model_name)
+
+                        # Model parameters - handle different model types
+                        if model_type == "GRU":
+                            # GRU model service expects NUM_LAYERS instead of LAYERS
+                            model_params = {
+                                "INPUT_SIZE": input_size,
+                                "OUTPUT_SIZE": output_size,
+                                "HIDDEN_UNITS": hidden_units,
+                                "NUM_LAYERS": layers  # GRU uses NUM_LAYERS
+                            }
+                        else:
+                            # LSTM and other models use LAYERS
+                            model_params = {
+                                "INPUT_SIZE": input_size,
+                                "OUTPUT_SIZE": output_size,
+                                "HIDDEN_UNITS": hidden_units,
+                                "LAYERS": layers
+                            }
+
+                        # Create and save the model
+                        model = self.create_selected_model(model_type, model_params, model_path)
+
+                        # Store model information for RNN models
+                        self.models.append({
+                            'model': model,
+                            'model_type': model_type,
+                            'model_dir': model_dir,
+                            "FEATURE_COLUMNS": feature_columns,
+                            "TARGET_COLUMN": target_column,
+                            'hyperparams': {
+                                'INPUT_SIZE': input_size,
+                                'OUTPUT_SIZE': output_size,
+                                'LAYERS': layers,
+                                'HIDDEN_UNITS': hidden_units,
+                                'model_path': model_path
+                            }
+                        })
             
             self.logger.info("Model building complete.")
 
@@ -356,20 +448,33 @@ class VEstimTrainingSetupManager:
         os.makedirs(logs_dir, exist_ok=True)
 
         
-        # Get model architecture parameters
-        hidden_units = model_task['hyperparams']['HIDDEN_UNITS']
-        layers = model_task['hyperparams']['LAYERS']
+        # Get model architecture parameters - handle both RNN and FNN models
         input_size = model_task['hyperparams']['INPUT_SIZE']
         output_size = model_task['hyperparams']['OUTPUT_SIZE']
         model_type = model_task.get('model_type', 'LSTM')
-
-        # Calculate num_learnable_params with model type
-        num_learnable_params = self.calculate_learnable_parameters(
-            layers,
-            input_size,
-            hidden_units,
-            model_type
-        )
+        
+        # For RNN models (LSTM/GRU), use HIDDEN_UNITS and LAYERS
+        if model_type in ['LSTM', 'GRU']:
+            hidden_units = model_task['hyperparams']['HIDDEN_UNITS']
+            layers = model_task['hyperparams']['LAYERS']
+            num_learnable_params = self.calculate_learnable_parameters(
+                layers,
+                input_size,
+                hidden_units,
+                model_type
+            )
+        else:  # FNN model
+            hidden_layer_sizes = model_task['hyperparams']['HIDDEN_LAYER_SIZES']
+            dropout_prob = model_task['hyperparams']['DROPOUT_PROB']
+            # For FNN, calculate parameters differently
+            num_learnable_params = self.calculate_fnn_learnable_parameters(
+                input_size,
+                hidden_layer_sizes,
+                output_size
+            )
+            # Set dummy values for compatibility with existing code
+            hidden_units = len(hidden_layer_sizes)  # Number of layers as a proxy
+            layers = 1  # FNN doesn't have "layers" in the RNN sense
 
         return {
             'task_id': task_id,
@@ -381,14 +486,12 @@ class VEstimTrainingSetupManager:
             'model_metadata': {
                 'model_type': model_task.get('model_type', 'LSTM'),
                 'num_learnable_params': num_learnable_params,
-                'hidden_units': hidden_units,
-                'num_layers': layers,
                 'input_size': input_size,
                 'output_size': output_size
             },
             'hyperparams': {
-                'LAYERS': layers,
-                'HIDDEN_UNITS': hidden_units,
+                'MODEL_TYPE': model_type,  # Add MODEL_TYPE to hyperparams
+                'TRAINING_METHOD': self.current_hyper_params.get('TRAINING_METHOD', 'Sequence-to-Sequence'),  # Add TRAINING_METHOD
                 'INPUT_SIZE': input_size,
                 'OUTPUT_SIZE': output_size,
                 'BATCH_TRAINING': self.current_hyper_params.get('BATCH_TRAINING', True), # Propagate BATCH_TRAINING
@@ -405,6 +508,14 @@ class VEstimTrainingSetupManager:
                 'PLATEAU_FACTOR': hyperparams.get('PLATEAU_FACTOR'),
                 'REPETITIONS': hyperparams['REPETITIONS'],
                 'NUM_LEARNABLE_PARAMS': num_learnable_params,
+                # Add model-specific parameters
+                **({
+                    'HIDDEN_UNITS': hidden_units,
+                    'LAYERS': layers
+                } if model_type in ['LSTM', 'GRU'] else {
+                    'HIDDEN_LAYER_SIZES': model_task['hyperparams']['HIDDEN_LAYER_SIZES'],
+                    'DROPOUT_PROB': model_task['hyperparams']['DROPOUT_PROB']
+                })
             },
             'data_loader_params': {
                 'lookback': hyperparams['LOOKBACK'],
@@ -434,6 +545,32 @@ class VEstimTrainingSetupManager:
             'job_metadata': job_normalization_metadata, # Embed normalization metadata from job_metadata.json
             'job_folder_augmented_from': self.job_manager.get_job_folder() # Add path to job folder for scaler path resolution
         }
+
+    def calculate_fnn_learnable_parameters(self, input_size, hidden_layer_sizes, output_size):
+        """
+        Calculate the number of learnable parameters for FNN models.
+        
+        :param input_size: Size of input features
+        :param hidden_layer_sizes: List of hidden layer sizes
+        :param output_size: Size of output
+        :return: Total number of learnable parameters
+        """
+        total_params = 0
+        prev_size = input_size
+        
+        # Calculate parameters for each hidden layer
+        for hidden_size in hidden_layer_sizes:
+            # Weights: prev_size * hidden_size
+            # Biases: hidden_size
+            total_params += (prev_size * hidden_size) + hidden_size
+            prev_size = hidden_size
+        
+        # Output layer
+        # Weights: prev_size * output_size
+        # Biases: output_size
+        total_params += (prev_size * output_size) + output_size
+        
+        return total_params
 
     def calculate_learnable_parameters(self, layers, input_size, hidden_units, model_type="LSTM"):
         """

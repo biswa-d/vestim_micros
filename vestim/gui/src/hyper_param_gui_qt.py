@@ -204,9 +204,9 @@ class VEstimHyperParamGUI(QWidget):
         training_layout.setAlignment(Qt.AlignTop)  # Ensures content stays at the top
 
         # **Training Method Selection Dropdown**
-        training_method_label = QLabel("Training Method:")
-        training_method_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
-        training_method_label.setToolTip("Choose how training data is processed.")
+        self.training_method_label = QLabel("Training Method:")
+        self.training_method_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
+        self.training_method_label.setToolTip("Choose how training data is processed.")
 
         self.training_method_combo = QComboBox()
         training_options = ["Sequence-to-Sequence", "Whole Sequence"]
@@ -262,7 +262,7 @@ class VEstimHyperParamGUI(QWidget):
         self.training_method_combo.currentIndexChanged.connect(self.update_training_method)
 
         # **Add Widgets to Layout in Vertical Order**
-        training_layout.addWidget(training_method_label)
+        training_layout.addWidget(self.training_method_label)
         training_layout.addWidget(self.training_method_combo)
         training_layout.addWidget(self.lookback_label)
         training_layout.addWidget(self.lookback_entry)
@@ -282,28 +282,58 @@ class VEstimHyperParamGUI(QWidget):
         current_model_type = self.model_combo.currentText() # Assuming self.model_combo exists and is accessible
 
         is_rnn_model = current_model_type in ["LSTM", "GRU"]
+        is_fnn_model = current_model_type == "FNN"
         is_whole_sequence_rnn = (current_training_method == "Whole Sequence" and is_rnn_model)
         is_sequence_to_sequence = (current_training_method == "Sequence-to-Sequence")
 
-        # Lookback visibility (only for Sequence-to-Sequence)
-        self.lookback_label.setVisible(is_sequence_to_sequence)
-        self.lookback_entry.setVisible(is_sequence_to_sequence)
-        self.lookback_entry.setEnabled(is_sequence_to_sequence)
-
-
-        # Batch training checkbox and Batch size field visibility/state
-        if is_whole_sequence_rnn:
+        # For FNN, hide sequence/temporal options and force batch training
+        if is_fnn_model:
+            # Hide lookback (not relevant for FNN)
+            self.lookback_label.setVisible(False)
+            self.lookback_entry.setVisible(False)
+            self.lookback_entry.setEnabled(False)
+            
+            # Hide training method dropdown and label for FNN (always use batch training)
+            self.training_method_label.setVisible(False)
+            self.training_method_combo.setVisible(False)
+            
+            # Force batch training for FNN and hide checkbox
             self.batch_training_checkbox.setVisible(False)
-            self.batch_training_checkbox.setChecked(False) # Effectively disabled
-            self.batch_training_checkbox.setEnabled(False)
-            self.batch_size_label.setVisible(False)
-            self.batch_size_entry.setVisible(False)
-            self.batch_size_entry.setEnabled(False)
-        else: # Sequence-to-Sequence or FNN with Whole Sequence (where batching might still apply)
-            self.batch_training_checkbox.setVisible(True)
+            self.batch_training_checkbox.setChecked(True)  # Always enabled for FNN
             self.batch_training_checkbox.setEnabled(True)
-            # Batch size visibility depends on the checkbox state if the checkbox itself is visible
-            self.update_batch_size_visibility() # Call this to set batch_size_entry based on checkbox
+            
+            # Show batch size with default 5000 for FNN
+            self.batch_size_label.setVisible(True)
+            self.batch_size_entry.setVisible(True)
+            self.batch_size_entry.setEnabled(True)
+            if self.batch_size_entry.text().strip() == "" or self.batch_size_entry.text().strip() == "100":
+                self.batch_size_entry.setText("5000")  # Set FNN default
+        else:
+            # Show training method dropdown and label for RNN models
+            self.training_method_label.setVisible(True)
+            self.training_method_combo.setVisible(True)
+            
+            # Lookback visibility (only for Sequence-to-Sequence)
+            self.lookback_label.setVisible(is_sequence_to_sequence)
+            self.lookback_entry.setVisible(is_sequence_to_sequence)
+            self.lookback_entry.setEnabled(is_sequence_to_sequence)
+
+            # Batch training checkbox and Batch size field visibility/state
+            if is_whole_sequence_rnn:
+                self.batch_training_checkbox.setVisible(False)
+                self.batch_training_checkbox.setChecked(False) # Effectively disabled
+                self.batch_training_checkbox.setEnabled(False)
+                self.batch_size_label.setVisible(False)
+                self.batch_size_entry.setVisible(False)
+                self.batch_size_entry.setEnabled(False)
+            else: # Sequence-to-Sequence
+                self.batch_training_checkbox.setVisible(True)
+                self.batch_training_checkbox.setEnabled(True)
+                # Reset batch size to default for RNN models if it was set to FNN default
+                if self.batch_size_entry.text().strip() == "5000":
+                    self.batch_size_entry.setText("100")  # Reset to RNN default
+                # Batch size visibility depends on the checkbox state if the checkbox itself is visible
+                self.update_batch_size_visibility() # Call this to set batch_size_entry based on checkbox
 
     def update_batch_size_visibility(self):
         """Enable or disable batch size input based on batch training checkbox, only if checkbox is visible."""
@@ -445,10 +475,10 @@ class VEstimHyperParamGUI(QWidget):
         elif selected_model == "FNN":
             fnn_hidden_layers_label = QLabel("FNN Hidden Layers:")
             fnn_hidden_layers_label.setStyleSheet("font-size: 11pt; font-weight: bold;") # Make bold
-            fnn_hidden_layers_label.setToolTip("Define FNN hidden layer sizes. Use commas for layers in one config (e.g., 128,64,32). Use semicolons to separate multiple configs (e.g., 128,64;100,50).")
+            fnn_hidden_layers_label.setToolTip("Define FNN hidden layer sizes. Single config: 128,64,32. Multiple configs: use semicolons (128,64;100,50,25) or brackets ([128,64,32], [100,50,25]).")
             self.fnn_hidden_layers_entry = QLineEdit(self.params.get("FNN_HIDDEN_LAYERS", "128,64"))
             self.fnn_hidden_layers_entry.setFixedWidth(200) # Increased width for longer strings
-            self.fnn_hidden_layers_entry.setToolTip("E.g., '128,64,32' for one config. '128,64;100,50,25' for two configs.")
+            self.fnn_hidden_layers_entry.setToolTip("Single: '128,64,32' | Multiple with semicolons: '128,64;100,50,25' | Multiple with brackets: '[128,64,32], [100,50,25]'")
             
             fnn_dropout_label = QLabel("FNN Dropout Prob:")
             fnn_dropout_label.setStyleSheet("font-size: 11pt; font-weight: bold;") # Make bold
@@ -776,6 +806,16 @@ class VEstimHyperParamGUI(QWidget):
             else: # Should not happen if REPETITIONS is in param_entries
                 QMessageBox.warning(self, "Missing Information", "Please fill in the 'REPETITIONS' field.")
                 return
+
+            # Special handling for FNN models - ensure training method is set correctly
+            if new_params.get("MODEL_TYPE") == "FNN":
+                # For FNN, always use "Whole Sequence" training method
+                new_params["TRAINING_METHOD"] = "Whole Sequence"
+                # Ensure batch training is enabled for FNN
+                new_params["BATCH_TRAINING"] = True
+                # Ensure batch size has a proper default for FNN
+                if not new_params.get("BATCH_SIZE") or new_params.get("BATCH_SIZE").strip() == "":
+                    new_params["BATCH_SIZE"] = "5000"
 
             self.logger.info(f"Proceeding to training with params: {new_params}")
 

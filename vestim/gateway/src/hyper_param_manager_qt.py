@@ -34,13 +34,26 @@ class VEstimHyperParamManager:
     def validate_and_normalize_params(self, params):
         """Validate and normalize the parameter values while ensuring type consistency."""
         validated_params = {}
+        
+        # Get model type for validation context
+        model_type = params.get('MODEL_TYPE', 'LSTM')
 
         for key, value in params.items():
             if isinstance(value, str):
+                # Model-type aware parameter validation
+                integer_params = ['BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD',
+                                'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS',
+                                'MAX_TRAIN_HOURS', 'MAX_TRAIN_MINUTES', 'MAX_TRAIN_SECONDS']
+                
+                # Add model-specific integer parameters
+                if model_type in ['LSTM', 'GRU']:
+                    integer_params.extend(['LAYERS', 'HIDDEN_UNITS'])
+                elif model_type == 'FNN':
+                    # FNN uses HIDDEN_LAYERS (string) and DROPOUT_PROB (float), no specific integer params
+                    pass
+                
                 # Keep the original string for parameters that might be comma-separated
-                if key in ['LAYERS', 'HIDDEN_UNITS', 'BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD',
-                        'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS',
-                        'MAX_TRAIN_HOURS', 'MAX_TRAIN_MINUTES', 'MAX_TRAIN_SECONDS']: # Added time fields
+                if key in integer_params:
                     # Validate that all values are valid integers
                     value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
                     try:

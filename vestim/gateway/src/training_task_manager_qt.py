@@ -122,9 +122,21 @@ class TrainingTaskManager:
         self.task_start_time = time.time()
         
         try:
-            # Concise log for starting task
+            # Concise log for starting task - only include model-appropriate parameters
+            task_hyperparams = task['hyperparams']
+            model_type = task_hyperparams.get('MODEL_TYPE', 'LSTM')
+            
+            # Common parameters
+            essential_keys = ['MODEL_TYPE', 'MAX_EPOCHS', 'INITIAL_LR', 'BATCH_SIZE', 'LOOKBACK']
+            
+            # Add model-specific parameters
+            if model_type in ['LSTM', 'GRU']:
+                essential_keys.extend(['LAYERS', 'HIDDEN_UNITS'])
+            elif model_type == 'FNN':
+                essential_keys.extend(['HIDDEN_LAYER_SIZES', 'DROPOUT_PROB'])
+            
             h_params_summary = {
-                k: task['hyperparams'].get(k) for k in ['MODEL_TYPE', 'LAYERS', 'HIDDEN_UNITS', 'MAX_EPOCHS', 'INITIAL_LR', 'BATCH_SIZE', 'LOOKBACK'] if k in task['hyperparams']
+                k: task_hyperparams.get(k) for k in essential_keys if k in task_hyperparams
             }
             self.logger.info(f"Starting task_id: {task.get('task_id', 'N/A')} with key hyperparams: {h_params_summary}")
 
@@ -339,7 +351,8 @@ class TrainingTaskManager:
                 num_workers=num_workers,
                 # use_full_train_batch=use_full_train_batch_flag, # Removed as it's not an accepted arg by production DataLoaderService
                 train_split=train_val_split,
-                seed=seed
+                seed=seed,
+                model_type=model_type  # Add model_type parameter for FNN batch logic
             )
 
         return train_loader, val_loader
@@ -433,16 +446,23 @@ class TrainingTaskManager:
                         task['results']['early_stopped_reason'] = 'Max training time exceeded'
                         break # Exit epoch loop
 
-                # Initialize hidden states for training phase
+                # Initialize hidden states for training phase (only for RNN models)
                 # Use the actual batch size from the train_loader
                 actual_train_batch_size = train_loader.batch_size
                 if actual_train_batch_size is None:
                     self.logger.warning(f"train_loader.batch_size is None. Falling back to hyperparams BATCH_SIZE ({hyperparams.get('BATCH_SIZE', 'N/A')}) for training hidden state init.")
                     actual_train_batch_size = int(hyperparams.get('BATCH_SIZE', 32)) # Default if all else fails
 
-                self.logger.info(f"Initializing training hidden state with batch size: {actual_train_batch_size}")
-                h_s = torch.zeros(model.num_layers, actual_train_batch_size, model.hidden_units).to(device)
-                h_c = torch.zeros(model.num_layers, actual_train_batch_size, model.hidden_units).to(device)
+                # Initialize hidden states only for RNN models (LSTM, GRU)
+                h_s, h_c = None, None
+                model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM'))
+                if model_type in ['LSTM', 'GRU']:
+                    self.logger.info(f"Initializing {model_type} hidden state with batch size: {actual_train_batch_size}")
+                    h_s = torch.zeros(model.num_layers, actual_train_batch_size, model.hidden_units).to(device)
+                    if model_type == 'LSTM':
+                        h_c = torch.zeros(model.num_layers, actual_train_batch_size, model.hidden_units).to(device)
+                else:
+                    self.logger.info(f"Model type {model_type} does not require hidden state initialization")
 
                 # Measure time for the training loop
                 epoch_start_time = time.time()
@@ -466,16 +486,23 @@ class TrainingTaskManager:
 
                 # Only validate at specified frequency
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
-                    # Initialize hidden states for validation phase
+                    # Initialize hidden states for validation phase (only for RNN models)
                     # Use the actual batch size from the val_loader
                     actual_val_batch_size = val_loader.batch_size
                     if actual_val_batch_size is None:
                         self.logger.warning(f"val_loader.batch_size is None. Falling back to hyperparams BATCH_SIZE ({hyperparams.get('BATCH_SIZE', 'N/A')}) for validation hidden state init.")
                         actual_val_batch_size = int(hyperparams.get('BATCH_SIZE', 32)) # Default if all else fails
                     
-                    self.logger.info(f"Initializing validation hidden state with batch size: {actual_val_batch_size}")
-                    h_s_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
-                    h_c_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
+                    # Initialize hidden states only for RNN models (LSTM, GRU)
+                    h_s_val, h_c_val = None, None
+                    model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM'))
+                    if model_type in ['LSTM', 'GRU']:
+                        self.logger.info(f"Initializing {model_type} validation hidden state with batch size: {actual_val_batch_size}")
+                        h_s_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
+                        if model_type == 'LSTM':
+                            h_c_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
+                    else:
+                        self.logger.info(f"Model type {model_type} does not require validation hidden state initialization")
 
                     model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM')) # Get model_type
                     # validate_epoch now returns: avg_loss (normalized), all_val_y_pred_normalized, all_val_y_true_normalized
@@ -987,12 +1014,24 @@ class TrainingTaskManager:
     # End of run_training method, convert_hyperparams should be at class level indentation
 
     def convert_hyperparams(self, hyperparams):
-        """Converts all relevant hyperparameters to the correct types."""
-        hyperparams['LAYERS'] = int(hyperparams['LAYERS'])
-        hyperparams['HIDDEN_UNITS'] = int(hyperparams['HIDDEN_UNITS'])
+        """Converts all relevant hyperparameters to the correct types based on model type."""
+        # Get model type to determine which parameters to convert
+        model_type = hyperparams.get('MODEL_TYPE', 'LSTM')
+        
+        # Common parameters for all model types
         hyperparams['BATCH_SIZE'] = int(hyperparams['BATCH_SIZE'])
         hyperparams['MAX_EPOCHS'] = int(hyperparams['MAX_EPOCHS'])
         hyperparams['INITIAL_LR'] = float(hyperparams['INITIAL_LR'])
+        
+        # Model-specific parameter conversion
+        if model_type in ['LSTM', 'GRU']:
+            # RNN-specific parameters
+            hyperparams['LAYERS'] = int(hyperparams['LAYERS'])
+            hyperparams['HIDDEN_UNITS'] = int(hyperparams['HIDDEN_UNITS'])
+        elif model_type == 'FNN':
+            # FNN-specific parameters - HIDDEN_LAYERS is already a string, no conversion needed
+            # FNN doesn't use LAYERS or HIDDEN_UNITS parameters
+            pass
         
         # Update scheduler parameter names to match task info
         if hyperparams['SCHEDULER_TYPE'] == 'StepLR':
@@ -1070,15 +1109,14 @@ class LSTMModel(nn.Module):
         return out, (h_s, h_c)
 """
 
-                # Create export dictionary with all necessary information
+                # Create export dictionary with all necessary information - model type aware
+                model_type = task['model_metadata']['model_type']
                 export_dict = {
                     'state_dict': model.state_dict(),
                     'model_definition': model_def,
                     'model_metadata': task['model_metadata'],
                     'hyperparams': {
                         'input_size': task['hyperparams']['INPUT_SIZE'],
-                        'hidden_size': task['hyperparams']['HIDDEN_UNITS'],
-                        'num_layers': task['hyperparams']['LAYERS'],
                         'output_size': task['hyperparams']['OUTPUT_SIZE']
                     },
                     'data_config': {
@@ -1086,9 +1124,17 @@ class LSTMModel(nn.Module):
                         'target_column': task['data_loader_params']['target_column'],
                         'lookback': task['data_loader_params']['lookback']
                     },
-                    'model_type': task['model_metadata']['model_type'],
+                    'model_type': model_type,
                     'export_timestamp': time.strftime("%Y%m%d-%H%M%S")
                 }
+                
+                # Add model-specific hyperparameters
+                if model_type in ['LSTM', 'GRU']:
+                    export_dict['hyperparams']['hidden_size'] = task['hyperparams']['HIDDEN_UNITS']
+                    export_dict['hyperparams']['num_layers'] = task['hyperparams']['LAYERS']
+                elif model_type == 'FNN':
+                    export_dict['hyperparams']['hidden_layer_sizes'] = task['hyperparams']['HIDDEN_LAYER_SIZES']
+                    export_dict['hyperparams']['dropout_prob'] = task['hyperparams']['DROPOUT_PROB']
 
                 # Save the export dictionary
                 torch.save(export_dict, export_path)
@@ -1096,13 +1142,23 @@ class LSTMModel(nn.Module):
 
                 # Create a README file with multiple loading options for the best model
                 readme_path = os.path.join(task_dir, 'BEST_MODEL_LOADING_INSTRUCTIONS.md')
+                
+                # Model-specific details for README
+                if model_type in ['LSTM', 'GRU']:
+                    arch_details = f"""- Hidden Units: {task['hyperparams']['HIDDEN_UNITS']}
+- Layers: {task['hyperparams']['LAYERS']}"""
+                elif model_type == 'FNN':
+                    arch_details = f"""- Hidden Layer Sizes: {task['hyperparams']['HIDDEN_LAYER_SIZES']}
+- Dropout Probability: {task['hyperparams']['DROPOUT_PROB']}"""
+                else:
+                    arch_details = "- Architecture details: See model metadata"
+                
                 readme_content = f"""# Model Loading Instructions
 
 ## Model Details
-- Model Type: {task['model_metadata']['model_type']}
+- Model Type: {model_type}
 - Input Size: {task['hyperparams']['INPUT_SIZE']}
-- Hidden Units: {task['hyperparams']['HIDDEN_UNITS']}
-- Layers: {task['hyperparams']['LAYERS']}
+{arch_details}
 - Output Size: {task['hyperparams']['OUTPUT_SIZE']}
 - Lookback: {task['data_loader_params']['lookback']}
 
@@ -1120,14 +1176,25 @@ from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel
 # Load the exported model
 checkpoint = torch.load('model_export.pt')
 
-# Create model instance
-model_service = LSTMModelService()
-model = model_service.create_model(
-    input_size=checkpoint['hyperparams']['input_size'],
-    hidden_size=checkpoint['hyperparams']['hidden_size'],
-    num_layers=checkpoint['hyperparams']['num_layers'],
-    output_size=checkpoint['hyperparams']['output_size']
-)
+# Create model instance based on model type
+model_type = checkpoint['model_type']
+if model_type in ['LSTM', 'GRU']:
+    model_service = LSTMModelService()
+    model = model_service.create_model(
+        input_size=checkpoint['hyperparams']['input_size'],
+        hidden_size=checkpoint['hyperparams']['hidden_size'],
+        num_layers=checkpoint['hyperparams']['num_layers'],
+        output_size=checkpoint['hyperparams']['output_size']
+    )
+elif model_type == 'FNN':
+    from vestim.services.model_training.src.FNN_model_service import FNNModelService
+    model_service = FNNModelService()
+    model = model_service.create_model(
+        input_size=checkpoint['hyperparams']['input_size'],
+        hidden_layer_sizes=checkpoint['hyperparams']['hidden_layer_sizes'],
+        output_size=checkpoint['hyperparams']['output_size'],
+        dropout_prob=checkpoint['hyperparams']['dropout_prob']
+    )
 
 # Load state dict
 model.load_state_dict(checkpoint['state_dict'])
@@ -1145,13 +1212,24 @@ checkpoint = torch.load('model_export.pt')
 # Execute the model definition code (included in the checkpoint)
 exec(checkpoint['model_definition'])
 
-# Create model instance
-model = LSTMModel(
-    input_size=checkpoint['hyperparams']['input_size'],
-    hidden_units=checkpoint['hyperparams']['hidden_size'],
-    num_layers=checkpoint['hyperparams']['num_layers'],
-    output_size=checkpoint['hyperparams']['output_size']
-)
+# Create model instance based on model type
+model_type = checkpoint['model_type']
+if model_type in ['LSTM', 'GRU']:
+    model = LSTMModel(
+        input_size=checkpoint['hyperparams']['input_size'],
+        hidden_units=checkpoint['hyperparams']['hidden_size'],
+        num_layers=checkpoint['hyperparams']['num_layers'],
+        output_size=checkpoint['hyperparams']['output_size']
+    )
+elif model_type == 'FNN':
+    # For FNN, you would need to execute the FNN model definition
+    # and create an FNN model instance with appropriate parameters
+    model = FNNModel(
+        input_size=checkpoint['hyperparams']['input_size'],
+        hidden_layer_sizes=checkpoint['hyperparams']['hidden_layer_sizes'],
+        output_size=checkpoint['hyperparams']['output_size'],
+        dropout_prob=checkpoint['hyperparams']['dropout_prob']
+    )
 
 # Load state dict
 model.load_state_dict(checkpoint['state_dict'])
@@ -1160,7 +1238,10 @@ model.eval()
 # Example usage:
 def predict(model, input_data):
     with torch.no_grad():
-        output, _ = model(input_data)
+        if model_type in ['LSTM', 'GRU']:
+            output, _ = model(input_data)
+        else:  # FNN
+            output = model(input_data)
     return output
 ```
 

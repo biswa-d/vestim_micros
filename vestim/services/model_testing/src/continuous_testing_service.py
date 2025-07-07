@@ -59,17 +59,24 @@ class ContinuousTestingService:
                 self.model_instance.eval()
                 print(f"Model loaded: {model_path}")
             
-            # Initialize hidden states only once for the first file
+            # Initialize hidden states only once for the first file (only for RNN models)
             if is_first_file or self.hidden_states is None:
                 model_metadata = task.get('model_metadata', {})
                 model_type = model_metadata.get('model_type', 'LSTM')
                 
-                if model_type == 'GRU':
+                if model_type == 'FNN':
+                    # FNN models don't use hidden states
+                    self.hidden_states = {
+                        'model_type': 'FNN'
+                    }
+                    print(f"No hidden states needed for FNN model")
+                elif model_type == 'GRU':
                     # GRU only has hidden state (h_s), no cell state (h_c)
                     self.hidden_states = {
                         'h_s': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
                         'model_type': 'GRU'
                     }
+                    print(f"Hidden states initialized for continuous testing ({model_type})")
                 else:
                     # LSTM has both hidden state (h_s) and cell state (h_c)
                     self.hidden_states = {
@@ -77,7 +84,7 @@ class ContinuousTestingService:
                         'h_c': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
                         'model_type': 'LSTM'
                     }
-                print(f"Hidden states initialized for continuous testing ({model_type})")
+                    print(f"Hidden states initialized for continuous testing ({model_type})")
             
             # Load scaler only once
             if self.scaler is None:
@@ -155,21 +162,25 @@ class ContinuousTestingService:
             # Allocate prediction buffer for actual test length
             y_preds = torch.zeros(original_len, dtype=torch.float32).to(self.device)
             
-            # Process each sample one at a time through RNN
+            # Process each sample one at a time
             with torch.no_grad():
                 for t in range(len(df_test_full)):
                     x_t = X_all[t].unsqueeze(0)  # Shape: (1, 1, features) - single timestep
                     
-                    # Forward pass through RNN with persistent hidden states
-                    if self.hidden_states['model_type'] == 'GRU':
-                        # GRU forward pass
+                    # Forward pass based on model type
+                    if self.hidden_states['model_type'] == 'FNN':
+                        # FNN forward pass - reshape to (batch_size, features)
+                        x_flat = x_t.view(1, -1)  # Shape: (1, features)
+                        y_pred = self.model_instance(x_flat)
+                    elif self.hidden_states['model_type'] == 'GRU':
+                        # GRU forward pass with persistent hidden states
                         output, h_s = self.model_instance.gru(x_t, self.hidden_states['h_s'])
                         # Get final prediction
                         y_pred = self.model_instance.fc(output[:, -1, :])
                         # Update hidden state for next sample
                         self.hidden_states['h_s'] = h_s.detach()
                     else:
-                        # LSTM forward pass
+                        # LSTM forward pass with persistent hidden states
                         output, (h_s, h_c) = self.model_instance.lstm(x_t, (self.hidden_states['h_s'], self.hidden_states['h_c']))
                         # Get final prediction
                         y_pred = self.model_instance.linear(output[:, -1, :])
@@ -402,19 +413,34 @@ class ContinuousTestingService:
             
             # Get model parameters
             input_size = len(task.get('data_loader_params', {}).get('feature_columns', []))
-            hidden_units = model_metadata.get('hidden_units', 64)
-            num_layers = model_metadata.get('num_layers', 2)
             output_size = 1  # Single target prediction
-            dropout = model_metadata.get('dropout', 0.2)
             
-            # Create appropriate model type
-            if model_type == 'LSTM_LN':
-                model = LSTMModelLN(input_size, hidden_units, num_layers, output_size, dropout)
-            elif model_type == 'LSTM_BN':
-                model = LSTMModelBN(input_size, hidden_units, num_layers, output_size, dropout)
-            elif model_type == 'GRU':
-                model = GRUModel(input_size, hidden_units, num_layers, output_size, dropout)
-            else:  # Default LSTM
+            # Model-specific parameter handling
+            if model_type in ['LSTM', 'LSTM_LN', 'LSTM_BN', 'GRU']:
+                hidden_units = model_metadata.get('hidden_units', 64)
+                num_layers = model_metadata.get('num_layers', 2)
+                dropout = model_metadata.get('dropout', 0.2)
+                
+                # Create appropriate RNN model type
+                if model_type == 'LSTM_LN':
+                    model = LSTMModelLN(input_size, hidden_units, num_layers, output_size, dropout)
+                elif model_type == 'LSTM_BN':
+                    model = LSTMModelBN(input_size, hidden_units, num_layers, output_size, dropout)
+                elif model_type == 'GRU':
+                    model = GRUModel(input_size, hidden_units, num_layers, output_size, dropout)
+                else:  # Default LSTM
+                    model = LSTMModel(input_size, hidden_units, num_layers, output_size, dropout)
+            elif model_type == 'FNN':
+                # For FNN models, use different parameters
+                from vestim.services.model_training.src.FNN_model import FNNModel
+                hidden_layer_sizes = model_metadata.get('hidden_layer_sizes', [64, 32])
+                dropout_prob = model_metadata.get('dropout_prob', 0.2)
+                model = FNNModel(input_size, hidden_layer_sizes, output_size, dropout_prob)
+            else:
+                # Fallback for unknown model types
+                hidden_units = model_metadata.get('hidden_units', 64)
+                num_layers = model_metadata.get('num_layers', 2)
+                dropout = model_metadata.get('dropout', 0.2)
                 model = LSTMModel(input_size, hidden_units, num_layers, output_size, dropout)
             
             print(f"Created {model_type} model instance")

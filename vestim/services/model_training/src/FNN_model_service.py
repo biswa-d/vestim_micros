@@ -54,14 +54,17 @@ class FNNModelService:
         torch.save(model.state_dict(), model_path)
         self.logger.info(f"FNN Model saved to {model_path}")
 
-    def create_and_save_fnn_model(self, params: dict, model_path: str):
+    def create_and_save_fnn_model(self, params: dict, model_path: str, target_device=None):
         """
         Build and save an FNN model using the provided parameters.
 
         :param params: Dictionary containing model parameters.
         :param model_path: The file path where the model will be saved.
+        :param target_device: Target device (for consistency with other model services).
         :return: The built FNNModel.
         """
+        if target_device is not None:
+            self.device = target_device
         model = self.build_fnn_model(params)
         self.save_model(model, model_path)
         return model
