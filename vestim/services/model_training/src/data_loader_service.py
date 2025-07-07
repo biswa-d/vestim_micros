@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 import pandas as pd
 import torch
@@ -111,16 +112,22 @@ class DataLoaderService:
         valid_sampler = SubsetRandomSampler(valid_indices)
 
         # Create DataLoaders with memory optimization
-        # MEMORY FIX: Adaptive num_workers based on dataset size for optimal memory usage
-        # Large datasets benefit more from reduced workers than parallel loading
-        optimized_num_workers = min(num_workers, 2) if len(dataset) > 100000 else num_workers
-        
-        # CRITICAL: For large datasets, disable multiprocessing entirely to prevent memory duplication
-        if len(dataset) > 1000000:  # > 1M sequences
+        # PYINSTALLER FIX: Disable multiprocessing entirely when running as exe to prevent worker crashes
+        if getattr(sys, 'frozen', False):
+            # Running as PyInstaller executable
             optimized_num_workers = 0
-            self.logger.info(f"Disabled multiprocessing for large dataset ({len(dataset)} sequences) to prevent memory duplication")
-        elif optimized_num_workers != num_workers:
-            self.logger.info(f"Reduced num_workers from {num_workers} to {optimized_num_workers} for dataset memory optimization")
+            self.logger.info("Running as PyInstaller executable - disabled multiprocessing to prevent worker crashes")
+        else:
+            # MEMORY FIX: Adaptive num_workers based on dataset size for optimal memory usage
+            # Large datasets benefit more from reduced workers than parallel loading
+            optimized_num_workers = min(num_workers, 2) if len(dataset) > 100000 else num_workers
+            
+            # CRITICAL: For large datasets, disable multiprocessing entirely to prevent memory duplication
+            if len(dataset) > 1000000:  # > 1M sequences
+                optimized_num_workers = 0
+                self.logger.info(f"Disabled multiprocessing for large dataset ({len(dataset)} sequences) to prevent memory duplication")
+            elif optimized_num_workers != num_workers:
+                self.logger.info(f"Reduced num_workers from {num_workers} to {optimized_num_workers} for dataset memory optimization")
         
         # CRITICAL FIX: Set prefetch_factor based on num_workers (must be None when num_workers=0)
         prefetch_factor_value = 1 if optimized_num_workers > 0 else None
@@ -165,10 +172,13 @@ class DataLoaderService:
                                       seed: int = None):
         """
         Creates DataLoaders specifically for FNN models with batch training logic:
-        1. Concatenate all training files
-        2. Split into non-overlapping batches of fixed size
-        3. Drop incomplete batches
-        4. Support epoch-wise batch shuffling
+        1. Process each file individually to create batch-sized chunks
+        2. Drop incomplete batches from each file (preserves file integrity)
+        3. Combine all chunks from all files
+        4. Shuffle and split chunks into train/validation sets
+        
+        This approach ensures that each batch contains samples from only one file,
+        preventing mixing of samples from different data sources/conditions.
         
         :param folder_path: Path to the folder containing the data files.
         :param feature_cols: List of feature column names.
@@ -182,77 +192,137 @@ class DataLoaderService:
         if seed is None:
             seed = int(datetime.now().timestamp())
         
-        self.logger.info(f"Creating FNN batch data loaders with batch size: {batch_size}")
+        self.logger.info(f"Creating FNN batch data loaders with file-wise chunking, batch size: {batch_size}")
         
-        # Use WholeSequenceFNNDataHandler to concatenate all files
-        handler = WholeSequenceFNNDataHandler(feature_cols, target_col)
-        handler.logger = self.logger
+        # Get all CSV files in the folder (excluding test files)
+        csv_files = [f for f in os.listdir(folder_path) if f.endswith('.csv') and 'test' not in f.lower()]
         
-        X, y = handler.load_and_process_data(folder_path)
-        
-        if X.size == 0 or y.size == 0:
-            self.logger.warning("No data loaded by the handler. Returning empty DataLoaders.")
+        if not csv_files:
+            self.logger.warning("No training CSV files found. Returning empty DataLoaders.")
             empty_dataset = TensorDataset(torch.empty(0), torch.empty(0))
             empty_loader = DataLoader(empty_dataset, batch_size=batch_size)
             return empty_loader, empty_loader
         
-        # Ensure arrays are float32 for memory efficiency
-        if X.dtype != np.float32:
-            X = X.astype(np.float32)
-        if y.dtype != np.float32:
-            y = y.astype(np.float32)
+        self.logger.info(f"Processing {len(csv_files)} training files: {csv_files}")
         
-        total_samples = X.shape[0]
-        self.logger.info(f"Total samples before batching: {total_samples}")
+        all_X_chunks = []
+        all_y_chunks = []
+        total_chunks = 0
+        total_dropped_samples = 0
         
-        # Calculate number of complete batches and drop incomplete samples
-        num_complete_batches = total_samples // batch_size
-        samples_to_keep = num_complete_batches * batch_size
+        # Process each file individually
+        for file_name in csv_files:
+            file_path = os.path.join(folder_path, file_name)
+            self.logger.info(f"Processing file: {file_name}")
+            
+            try:
+                # Load individual file
+                df = pd.read_csv(file_path)
+                
+                if df.empty:
+                    self.logger.warning(f"File {file_name} is empty, skipping.")
+                    continue
+                
+                # Check if required columns exist
+                missing_cols = [col for col in feature_cols + [target_col] if col not in df.columns]
+                if missing_cols:
+                    self.logger.warning(f"File {file_name} missing columns {missing_cols}, skipping.")
+                    continue
+                
+                # Extract features and target
+                X_file = df[feature_cols].values
+                y_file = df[target_col].values
+                
+                # Ensure float32 for memory efficiency
+                if X_file.dtype != np.float32:
+                    X_file = X_file.astype(np.float32)
+                if y_file.dtype != np.float32:
+                    y_file = y_file.astype(np.float32)
+                
+                file_samples = X_file.shape[0]
+                file_chunks = file_samples // batch_size
+                samples_to_keep = file_chunks * batch_size
+                
+                if samples_to_keep == 0:
+                    self.logger.warning(f"File {file_name} has {file_samples} samples, less than batch_size {batch_size}, skipping.")
+                    continue
+                
+                if samples_to_keep < file_samples:
+                    dropped_from_file = file_samples - samples_to_keep
+                    total_dropped_samples += dropped_from_file
+                    self.logger.info(f"File {file_name}: keeping {samples_to_keep}/{file_samples} samples in {file_chunks} chunks")
+                    X_file = X_file[:samples_to_keep]
+                    y_file = y_file[:samples_to_keep]
+                
+                # Create chunks from this file
+                X_file_reshaped = X_file.reshape(file_chunks, batch_size, X_file.shape[1])
+                y_file_reshaped = y_file.reshape(file_chunks, batch_size, -1) if y_file.ndim > 1 else y_file.reshape(file_chunks, batch_size, 1)
+                
+                # Add chunks to our collection
+                for chunk_idx in range(file_chunks):
+                    all_X_chunks.append(X_file_reshaped[chunk_idx])
+                    all_y_chunks.append(y_file_reshaped[chunk_idx])
+                
+                total_chunks += file_chunks
+                
+            except Exception as e:
+                self.logger.error(f"Error processing file {file_name}: {str(e)}")
+                continue
         
-        if samples_to_keep < total_samples:
-            dropped_samples = total_samples - samples_to_keep
-            self.logger.info(f"Dropping {dropped_samples} incomplete samples. Keeping {samples_to_keep} samples in {num_complete_batches} complete batches.")
-            X = X[:samples_to_keep]
-            y = y[:samples_to_keep]
+        if total_chunks == 0:
+            self.logger.warning("No valid chunks created from any files. Returning empty DataLoaders.")
+            empty_dataset = TensorDataset(torch.empty(0), torch.empty(0))
+            empty_loader = DataLoader(empty_dataset, batch_size=batch_size)
+            return empty_loader, empty_loader
         
-        # Split into train and validation before creating batches
-        train_size = int(samples_to_keep * train_split)
-        # Ensure train_size is divisible by batch_size
-        train_batches = train_size // batch_size
-        train_size = train_batches * batch_size
+        self.logger.info(f"Created {total_chunks} chunks from {len(csv_files)} files")
+        self.logger.info(f"Total dropped samples across all files: {total_dropped_samples}")
         
-        val_size = samples_to_keep - train_size
-        val_batches = val_size // batch_size
-        val_size = val_batches * batch_size
+        # Convert chunks to numpy arrays
+        all_X_chunks = np.array(all_X_chunks)  # Shape: (total_chunks, batch_size, num_features)
+        all_y_chunks = np.array(all_y_chunks)  # Shape: (total_chunks, batch_size, num_targets)
         
-        # Adjust if validation set doesn't have complete batches
-        if val_size == 0 and samples_to_keep > train_size:
-            # If we can't make a complete validation batch, take one batch from training
-            if train_batches > 1:
-                train_batches -= 1
-                train_size = train_batches * batch_size
-                val_size = batch_size
-                val_batches = 1
-            else:
-                # Not enough data for proper train/val split with complete batches
-                self.logger.warning("Not enough data for proper train/validation split with complete batches.")
-                val_size = 0
-                val_batches = 0
+        # Shuffle chunks and split into train/validation
+        np.random.seed(seed)
+        chunk_indices = np.arange(total_chunks)
+        np.random.shuffle(chunk_indices)
         
-        self.logger.info(f"Train samples: {train_size} ({train_batches} batches), Val samples: {val_size} ({val_batches} batches)")
+        train_chunks = int(total_chunks * train_split)
+        val_chunks = total_chunks - train_chunks
         
-        # Split the data
-        X_train = X[:train_size] if train_size > 0 else np.empty((0, X.shape[1]))
-        y_train = y[:train_size] if train_size > 0 else np.empty((0, y.shape[1] if y.ndim > 1 else 1))
-        X_val = X[train_size:train_size + val_size] if val_size > 0 else np.empty((0, X.shape[1]))
-        y_val = y[train_size:train_size + val_size] if val_size > 0 else np.empty((0, y.shape[1] if y.ndim > 1 else 1))
+        train_chunk_indices = chunk_indices[:train_chunks]
+        val_chunk_indices = chunk_indices[train_chunks:]
         
-        # Create DataLoaders with FNN batch logic
+        self.logger.info(f"Split: {train_chunks} train chunks, {val_chunks} val chunks")
+        self.logger.info(f"Train samples: {train_chunks * batch_size}, Val samples: {val_chunks * batch_size}")
+        
+        # Create train and validation data
+        if train_chunks > 0:
+            X_train_chunks = all_X_chunks[train_chunk_indices]
+            y_train_chunks = all_y_chunks[train_chunk_indices]
+            # Flatten chunks back to samples for DataLoader
+            X_train = X_train_chunks.reshape(-1, X_train_chunks.shape[2])
+            y_train = y_train_chunks.reshape(-1, y_train_chunks.shape[2])
+        else:
+            X_train = np.empty((0, all_X_chunks.shape[2]))
+            y_train = np.empty((0, all_y_chunks.shape[2]))
+        
+        if val_chunks > 0:
+            X_val_chunks = all_X_chunks[val_chunk_indices]
+            y_val_chunks = all_y_chunks[val_chunk_indices]
+            # Flatten chunks back to samples for DataLoader
+            X_val = X_val_chunks.reshape(-1, X_val_chunks.shape[2])
+            y_val = y_val_chunks.reshape(-1, y_val_chunks.shape[2])
+        else:
+            X_val = np.empty((0, all_X_chunks.shape[2]))
+            y_val = np.empty((0, all_y_chunks.shape[2]))
+        
+        # Create DataLoaders
         train_loader = self._create_fnn_dataloader(X_train, y_train, batch_size, num_workers, seed, is_training=True)
         val_loader = self._create_fnn_dataloader(X_val, y_val, batch_size, num_workers, seed, is_training=False)
         
         # Clean up
-        del X, y, X_train, y_train, X_val, y_val
+        del all_X_chunks, all_y_chunks, X_train, y_train, X_val, y_val
         gc.collect()
         
         return train_loader, val_loader
@@ -280,9 +350,14 @@ class DataLoaderService:
         shuffle_batches = is_training
         
         # Optimize num_workers for memory efficiency
-        optimized_num_workers = min(num_workers, 2) if len(dataset) > 100000 else num_workers
-        if len(dataset) > 1000000:
+        # PYINSTALLER FIX: Disable multiprocessing entirely when running as exe
+        if getattr(sys, 'frozen', False):
             optimized_num_workers = 0
+            self.logger.info("Running as PyInstaller executable - disabled multiprocessing for FNN DataLoader")
+        else:
+            optimized_num_workers = min(num_workers, 2) if len(dataset) > 100000 else num_workers
+            if len(dataset) > 1000000:
+                optimized_num_workers = 0
             
         prefetch_factor_value = 1 if optimized_num_workers > 0 else None
         

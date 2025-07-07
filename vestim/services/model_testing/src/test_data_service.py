@@ -8,6 +8,7 @@
 
 
 import os
+import sys
 import numpy as np
 import pandas as pd
 import torch
@@ -62,10 +63,14 @@ class VEstimTestDataService:
         print(f"Total test sequences created: {len(y)}")
         print(f"Final Test Dataset Size (after padding if needed): {X.shape[0]} samples")
 
-        # Create DataLoader
+        # Create DataLoader with PyInstaller fix
         dataset = TensorDataset(X, y)
-        testLoader = DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False)
+        
+        # PYINSTALLER FIX: Disable multiprocessing when running as exe
+        num_workers = 0 if getattr(sys, 'frozen', False) else 0  # Always 0 for testing
+        
+        testLoader = DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=num_workers)
 
         print("Test DataLoader created successfully!")
         return testLoader
-        
+
