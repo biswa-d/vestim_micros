@@ -4,7 +4,7 @@
 #define MyAppName "Vestim"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Biswanath Dehury"
-#define MyAppURL "https://github.com/yourusername/vestim"
+#define MyAppURL "https://github.com/biswa-d/vestim_micros"
 #define MyAppExeName "Vestim.exe"
 
 [Setup]

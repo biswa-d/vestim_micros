@@ -386,7 +386,7 @@ class TrainingTaskManager:
             # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
             lr_drop_buffer = 50
             last_lr_drop_epoch = 0  # Initialize the epoch of the last LR drop
-            # weight_decay = hyperparams.get('WEIGHT_DECAY', 1e-5)
+            weight_decay = hyperparams.get('WEIGHT_DECAY', 0.0)  # L2 regularization
 
             best_validation_loss = float('inf')
             patience_counter = 0
@@ -399,7 +399,7 @@ class TrainingTaskManager:
             overall_training_start_time = time.time() # For max training time check
             self.logger.info(f"Max training time set to: {max_training_time_seconds} seconds.")
 
-            self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
+            self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr, weight_decay=weight_decay)
             # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
             #self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
             self.scheduler = torch.optim.lr_scheduler.StepLR(

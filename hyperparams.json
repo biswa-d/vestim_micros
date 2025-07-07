@@ -9,5 +9,7 @@
     "VALID_PATIENCE": "10",
     "ValidFrequency": "1",
     "LOOKBACK": "400,200",
-    "REPETITIONS": "1"
+    "REPETITIONS": "1",
+    "WEIGHT_DECAY": "0.0",
+    "DROPOUT_PROB": "0.0"
 }
