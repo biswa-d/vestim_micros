@@ -421,7 +421,10 @@ class DataAugmentManager(QObject): # Inherit from QObject
            self.service.update_augmentation_metadata(job_folder, processed_files_metadata)
            
            # Save simple data file reference for future traceability
-           self._save_simple_data_reference(job_folder)
+           try:
+               self._save_simple_data_reference_safe(job_folder)
+           except Exception as ref_error:
+               self.logger.warning(f"Could not save data reference (non-critical): {ref_error}")
 
            self.augmentationProgress.emit(100)
            self.logger.info(f"File-by-file augmentation completed (or stopped) for job: {job_folder}")
@@ -640,3 +643,116 @@ class DataAugmentManager(QObject): # Inherit from QObject
             
         except Exception as e:
             self.logger.error(f"Error saving simple data reference: {e}", exc_info=True)
+
+    def _save_simple_data_reference_safe(self, job_folder: str):
+        """
+        Save simple file references in a way that won't interfere with multiprocessing.
+        Uses only basic Python operations and avoids any potential import issues.
+        """
+        try:
+            import os
+            import json
+            from datetime import datetime
+            
+            # Get raw data directories (where original files are before processing)
+            train_raw_dir = os.path.join(job_folder, 'train_data', 'raw_data')
+            val_raw_dir = os.path.join(job_folder, 'val_data', 'raw_data')
+            test_raw_dir = os.path.join(job_folder, 'test_data', 'raw_data')
+            
+            data_reference = {
+                'timestamp': datetime.now().isoformat(),
+                'job_folder': os.path.basename(job_folder),  # Just job name, not full path
+                'train_files': [],
+                'validation_files': [],
+                'test_files': [],
+                'total_train_samples': 0,
+                'total_validation_samples': 0,
+                'total_test_samples': 0
+            }
+            
+            # Helper function to count lines safely
+            def count_csv_lines(file_path):
+                try:
+                    with open(file_path, 'r') as f:
+                        return max(0, sum(1 for _ in f) - 1)  # -1 for header
+                except:
+                    return 0
+            
+            # Collect training file names and count samples
+            if os.path.exists(train_raw_dir):
+                for filename in os.listdir(train_raw_dir):
+                    if filename.lower().endswith('.csv'):
+                        file_path = os.path.join(train_raw_dir, filename)
+                        sample_count = count_csv_lines(file_path)
+                        data_reference['train_files'].append({
+                            'filename': filename,
+                            'samples': sample_count
+                        })
+                        data_reference['total_train_samples'] += sample_count
+            
+            # Collect validation file names and count samples
+            if os.path.exists(val_raw_dir):
+                for filename in os.listdir(val_raw_dir):
+                    if filename.lower().endswith('.csv'):
+                        file_path = os.path.join(val_raw_dir, filename)
+                        sample_count = count_csv_lines(file_path)
+                        data_reference['validation_files'].append({
+                            'filename': filename,
+                            'samples': sample_count
+                        })
+                        data_reference['total_validation_samples'] += sample_count
+            
+            # Collect test file names and count samples
+            if os.path.exists(test_raw_dir):
+                for filename in os.listdir(test_raw_dir):
+                    if filename.lower().endswith('.csv'):
+                        file_path = os.path.join(test_raw_dir, filename)
+                        sample_count = count_csv_lines(file_path)
+                        data_reference['test_files'].append({
+                            'filename': filename,
+                            'samples': sample_count
+                        })
+                        data_reference['total_test_samples'] += sample_count
+            
+            # Save simple reference file
+            reference_file = os.path.join(job_folder, 'data_files_reference.txt')
+            with open(reference_file, 'w') as f:
+                f.write("DATA FILES REFERENCE\n")
+                f.write("=" * 50 + "\n")
+                f.write(f"Job: {data_reference['job_folder']}\n")
+                f.write(f"Created: {data_reference['timestamp']}\n\n")
+                
+                f.write(f"TRAINING FILES ({len(data_reference['train_files'])} files, {data_reference['total_train_samples']:,} total samples):\n")
+                for file_info in data_reference['train_files']:
+                    samples_str = f"{file_info['samples']:,}" if isinstance(file_info['samples'], int) else str(file_info['samples'])
+                    f.write(f"  • {file_info['filename']} - {samples_str} samples\n")
+                f.write("\n")
+                
+                f.write(f"VALIDATION FILES ({len(data_reference['validation_files'])} files, {data_reference['total_validation_samples']:,} total samples):\n")
+                for file_info in data_reference['validation_files']:
+                    samples_str = f"{file_info['samples']:,}" if isinstance(file_info['samples'], int) else str(file_info['samples'])
+                    f.write(f"  • {file_info['filename']} - {samples_str} samples\n")
+                f.write("\n")
+                
+                f.write(f"TEST FILES ({len(data_reference['test_files'])} files, {data_reference['total_test_samples']:,} total samples):\n")
+                for file_info in data_reference['test_files']:
+                    samples_str = f"{file_info['samples']:,}" if isinstance(file_info['samples'], int) else str(file_info['samples'])
+                    f.write(f"  • {file_info['filename']} - {samples_str} samples\n")
+                f.write("\n")
+                
+                f.write("NOTE: Original data files remain in their source locations.\n")
+                f.write("Scaler statistics (min/max values) are saved separately in scalers/ folder.\n")
+            
+            # Also save as JSON for programmatic access if needed
+            json_file = os.path.join(job_folder, 'data_files_reference.json')
+            with open(json_file, 'w') as f:
+                json.dump(data_reference, f, indent=2)
+            
+            # Use logger only if available, don't fail if not
+            if hasattr(self, 'logger') and self.logger:
+                self.logger.info(f"Saved simple data reference to: {reference_file}")
+            
+        except Exception as e:
+            # Fail silently to avoid affecting main workflow
+            if hasattr(self, 'logger') and self.logger:
+                self.logger.warning(f"Error saving simple data reference: {e}")

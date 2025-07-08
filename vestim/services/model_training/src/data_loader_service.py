@@ -122,10 +122,17 @@ class DataLoaderService:
 
         # Create DataLoaders with memory optimization
         # PYINSTALLER FIX: Disable multiprocessing entirely when running as exe to prevent worker crashes
+        # WINDOWS MULTIPROCESSING FIX: Disable multiprocessing on Windows when PyQt5 is imported to prevent spawn issues
+        import platform
+        
         if getattr(sys, 'frozen', False):
             # Running as PyInstaller executable
             optimized_num_workers = 0
             self.logger.info("Running as PyInstaller executable - disabled multiprocessing to prevent worker crashes")
+        elif platform.system() == "Windows":
+            # Running on Windows - always disable multiprocessing to prevent spawn issues with GUI applications
+            optimized_num_workers = 0
+            self.logger.info(f"Running on Windows - disabled multiprocessing (original num_workers: {num_workers}) to prevent spawn issues")
         else:
             # MEMORY FIX: Adaptive num_workers based on dataset size for optimal memory usage
             # Large datasets benefit more from reduced workers than parallel loading
@@ -360,9 +367,15 @@ class DataLoaderService:
         
         # Optimize num_workers for memory efficiency
         # PYINSTALLER FIX: Disable multiprocessing entirely when running as exe
+        # WINDOWS MULTIPROCESSING FIX: Disable multiprocessing on Windows when PyQt5 is imported
+        import platform
+        
         if getattr(sys, 'frozen', False):
             optimized_num_workers = 0
             self.logger.info("Running as PyInstaller executable - disabled multiprocessing for FNN DataLoader")
+        elif platform.system() == "Windows":
+            optimized_num_workers = 0
+            self.logger.info(f"Running on Windows - disabled multiprocessing for FNN DataLoader (original num_workers: {num_workers})")
         else:
             optimized_num_workers = min(num_workers, 2) if len(dataset) > 100000 else num_workers
             if len(dataset) > 1000000:
@@ -522,9 +535,14 @@ class DataLoaderService:
         val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
         
         # Optimize num_workers for PyInstaller and memory usage
+        import platform
+        
         if getattr(sys, 'frozen', False):
             optimized_num_workers = 0
             self.logger.info("Running as PyInstaller executable - disabled multiprocessing")
+        elif platform.system() == "Windows":
+            optimized_num_workers = 0
+            self.logger.info("Running on Windows - disabled multiprocessing to avoid GUI import issues")
         else:
             optimized_num_workers = min(num_workers, 2) if len(train_dataset) > 100000 else num_workers
             if len(train_dataset) > 1000000:
