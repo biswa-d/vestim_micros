@@ -48,6 +48,12 @@ class JobManager:
             return os.path.join(self.get_job_folder(), 'train_data', 'processed_data')
         return None
 
+    def get_val_folder(self):
+        """Returns the path to the validation processed data folder."""
+        if self.job_id:
+            return os.path.join(self.get_job_folder(), 'val_data', 'processed_data')
+        return None
+
     def get_test_folder(self):
         """Returns the path to the test processed data folder."""
         if self.job_id:

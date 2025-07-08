@@ -119,10 +119,14 @@ class DataAugmentManager(QObject): # Inherit from QObject
            actual_columns_to_normalize = []
 
            train_processed_dir = self.job_manager.get_train_folder()
+           val_processed_dir = self.job_manager.get_val_folder()
            test_processed_dir = self.job_manager.get_test_folder()
 
            if not train_processed_dir or not os.path.isdir(train_processed_dir):
                 self.logger.warning(f"Train processed directory not found or invalid: {train_processed_dir}")
+            
+           if not val_processed_dir or not os.path.isdir(val_processed_dir):
+                self.logger.warning(f"Validation processed directory not found or invalid: {val_processed_dir}")
             
            if not test_processed_dir or not os.path.isdir(test_processed_dir):
                 self.logger.warning(f"Test processed directory not found or invalid: {test_processed_dir}")
@@ -130,9 +134,14 @@ class DataAugmentManager(QObject): # Inherit from QObject
            all_files_to_process = []
            train_files_for_stats_calc = []
 
+           # CRITICAL: Only use training files to fit the scaler (proper ML practice)
            if train_processed_dir and os.path.isdir(train_processed_dir):
                 train_files_for_stats_calc.extend(glob.glob(os.path.join(train_processed_dir, "*.csv")))
                 all_files_to_process.extend(train_files_for_stats_calc)
+           
+           # Add validation and test files for processing (but NOT for scaler fitting)
+           if val_processed_dir and os.path.isdir(val_processed_dir):
+                all_files_to_process.extend(glob.glob(os.path.join(val_processed_dir, "*.csv")))
            if test_processed_dir and os.path.isdir(test_processed_dir):
                 all_files_to_process.extend(glob.glob(os.path.join(test_processed_dir, "*.csv")))
             
@@ -143,6 +152,10 @@ class DataAugmentManager(QObject): # Inherit from QObject
                 else:
                     # All checks passed so far for initial conditions, proceed with pre-processing for stats
                     self.logger.info("Preparing for normalization: performing preliminary processing on training files to gather data for stats.")
+                    self.logger.info("IMPORTANT: Scaler will be fit ONLY on training data (proper ML practice)")
+                    self.logger.info(f"Training files for scaler fitting: {len(train_files_for_stats_calc)} files")
+                    self.logger.info(f"Total files to normalize (train+val+test): {len(all_files_to_process)} files")
+                    
                     dataframes_for_stats = []
                     for train_file_path_for_stats in train_files_for_stats_calc:
                         try:

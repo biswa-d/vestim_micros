@@ -285,6 +285,41 @@ class TrainingTaskManager:
                                 # 'target_column' will be derived from task params later
                             }
                             self.logger.info(f"Successfully loaded scaler from {scaler_path_absolute} and normalization metadata.")
+                            
+                            # Debug: Print scaler parameters to understand scaling factors
+                            try:
+                                if hasattr(self.loaded_scaler, 'data_min_') and hasattr(self.loaded_scaler, 'data_max_'):
+                                    self.logger.info("=== SCALER DEBUG INFO ===")
+                                    self.logger.info(f"Scaler type: {type(self.loaded_scaler).__name__}")
+                                    self.logger.info(f"Normalized columns: {normalized_columns}")
+                                    for i, col in enumerate(normalized_columns):
+                                        if i < len(self.loaded_scaler.data_min_) and i < len(self.loaded_scaler.data_max_):
+                                            data_min = self.loaded_scaler.data_min_[i]
+                                            data_max = self.loaded_scaler.data_max_[i]
+                                            data_range = data_max - data_min
+                                            self.logger.info(f"  {col}: min={data_min:.6f}, max={data_max:.6f}, range={data_range:.6f}")
+                                            # For voltage, show expected multiplier effect
+                                            if "voltage" in col.lower():
+                                                expected_rmse_scaling = data_range * 1000  # V to mV
+                                                self.logger.info(f"    -> Expected RMSE scaling for normalized loss to mV: ~{expected_rmse_scaling:.1f}x")
+                                            elif "soc" in col.lower() or "soe" in col.lower() or "sop" in col.lower():
+                                                expected_rmse_scaling = data_range * 100  # fraction to percentage
+                                                self.logger.info(f"    -> Expected RMSE scaling for normalized loss to %: ~{expected_rmse_scaling:.1f}x")
+                                elif hasattr(self.loaded_scaler, 'scale_') and hasattr(self.loaded_scaler, 'min_'):
+                                    self.logger.info("=== SCALER DEBUG INFO (StandardScaler) ===")
+                                    self.logger.info(f"Scaler type: {type(self.loaded_scaler).__name__}")
+                                    self.logger.info(f"Normalized columns: {normalized_columns}")
+                                    for i, col in enumerate(normalized_columns):
+                                        if i < len(self.loaded_scaler.scale_):
+                                            scale = self.loaded_scaler.scale_[i]
+                                            self.logger.info(f"  {col}: scale={scale:.6f}")
+                                            # For voltage, show expected multiplier effect
+                                            if "voltage" in col.lower():
+                                                expected_rmse_scaling = (1.0 / scale) * 1000  # Standard scaling to mV
+                                                self.logger.info(f"    -> Expected RMSE scaling for normalized loss to mV: ~{expected_rmse_scaling:.1f}x")
+                                self.logger.info("=== END SCALER DEBUG ===")
+                            except Exception as debug_e:
+                                self.logger.warning(f"Could not extract scaler debug info: {debug_e}")
                         else:
                             self.logger.error(f"Failed to load scaler from {scaler_path_absolute}. Reporting will be on normalized scale.")
                     else:
@@ -319,7 +354,7 @@ class TrainingTaskManager:
             lookback = int(task['data_loader_params'].get('lookback', 50))
             user_batch_size = int(task['data_loader_params'].get('batch_size', 32))
             
-            train_loader, val_loader, test_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
+            train_loader, val_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
                 job_folder_path=job_folder_path,
                 training_method=training_method,
                 feature_cols=feature_cols,
@@ -329,7 +364,8 @@ class TrainingTaskManager:
                 lookback=lookback,
                 concatenate_raw_data=True,  # Use concatenated for whole sequence
                 seed=seed,
-                model_type=model_type
+                model_type=model_type,
+                create_test_loader=False  # Skip test loader during training to save memory
             )
         else: # Default to lookback-based sequence loading
             if training_method == 'Whole Sequence' and model_type not in ['LSTM', 'GRU']:
@@ -340,7 +376,7 @@ class TrainingTaskManager:
 
             self.logger.info(f"Using new three-folder data loader. User batch size: {user_batch_size}, Lookback: {lookback}")
             
-            train_loader, val_loader, test_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
+            train_loader, val_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
                 job_folder_path=job_folder_path,
                 training_method=training_method,
                 feature_cols=feature_cols,
@@ -350,11 +386,11 @@ class TrainingTaskManager:
                 lookback=lookback,
                 concatenate_raw_data=False,
                 seed=seed,
-                model_type=model_type
+                model_type=model_type,
+                create_test_loader=False  # Skip test loader during training to save memory
             )
 
-        # For backward compatibility, we only return train and val loaders
-        # Test loader is available but not used in current training workflow
+        # Return only train and val loaders for training (no test loader needed)
         return train_loader, val_loader
 
     def run_training(self, task, update_progress_callback, train_loader, val_loader, device):
@@ -656,6 +692,21 @@ class TrainingTaskManager:
                     
                     self.logger.info(f"Epoch {epoch} | Train Loss (Norm): {train_loss_norm:.6f} | Val Loss (Norm): {val_loss_norm:.6f} | GUI Train RMSE: {train_rmse_for_gui:.4f} {error_unit_label} | GUI Val RMSE: {val_rmse_for_gui:.4f} {error_unit_label} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss (Norm): {best_validation_loss:.6f} | GUI Best Val RMSE: {best_val_rmse_for_gui:.4f} {error_unit_label} | Patience: {patience_counter}")
                     
+                    # --- Debug logging for validation loss normalization issue ---
+                    self.logger.debug(f"Validation loss debug - Epoch {epoch}:")
+                    self.logger.debug(f"  - val_loss_norm (MSE in normalized space): {val_loss_norm}")
+                    self.logger.debug(f"  - Target column: {target_col_for_scaler}")
+                    self.logger.debug(f"  - Multiplier: {multiplier}")
+                    self.logger.debug(f"  - Scaler loaded: {hasattr(self, 'loaded_scaler') and self.loaded_scaler is not None}")
+                    if hasattr(self, 'scaler_metadata') and self.scaler_metadata:
+                        self.logger.debug(f"  - Target in normalized columns: {target_col_for_scaler in self.scaler_metadata.get('normalized_columns', [])}")
+                    
+                    # Show what the fallback calculation would be (this is often wrong!)
+                    if val_loss_norm is not None and not math.isnan(val_loss_norm):
+                        fallback_rmse = math.sqrt(max(0, val_loss_norm)) * multiplier
+                        self.logger.debug(f"  - Fallback RMSE calculation: sqrt({val_loss_norm}) * {multiplier} = {fallback_rmse:.2f}")
+                        self.logger.debug(f"    WARNING: This fallback method is often INCORRECT for denormalized values!")
+                    
                     # Calculate task-level elapsed time
                     task_elapsed_time = time.time() - self.task_start_time if hasattr(self, 'task_start_time') else elapsed_time
                     
@@ -852,8 +903,6 @@ class TrainingTaskManager:
                                 except Exception as e_inv_train_no_val:
                                     self.logger.error(f"Error during inverse transform for training data (non-val epoch {epoch}): {e_inv_train_no_val}.")
                                     if train_loss_norm is not None and not math.isnan(train_loss_norm): train_rmse_for_gui_no_val = math.sqrt(max(0, train_loss_norm)) * multiplier_no_val
-                            else: 
-                                if train_loss_norm is not None and not math.isnan(train_loss_norm): train_rmse_for_gui_no_val = math.sqrt(max(0, train_loss_norm)) * multiplier_no_val
                         else: 
                             if train_loss_norm is not None and not math.isnan(train_loss_norm): train_rmse_for_gui_no_val = math.sqrt(max(0, train_loss_norm)) * multiplier_no_val
 
@@ -893,7 +942,7 @@ class TrainingTaskManager:
                         #     task=task, epoch=epoch, train_loss=train_loss_norm,
                         #     val_loss=float('nan'),
                         #     best_val_loss=best_validation_loss,
-                        #     elapsed_time=time.time() - start_time,
+                        #     elapsed_time=elapsed_time,
                         #     avg_batch_time=avg_batch_time, early_stopping=False,
                         #     model_memory_usage=round(model_memory_usage_mb, 3), current_lr=current_lr
                         # )

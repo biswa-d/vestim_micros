@@ -568,9 +568,10 @@ class DataLoaderService:
                                                  batch_size: int, num_workers: int,
                                                  lookback: int = None, # Optional, only for SequenceRNN
                                                  concatenate_raw_data: bool = False, # Optional, for SequenceRNN
-                                                 seed: int = None, model_type: str = "LSTM"):
+                                                 seed: int = None, model_type: str = "LSTM", 
+                                                 create_test_loader: bool = True):
         """
-        Creates DataLoaders for training, validation, and test data from separate folders.
+        Creates DataLoaders for training, validation, and optionally test data from separate folders.
         This method replaces the train_split approach and expects the job folder to contain
         train_data/processed_data, val_data/processed_data, and test_data/processed_data folders.
 
@@ -584,7 +585,9 @@ class DataLoaderService:
         :param concatenate_raw_data: For "SequenceRNN", if True, concatenates raw data before sequencing.
         :param seed: Random seed for reproducibility.
         :param model_type: Type of model (LSTM, GRU, FNN) - affects data loading strategy.
-        :return: A tuple of (train_loader, val_loader, test_loader) PyTorch DataLoader objects.
+        :param create_test_loader: Whether to create test loader (False during training to save memory).
+        :return: A tuple of (train_loader, val_loader, test_loader) PyTorch DataLoader objects when create_test_loader=True.
+                 A tuple of (train_loader, val_loader) PyTorch DataLoader objects when create_test_loader=False.
         """
         if seed is None:
             seed = int(datetime.now().timestamp())
@@ -597,8 +600,12 @@ class DataLoaderService:
         val_folder = os.path.join(job_folder_path, 'val_data', 'processed_data')
         test_folder = os.path.join(job_folder_path, 'test_data', 'processed_data')
         
-        # Verify folders exist
-        for folder_name, folder_path in [("train", train_folder), ("validation", val_folder), ("test", test_folder)]:
+        # Verify required folders exist (test folder only if needed)
+        required_folders = [("train", train_folder), ("validation", val_folder)]
+        if create_test_loader:
+            required_folders.append(("test", test_folder))
+            
+        for folder_name, folder_path in required_folders:
             if not os.path.exists(folder_path):
                 self.logger.error(f"{folder_name} folder not found: {folder_path}")
                 raise ValueError(f"{folder_name} folder not found: {folder_path}")
@@ -611,10 +618,13 @@ class DataLoaderService:
             val_loader = self._create_single_data_loader(
                 val_folder, feature_cols, target_col, batch_size, num_workers, seed, "validation"
             )
-            test_loader = self._create_single_data_loader(
-                test_folder, feature_cols, target_col, batch_size, num_workers, seed, "test"
-            )
-            return train_loader, val_loader, test_loader
+            if create_test_loader:
+                test_loader = self._create_single_data_loader(
+                    test_folder, feature_cols, target_col, batch_size, num_workers, seed, "test"
+                )
+                return train_loader, val_loader, test_loader
+            else:
+                return train_loader, val_loader
         
         # For LSTM/GRU models, use the sequence data handlers
         handler_kwargs = {}
@@ -636,19 +646,23 @@ class DataLoaderService:
         train_X, train_y = handler.load_and_process_data(train_folder, **handler_kwargs)
         val_X, val_y = handler.load_and_process_data(val_folder, **handler_kwargs)
         
-        # For test data, use WholeSequenceFNNDataHandler to avoid sequencing
-        # Test data should remain as original processed data for proper evaluation
-        self.logger.info("Loading test data without sequencing for proper evaluation")
-        test_handler = WholeSequenceFNNDataHandler(feature_cols, target_col)
-        test_handler.logger = self.logger
-        test_X, test_y = test_handler.load_and_process_data(test_folder)
-        
         # Create data loaders
         train_loader = self._create_loader_from_tensors(train_X, train_y, batch_size, num_workers, True, "train")
         val_loader = self._create_loader_from_tensors(val_X, val_y, batch_size, num_workers, False, "validation")
-        test_loader = self._create_loader_from_tensors(test_X, test_y, batch_size, num_workers, False, "test")
         
-        return train_loader, val_loader, test_loader
+        # Conditionally create test loader
+        if create_test_loader:
+            # For test data, use WholeSequenceFNNDataHandler to avoid sequencing
+            # Test data should remain as original processed data for proper evaluation
+            self.logger.info("Loading test data without sequencing for proper evaluation")
+            test_handler = WholeSequenceFNNDataHandler(feature_cols, target_col)
+            test_handler.logger = self.logger
+            test_X, test_y = test_handler.load_and_process_data(test_folder)
+            test_loader = self._create_loader_from_tensors(test_X, test_y, batch_size, num_workers, False, "test")
+            return train_loader, val_loader, test_loader
+        else:
+            self.logger.info("Skipping test loader creation (create_test_loader=False)")
+            return train_loader, val_loader
 
     def _create_single_data_loader(self, folder_path: str, feature_cols: list, target_col: str,
                                   batch_size: int, num_workers: int, seed: int, data_type: str):
