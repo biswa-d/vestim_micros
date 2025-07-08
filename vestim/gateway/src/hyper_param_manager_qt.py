@@ -63,8 +63,8 @@ class VEstimHyperParamManager:
                         self.logger.error(f"Invalid integer value for {key}: {value}")
                         raise ValueError(f"Invalid value for {key}: Expected integers, got {value}")
 
-                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB', 'TRAIN_VAL_SPLIT']:
-                    # Validate that all values are valid floats
+                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB']:
+                    # Validate that all values are valid floats (removed TRAIN_VAL_SPLIT)
                     value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
                     try:
                         [float(v) for v in value_list]  # Just validate, don't convert

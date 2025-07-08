@@ -87,9 +87,28 @@ class TrainingTaskService:
                     if model_type == "LSTM":
                         current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
                         current_h_c = h_c_initial.detach().clone() if h_c_initial is not None else None
+                        
+                        # Dynamic batch size adjustment for hidden states
+                        actual_batch_size = X_batch.shape[0]
+                        if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
+                            # Resize hidden states to match actual batch size
+                            num_layers, _, hidden_size = current_h_s.shape
+                            device = current_h_s.device
+                            current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
+                            current_h_c = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
+                        
                         y_pred, (h_s_out, h_c_out) = model(X_batch, current_h_s, current_h_c)
                     elif model_type == "GRU":
                         current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
+                        
+                        # Dynamic batch size adjustment for hidden states
+                        actual_batch_size = X_batch.shape[0]
+                        if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
+                            # Resize hidden states to match actual batch size
+                            num_layers, _, hidden_size = current_h_s.shape
+                            device = current_h_s.device
+                            current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
+                        
                         y_pred, h_s_out = model(X_batch, current_h_s)
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
@@ -116,9 +135,28 @@ class TrainingTaskService:
                 if model_type == "LSTM":
                     current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
                     current_h_c = h_c_initial.detach().clone() if h_c_initial is not None else None
+                    
+                    # Dynamic batch size adjustment for hidden states
+                    actual_batch_size = X_batch.shape[0]
+                    if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
+                        # Resize hidden states to match actual batch size
+                        num_layers, _, hidden_size = current_h_s.shape
+                        device = current_h_s.device
+                        current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
+                        current_h_c = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
+                    
                     y_pred, (h_s_out, h_c_out) = model(X_batch, current_h_s, current_h_c)
                 elif model_type == "GRU":
                     current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
+                    
+                    # Dynamic batch size adjustment for hidden states
+                    actual_batch_size = X_batch.shape[0]
+                    if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
+                        # Resize hidden states to match actual batch size
+                        num_layers, _, hidden_size = current_h_s.shape
+                        device = current_h_s.device
+                        current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
+                    
                     y_pred, h_s_out = model(X_batch, current_h_s)
                 elif model_type == "FNN":
                     y_pred = model(X_batch)
@@ -205,9 +243,28 @@ class TrainingTaskService:
                         if model_type == "LSTM":
                             current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
                             current_h_c = h_c_initial.detach().clone() if h_c_initial is not None else None
+                            
+                            # Dynamic batch size adjustment for hidden states
+                            actual_batch_size = X_batch.shape[0]
+                            if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
+                                # Resize hidden states to match actual batch size
+                                num_layers, _, hidden_size = current_h_s.shape
+                                device = current_h_s.device
+                                current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
+                                current_h_c = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
+                            
                             y_pred, (_, _) = model(X_batch, current_h_s, current_h_c)
                         elif model_type == "GRU":
                             current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
+                            
+                            # Dynamic batch size adjustment for hidden states
+                            actual_batch_size = X_batch.shape[0]
+                            if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
+                                # Resize hidden states to match actual batch size
+                                num_layers, _, hidden_size = current_h_s.shape
+                                device = current_h_s.device
+                                current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
+                            
                             y_pred, _ = model(X_batch, current_h_s)
                         elif model_type == "FNN":
                             y_pred = model(X_batch)
@@ -227,9 +284,28 @@ class TrainingTaskService:
                     if model_type == "LSTM":
                         current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
                         current_h_c = h_c_initial.detach().clone() if h_c_initial is not None else None
+                        
+                        # Dynamic batch size adjustment for hidden states
+                        actual_batch_size = X_batch.shape[0]
+                        if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
+                            # Resize hidden states to match actual batch size
+                            num_layers, _, hidden_size = current_h_s.shape
+                            device = current_h_s.device
+                            current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
+                            current_h_c = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
+                        
                         y_pred, (_, _) = model(X_batch, current_h_s, current_h_c)
                     elif model_type == "GRU":
                         current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
+                        
+                        # Dynamic batch size adjustment for hidden states
+                        actual_batch_size = X_batch.shape[0]
+                        if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
+                            # Resize hidden states to match actual batch size
+                            num_layers, _, hidden_size = current_h_s.shape
+                            device = current_h_s.device
+                            current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
+                        
                         y_pred, _ = model(X_batch, current_h_s)
                     elif model_type == "FNN":
                         y_pred = model(X_batch)

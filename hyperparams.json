@@ -9,5 +9,6 @@
     "VALID_PATIENCE": "10",
     "ValidFrequency": "1",
     "LOOKBACK": "400,200",
-    "REPETITIONS": "1"
+    "REPETITIONS": "1",
+    "SEQUENCE_SPLIT_METHOD": "temporal"
 }

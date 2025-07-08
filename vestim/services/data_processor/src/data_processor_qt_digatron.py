@@ -2,6 +2,7 @@ import os
 import shutil
 import gc  # Explicit garbage collector
 import pandas as pd
+import numpy as np
 import h5py
 from vestim.gateway.src.job_manager_qt import JobManager
 import logging
@@ -13,9 +14,9 @@ class DataProcessorDigatron:
         self.total_files = 0  # Total number of files to process (copy)
         self.processed_files = 0  # Keep track of total processed files
 
-    def organize_and_convert_files(self, train_files, test_files, progress_callback=None, sampling_frequency=None):
+    def organize_and_convert_files(self, train_files, val_files, test_files, progress_callback=None, sampling_frequency=None):
         # Ensure valid CSV files are provided
-        if not all(f.endswith('.csv') for f in train_files + test_files):
+        if not all(f.endswith('.csv') for f in train_files + val_files + test_files):
             self.logger.error("Invalid file types. Only CSV files are accepted for Digatron processor.")
             raise ValueError("Invalid file types. Only CSV files are accepted for Digatron processor.")
 
@@ -29,17 +30,19 @@ class DataProcessorDigatron:
 
         train_raw_folder = os.path.join(job_folder, 'train_data', 'raw_data')
         train_processed_folder = os.path.join(job_folder, 'train_data', 'processed_data')
+        val_raw_folder = os.path.join(job_folder, 'val_data', 'raw_data')
+        val_processed_folder = os.path.join(job_folder, 'val_data', 'processed_data')
         test_raw_folder = os.path.join(job_folder, 'test_data', 'raw_data')
         test_processed_folder = os.path.join(job_folder, 'test_data', 'processed_data')
 
-        for folder in [train_raw_folder, train_processed_folder, test_raw_folder, test_processed_folder]:
+        for folder in [train_raw_folder, train_processed_folder, val_raw_folder, val_processed_folder, test_raw_folder, test_processed_folder]:
             if os.path.exists(folder): # Clear if exists, then create
                 shutil.rmtree(folder)
             os.makedirs(folder, exist_ok=True)
         self.logger.info(f"Created/Re-created data folders.")
         
         self.processed_files = 0
-        self.total_files = len(train_files) + len(test_files)
+        self.total_files = len(train_files) + len(val_files) + len(test_files)
         if self.total_files == 0:
             self.logger.warning("No files provided for Digatron processing.")
             return job_folder # Return early if no files
@@ -48,6 +51,11 @@ class DataProcessorDigatron:
         self.logger.info("Copying original CSVs to raw_data directories...")
         for original_file_path in train_files:
             dest_path = os.path.join(train_raw_folder, os.path.basename(original_file_path))
+            shutil.copy(original_file_path, dest_path)
+            self.logger.info(f"Copied {original_file_path} to {dest_path}")
+        
+        for original_file_path in val_files:
+            dest_path = os.path.join(val_raw_folder, os.path.basename(original_file_path))
             shutil.copy(original_file_path, dest_path)
             self.logger.info(f"Copied {original_file_path} to {dest_path}")
         
@@ -70,6 +78,19 @@ class DataProcessorDigatron:
                     self._update_progress(progress_callback)
                 except Exception as e:
                     self.logger.error(f"Failed to process Digatron train file {input_csv_path}: {e}")
+                    # Optionally, re-raise or handle as per error policy
+
+        # Process validation files from raw_data
+        for filename in os.listdir(val_raw_folder):
+            if filename.endswith('.csv'):
+                input_csv_path = os.path.join(val_raw_folder, filename)
+                output_csv_path = os.path.join(val_processed_folder, filename)
+                try:
+                    self._process_standard_csv(input_csv_path, output_csv_path, sampling_frequency)
+                    self.processed_files += 1
+                    self._update_progress(progress_callback)
+                except Exception as e:
+                    self.logger.error(f"Failed to process Digatron validation file {input_csv_path}: {e}")
                     # Optionally, re-raise or handle as per error policy
 
         # Process testing files from raw_data

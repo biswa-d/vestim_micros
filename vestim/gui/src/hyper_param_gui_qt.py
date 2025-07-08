@@ -238,21 +238,11 @@ class VEstimHyperParamGUI(QWidget):
         self.batch_size_entry.setFixedWidth(150)
         self.batch_size_entry.setEnabled(True)  # Initially enabled
 
-        # **Train-Validation Split**
-        train_val_split_label = QLabel("Train-Valid Split:")
-        train_val_split_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
-        train_val_split_label.setToolTip("Proportion of data allocated for training. The rest is used for validation.")
-        
-        self.train_val_split_entry = QLineEdit(self.params.get("TRAIN_VAL_SPLIT", "0.8"))
-        self.train_val_split_entry.setFixedWidth(150)
-        self.train_val_split_entry.setToolTip("Enter a value between 0 and 1 (e.g., 0.8 means 80% training, 20% validation).")
-
         # ✅ Store references in self.param_entries for easy parameter collection
         self.param_entries["TRAINING_METHOD"] = self.training_method_combo
         self.param_entries["LOOKBACK"] = self.lookback_entry
         self.param_entries["BATCH_TRAINING"] = self.batch_training_checkbox
         self.param_entries["BATCH_SIZE"] = self.batch_size_entry
-        self.param_entries["TRAIN_VAL_SPLIT"] = self.train_val_split_entry
 
         # Initially hide lookback if Whole Sequence is selected
         self.lookback_label.setVisible(self.training_method_combo.currentText() == "Sequence-to-Sequence")
@@ -269,8 +259,6 @@ class VEstimHyperParamGUI(QWidget):
         training_layout.addWidget(self.batch_training_checkbox)
         training_layout.addWidget(self.batch_size_label) # Use instance variable
         training_layout.addWidget(self.batch_size_entry)
-        training_layout.addWidget(train_val_split_label)
-        training_layout.addWidget(self.train_val_split_entry)
 
         # **Apply Layout to Parent Layout**
         layout.addLayout(training_layout)

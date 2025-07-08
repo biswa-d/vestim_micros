@@ -33,6 +33,7 @@ from vestim.gateway.src.testing_manager_qt import VEstimTestingManager
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
+from vestim.utils.data_cleanup_manager import DataCleanupManager
 
 class TestingThread(QThread):
     update_status_signal = pyqtSignal(str)
@@ -75,6 +76,7 @@ class VEstimTestingGUI(QMainWindow):
         self.testing_manager = VEstimTestingManager()
         self.hyper_param_manager = VEstimHyperParamManager()
         self.training_setup_manager = VEstimTrainingSetupManager()
+        self.data_cleanup_manager = DataCleanupManager()  # Add cleanup manager
 
         self.param_labels = {
             "LAYERS": "Layers",
@@ -171,6 +173,9 @@ class VEstimTestingGUI(QMainWindow):
         self.progress.setValue(0)
         self.main_layout.addWidget(self.progress)
 
+        # Buttons layout
+        buttons_layout = QHBoxLayout()
+        
         # Button to open results folder
         self.open_results_button = QPushButton("Open Job Folder", self)
         self.open_results_button.setStyleSheet("""
@@ -183,20 +188,36 @@ class VEstimTestingGUI(QMainWindow):
         self.open_results_button.setMinimumWidth(150)  # Set minimum width to ensure consistency
         self.open_results_button.setMaximumWidth(300)  # Set a reasonable maximum width
         self.open_results_button.clicked.connect(self.open_job_folder)
-        # Center the button using a layout
-        open_button_layout = QHBoxLayout()
-        open_button_layout.addStretch(1)  # Add stretchable space before the button
-        open_button_layout.addWidget(self.open_results_button, alignment=Qt.AlignCenter)
-        open_button_layout.addStretch(1)  # Add stretchable space after the button
+        
+        # Button to clean up data manually
+        self.cleanup_data_button = QPushButton("Clean Up Data", self)
+        self.cleanup_data_button.setStyleSheet("""
+            background-color: #d2691e;  /* Orange color for cleanup */
+            font-weight: bold; 
+            padding: 10px 20px;  /* Adds padding inside the button */
+            color: white;  /* Set the text color to white */
+        """)
+        self.cleanup_data_button.setFixedHeight(40)  # Ensure consistent height
+        self.cleanup_data_button.setMinimumWidth(150)  # Set minimum width to ensure consistency
+        self.cleanup_data_button.setMaximumWidth(300)  # Set a reasonable maximum width
+        self.cleanup_data_button.clicked.connect(self.manual_cleanup_data)
+        self.cleanup_data_button.setToolTip("Remove training data folders to save space while preserving file references")
+        
+        # Add buttons to layout with spacing
+        buttons_layout.addStretch(1)  # Add stretchable space before buttons
+        buttons_layout.addWidget(self.open_results_button)
+        buttons_layout.addWidget(self.cleanup_data_button)
+        buttons_layout.addStretch(1)  # Add stretchable space after buttons
 
-        # Add padding around the button by setting the margins
-        open_button_layout.setContentsMargins(50, 20, 50, 20)  # Add margins (left, top, right, bottom)
+        # Add padding around the buttons by setting the margins
+        buttons_layout.setContentsMargins(50, 20, 50, 20)  # Add margins (left, top, right, bottom)
 
-        # Add the button layout to the main layout
-        self.main_layout.addLayout(open_button_layout)
+        # Add the buttons layout to the main layout
+        self.main_layout.addLayout(buttons_layout)
 
-        # Initially hide the button
+        # Initially hide the buttons
         self.open_results_button.hide()
+        self.cleanup_data_button.hide()
 
 
     def display_hyperparameters(self, params):
@@ -637,8 +658,32 @@ class VEstimTestingGUI(QMainWindow):
         self.progress.setValue(100)
         self.progress.hide()
         
-        # Show the button to open the results folder
+        # Ask user if they want to clean up training data
+        reply = QMessageBox.question(
+            self, 
+            'Data Cleanup', 
+            'Testing completed successfully!\n\n'
+            'Would you like to clean up the training data folders to save storage space?\n\n'
+            'This will:\n'
+            '• Remove train_data, val_data, and test_data folders\n'
+            '• Save file references in text files for traceability\n'
+            '• Keep all results and models\n\n'
+            'Original data files in their source locations will NOT be affected.',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        
+        if reply == QMessageBox.Yes:
+            self.status_label.setText("All tests completed successfully. Cleaning up data...")
+            # Perform data cleanup to save storage space
+            self.cleanup_training_data()
+            self.status_label.setText("All tests completed successfully. Data cleanup completed.")
+        else:
+            self.status_label.setText("All tests completed successfully. Data folders preserved.")
+        
+        # Show the buttons to open the results folder and clean up data
         self.open_results_button.show()
+        self.cleanup_data_button.show()
         
         # Stop the timer
         self.timer_running = False
@@ -659,6 +704,111 @@ class VEstimTestingGUI(QMainWindow):
             QDesktopServices.openUrl(QUrl.fromLocalFile(job_folder))
         else:
             QMessageBox.critical(self, "Error", f"Results folder not found: {job_folder}")
+
+    def cleanup_training_data(self):
+        """
+        Clean up training data folders and save file references for traceability.
+        This saves significant storage space while maintaining full traceability.
+        """
+        try:
+            job_folder = self.job_manager.get_job_folder()
+            if not job_folder or not os.path.exists(job_folder):
+                self.logger.warning("Job folder not found. Skipping data cleanup.")
+                return
+            
+            self.logger.info(f"Starting data cleanup for job: {job_folder}")
+            
+            # Check if data folders exist before cleanup
+            data_folders_exist = any(
+                os.path.exists(os.path.join(job_folder, folder))
+                for folder in ['train_data', 'val_data', 'test_data']
+            )
+            
+            if not data_folders_exist:
+                self.logger.info("No data folders found. Cleanup may have already been performed.")
+                return
+            
+            # Perform cleanup
+            cleanup_success = self.data_cleanup_manager.save_file_references_and_cleanup(job_folder)
+            
+            if cleanup_success:
+                self.logger.info("Data cleanup completed successfully")
+                # Update status to inform user
+                print("Data cleanup completed. File references saved for traceability.")
+            else:
+                self.logger.warning("Data cleanup failed or was incomplete")
+                
+        except Exception as e:
+            self.logger.error(f"Error during data cleanup: {e}", exc_info=True)
+            print(f"Warning: Data cleanup encountered an error: {e}")
+
+    def manual_cleanup_data(self):
+        """
+        Manual cleanup triggered by user clicking the cleanup button.
+        """
+        reply = QMessageBox.question(
+            self, 
+            'Data Cleanup Confirmation', 
+            'Are you sure you want to clean up the training data folders?\n\n'
+            'This will:\n'
+            '• Remove train_data, val_data, and test_data folders\n'
+            '• Save file references in text files for traceability\n'
+            '• Keep all results and models\n'
+            '• Free up storage space\n\n'
+            'Original data files in their source locations will NOT be affected.\n\n'
+            'This action cannot be undone.',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            # Temporarily disable the cleanup button to prevent multiple clicks
+            self.cleanup_data_button.setEnabled(False)
+            self.cleanup_data_button.setText("Cleaning Up...")
+            
+            # Update status
+            original_status = self.status_label.text()
+            self.status_label.setText("Cleaning up training data...")
+            
+            # Perform cleanup
+            self.cleanup_training_data()
+            
+            # Check if cleanup was successful by looking for cleanup files
+            job_folder = self.job_manager.get_job_folder()
+            cleanup_summary_file = os.path.join(job_folder, 'data_cleanup_summary.txt')
+            
+            if os.path.exists(cleanup_summary_file):
+                # Cleanup successful
+                self.status_label.setText("Data cleanup completed successfully.")
+                self.cleanup_data_button.setText("Already Cleaned")
+                self.cleanup_data_button.setStyleSheet("""
+                    background-color: #808080;  /* Gray color for disabled */
+                    font-weight: bold; 
+                    padding: 10px 20px;
+                    color: white;
+                """)
+                QMessageBox.information(
+                    self, 
+                    'Cleanup Complete', 
+                    'Data cleanup completed successfully!\n\n'
+                    'File references have been saved to:\n'
+                    '• data_file_references.json\n'
+                    '• training_files_used.txt\n'
+                    '• validation_files_used.txt\n'
+                    '• test_files_used.txt\n'
+                    '• data_cleanup_summary.txt'
+                )
+            else:
+                # Cleanup failed or incomplete
+                self.status_label.setText(original_status)
+                self.cleanup_data_button.setText("Clean Up Data")
+                self.cleanup_data_button.setEnabled(True)
+                QMessageBox.warning(
+                    self, 
+                    'Cleanup Failed', 
+                    'Data cleanup failed or was incomplete.\n\n'
+                    'Please check the logs for more details.'
+                )
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

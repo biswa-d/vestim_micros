@@ -18,7 +18,8 @@ class DataLoaderService:
                               batch_size: int, num_workers: int,
                               lookback: int = None, # Optional, only for SequenceRNN
                               concatenate_raw_data: bool = False, # Optional, for SequenceRNN
-                              train_split: float = 0.7, seed: int = None, model_type: str = "LSTM"):
+                              train_split: float = 0.7, seed: int = None, model_type: str = "LSTM",
+                              sequence_split_method: str = "temporal"):
         """
         Creates DataLoaders for training and validation data using a specified data handling strategy.
 
@@ -33,12 +34,20 @@ class DataLoaderService:
         :param train_split: Fraction of data to use for training.
         :param seed: Random seed for reproducibility.
         :param model_type: Type of model (LSTM, GRU, FNN) - affects data loading strategy.
+        :param sequence_split_method: Method for splitting sequences ("temporal", "random", "file_wise").
         :return: A tuple of (train_loader, val_loader) PyTorch DataLoader objects.
         """
         # Special handling for FNN models with batch training
         if model_type == "FNN":
             return self.create_fnn_batch_data_loaders(
                 folder_path, feature_cols, target_col, batch_size, num_workers, train_split, seed
+            )
+        
+        # Special handling for LSTM/GRU models to prevent data leakage
+        if model_type in ["LSTM", "GRU"] and training_method == "Sequence-to-Sequence" and sequence_split_method == "temporal":
+            return self.create_temporal_sequence_data_loaders(
+                folder_path, feature_cols, target_col, batch_size, num_workers, 
+                lookback, concatenate_raw_data, train_split, seed, model_type
             )
         if seed is None:
             seed = int(datetime.now().timestamp())
@@ -372,4 +381,344 @@ class DataLoaderService:
             persistent_workers=False
         )
         
+        return loader
+
+    def create_temporal_sequence_data_loaders(self, folder_path: str, feature_cols: list, target_col: str,
+                                            batch_size: int, num_workers: int, lookback: int,
+                                            concatenate_raw_data: bool, train_split: float = 0.7, 
+                                            seed: int = None, model_type: str = "LSTM"):
+        """
+        Creates DataLoaders for LSTM/GRU models with temporal splitting to prevent data leakage.
+        
+        This method addresses the critical overfitting issue in LSTM sequence training by:
+        1. Processing files individually to maintain temporal structure
+        2. Using temporal splitting instead of random shuffling
+        3. Ensuring no overlap between training and validation sequences
+        
+        Approach:
+        - For each file, split sequences temporally (first 70% for train, last 30% for val)
+        - Maintains temporal order within each split
+        - Combines sequences from all files respecting the temporal boundaries
+        
+        :param folder_path: Path to the folder containing the data files.
+        :param feature_cols: List of feature column names.
+        :param target_col: Target column name.
+        :param batch_size: The batch size for the DataLoader.
+        :param num_workers: Number of subprocesses to use for data loading.
+        :param lookback: The lookback window for sequence creation.
+        :param concatenate_raw_data: If True, concatenates raw data before sequencing.
+        :param train_split: Fraction of data to use for training.
+        :param seed: Random seed for reproducibility.
+        :param model_type: Type of model (LSTM, GRU).
+        :return: A tuple of (train_loader, val_loader) with temporal splitting.
+        """
+        if seed is None:
+            seed = int(datetime.now().timestamp())
+        
+        self.logger.info(f"Creating temporal sequence data loaders for {model_type}")
+        self.logger.info(f"Using temporal splitting to prevent data leakage - train_split: {train_split}")
+        
+        # Get all CSV files
+        csv_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith('.csv')]
+        if not csv_files:
+            self.logger.warning(f"No CSV files found in {folder_path}.")
+            empty_dataset = TensorDataset(torch.empty(0), torch.empty(0))
+            empty_loader = DataLoader(empty_dataset, batch_size=batch_size)
+            return empty_loader, empty_loader
+        
+        all_train_X_sequences = []
+        all_train_y_sequences = []
+        all_val_X_sequences = []
+        all_val_y_sequences = []
+        
+        # Process each file individually with temporal splitting
+        for file_idx, file_path in enumerate(csv_files):
+            self.logger.info(f"Processing file {file_idx+1}/{len(csv_files)}: {file_path}")
+            
+            try:
+                # Read and select columns
+                df = pd.read_csv(file_path)
+                if df.empty:
+                    continue
+                
+                # Ensure required columns exist
+                missing_cols = [col for col in feature_cols + [target_col] if col not in df.columns]
+                if missing_cols:
+                    self.logger.warning(f"Missing columns {missing_cols} in {file_path}. Skipping file.")
+                    continue
+                
+                # Extract features and target
+                X_data = df[feature_cols].values.astype(np.float32)
+                y_data = df[target_col].values.astype(np.float32)
+                
+                # Check if file has enough data for sequences
+                if len(X_data) <= lookback:
+                    self.logger.warning(f"File {file_path} has insufficient data (length {len(X_data)}) for lookback {lookback}. Skipping.")
+                    continue
+                
+                # Create sequences from this file
+                handler = SequenceRNNDataHandler(feature_cols, target_col, lookback, False)
+                X_file_sequences, y_file_sequences = handler._create_sequences_from_array(X_data, y_data)
+                
+                if X_file_sequences.size == 0:
+                    continue
+                
+                # Temporal split: first train_split% for training, rest for validation
+                num_sequences = len(X_file_sequences)
+                train_seq_count = int(num_sequences * train_split)
+                
+                if train_seq_count > 0:
+                    # Training sequences (first part of file)
+                    train_X_file = X_file_sequences[:train_seq_count]
+                    train_y_file = y_file_sequences[:train_seq_count]
+                    all_train_X_sequences.append(train_X_file)
+                    all_train_y_sequences.append(train_y_file)
+                
+                if train_seq_count < num_sequences:
+                    # Validation sequences (last part of file)
+                    val_X_file = X_file_sequences[train_seq_count:]
+                    val_y_file = y_file_sequences[train_seq_count:]
+                    all_val_X_sequences.append(val_X_file)
+                    all_val_y_sequences.append(val_y_file)
+                
+                self.logger.info(f"File {file_idx+1}: {train_seq_count} train sequences, {num_sequences - train_seq_count} val sequences")
+                
+            except Exception as e:
+                self.logger.error(f"Error processing file {file_path}: {e}")
+                continue
+        
+        # Combine sequences from all files
+        if not all_train_X_sequences:
+            self.logger.warning("No training sequences created from any file.")
+            empty_dataset = TensorDataset(torch.empty(0), torch.empty(0))
+            empty_loader = DataLoader(empty_dataset, batch_size=batch_size)
+            return empty_loader, empty_loader
+        
+        # Concatenate all training sequences
+        X_train = np.concatenate(all_train_X_sequences, axis=0)
+        y_train = np.concatenate(all_train_y_sequences, axis=0)
+        
+        # Concatenate all validation sequences (if any)
+        if all_val_X_sequences:
+            X_val = np.concatenate(all_val_X_sequences, axis=0)
+            y_val = np.concatenate(all_val_y_sequences, axis=0)
+        else:
+            # If no validation sequences, create empty arrays
+            X_val = np.empty((0, lookback, len(feature_cols)), dtype=np.float32)
+            y_val = np.empty((0,), dtype=np.float32)
+        
+        self.logger.info(f"Total sequences - Train: {len(X_train)}, Validation: {len(X_val)}")
+        self.logger.info(f"Train X shape: {X_train.shape}, Train y shape: {y_train.shape}")
+        self.logger.info(f"Val X shape: {X_val.shape}, Val y shape: {y_val.shape}")
+        
+        # Convert to PyTorch tensors
+        X_train_tensor = torch.from_numpy(X_train)
+        y_train_tensor = torch.from_numpy(y_train)
+        X_val_tensor = torch.from_numpy(X_val)
+        y_val_tensor = torch.from_numpy(y_val)
+        
+        # Create datasets
+        train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+        val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
+        
+        # Optimize num_workers for PyInstaller and memory usage
+        if getattr(sys, 'frozen', False):
+            optimized_num_workers = 0
+            self.logger.info("Running as PyInstaller executable - disabled multiprocessing")
+        else:
+            optimized_num_workers = min(num_workers, 2) if len(train_dataset) > 100000 else num_workers
+            if len(train_dataset) > 1000000:
+                optimized_num_workers = 0
+                self.logger.info(f"Disabled multiprocessing for large dataset ({len(train_dataset)} sequences)")
+        
+        prefetch_factor_value = 1 if optimized_num_workers > 0 else None
+        
+        # Create DataLoaders
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,  # Safe to shuffle within temporal splits
+            drop_last=True,
+            num_workers=optimized_num_workers,
+            pin_memory=False,
+            prefetch_factor=prefetch_factor_value,
+            persistent_workers=False
+        )
+        
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,  # No need to shuffle validation data
+            drop_last=True,
+            num_workers=optimized_num_workers,
+            pin_memory=False,
+            prefetch_factor=prefetch_factor_value,
+            persistent_workers=False
+        )
+        
+        # Clean up
+        del all_train_X_sequences, all_train_y_sequences, all_val_X_sequences, all_val_y_sequences
+        del X_train, y_train, X_val, y_val
+        gc.collect()
+        
+        self.logger.info("Temporal sequence data loaders created successfully - NO DATA LEAKAGE!")
+        return train_loader, val_loader
+
+    def create_data_loaders_from_separate_folders(self, job_folder_path: str, training_method: str, feature_cols: list, target_col: str,
+                                                 batch_size: int, num_workers: int,
+                                                 lookback: int = None, # Optional, only for SequenceRNN
+                                                 concatenate_raw_data: bool = False, # Optional, for SequenceRNN
+                                                 seed: int = None, model_type: str = "LSTM"):
+        """
+        Creates DataLoaders for training, validation, and test data from separate folders.
+        This method replaces the train_split approach and expects the job folder to contain
+        train_data/processed_data, val_data/processed_data, and test_data/processed_data folders.
+
+        :param job_folder_path: Path to the job folder containing train_data, val_data, test_data subfolders.
+        :param training_method: Specifies the data handling strategy ("SequenceRNN" or "WholeSequenceFNN").
+        :param feature_cols: List of feature column names.
+        :param target_col: Target column name.
+        :param batch_size: The batch size for the DataLoader.
+        :param num_workers: Number of subprocesses to use for data loading.
+        :param lookback: The lookback window (required for "SequenceRNN").
+        :param concatenate_raw_data: For "SequenceRNN", if True, concatenates raw data before sequencing.
+        :param seed: Random seed for reproducibility.
+        :param model_type: Type of model (LSTM, GRU, FNN) - affects data loading strategy.
+        :return: A tuple of (train_loader, val_loader, test_loader) PyTorch DataLoader objects.
+        """
+        if seed is None:
+            seed = int(datetime.now().timestamp())
+        
+        self.logger.info(f"Creating data loaders from separate folders for {model_type}")
+        self.logger.info(f"Job folder: {job_folder_path}")
+        
+        # Define folder paths
+        train_folder = os.path.join(job_folder_path, 'train_data', 'processed_data')
+        val_folder = os.path.join(job_folder_path, 'val_data', 'processed_data')
+        test_folder = os.path.join(job_folder_path, 'test_data', 'processed_data')
+        
+        # Verify folders exist
+        for folder_name, folder_path in [("train", train_folder), ("validation", val_folder), ("test", test_folder)]:
+            if not os.path.exists(folder_path):
+                self.logger.error(f"{folder_name} folder not found: {folder_path}")
+                raise ValueError(f"{folder_name} folder not found: {folder_path}")
+        
+        # Special handling for FNN models with batch training
+        if model_type == "FNN":
+            train_loader = self._create_single_data_loader(
+                train_folder, feature_cols, target_col, batch_size, num_workers, seed, "train"
+            )
+            val_loader = self._create_single_data_loader(
+                val_folder, feature_cols, target_col, batch_size, num_workers, seed, "validation"
+            )
+            test_loader = self._create_single_data_loader(
+                test_folder, feature_cols, target_col, batch_size, num_workers, seed, "test"
+            )
+            return train_loader, val_loader, test_loader
+        
+        # For LSTM/GRU models, use the sequence data handlers
+        handler_kwargs = {}
+        if training_method == "Sequence-to-Sequence":
+            if lookback is None or lookback <= 0:
+                self.logger.error("Lookback must be a positive integer for SequenceRNN training method.")
+                raise ValueError("Lookback must be a positive integer for SequenceRNN training method.")
+            handler = SequenceRNNDataHandler(feature_cols, target_col, lookback, concatenate_raw_data)
+            handler_kwargs['lookback'] = lookback
+        elif training_method == "WholeSequenceFNN":
+            handler = WholeSequenceFNNDataHandler(feature_cols, target_col)
+        else:
+            self.logger.error(f"Unsupported training_method: {training_method}")
+            raise ValueError(f"Unsupported training_method: {training_method}")
+        
+        handler.logger = self.logger
+        
+        # Load data from each folder
+        train_X, train_y = handler.load_and_process_data(train_folder, **handler_kwargs)
+        val_X, val_y = handler.load_and_process_data(val_folder, **handler_kwargs)
+        
+        # For test data, use WholeSequenceFNNDataHandler to avoid sequencing
+        # Test data should remain as original processed data for proper evaluation
+        self.logger.info("Loading test data without sequencing for proper evaluation")
+        test_handler = WholeSequenceFNNDataHandler(feature_cols, target_col)
+        test_handler.logger = self.logger
+        test_X, test_y = test_handler.load_and_process_data(test_folder)
+        
+        # Create data loaders
+        train_loader = self._create_loader_from_tensors(train_X, train_y, batch_size, num_workers, True, "train")
+        val_loader = self._create_loader_from_tensors(val_X, val_y, batch_size, num_workers, False, "validation")
+        test_loader = self._create_loader_from_tensors(test_X, test_y, batch_size, num_workers, False, "test")
+        
+        return train_loader, val_loader, test_loader
+
+    def _create_single_data_loader(self, folder_path: str, feature_cols: list, target_col: str,
+                                  batch_size: int, num_workers: int, seed: int, data_type: str):
+        """Helper method to create a single data loader from a folder."""
+        csv_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith('.csv')]
+        if not csv_files:
+            self.logger.warning(f"No CSV files found in {folder_path}.")
+            empty_dataset = TensorDataset(torch.empty(0), torch.empty(0))
+            return DataLoader(empty_dataset, batch_size=batch_size)
+        
+        all_X = []
+        all_y = []
+        
+        for file_path in csv_files:
+            try:
+                df = pd.read_csv(file_path)
+                if df.empty:
+                    continue
+                
+                missing_cols = [col for col in feature_cols + [target_col] if col not in df.columns]
+                if missing_cols:
+                    self.logger.warning(f"Missing columns {missing_cols} in {file_path}. Skipping file.")
+                    continue
+                
+                X = df[feature_cols].values.astype(np.float32)
+                y = df[target_col].values.astype(np.float32)
+                
+                all_X.append(X)
+                all_y.append(y)
+                
+            except Exception as e:
+                self.logger.error(f"Error processing {file_path}: {e}")
+                continue
+        
+        if not all_X:
+            self.logger.warning(f"No valid data found in {folder_path}")
+            empty_dataset = TensorDataset(torch.empty(0), torch.empty(0))
+            return DataLoader(empty_dataset, batch_size=batch_size)
+        
+        # Combine all data
+        combined_X = np.vstack(all_X)
+        combined_y = np.hstack(all_y)
+        
+        return self._create_loader_from_tensors(combined_X, combined_y, batch_size, num_workers, data_type == "train", data_type)
+
+    def _create_loader_from_tensors(self, X, y, batch_size: int, num_workers: int, shuffle: bool, data_type: str):
+        """Helper method to create a DataLoader from tensors."""
+        if X.size == 0 or y.size == 0:
+            self.logger.warning(f"Empty {data_type} data. Creating empty DataLoader.")
+            empty_dataset = TensorDataset(torch.empty(0), torch.empty(0))
+            return DataLoader(empty_dataset, batch_size=batch_size)
+        
+        # Convert to tensors
+        X_tensor = torch.from_numpy(X).float()
+        y_tensor = torch.from_numpy(y).float()
+        
+        dataset = TensorDataset(X_tensor, y_tensor)
+        
+        prefetch_factor_value = 2 if num_workers > 0 else None
+        
+        loader = DataLoader(
+            dataset=dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            pin_memory=True,
+            drop_last=True if data_type in ["train", "validation"] else False,  # Drop last for train/val to ensure consistent batch sizes
+            prefetch_factor=prefetch_factor_value,
+            persistent_workers=False
+        )
+        
+        self.logger.info(f"Created {data_type} DataLoader: {len(dataset)} samples, {len(loader)} batches")
         return loader

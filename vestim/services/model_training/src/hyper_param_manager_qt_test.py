@@ -10,7 +10,7 @@ def get_default_hyper_params(self):
         'LOOKBACK': '400',
         'BATCH_TRAINING': True,
         'BATCH_SIZE': '100',
-        'TRAIN_VAL_SPLIT': '0.8',
+        # Removed TRAIN_VAL_SPLIT as we now use separate train/val/test folders
         'SCHEDULER_TYPE': 'StepLR',
         'INITIAL_LR': '0.0001',
         'LR_PARAM': '0.1',

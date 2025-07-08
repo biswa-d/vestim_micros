@@ -16,10 +16,10 @@ class DataProcessorSTLA:
         self.total_files = 0  # Total number of files to process (copy + convert)
         self.processed_files = 0  # Keep track of total processed files
 
-    def organize_and_convert_files(self, train_files, test_files, progress_callback=None, sampling_frequency=None):
+    def organize_and_convert_files(self, train_files, val_files, test_files, progress_callback=None, sampling_frequency=None):
         # Ensure `total_files` is calculated upfront and is non-zero
         self.logger.info("Starting file organization and conversion.")
-        self.total_files = len(train_files) + len(test_files)
+        self.total_files = len(train_files) + len(val_files) + len(test_files)
 
         if self.total_files == 0:
             self.logger.error("No files to process.")
@@ -35,25 +35,31 @@ class DataProcessorSTLA:
         # Create directories for raw and processed data
         train_raw_folder = os.path.join(job_folder, 'train_data', 'raw_data')
         train_processed_folder = os.path.join(job_folder, 'train_data', 'processed_data')
+        val_raw_folder = os.path.join(job_folder, 'val_data', 'raw_data')
+        val_processed_folder = os.path.join(job_folder, 'val_data', 'processed_data')
         test_raw_folder = os.path.join(job_folder, 'test_data', 'raw_data')
         test_processed_folder = os.path.join(job_folder, 'test_data', 'processed_data')
 
         os.makedirs(train_raw_folder, exist_ok=True)
         os.makedirs(train_processed_folder, exist_ok=True)
+        os.makedirs(val_raw_folder, exist_ok=True)
+        os.makedirs(val_processed_folder, exist_ok=True)
         os.makedirs(test_raw_folder, exist_ok=True)
         os.makedirs(test_processed_folder, exist_ok=True)
-        self.logger.info(f"Created folders: {train_raw_folder}, {train_processed_folder}, {test_raw_folder}, {test_processed_folder}")
+        self.logger.info(f"Created folders: {train_raw_folder}, {train_processed_folder}, {val_raw_folder}, {val_processed_folder}, {test_raw_folder}, {test_processed_folder}")
 
         # Reset processed files counter before processing starts
         self.processed_files = 0
 
         # Process copying and converting files
         self._copy_files(train_files, train_raw_folder, progress_callback)
+        self._copy_files(val_files, val_raw_folder, progress_callback)
         self._copy_files(test_files, test_raw_folder, progress_callback)
 
         # Increment total file count for relevant STLA files (Excel, CSV) for conversion
         stla_extensions = ('.xlsx', '.xls', '.csv')
         self.total_files += len([f for f in os.listdir(train_raw_folder) if f.lower().endswith(stla_extensions)])
+        self.total_files += len([f for f in os.listdir(val_raw_folder) if f.lower().endswith(stla_extensions)])
         self.total_files += len([f for f in os.listdir(test_raw_folder) if f.lower().endswith(stla_extensions)])
 
         self.logger.info(f"Starting file conversion for relevant Excel/CSV files.")
@@ -62,10 +68,12 @@ class DataProcessorSTLA:
         if sampling_frequency is None:
             self.logger.info("No resampling selected. Performing standard conversion.")
             self._convert_files(train_raw_folder, train_processed_folder, progress_callback)
+            self._convert_files(val_raw_folder, val_processed_folder, progress_callback)
             self._convert_files(test_raw_folder, test_processed_folder, progress_callback)
         else:
             self.logger.info(f"Resampling enabled. Resampling frequency: {sampling_frequency} Hz")
             self._convert_and_resample_files(train_raw_folder, train_processed_folder, progress_callback, sampling_frequency)
+            self._convert_and_resample_files(val_raw_folder, val_processed_folder, progress_callback, sampling_frequency)
             self._convert_and_resample_files(test_raw_folder, test_processed_folder, progress_callback, sampling_frequency)
 
         return job_folder

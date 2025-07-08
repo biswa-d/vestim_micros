@@ -298,10 +298,9 @@ class TrainingTaskManager:
 
 
     def create_data_loaders(self, task):
-        """Create data loaders for the current task."""
+        """Create data loaders for the current task using separate train, val, test folders."""
         feature_cols = task['data_loader_params']['feature_columns']
         target_col = task['data_loader_params']['target_column']
-        train_val_split = float(task['data_loader_params'].get('train_val_split', 0.7))
         num_workers = int(task['hyperparams'].get('NUM_WORKERS', 4))
         seed = int(task['hyperparams'].get('SEED', 2000))
         
@@ -310,15 +309,27 @@ class TrainingTaskManager:
 
         self.logger.info(f"Selected Training Method: {training_method}, Model Type: {model_type}")
 
+        # Get the job folder path instead of just the train folder
+        job_folder_path = self.job_manager.get_job_folder()
+        
         if training_method == 'Whole Sequence' and model_type in ['LSTM', 'GRU']: # Check for RNN types
             self.logger.info("Using concatenated whole sequence loader for RNN.")
-            train_loader, val_loader = self.data_loader_service.create_concatenated_whole_sequence_loaders(
-                folder_path=self.job_manager.get_train_folder(),
+            # TODO: Update this method to support three-folder structure
+            # For now, fallback to the new method
+            lookback = int(task['data_loader_params'].get('lookback', 50))
+            user_batch_size = int(task['data_loader_params'].get('batch_size', 32))
+            
+            train_loader, val_loader, test_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
+                job_folder_path=job_folder_path,
+                training_method=training_method,
                 feature_cols=feature_cols,
                 target_col=target_col,
+                batch_size=user_batch_size,
                 num_workers=num_workers,
-                train_split=train_val_split,
-                seed=seed
+                lookback=lookback,
+                concatenate_raw_data=True,  # Use concatenated for whole sequence
+                seed=seed,
+                model_type=model_type
             )
         else: # Default to lookback-based sequence loading
             if training_method == 'Whole Sequence' and model_type not in ['LSTM', 'GRU']:
@@ -326,26 +337,24 @@ class TrainingTaskManager:
             
             lookback = int(task['data_loader_params'].get('lookback', 50)) # Default lookback
             user_batch_size = int(task['data_loader_params'].get('batch_size', 32))
-            
-            batch_training_enabled = task['hyperparams'].get('BATCH_TRAINING', True)
-            use_full_train_batch_flag = not batch_training_enabled
 
-            self.logger.info(f"Using standard sequence loader. Batch training enabled: {batch_training_enabled}, User batch size: {user_batch_size}, Use full train batch flag: {use_full_train_batch_flag}, Lookback: {lookback}")
+            self.logger.info(f"Using new three-folder data loader. User batch size: {user_batch_size}, Lookback: {lookback}")
             
-            train_loader, val_loader = self.data_loader_service.create_data_loaders(
-                folder_path=self.job_manager.get_train_folder(),
+            train_loader, val_loader, test_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
+                job_folder_path=job_folder_path,
                 training_method=training_method,
-                lookback=lookback,
                 feature_cols=feature_cols,
                 target_col=target_col,
                 batch_size=user_batch_size,
                 num_workers=num_workers,
-                # use_full_train_batch=use_full_train_batch_flag, # Removed as it's not an accepted arg by production DataLoaderService
-                train_split=train_val_split,
+                lookback=lookback,
+                concatenate_raw_data=False,
                 seed=seed,
-                model_type=model_type  # Add model_type parameter for FNN batch logic
+                model_type=model_type
             )
 
+        # For backward compatibility, we only return train and val loaders
+        # Test loader is available but not used in current training workflow
         return train_loader, val_loader
 
     def run_training(self, task, update_progress_callback, train_loader, val_loader, device):

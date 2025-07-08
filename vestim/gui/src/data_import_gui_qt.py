@@ -37,8 +37,10 @@ class DataImportGUI(QMainWindow):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.train_folder_path = ""
+        self.val_folder_path = ""  # NEW: Added validation folder
         self.test_folder_path = ""
         self.selected_train_files = []
+        self.selected_val_files = []  # NEW: Added validation files
         self.selected_test_files = []
         self.data_processor_arbin = DataProcessorArbin()  # Initialize DataProcessor
         self.data_processor_stla = DataProcessorSTLA()  # Initialize DataProcessor
@@ -61,7 +63,7 @@ class DataImportGUI(QMainWindow):
         self.main_layout = QVBoxLayout(self.central_widget)
 
         # Header
-        self.header_label = QLabel("Select data folders to train your LSTM Model", self)
+        self.header_label = QLabel("Select training, validation, and test data folders for your LSTM Model", self)
         self.header_label.setAlignment(Qt.AlignCenter)
         self.header_label.setStyleSheet("font-size: 18px; font-weight: bold; color: green;")
         self.main_layout.addWidget(self.header_label)
@@ -96,11 +98,41 @@ class DataImportGUI(QMainWindow):
         # Add the training section to the main layout
         self.main_layout.addLayout(train_layout)
 
-        # Testing folder section
+        # Validation folder section (moved before test)
+        val_layout = QVBoxLayout()
+        self.val_select_button = QPushButton("Select Validation Data Folder", self)
+        self.val_select_button.setStyleSheet("""
+            background-color: #ffcccb;  /* Light red background */
+            font-weight: bold;
+            padding: 8px 15px;  /* Adds padding inside the button */
+            color: black;  /* Set the text color to black for contrast */
+        """)
+        self.val_select_button.setFixedHeight(30)  # Set a consistent height for the button
+        self.val_select_button.setMinimumWidth(150)  # Set a reasonable minimum width
+        self.val_select_button.setMaximumWidth(300)  # Set a reasonable maximum width
+        self.val_select_button.clicked.connect(self.select_val_folder)
+
+        # Center the validation button
+        val_button_layout = QHBoxLayout()
+        val_button_layout.addStretch(1)
+        val_button_layout.addWidget(self.val_select_button, alignment=Qt.AlignCenter)
+        val_button_layout.addStretch(1)
+        val_layout.addLayout(val_button_layout)
+
+        # Validation folder list widget (covers full width)
+        self.val_list_widget = QListWidget(self)
+        self.val_list_widget.setSelectionMode(QListWidget.MultiSelection)
+        self.val_list_widget.setMinimumHeight(100)
+        val_layout.addWidget(self.val_list_widget)
+
+        # Add the validation section to the main layout
+        self.main_layout.addLayout(val_layout)
+
+        # Testing folder section (moved after validation)
         test_layout = QVBoxLayout()
         self.test_select_button = QPushButton("Select Test Data Folder", self)
         self.test_select_button.setStyleSheet("""
-            background-color: #add8e6;  /* Light blue background */
+            background-color: #98fb98;  /* Light green background */
             font-weight: bold;
             padding: 8px 15px;  /* Adds padding inside the button */
             color: black;  /* Set the text color to black for contrast */
@@ -187,6 +219,8 @@ class DataImportGUI(QMainWindow):
         logger.info(f"Data source changed to: {selected_source}. Refreshing file lists.")
         if self.train_folder_path:
             self.populate_file_list(self.train_folder_path, self.train_list_widget, selected_source)
+        if self.val_folder_path:
+            self.populate_file_list(self.val_folder_path, self.val_list_widget, selected_source)
         if self.test_folder_path:
             self.populate_file_list(self.test_folder_path, self.test_list_widget, selected_source)
 
@@ -212,6 +246,14 @@ class DataImportGUI(QMainWindow):
             logger.info(f"Selected testing folder: {self.test_folder_path}. Populated for source: {selected_source}.")
             # finally:
             #     self.data_source_combo.blockSignals(False)
+        self.check_folders_selected()
+
+    def select_val_folder(self):
+        self.val_folder_path = QFileDialog.getExistingDirectory(self, "Select Validation Folder")
+        if self.val_folder_path:
+            selected_source = self.data_source_combo.currentText()
+            self.populate_file_list(self.val_folder_path, self.val_list_widget, selected_source)
+            logger.info(f"Selected validation folder: {self.val_folder_path}. Populated for source: {selected_source}.")
         self.check_folders_selected()
 
     def populate_file_list(self, folder_path, list_widget, data_source):
@@ -247,7 +289,7 @@ class DataImportGUI(QMainWindow):
         list_widget.update() # Explicitly request a widget update
 
     def check_folders_selected(self):
-        if self.train_folder_path and self.test_folder_path:
+        if self.train_folder_path and self.val_folder_path and self.test_folder_path:
             self.organize_button.setEnabled(True)
         else:
             self.organize_button.setEnabled(False)
@@ -257,13 +299,15 @@ class DataImportGUI(QMainWindow):
         logger.info("Starting file organization process...")
         # Use selectedItems() to get the selected files
         train_files = [item.text() for item in self.train_list_widget.selectedItems()]
+        val_files = [item.text() for item in self.val_list_widget.selectedItems()]
         test_files = [item.text() for item in self.test_list_widget.selectedItems()]
         print(f"Train files: {train_files}")
+        print(f"Validation files: {val_files}")
         print(f"Test files: {test_files}")
 
 
-        if not train_files or not test_files:
-            self.show_error("No files selected for either training or testing.")
+        if not train_files or not val_files or not test_files:
+            self.show_error("No files selected for training, validation, or testing.")
             return
         # Update the button label and color when the process starts
         self.organize_button.setText("Importing and Preprocessing Files")
@@ -293,7 +337,7 @@ class DataImportGUI(QMainWindow):
 
         # Create and start the file organizer thread with the selected data processor
         # Removed sampling_frequency parameter as this is now handled in the data augmentation GUI
-        self.organizer = FileOrganizer(train_files, test_files, data_processor)
+        self.organizer = FileOrganizer(train_files, val_files, test_files, data_processor)
         self.organizer_thread = QThread()
 
         # Connect signals and slots
@@ -344,28 +388,30 @@ class FileOrganizer(QObject):
     progress = pyqtSignal(int)  # Emit progress percentage
     job_folder_signal = pyqtSignal(str)  # To communicate when the job folder is created
 
-    def __init__(self, train_files, test_files, data_processor, sampling_frequency=None):
+    def __init__(self, train_files, val_files, test_files, data_processor, sampling_frequency=None):
         super().__init__()
         self.train_files = train_files
+        self.val_files = val_files
         self.test_files = test_files
         self.data_processor = data_processor
         self.sampling_frequency = sampling_frequency  # Keep for backwards compatibility with existing code
 
     def run(self):
-        if not self.train_files or not self.test_files:
+        if not self.train_files or not self.val_files or not self.test_files:
             self.progress.emit(0)  # Emit 0% if no files selected
             return
 
         try:
             # Call the backend method from DataProcessor to organize and convert files
-            # Note: We'll need to update the data processor methods to not use sampling_frequency
-            # in the future, but for now we'll pass None to maintain compatibility
+            # Now the data processors support three sets of files: train, val, test
             job_folder = self.data_processor.organize_and_convert_files(
-                self.train_files, 
-                self.test_files, 
+                self.train_files,   # Training files
+                self.val_files,     # Validation files  
+                self.test_files,    # Test files
                 progress_callback=self.update_progress, 
                 sampling_frequency=None  # Remove resampling here as it's moved to data augmentation
             )
+            
             logger.info(f"Job folder created: {job_folder}")
             # Emit success message with job folder details
             self.job_folder_signal.emit(job_folder)

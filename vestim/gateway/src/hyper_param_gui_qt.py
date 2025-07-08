@@ -40,7 +40,7 @@ def get_current_params(self):
         'LOOKBACK': self.lookback_input.text(),
         'BATCH_TRAINING': self.batch_training_checkbox.isChecked(),
         'BATCH_SIZE': self.batch_size_input.text(),
-        'TRAIN_VAL_SPLIT': self.train_val_split_input.text(),
+        # Removed TRAIN_VAL_SPLIT as we now use separate train/val/test folders
         'SCHEDULER_TYPE': self.scheduler_type_combo.currentText(),
         'INITIAL_LR': self.lr_input.text(),
         'LR_PARAM': self.lr_param_input.text(),
