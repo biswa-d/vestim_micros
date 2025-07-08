@@ -189,24 +189,9 @@ class VEstimTestingGUI(QMainWindow):
         self.open_results_button.setMaximumWidth(300)  # Set a reasonable maximum width
         self.open_results_button.clicked.connect(self.open_job_folder)
         
-        # Button to clean up data manually
-        self.cleanup_data_button = QPushButton("Clean Up Data", self)
-        self.cleanup_data_button.setStyleSheet("""
-            background-color: #d2691e;  /* Orange color for cleanup */
-            font-weight: bold; 
-            padding: 10px 20px;  /* Adds padding inside the button */
-            color: white;  /* Set the text color to white */
-        """)
-        self.cleanup_data_button.setFixedHeight(40)  # Ensure consistent height
-        self.cleanup_data_button.setMinimumWidth(150)  # Set minimum width to ensure consistency
-        self.cleanup_data_button.setMaximumWidth(300)  # Set a reasonable maximum width
-        self.cleanup_data_button.clicked.connect(self.manual_cleanup_data)
-        self.cleanup_data_button.setToolTip("Remove training data folders to save space while preserving file references")
-        
         # Add buttons to layout with spacing
         buttons_layout.addStretch(1)  # Add stretchable space before buttons
         buttons_layout.addWidget(self.open_results_button)
-        buttons_layout.addWidget(self.cleanup_data_button)
         buttons_layout.addStretch(1)  # Add stretchable space after buttons
 
         # Add padding around the buttons by setting the margins
@@ -215,9 +200,8 @@ class VEstimTestingGUI(QMainWindow):
         # Add the buttons layout to the main layout
         self.main_layout.addLayout(buttons_layout)
 
-        # Initially hide the buttons
+        # Initially hide the button
         self.open_results_button.hide()
-        self.cleanup_data_button.hide()
 
 
     def display_hyperparameters(self, params):
@@ -658,32 +642,13 @@ class VEstimTestingGUI(QMainWindow):
         self.progress.setValue(100)
         self.progress.hide()
         
-        # Ask user if they want to clean up training data
-        reply = QMessageBox.question(
-            self, 
-            'Data Cleanup', 
-            'Testing completed successfully!\n\n'
-            'Would you like to clean up the training data folders to save storage space?\n\n'
-            'This will:\n'
-            '• Remove train_data, val_data, and test_data folders\n'
-            '• Save file references in text files for traceability\n'
-            '• Keep all results and models\n\n'
-            'Original data files in their source locations will NOT be affected.',
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+        # Automatically clean up training data to save space (at the very end)
+        self.status_label.setText("All tests completed. Cleaning up temporary data...")
+        self.cleanup_training_data()
+        self.status_label.setText("All tests completed successfully. Storage space optimized.")
         
-        if reply == QMessageBox.Yes:
-            self.status_label.setText("All tests completed successfully. Cleaning up data...")
-            # Perform data cleanup to save storage space
-            self.cleanup_training_data()
-            self.status_label.setText("All tests completed successfully. Data cleanup completed.")
-        else:
-            self.status_label.setText("All tests completed successfully. Data folders preserved.")
-        
-        # Show the buttons to open the results folder and clean up data
+        # Show the button to open the results folder
         self.open_results_button.show()
-        self.cleanup_data_button.show()
         
         # Stop the timer
         self.timer_running = False
@@ -716,7 +681,7 @@ class VEstimTestingGUI(QMainWindow):
                 self.logger.warning("Job folder not found. Skipping data cleanup.")
                 return
             
-            self.logger.info(f"Starting data cleanup for job: {job_folder}")
+            self.logger.info(f"Starting automatic data cleanup for job: {job_folder}")
             
             # Check if data folders exist before cleanup
             data_folders_exist = any(
@@ -726,89 +691,29 @@ class VEstimTestingGUI(QMainWindow):
             
             if not data_folders_exist:
                 self.logger.info("No data folders found. Cleanup may have already been performed.")
+                print("Data folders not found. Cleanup may have already been performed.")
                 return
             
-            # Perform cleanup
+            # Perform cleanup with better error handling
             cleanup_success = self.data_cleanup_manager.save_file_references_and_cleanup(job_folder)
             
             if cleanup_success:
-                self.logger.info("Data cleanup completed successfully")
-                # Update status to inform user
-                print("Data cleanup completed. File references saved for traceability.")
+                self.logger.info("Automatic data cleanup completed successfully")
+                print("✓ Data cleanup completed successfully!")
+                print("  • Training data folders removed to save space")
+                print("  • File references saved for traceability")
+                print("  • Original data files preserved in their source locations")
             else:
-                self.logger.warning("Data cleanup failed or was incomplete")
+                self.logger.warning("Automatic data cleanup failed or was incomplete")
+                print("⚠ Data cleanup encountered some issues but file references were saved.")
+                print("  • Check logs for details on any folders that couldn't be removed")
+                print("  • Most storage space should still be freed")
                 
         except Exception as e:
-            self.logger.error(f"Error during data cleanup: {e}", exc_info=True)
-            print(f"Warning: Data cleanup encountered an error: {e}")
-
-    def manual_cleanup_data(self):
-        """
-        Manual cleanup triggered by user clicking the cleanup button.
-        """
-        reply = QMessageBox.question(
-            self, 
-            'Data Cleanup Confirmation', 
-            'Are you sure you want to clean up the training data folders?\n\n'
-            'This will:\n'
-            '• Remove train_data, val_data, and test_data folders\n'
-            '• Save file references in text files for traceability\n'
-            '• Keep all results and models\n'
-            '• Free up storage space\n\n'
-            'Original data files in their source locations will NOT be affected.\n\n'
-            'This action cannot be undone.',
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        
-        if reply == QMessageBox.Yes:
-            # Temporarily disable the cleanup button to prevent multiple clicks
-            self.cleanup_data_button.setEnabled(False)
-            self.cleanup_data_button.setText("Cleaning Up...")
-            
-            # Update status
-            original_status = self.status_label.text()
-            self.status_label.setText("Cleaning up training data...")
-            
-            # Perform cleanup
-            self.cleanup_training_data()
-            
-            # Check if cleanup was successful by looking for cleanup files
-            job_folder = self.job_manager.get_job_folder()
-            cleanup_summary_file = os.path.join(job_folder, 'data_cleanup_summary.txt')
-            
-            if os.path.exists(cleanup_summary_file):
-                # Cleanup successful
-                self.status_label.setText("Data cleanup completed successfully.")
-                self.cleanup_data_button.setText("Already Cleaned")
-                self.cleanup_data_button.setStyleSheet("""
-                    background-color: #808080;  /* Gray color for disabled */
-                    font-weight: bold; 
-                    padding: 10px 20px;
-                    color: white;
-                """)
-                QMessageBox.information(
-                    self, 
-                    'Cleanup Complete', 
-                    'Data cleanup completed successfully!\n\n'
-                    'File references have been saved to:\n'
-                    '• data_file_references.json\n'
-                    '• training_files_used.txt\n'
-                    '• validation_files_used.txt\n'
-                    '• test_files_used.txt\n'
-                    '• data_cleanup_summary.txt'
-                )
-            else:
-                # Cleanup failed or incomplete
-                self.status_label.setText(original_status)
-                self.cleanup_data_button.setText("Clean Up Data")
-                self.cleanup_data_button.setEnabled(True)
-                QMessageBox.warning(
-                    self, 
-                    'Cleanup Failed', 
-                    'Data cleanup failed or was incomplete.\n\n'
-                    'Please check the logs for more details.'
-                )
+            self.logger.error(f"Error during automatic data cleanup: {e}", exc_info=True)
+            print(f"⚠ Warning: Automatic data cleanup encountered an error: {e}")
+            print("  • File references should still be saved")
+            print("  • You may need to manually delete training data folders if needed")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

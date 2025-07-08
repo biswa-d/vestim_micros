@@ -12,6 +12,7 @@ class ConfigManager:
     
     def __init__(self):
         self._projects_dir = None
+        self._data_dir = None
         self._load_config()
     
     def _load_config(self):
@@ -31,21 +32,29 @@ class ConfigManager:
                 with open(config_path, 'r') as f:
                     config = json.load(f)
                     self._projects_dir = config.get('projects_directory')
+                    self._data_dir = config.get('data_directory')
                     
                     if self._projects_dir and os.path.exists(self._projects_dir):
                         print(f"Using projects directory from installer: {self._projects_dir}")
+                    
+                    if self._data_dir and os.path.exists(self._data_dir):
+                        print(f"Using data directory from installer: {self._data_dir}")
+                        
+                    if self._projects_dir:  # At least projects dir was configured
                         return
         except Exception as e:
             # Only show error for compiled executable, not during development
             if getattr(sys, 'frozen', False):
                 print(f"Could not load installer config: {e}")
         
-        # Fallback to default location
+        # Fallback to default locations
         self._projects_dir = self._get_default_projects_dir()
+        self._data_dir = self._get_default_data_dir()
         
         # Only show message for compiled executable, be quiet during development
         if getattr(sys, 'frozen', False):
             print(f"Using default projects directory: {self._projects_dir}")
+            print(f"Using default data directory: {self._data_dir}")
         # For development, just use default silently
     
     def _get_default_projects_dir(self):
@@ -60,6 +69,18 @@ class ConfigManager:
             repo_root = script_dir.parent  # repo root
             return str(repo_root / "output")
     
+    def _get_default_data_dir(self):
+        """Get default data directory"""
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable - use user's Documents folder
+            docs_dir = os.path.expanduser("~/Documents")
+            return os.path.join(docs_dir, "vestim_data")
+        else:
+            # Running as Python script - use repository's data directory
+            script_dir = Path(__file__).parent  # vestim/
+            repo_root = script_dir.parent  # repo root
+            return str(repo_root / "data")
+    
     def get_projects_directory(self):
         """Get the projects directory path"""
         # Ensure directory exists
@@ -70,6 +91,17 @@ class ConfigManager:
                 print(f"Created projects directory: {self._projects_dir}")
         
         return self._projects_dir
+    
+    def get_data_directory(self):
+        """Get the default data directory path"""
+        # Ensure directory exists
+        if not os.path.exists(self._data_dir):
+            os.makedirs(self._data_dir, exist_ok=True)
+            # Only show message for compiled executable
+            if getattr(sys, 'frozen', False):
+                print(f"Created data directory: {self._data_dir}")
+        
+        return self._data_dir
     
     def get_output_directory(self):
         """Get the output directory for jobs (same as projects directory)"""
@@ -89,6 +121,14 @@ def get_projects_directory():
     """Convenience function to get projects directory"""
     return get_config_manager().get_projects_directory()
 
+def get_data_directory():
+    """Convenience function to get default data directory"""
+    return get_config_manager().get_data_directory()
+
 def get_output_directory():
     """Convenience function to get output directory"""
     return get_config_manager().get_output_directory()
+
+def get_default_data_directory():
+    """Convenience function to get default data directory (alias for get_data_directory)"""
+    return get_config_manager().get_data_directory()

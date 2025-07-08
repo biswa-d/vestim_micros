@@ -23,6 +23,7 @@ from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI  # Import the new 
 from vestim.services.data_processor.src.data_processor_qt_arbin import DataProcessorArbin
 from vestim.services.data_processor.src.data_processor_qt_stla import DataProcessorSTLA
 from vestim.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
+from vestim.config_manager import get_data_directory
 
 import logging
 
@@ -225,7 +226,9 @@ class DataImportGUI(QMainWindow):
             self.populate_file_list(self.test_folder_path, self.test_list_widget, selected_source)
 
     def select_train_folder(self):
-        self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder")
+        # Get default data directory from config, fallback to current directory
+        default_dir = get_data_directory() or os.getcwd()
+        self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder", default_dir)
         if self.train_folder_path:
             selected_source = self.data_source_combo.currentText()
             # self.data_source_combo.blockSignals(True) # Not needed if populate_file_list handles current source
@@ -237,7 +240,9 @@ class DataImportGUI(QMainWindow):
         self.check_folders_selected()
 
     def select_test_folder(self):
-        self.test_folder_path = QFileDialog.getExistingDirectory(self, "Select Testing Folder")
+        # Get default data directory from config, fallback to current directory
+        default_dir = get_data_directory() or os.getcwd()
+        self.test_folder_path = QFileDialog.getExistingDirectory(self, "Select Testing Folder", default_dir)
         if self.test_folder_path:
             selected_source = self.data_source_combo.currentText()
             # self.data_source_combo.blockSignals(True)
@@ -249,7 +254,9 @@ class DataImportGUI(QMainWindow):
         self.check_folders_selected()
 
     def select_val_folder(self):
-        self.val_folder_path = QFileDialog.getExistingDirectory(self, "Select Validation Folder")
+        # Get default data directory from config, fallback to current directory
+        default_dir = get_data_directory() or os.getcwd()
+        self.val_folder_path = QFileDialog.getExistingDirectory(self, "Select Validation Folder", default_dir)
         if self.val_folder_path:
             selected_source = self.data_source_combo.currentText()
             self.populate_file_list(self.val_folder_path, self.val_list_widget, selected_source)
