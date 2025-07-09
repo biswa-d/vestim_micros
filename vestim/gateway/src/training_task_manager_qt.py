@@ -34,6 +34,7 @@ class TrainingTaskManager:
         self.global_params = global_params if global_params else {}
         self.loaded_scaler = None # For storing the loaded scaler
         self.scaler_metadata = {} # For storing normalization metadata (path, columns, target)
+        self.training_results = {}
         
         # Initialize job-level timer (will be set when first task starts)
         self.job_start_time = None
@@ -411,6 +412,8 @@ class TrainingTaskManager:
             # Using a unique attribute name per task to avoid conflicts if manager instance is reused for different tasks sequentially
             # though typically a new manager or thread might be used. This is safer.
             setattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', float('inf'))
+            best_train_loss_norm = float('inf')
+            best_train_loss_denorm = float('inf')
 
             hyperparams = self.convert_hyperparams(task['hyperparams']) # This ensures BATCH_SIZE is int if it exists
             model = task['model'].to(device)
@@ -510,6 +513,9 @@ class TrainingTaskManager:
                 avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch(
                     model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task
                 )
+                
+                if train_loss_norm < best_train_loss_norm:
+                    best_train_loss_norm = train_loss_norm
 
                 epoch_end_time = time.time()
                 epoch_duration = epoch_end_time - epoch_start_time
@@ -620,13 +626,19 @@ class TrainingTaskManager:
                                 
                                 train_mse_orig = np.mean((train_pred_orig - train_true_orig)**2)
                                 train_rmse_for_gui = np.sqrt(train_mse_orig) * multiplier
+                                if train_rmse_for_gui < best_train_loss_denorm:
+                                    best_train_loss_denorm = train_rmse_for_gui
                             except Exception as e_inv_train:
                                 self.logger.error(f"Error during inverse transform for training data (epoch {epoch}): {e_inv_train}. Falling back for train_rmse_for_gui.")
                                 if train_loss_norm is not None and not math.isnan(train_loss_norm):
                                     train_rmse_for_gui = math.sqrt(max(0, train_loss_norm)) * multiplier
+                                    if train_rmse_for_gui < best_train_loss_denorm:
+                                        best_train_loss_denorm = train_rmse_for_gui
                         else:
                              if train_loss_norm is not None and not math.isnan(train_loss_norm):
                                 train_rmse_for_gui = math.sqrt(max(0, train_loss_norm)) * multiplier
+                                if train_rmse_for_gui < best_train_loss_denorm:
+                                    best_train_loss_denorm = train_rmse_for_gui
                         
                         # --- Validation RMSE on original scale ---
                         if epoch_val_preds_norm is not None and epoch_val_trues_norm is not None and len(epoch_val_preds_norm) > 0:
@@ -666,6 +678,8 @@ class TrainingTaskManager:
                     else: # No scaler loaded or target not in normalized columns - use normalized loss for GUI RMSE
                         if train_loss_norm is not None and not math.isnan(train_loss_norm):
                             train_rmse_for_gui = math.sqrt(max(0, train_loss_norm)) * multiplier
+                            if train_rmse_for_gui < best_train_loss_denorm:
+                               best_train_loss_denorm = train_rmse_for_gui
                         if val_loss_norm is not None and not math.isnan(val_loss_norm):
                             val_rmse_for_gui = math.sqrt(max(0, val_loss_norm)) * multiplier
                         # If no scaler, best_val_rmse_for_gui is based on best_validation_loss (normalized)
@@ -732,6 +746,8 @@ class TrainingTaskManager:
                         'best_val_rmse_scaled': best_val_rmse_for_gui,
                         'patience_counter': patience_counter,
                     }
+                    setattr(self, f'_task_{task["task_id"]}_last_train_rmse_orig', train_rmse_for_gui)
+                    setattr(self, f'_task_{task["task_id"]}_last_val_rmse_orig', val_rmse_for_gui)
                     update_progress_callback.emit(progress_data)
                     self.logger.info(f"GUI updated for validation epoch {epoch} (ValidFreq={valid_freq})")
 
@@ -1010,22 +1026,22 @@ class TrainingTaskManager:
             # self.save_model(task) # REMOVED: Best model is saved during validation improvement.
             # self.logger.info(f"Training loop finished for task {task['task_id']}. Best model is at: {task.get('training_params', {}).get('best_model_path')}") # Redundant
             
-            # Log final summary
+            # Calculate final task elapsed time before saving summary
+            final_task_elapsed_time = time.time() - self.task_start_time if hasattr(self, 'task_start_time') else 0
+
+            # Save detailed training task summary for testing GUI integration
+            self._save_training_task_summary(task, best_validation_loss, train_loss_norm, val_loss_norm,
+                                           epoch, max_epochs, early_stopping, final_task_elapsed_time,
+                                           best_train_loss_norm, best_train_loss_denorm)
+
+            # Log final summary to txt file
             with open(os.path.join(task['model_dir'], 'training_summary.txt'), 'w') as f:
                 f.write(f"Training completed\n")
                 f.write(f"Best validation loss: {best_validation_loss:.6f}\n")
                 f.write(f"Final learning rate: {optimizer.param_groups[0]['lr']:.8f}\n")
                 f.write(f"Stopped at epoch: {epoch}/{max_epochs}\n")
-            
-            # Save detailed training task summary for testing GUI integration
-            self._save_training_task_summary(task, best_validation_loss, train_loss_norm, val_loss_norm, 
-                                           epoch, max_epochs, early_stopping, final_task_elapsed_time)
-            
-            # REMOVED unconditional final save: self.save_model(task)
-            self.logger.info(f"Training loop finished for task {task['task_id']}. Best model is at: {task.get('training_params', {}).get('best_model_path')}")
 
-            # Calculate final task elapsed time
-            final_task_elapsed_time = time.time() - self.task_start_time if hasattr(self, 'task_start_time') else 0
+            self.logger.info(f"Training loop finished for task {task['task_id']}. Best model is at: {task.get('training_params', {}).get('best_model_path')}")
             formatted_task_time = format_time(final_task_elapsed_time)
             
             # Calculate final job elapsed time
@@ -1099,6 +1115,51 @@ class TrainingTaskManager:
         hyperparams['LOOKBACK'] = int(hyperparams['LOOKBACK'])
         hyperparams['REPETITIONS'] = int(hyperparams['REPETITIONS'])
         return hyperparams
+
+    def _save_training_task_summary(self, task, best_val_loss_norm, final_train_loss_norm, final_val_loss_norm, final_epoch, max_epochs, early_stopping, elapsed_time, best_train_loss_norm, best_train_loss_denorm):
+        """Saves a detailed summary of the completed training task and stores it."""
+        try:
+            task_id = task['task_id']
+            task_dir = task['model_dir']
+            summary_file_path = os.path.join(task_dir, 'training_summary.json')
+
+            # Get the final denormalized losses from the attributes set during training
+            final_train_loss_denorm = getattr(self, f'_task_{task_id}_last_train_rmse_orig', float('nan'))
+            final_val_loss_denorm = getattr(self, f'_task_{task_id}_last_val_rmse_orig', float('nan'))
+            best_validation_loss_denorm = getattr(self, f'_task_{task_id}_best_val_rmse_orig', float('inf'))
+
+            summary_data = {
+                'task_id': task_id,
+                'model_type': task.get('model_metadata', {}).get('model_type', 'N/A'),
+                'hyperparameters': task.get('hyperparams', {}),
+                'best_train_loss_normalized': best_train_loss_norm,
+                'best_train_loss_denormalized': best_train_loss_denorm,
+                'best_validation_loss_normalized': best_val_loss_norm,
+                'best_validation_loss_denormalized': best_validation_loss_denorm,
+                'final_train_loss_normalized': final_train_loss_norm,
+                'final_train_loss_denormalized': final_train_loss_denorm,
+                'final_validation_loss_normalized': final_val_loss_norm,
+                'final_validation_loss_denormalized': final_val_loss_denorm,
+                'completed_epochs': final_epoch,
+                'max_epochs': max_epochs,
+                'early_stopped': early_stopping,
+                'training_time_seconds': elapsed_time,
+                'training_time_formatted': format_time_long(elapsed_time),
+            }
+
+            with open(summary_file_path, 'w') as f:
+                json.dump(summary_data, f, indent=4)
+
+            # Store the results in the manager's dictionary for passing to the testing GUI
+            self.training_results[task_id] = {
+                'best_train_loss': best_train_loss_denorm,
+                'best_validation_loss': best_validation_loss_denorm,
+                'completed_epochs': final_epoch,
+            }
+            self.logger.info(f"Saved training summary for task {task_id} to {summary_file_path}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to save training task summary for {task.get('task_id', 'N/A')}: {e}", exc_info=True)
 
     def save_model(self, task, save_path=None):
         """Save the trained model to disk. Uses save_path if provided, else defaults to task['model_path']."""
@@ -1332,6 +1393,10 @@ with torch.no_grad():
         except Exception as e:
             self.logger.error(f"Error saving model: {str(e)}")
             raise
+
+    def get_training_results(self):
+        """Return the dictionary of training results."""
+        return self.training_results
 
     def stop_task(self):
         self.stop_requested = True  # Set the flag to request a stop

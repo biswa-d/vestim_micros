@@ -821,18 +821,11 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.proceed_button.show()
 
     def transition_to_testing_gui(self):
-        self.testing_gui = VEstimTestingGUI(self.params, self.task_list, self.training_results)
+        training_results = self.training_task_manager.get_training_results()
+        self.testing_gui = VEstimTestingGUI(self.params, self.task_list, training_results)
         self.testing_gui.show()
         self.close()
 
-    def get_training_results(self):
-        return self.training_results
-
-    def get_training_results(self):
-        return self.training_results
-
-    def get_training_results(self):
-        return self.training_results
 
 if __name__ == "__main__":
     import sys

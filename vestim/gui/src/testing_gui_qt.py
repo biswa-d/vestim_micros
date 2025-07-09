@@ -73,7 +73,7 @@ class VEstimTestingGUI(QMainWindow):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
-        self.testing_manager = VEstimTestingManager(params=params, task_list=task_list)
+        self.testing_manager = VEstimTestingManager(params=params, task_list=task_list, training_results=training_results)
         self.hyper_param_manager = VEstimHyperParamManager()
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.data_cleanup_manager = DataCleanupManager()  # Add cleanup manager
@@ -120,6 +120,7 @@ class VEstimTestingGUI(QMainWindow):
         title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
         self.main_layout.addWidget(title_label)
 
+
         # Hyperparameters Display
         self.hyperparam_frame = QWidget()
         self.main_layout.addWidget(self.hyperparam_frame)
@@ -144,9 +145,9 @@ class VEstimTestingGUI(QMainWindow):
 
         # TreeWidget to display results
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(12)
+        self.tree.setColumnCount(13)
         # Initial generic headers, will be updated by first result
-        self.tree.setHeaderLabels(["Sl.No", "Task ID", "Model", "File Name", "#W&Bs", "Best Train Loss", "Best Valid Loss", "RMS Error", "Max Error", "MAPE (%)", "R²", "Plot"])
+        self.tree.setHeaderLabels(["Sl.No", "Task ID", "Model", "File Name", "#W&Bs", "Best Train Loss", "Best Valid Loss", "Epochs Trained", "Test RMSE", "Test MAXE", "MAPE (%)", "R²", "Plot"])
 
         # Set optimized column widths
         self.tree.setColumnWidth(0, 50)   # Sl.No column
@@ -156,11 +157,12 @@ class VEstimTestingGUI(QMainWindow):
         self.tree.setColumnWidth(4, 70)   # Number of learnable parameters
         self.tree.setColumnWidth(5, 100)  # Best Train Loss
         self.tree.setColumnWidth(6, 100)  # Best Valid Loss
-        self.tree.setColumnWidth(7, 100)   # RMS Error column
-        self.tree.setColumnWidth(8, 100)   # Max Error column
-        self.tree.setColumnWidth(9, 70)   # MAPE column
-        self.tree.setColumnWidth(10, 60)   # R² column
-        self.tree.setColumnWidth(11, 100)   # Plot button column (Narrow)
+        self.tree.setColumnWidth(7, 100)   # Epochs Trained
+        self.tree.setColumnWidth(8, 100)   # Test RMSE
+        self.tree.setColumnWidth(9, 100)   # Test MAXE
+        self.tree.setColumnWidth(10, 70)   # MAPE column
+        self.tree.setColumnWidth(11, 60)   # R² column
+        self.tree.setColumnWidth(12, 100)   # Plot button column (Narrow)
 
         self.main_layout.addWidget(self.tree)
 
@@ -176,7 +178,40 @@ class VEstimTestingGUI(QMainWindow):
         self.progress.setValue(0)
         self.main_layout.addWidget(self.progress)
 
+        # Button to open results folder
+        self.open_results_button = QPushButton("Open Job Folder", self)
+        self.open_results_button.setStyleSheet("""
+            background-color: #0b6337;  /* Matches the green color */
+            font-weight: bold;
+            padding: 10px 20px;  /* Adds padding inside the button */
+            color: white;  /* Set the text color to white */
+        """)
+        self.open_results_button.setFixedHeight(40)  # Ensure consistent height
+        self.open_results_button.setMinimumWidth(150)  # Set minimum width to ensure consistency
+        self.open_results_button.setMaximumWidth(300)  # Set a reasonable maximum width
+        self.open_results_button.clicked.connect(self.open_job_folder)
+        # Center the button using a layout
+        open_button_layout = QHBoxLayout()
+        open_button_layout.addStretch(1)  # Add stretchable space before the button
+        open_button_layout.addWidget(self.open_results_button, alignment=Qt.AlignCenter)
+        open_button_layout.addStretch(1)  # Add stretchable space after the button
 
+        # Add padding around the button by setting the margins
+        open_button_layout.setContentsMargins(50, 20, 50, 20)  # Add margins (left, top, right, bottom)
+
+        # Add the button layout to the main layout
+        self.main_layout.addLayout(open_button_layout)
+
+        # Initially hide the button
+        self.open_results_button.hide()
+
+    def open_job_folder(self):
+        """Open the job folder in the file explorer."""
+        job_folder = self.job_manager.get_job_folder()
+        if job_folder and os.path.exists(job_folder):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(job_folder))
+        else:
+            QMessageBox.critical(self, "Error", f"Results folder not found: {job_folder}")
 
     def display_hyperparameters(self, params):
         print(f"Displaying hyperparameters: {params}")
@@ -258,11 +293,9 @@ class VEstimTestingGUI(QMainWindow):
             model_name = task_data.get("model", "Unknown Model")
             file_name = task_data.get("file_name", "Unknown File")
             num_learnable_params = str(task_data.get("#params", "N/A"))
-            best_train_loss = "N/A"
-            best_valid_loss = "N/A"
-            if self.training_results and task_id in self.training_results:
-                best_valid_loss = self.training_results[task_id].get('best_validation_loss', "N/A")
-                best_train_loss = self.training_results[task_id].get('final_train_loss_denorm', "N/A")
+            best_train_loss = task_data.get("best_train_loss", "N/A")
+            best_valid_loss = task_data.get("best_valid_loss", "N/A")
+            completed_epochs = task_data.get("completed_epochs", "N/A")
             
             # Dynamically determine target column and units
             target_column_name = task_data.get("target_column", "")
@@ -287,8 +320,8 @@ class VEstimTestingGUI(QMainWindow):
             # Update tree headers if this is the first result
             if self.sl_no_counter == 1:
                 current_headers = [self.tree.headerItem().text(i) for i in range(self.tree.columnCount())]
-                current_headers[7] = f"RMS Error {unit_display}"
-                current_headers[8] = f"Max Error {unit_display}"
+                current_headers[8] = f"Test RMSE {unit_display}"
+                current_headers[9] = f"Test MAXE {unit_display}"
                 self.tree.setHeaderLabels(current_headers)
 
             # Extract metrics using dynamic keys
@@ -349,6 +382,7 @@ class VEstimTestingGUI(QMainWindow):
                 str(num_learnable_params),
                 str(best_train_loss),
                 str(best_valid_loss),
+                str(completed_epochs),
                 str(rms_error_str),   # Ensure string type
                 str(max_error_str),   # Ensure string type
                 str(mape_str),        # Ensure string type
@@ -377,7 +411,7 @@ class VEstimTestingGUI(QMainWindow):
 
             # Add row to tree widget
             self.tree.addTopLevelItem(row)
-            self.tree.setItemWidget(row, 11, button_widget)
+            self.tree.setItemWidget(row, 12, button_widget)
 
             # Automatically show training history plot if it exists
             training_history_path = os.path.join(save_dir, f'training_history_{task_id}.png')
@@ -588,6 +622,7 @@ class VEstimTestingGUI(QMainWindow):
         self.progress.setValue(100)
         self.export_to_csv()
         self.cleanup_training_data()  # Call cleanup after all tests are done
+        self.open_results_button.show()
 
 
     def cleanup_training_data(self):

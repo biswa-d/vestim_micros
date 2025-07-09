@@ -28,7 +28,7 @@ from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupMana
 import logging
 
 class VEstimTestingManager:
-    def __init__(self, params=None, task_list=None):
+    def __init__(self, params=None, task_list=None, training_results=None):
         print("Initializing VEstimTestingManager...")
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()  # Singleton instance of JobManager
@@ -42,6 +42,7 @@ class VEstimTestingManager:
         self.stop_flag = False  # Initialize the stop flag attribute
         self.params = params if params is not None else {}
         self.task_list = task_list if task_list is not None else []
+        self.training_results = training_results if training_results is not None else {}
         self.results_summary = []
         print("Initialization complete.")
 
@@ -272,6 +273,14 @@ class VEstimTestingManager:
                 # Calculate max absolute error with appropriate scaling
                 max_abs_error_val = np.max(np.abs(difference)) if difference.size > 0 else 0
 
+                # Generate shorthand name for the model task
+                shorthand_name = self.generate_shorthand_name(task)
+
+                # Best losses are now passed from the training GUI
+                best_train_loss = self.training_results.get(task['task_id'], {}).get('best_train_loss', 'N/A')
+                best_valid_loss = self.training_results.get(task['task_id'], {}).get('best_validation_loss', 'N/A')
+                completed_epochs = self.training_results.get(task['task_id'], {}).get('completed_epochs', 'N/A')
+
                 summary_row = {
                     "Sl.No": f"{idx + 1}.{test_file_index + 1}",
                     "Task ID": task['task_id'],
@@ -280,26 +289,13 @@ class VEstimTestingManager:
                     "#W&Bs": num_learnable_params,
                     "Best Train Loss": best_train_loss,
                     "Best Valid Loss": best_valid_loss,
-                    f"RMS Error {error_unit_display}": f"{file_results.get(rms_key, float('nan')):.2f}",
-                    f"Max Error {error_unit_display}": f"{max_abs_error_val:.2f}",
+                    "Epochs Trained": completed_epochs,
+                    f"Test RMSE {error_unit_display}": f"{file_results.get(rms_key, float('nan')):.2f}",
+                    f"Test MAXE {error_unit_display}": f"{max_abs_error_val:.2f}",
                     "MAPE (%)": f"{file_results.get('mape_percent', float('nan')):.2f}",
                     "R2": f"{file_results.get('r2', float('nan')):.4f}"
                 }
                 self.results_summary.append(summary_row)
-                
-                # Generate shorthand name for the model task
-                shorthand_name = self.generate_shorthand_name(task)
-
-                # Best losses are now passed from the training GUI
-                summary_path = os.path.join(task_dir, 'training_summary.txt')
-                best_train_loss, best_valid_loss = "N/A", "N/A"
-                if os.path.exists(summary_path):
-                    with open(summary_path, 'r') as f:
-                        for line in f:
-                            if "Best validation loss:" in line:
-                                best_valid_loss = line.split(":")[1].strip()
-                            if "Final train loss:" in line:
-                                best_train_loss = line.split(":")[1].strip()
                 
                 # Data to send to GUI for this specific test file
                 gui_result_data = {
@@ -311,6 +307,7 @@ class VEstimTestingManager:
                     '#params': num_learnable_params,
                     'best_train_loss': best_train_loss,
                     'best_valid_loss': best_valid_loss,
+                    'completed_epochs': completed_epochs,
                     # Create a more concise task_info for the GUI
                     'task_info': {
                         'task_id': task.get('task_id'),
