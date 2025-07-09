@@ -102,6 +102,7 @@ class TrainingTaskManager:
         conn.commit()
         conn.close()
 
+
     def process_task(self, task, update_progress_callback):
         """Process a single training task and set up logging."""
         # Initialize job-level timer on first task
@@ -1015,6 +1016,10 @@ class TrainingTaskManager:
                 f.write(f"Best validation loss: {best_validation_loss:.6f}\n")
                 f.write(f"Final learning rate: {optimizer.param_groups[0]['lr']:.8f}\n")
                 f.write(f"Stopped at epoch: {epoch}/{max_epochs}\n")
+            
+            # Save detailed training task summary for testing GUI integration
+            self._save_training_task_summary(task, best_validation_loss, train_loss_norm, val_loss_norm, 
+                                           epoch, max_epochs, early_stopping, final_task_elapsed_time)
             
             # REMOVED unconditional final save: self.save_model(task)
             self.logger.info(f"Training loop finished for task {task['task_id']}. Best model is at: {task.get('training_params', {}).get('best_model_path')}")

@@ -28,7 +28,7 @@ from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupMana
 import logging
 
 class VEstimTestingManager:
-    def __init__(self):
+    def __init__(self, params=None, task_list=None):
         print("Initializing VEstimTestingManager...")
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()  # Singleton instance of JobManager
@@ -40,6 +40,9 @@ class VEstimTestingManager:
         self.max_workers = 4  # Number of concurrent threads
         self.queue = None  # Initialize the queue attribute
         self.stop_flag = False  # Initialize the stop flag attribute
+        self.params = params if params is not None else {}
+        self.task_list = task_list if task_list is not None else []
+        self.results_summary = []
         print("Initialization complete.")
 
     def start_testing(self, queue):
@@ -58,20 +61,16 @@ class VEstimTestingManager:
         try:
             print("Getting test folder and results save directory...")
             test_folder = self.job_manager.get_test_folder()
+            self.results_summary.clear()
             # save_dir = self.job_manager.get_test_results_folder()
             # print(f"Test folder: {test_folder}, Save directory: {save_dir}")
 
             # Retrieve task list
             print("Retrieving task list from TrainingSetupManager...")
-            task_list = self.training_setup_manager.get_task_list()
+            task_list = self.task_list
 
             if not task_list:
-                task_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
-                if os.path.exists(task_summary_file):
-                    with open(task_summary_file, 'r') as f:
-                        task_list = json.load(f)
-                else:
-                    raise ValueError("Task list is not available in memory or on disk.")
+                raise ValueError("Task list is not available.")
 
             print(f"Total tasks to run: {len(task_list)}")
 
@@ -247,7 +246,7 @@ class VEstimTestingManager:
                 # Apply appropriate multiplier based on target type for consistent error reporting
                 if "voltage" in target_column_name.lower():
                     difference *= 1000  # Convert V difference to mV for CSV display consistency with error metrics
-                elif "soc" in target_column_name.lower() and np.max(np.abs(y_true_scaled)) <= 1.0:  
+                elif "soc" in target_column_name.lower() and np.max(np.abs(y_true_scaled)) <= 1.0:
                     # Check if SOC is in 0-1 range and needs percentage conversion
                     difference *= 100  # Convert 0-1 difference to percentage for CSV display
                 
@@ -270,28 +269,37 @@ class VEstimTestingManager:
                 pd.DataFrame(data_for_csv).to_csv(predictions_file, index=False)
                 
                 # Add results to summary file with dynamic headers matching training GUI
-                # summary_file = os.path.join(task_dir, 'test_summary.csv')
-                # header = ['File', f'RMS Error {error_unit_display}', f'MAE {error_unit_display}', f'Max Abs Error {error_unit_display}', f'MAPE (%)', 'R2']
-                
                 # Calculate max absolute error with appropriate scaling
                 max_abs_error_val = np.max(np.abs(difference)) if difference.size > 0 else 0
 
-                # write_header = not os.path.exists(summary_file) or os.path.getsize(summary_file) == 0
-                # with open(summary_file, 'a', newline='') as f:
-                #     writer = csv.writer(f)
-                #     if write_header:
-                #         writer.writerow(header)
-                #     writer.writerow([
-                #         test_file,
-                #         f"{file_results.get(rms_key, float('nan')):.2f}",
-                #         f"{file_results.get(mae_key, float('nan')):.2f}",
-                #         f"{max_abs_error_val:.2f}", # Log calculated max_abs_error_val
-                #         f"{file_results.get('mape_percent', float('nan')):.2f}",
-                #         f"{file_results.get('r2', float('nan')):.4f}"
-                #     ])
+                summary_row = {
+                    "Sl.No": f"{idx + 1}.{test_file_index + 1}",
+                    "Task ID": task['task_id'],
+                    "Model": shorthand_name,
+                    "File Name": test_file,
+                    "#W&Bs": num_learnable_params,
+                    "Best Train Loss": best_train_loss,
+                    "Best Valid Loss": best_valid_loss,
+                    f"RMS Error {error_unit_display}": f"{file_results.get(rms_key, float('nan')):.2f}",
+                    f"Max Error {error_unit_display}": f"{max_abs_error_val:.2f}",
+                    "MAPE (%)": f"{file_results.get('mape_percent', float('nan')):.2f}",
+                    "R2": f"{file_results.get('r2', float('nan')):.4f}"
+                }
+                self.results_summary.append(summary_row)
                 
                 # Generate shorthand name for the model task
                 shorthand_name = self.generate_shorthand_name(task)
+
+                # Best losses are now passed from the training GUI
+                summary_path = os.path.join(task_dir, 'training_summary.txt')
+                best_train_loss, best_valid_loss = "N/A", "N/A"
+                if os.path.exists(summary_path):
+                    with open(summary_path, 'r') as f:
+                        for line in f:
+                            if "Best validation loss:" in line:
+                                best_valid_loss = line.split(":")[1].strip()
+                            if "Final train loss:" in line:
+                                best_train_loss = line.split(":")[1].strip()
                 
                 # Data to send to GUI for this specific test file
                 gui_result_data = {
@@ -301,6 +309,8 @@ class VEstimTestingManager:
                     'model': shorthand_name,
                     'file_name': test_file, # Current test file name
                     '#params': num_learnable_params,
+                    'best_train_loss': best_train_loss,
+                    'best_valid_loss': best_valid_loss,
                     # Create a more concise task_info for the GUI
                     'task_info': {
                         'task_id': task.get('task_id'),
@@ -404,6 +414,10 @@ class VEstimTestingManager:
         short_hash = hashlib.md5(param_string.encode()).hexdigest()[:3]  # First 3 chars for uniqueness
         shorthand_name = f"{short_name}_{short_hash}"
         return shorthand_name
+    
+    def get_results_summary(self):
+        """Return the summary of results."""
+        return self.results_summary
     
     def log_test_to_sqlite(self, task, results, db_log_file):
         """Log test results to SQLite database."""

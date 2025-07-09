@@ -69,14 +69,15 @@ class TestingThread(QThread):
 
 
 class VEstimTestingGUI(QMainWindow):
-    def __init__(self):
+    def __init__(self, params, task_list, training_results=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
-        self.testing_manager = VEstimTestingManager()
+        self.testing_manager = VEstimTestingManager(params=params, task_list=task_list)
         self.hyper_param_manager = VEstimHyperParamManager()
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.data_cleanup_manager = DataCleanupManager()  # Add cleanup manager
+        self.training_results = training_results if training_results is not None else {}
 
         self.param_labels = {
             "LAYERS": "Layers",
@@ -143,9 +144,9 @@ class VEstimTestingGUI(QMainWindow):
 
         # TreeWidget to display results
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(9)
+        self.tree.setColumnCount(12)
         # Initial generic headers, will be updated by first result
-        self.tree.setHeaderLabels(["Sl.No", "Task ID", "Model", "File Name", "#W&Bs", "RMS Error", "Max Error", "MAPE (%)", "R²", "Plot"])
+        self.tree.setHeaderLabels(["Sl.No", "Task ID", "Model", "File Name", "#W&Bs", "Best Train Loss", "Best Valid Loss", "RMS Error", "Max Error", "MAPE (%)", "R²", "Plot"])
 
         # Set optimized column widths
         self.tree.setColumnWidth(0, 50)   # Sl.No column
@@ -153,11 +154,13 @@ class VEstimTestingGUI(QMainWindow):
         self.tree.setColumnWidth(2, 200)  # Model name column (Wider)
         self.tree.setColumnWidth(3, 200)  # File name column (Wider)
         self.tree.setColumnWidth(4, 70)   # Number of learnable parameters
-        self.tree.setColumnWidth(5, 100)   # RMS Error column
-        self.tree.setColumnWidth(6, 100)   # Max Error column
-        self.tree.setColumnWidth(7, 70)   # MAPE column
-        self.tree.setColumnWidth(8, 60)   # R² column
-        self.tree.setColumnWidth(9, 100)   # Plot button column (Narrow)
+        self.tree.setColumnWidth(5, 100)  # Best Train Loss
+        self.tree.setColumnWidth(6, 100)  # Best Valid Loss
+        self.tree.setColumnWidth(7, 100)   # RMS Error column
+        self.tree.setColumnWidth(8, 100)   # Max Error column
+        self.tree.setColumnWidth(9, 70)   # MAPE column
+        self.tree.setColumnWidth(10, 60)   # R² column
+        self.tree.setColumnWidth(11, 100)   # Plot button column (Narrow)
 
         self.main_layout.addWidget(self.tree)
 
@@ -173,35 +176,6 @@ class VEstimTestingGUI(QMainWindow):
         self.progress.setValue(0)
         self.main_layout.addWidget(self.progress)
 
-        # Buttons layout
-        buttons_layout = QHBoxLayout()
-        
-        # Button to open results folder
-        self.open_results_button = QPushButton("Open Job Folder", self)
-        self.open_results_button.setStyleSheet("""
-            background-color: #0b6337;  /* Matches the green color */
-            font-weight: bold; 
-            padding: 10px 20px;  /* Adds padding inside the button */
-            color: white;  /* Set the text color to white */
-        """)
-        self.open_results_button.setFixedHeight(40)  # Ensure consistent height
-        self.open_results_button.setMinimumWidth(150)  # Set minimum width to ensure consistency
-        self.open_results_button.setMaximumWidth(300)  # Set a reasonable maximum width
-        self.open_results_button.clicked.connect(self.open_job_folder)
-        
-        # Add buttons to layout with spacing
-        buttons_layout.addStretch(1)  # Add stretchable space before buttons
-        buttons_layout.addWidget(self.open_results_button)
-        buttons_layout.addStretch(1)  # Add stretchable space after buttons
-
-        # Add padding around the buttons by setting the margins
-        buttons_layout.setContentsMargins(50, 20, 50, 20)  # Add margins (left, top, right, bottom)
-
-        # Add the buttons layout to the main layout
-        self.main_layout.addLayout(buttons_layout)
-
-        # Initially hide the button
-        self.open_results_button.hide()
 
 
     def display_hyperparameters(self, params):
@@ -284,6 +258,11 @@ class VEstimTestingGUI(QMainWindow):
             model_name = task_data.get("model", "Unknown Model")
             file_name = task_data.get("file_name", "Unknown File")
             num_learnable_params = str(task_data.get("#params", "N/A"))
+            best_train_loss = "N/A"
+            best_valid_loss = "N/A"
+            if self.training_results and task_id in self.training_results:
+                best_valid_loss = self.training_results[task_id].get('best_validation_loss', "N/A")
+                best_train_loss = self.training_results[task_id].get('final_train_loss_denorm', "N/A")
             
             # Dynamically determine target column and units
             target_column_name = task_data.get("target_column", "")
@@ -308,8 +287,8 @@ class VEstimTestingGUI(QMainWindow):
             # Update tree headers if this is the first result
             if self.sl_no_counter == 1:
                 current_headers = [self.tree.headerItem().text(i) for i in range(self.tree.columnCount())]
-                current_headers[5] = f"RMS Error {unit_display}"
-                current_headers[6] = f"Max Error {unit_display}"
+                current_headers[7] = f"RMS Error {unit_display}"
+                current_headers[8] = f"Max Error {unit_display}"
                 self.tree.setHeaderLabels(current_headers)
 
             # Extract metrics using dynamic keys
@@ -325,6 +304,11 @@ class VEstimTestingGUI(QMainWindow):
 
             # Safe conversion to float for formatting - ensures numpy types are properly handled
             try:
+                if best_train_loss != 'N/A':
+                    best_train_loss = f"{float(best_train_loss):.4f}"
+                if best_valid_loss != 'N/A':
+                    best_valid_loss = f"{float(best_valid_loss):.4f}"
+
                 if rms_error_val != 'N/A':
                     rms_error_val = float(rms_error_val)
                     rms_error_str = f"{rms_error_val:.2f}"
@@ -363,6 +347,8 @@ class VEstimTestingGUI(QMainWindow):
                 str(model_name),
                 str(file_name),
                 str(num_learnable_params),
+                str(best_train_loss),
+                str(best_valid_loss),
                 str(rms_error_str),   # Ensure string type
                 str(max_error_str),   # Ensure string type
                 str(mape_str),        # Ensure string type
@@ -391,7 +377,7 @@ class VEstimTestingGUI(QMainWindow):
 
             # Add row to tree widget
             self.tree.addTopLevelItem(row)
-            self.tree.setItemWidget(row, 9, button_widget)
+            self.tree.setItemWidget(row, 11, button_widget)
 
             # Automatically show training history plot if it exists
             training_history_path = os.path.join(save_dir, f'training_history_{task_id}.png')
@@ -468,207 +454,141 @@ class VEstimTestingGUI(QMainWindow):
             
             # Calculate errors for plot text, applying scaling if necessary
             # errors_for_plot_text will be used for RMS and Max error display on the plot
-            if diff_col and error_unit in diff_col : # If error column exists and its unit matches expected error unit for plot
-                errors_for_plot_text = df[diff_col]
-            else: # Calculate raw difference and then scale for plot text if needed
-                raw_errors = df[true_col] - df[pred_col]
-                if "voltage" in target_column_name.lower():
-                    errors_for_plot_text = raw_errors * 1000  # V to mV
-                elif is_percentage_target:
-                    # Heuristic: if max abs true value is small (e.g. <=1.5), assume 0-1 scale needing *100 for % points
-                    # This helps display errors in percentage points if original data was 0-1.
-                    if df[true_col].abs().max() <= 1.5:
-                         errors_for_plot_text = raw_errors * 100
-                    else: # Assume already in percentage points if values are large (e.g. 0-100)
-                         errors_for_plot_text = raw_errors
-                else: # For other types like temperature or generic, use raw difference for plot text errors
-                    errors_for_plot_text = raw_errors
-            
+            errors_for_plot_text = df[diff_col] if diff_col else df[true_col] - df[pred_col]
+            if "voltage" in target_column_name.lower():
+                errors_for_plot_text *= 1000 # Convert V to mV for plot text
+            elif is_percentage_target and np.max(np.abs(df[true_col])) <= 1.0:
+                errors_for_plot_text *= 100 # Convert 0-1 to % for plot text
+
             rms_error = np.sqrt(np.mean(errors_for_plot_text**2))
-            max_error = np.max(np.abs(errors_for_plot_text)) # Corrected to use errors_for_plot_text
+            max_error = np.max(np.abs(errors_for_plot_text))
+
+            # Create a new dialog for the plot
+            plot_dialog = QDialog(self)
+            plot_dialog.setWindowTitle(f"Test Result: {os.path.basename(predictions_file)}")
+            plot_dialog.setGeometry(150, 150, 1000, 800)
             
-            # Create plot window
-            plot_window = QDialog(self)
-            test_name = os.path.splitext(os.path.basename(predictions_file))[0]
-            plot_window.setWindowTitle(f"Test Results: {test_name}")
-            plot_window.setGeometry(200, 100, 800, 600)
-
-            fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
-            ax.plot(df[true_col], label=f'True Values', color='blue', marker='o', markersize=3, linestyle='-', linewidth=1)
-            ax.plot(df[pred_col], label=f'Predictions', color='red', marker='x', markersize=3, linestyle='--', linewidth=1)
-
-            text_str = f"RMS Error: {rms_error:.4f} {error_unit}\nMax Error: {max_error:.4f} {error_unit}"
-            ax.text(0.02, 0.98, text_str, transform=ax.transAxes, fontsize=10, verticalalignment='top',
-                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-
-            ax.set_xlabel('Index', fontsize=12)
-            ax.set_ylabel(f'{unit_display_long}', fontsize=12)
-            ax.set_title(f"Test: {test_name}", fontsize=14, fontweight='bold')
-            ax.legend(loc='upper right', fontsize=10)
-            ax.grid(True, linestyle='--', alpha=0.6)
-            ax.tick_params(axis='both', which='major', labelsize=10)
-
-            canvas = FigureCanvas(fig)
             layout = QVBoxLayout()
+            
+            # Matplotlib Figure
+            fig = Figure(figsize=(10, 8))
+            canvas = FigureCanvas(fig)
+            
+            # Main plot (True vs. Predicted)
+            ax1 = fig.add_subplot(2, 1, 1)
+            ax1.plot(df.index, df[true_col], label='True Values', color='blue')
+            ax1.plot(df.index, df[pred_col], label='Predictions', color='red', linestyle='--')
+            ax1.set_title(f'Model Predictions vs. True Values for {os.path.basename(predictions_file)}')
+            ax1.set_ylabel(unit_display_long)
+            ax1.legend()
+            ax1.grid(True)
+            
+            # Error plot
+            ax2 = fig.add_subplot(2, 1, 2, sharex=ax1)
+            ax2.plot(df.index, errors_for_plot_text, label=f'Error ({error_unit})', color='green')
+            ax2.set_title('Prediction Error')
+            ax2.set_xlabel('Time Steps')
+            ax2.set_ylabel(f'Error ({error_unit})')
+            ax2.legend()
+            ax2.grid(True)
+            
+            # Add RMS and Max Error text to the error plot
+            ax2.text(0.05, 0.95, f'RMS Error: {rms_error:.2f} {error_unit}\nMax Error: {max_error:.2f} {error_unit}',
+                     transform=ax2.transAxes, fontsize=10,
+                     verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5))
+            
+            fig.tight_layout()
+            
             layout.addWidget(canvas)
-
-            # Create save button
+            
+            # Save button
             save_button = QPushButton("Save Plot")
-            save_button.setStyleSheet('background-color: #4CAF50; color: white;')
-            save_button.clicked.connect(lambda checked, f=fig, t=predictions_file: self.save_plot(f, t, save_dir))
+            save_button.clicked.connect(lambda: self.save_plot(fig, predictions_file, save_dir))
             layout.addWidget(save_button)
-
-            plot_window.setLayout(layout)
-            plot_window.show()
+            
+            plot_dialog.setLayout(layout)
+            plot_dialog.exec_()
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"An error occurred while plotting results\n{str(e)}")
+            QMessageBox.critical(self, "Plotting Error", f"An error occurred while plotting: {e}")
 
     def save_plot(self, fig, test_file_path, save_dir):
         """Save the current plot as a PNG image."""
         try:
-            # Generate filename from test file path
-            test_file_name = os.path.splitext(os.path.basename(test_file_path))[0]  
-            # Construct the plot file path inside save_dir
-            plot_file = os.path.join(save_dir, f"{test_file_name}_test_results_plot.png")
-
-            # Save the figure as a PNG image
-            fig.savefig(plot_file, format='png', dpi=300, bbox_inches='tight')
-            QMessageBox.information(self, "Success", f"Plot saved successfully to:\n{plot_file}")
-            print(f"Plot saved as: {plot_file}")
-            
+            file_name = os.path.splitext(os.path.basename(test_file_path))[0]
+            save_path = os.path.join(save_dir, f"{file_name}_test_plot.png")
+            fig.savefig(save_path)
+            QMessageBox.information(self, "Plot Saved", f"Plot saved to {save_path}")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save plot: {str(e)}")
+            QMessageBox.critical(self, "Save Error", f"Could not save plot: {e}")
 
     def show_training_history_plot(self, plot_path, task_id):
         """Display the training history plot in a new window."""            
         try:
-            plot_window = QDialog(self)
-            plot_window.setWindowTitle(f"Training History - Task {task_id}")
-            plot_window.setGeometry(200, 100, 800, 600)
-
-            # Create QLabel to display the image
-            image_label = QLabel()
-            pixmap = QPixmap(plot_path)
-            scaled_pixmap = pixmap.scaled(780, 580, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            image_label.setPixmap(scaled_pixmap)
-
-            # Create layout
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"Training History for Task {task_id}")
+            
             layout = QVBoxLayout()
-            layout.addWidget(image_label)
-            plot_window.setLayout(layout)
-            plot_window.show()
-
+            
+            pixmap = QPixmap(plot_path)
+            label = QLabel()
+            label.setPixmap(pixmap.scaled(800, 600, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            
+            layout.addWidget(label)
+            dialog.setLayout(layout)
+            
+            dialog.exec_()
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to display training history plot: {str(e)}")
+            print(f"Error showing training history plot: {e}")
 
     def start_testing(self):
-        print("Starting testing...")
-        self.timer_running = True  # Reset the flag
-        self.progress.setValue(0)  # Reset progress bar
-        self.status_label.setText("Preparing test data...")
         self.start_time = time.time()
-        self.progress.show()  # Ensure progress bar is visible
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_elapsed_time)
+        self.timer.start(1000)
 
         self.testing_thread = TestingThread(self.testing_manager, self.queue)
-        self.testing_thread.update_status_signal.connect(self.update_status)
         self.testing_thread.result_signal.connect(self.add_result_row)
-        self.testing_thread.testing_complete_signal.connect(self.all_tests_completed)  # Connect to the completion signal
+        self.testing_thread.testing_complete_signal.connect(self.all_tests_completed)
+        self.testing_thread.update_status_signal.connect(self.update_status)
         self.testing_thread.start()
 
-        # Start the timer for updating elapsed time
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_elapsed_time)  # Call the update method every second
-        self.timer.start(1000)  # 1000 milliseconds = 1 second
+        # Start processing the queue for results
+        QTimer.singleShot(100, self.process_queue)
 
-        # Start processing the queue after the thread starts
-        self.process_queue()
-    
     def update_elapsed_time(self):
-        """Update the elapsed time label."""
         if self.timer_running:
-            elapsed_time = time.time() - self.start_time
-            hours, remainder = divmod(elapsed_time, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            self.time_label.setText(f"Testing Time: {int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
+            elapsed = int(time.time() - self.start_time)
+            hours, rem = divmod(elapsed, 3600)
+            minutes, seconds = divmod(rem, 60)
+            self.time_label.setText(f"Testing Time: {hours:02d}h:{minutes:02d}m:{seconds:02d}s")
 
     def process_queue(self):
         try:
-            # Try to get a result from the queue
-            result = self.queue.get_nowait()
-            print(f"Got result from queue: {result}")
-            self.add_result_row(result)  # Add the result to the GUI
-            self.results_list.append(result)  # Track the completed results
+            while not self.queue.empty():
+                result = self.queue.get_nowait()
+                if 'task_completed' in result:
+                    self.add_result_row(result)
+                elif 'all_tasks_completed' in result:
+                    self.all_tests_completed()
+                    return  # Stop processing after completion signal
+                elif 'task_error' in result:
+                    self.update_status(f"Error: {result['task_error']}")
         except Empty:
-            # If the queue is empty, wait and try again
-            QTimer.singleShot(100, self.process_queue)
-            return  # Return early if there's nothing new to process
-        
-        # Process all the events in the Qt event loop (force repaint of the UI)
-        QApplication.processEvents()
-        
-        # If new result is added, update the progress bar and status
-        total_tasks = len(self.testing_manager.training_setup_manager.get_task_list())
-        print(f"Total tasks: {total_tasks}")
-        completed_tasks = len(self.results_list)
-        print(f"Completed tasks: {completed_tasks}")
-        
-        if total_tasks == 0:  # Avoid division by zero
-            self.update_status("No tasks to process.")
-            return
+            pass  # Queue is empty, do nothing
+        except Exception as e:
+            self.update_status(f"Error processing queue: {e}")
 
-        # Ensure progress is an integer between 0 and 100
-        progress_value = int((completed_tasks / total_tasks) * 100)
-        self.progress.setValue(progress_value)  # Update progress bar
-
-        # Update the status with the number of completed tasks
-        self.update_status(f"Completed {completed_tasks}/{total_tasks} tasks")
-
-        # Check if all tasks are completed
-        if completed_tasks >= total_tasks:
-            # If all tasks are complete, stop processing the queue and update UI
-            self.timer_running = False
-            self.update_status("All tests completed!")
-            self.progress.hide()  # Hide the progress bar when finished
-            self.open_results_button.show()  # Show the results button
-        else:
-            # Continue checking the queue if tasks are not yet complete
+        if self.timer_running:
             QTimer.singleShot(100, self.process_queue)
 
     def all_tests_completed(self):
-        # Update the status label to indicate completion
-        self.status_label.setText("All tests completed successfully.")
-        
-        self.progress.setValue(100)
-        self.progress.hide()
-        
-        # Automatically clean up training data to save space (at the very end)
-        self.status_label.setText("All tests completed. Cleaning up temporary data...")
-        self.cleanup_training_data()
-        self.status_label.setText("All tests completed successfully. Storage space optimized.")
-        
-        # Show the button to open the results folder
-        self.open_results_button.show()
-        
-        # Stop the timer
         self.timer_running = False
-        self.timer.stop()  # Stop the QTimer
-        
-        # Optionally log or print a message
-        print("All tests completed successfully.")
-        self.update_status("All tests completed successfully.")
-        
-        # Ensure the thread is properly cleaned up
-        if self.testing_thread.isRunning():
-            self.testing_thread.quit()
-            self.testing_thread.wait()  # Wait for the thread to finish
+        self.status_label.setText("All testing tasks completed. Exporting results to CSV...")
+        self.progress.setValue(100)
+        self.export_to_csv()
+        self.cleanup_training_data()  # Call cleanup after all tests are done
 
-    def open_job_folder(self):
-        job_folder = self.job_manager.get_job_folder()
-        if os.path.exists(job_folder):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(job_folder))
-        else:
-            QMessageBox.critical(self, "Error", f"Results folder not found: {job_folder}")
 
     def cleanup_training_data(self):
         """
@@ -715,8 +635,30 @@ class VEstimTestingGUI(QMainWindow):
             print("  • File references should still be saved")
             print("  • You may need to manually delete training data folders if needed")
 
+    def export_to_csv(self):
+        """Export the contents of the QTreeWidget to a CSV file."""
+        save_path = os.path.join(self.job_manager.get_job_folder(), "test_results_summary.csv")
+        summary_data = self.testing_manager.get_results_summary()
+        if not summary_data:
+            self.logger.warning("No summary data to export.")
+            self.status_label.setText("Export failed: No summary data to export.")
+            return
+        try:
+            df = pd.DataFrame(summary_data)
+            df.to_csv(save_path, index=False)
+            self.status_label.setText(f"Test results exported to {os.path.basename(save_path)}")
+            self.logger.info(f"Results exported to {save_path}")
+        except Exception as e:
+            self.logger.error(f"Could not export to CSV: {e}")
+            QMessageBox.critical(self, "Export Failed", f"Could not export to CSV: {e}")
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    gui = VEstimTestingGUI()
+    # Example usage:
+    # params = {'some_param': 'value'}
+    # task_list = [{'task_id': '1', ...}]
+    # training_results = {'1': {'best_validation_loss': 0.1, 'final_train_loss_denorm': 0.2}}
+    # gui = VEstimTestingGUI(params=params, task_list=task_list, training_results=training_results)
+    gui = VEstimTestingGUI(params={}, task_list=[], training_results={})
     gui.show()
     sys.exit(app.exec_())

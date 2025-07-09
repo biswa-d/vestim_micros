@@ -72,6 +72,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.task_completed_flag = False
         self.current_task_index = 0
         self.current_error_unit_label = "RMS Error" # Default error label
+        self.training_results = {}
  
         self.param_labels = {
             "LAYERS": "Layers",
@@ -820,9 +821,18 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.proceed_button.show()
 
     def transition_to_testing_gui(self):
-        self.close()  # Close the current window
-        self.testing_gui = VEstimTestingGUI()  # Initialize the testing GUI
-        self.testing_gui.show()  # Show the testing GUI
+        self.testing_gui = VEstimTestingGUI(self.params, self.task_list, self.training_results)
+        self.testing_gui.show()
+        self.close()
+
+    def get_training_results(self):
+        return self.training_results
+
+    def get_training_results(self):
+        return self.training_results
+
+    def get_training_results(self):
+        return self.training_results
 
 if __name__ == "__main__":
     import sys
