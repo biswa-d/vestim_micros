@@ -36,6 +36,26 @@ class GRUModel(nn.Module):
             self.dropout = None
 
         self.fc = nn.Linear(hidden_units, output_size).to(self.device)
+        
+        # Initialize weights properly to prevent gradient issues
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        """Initialize weights using Xavier/Glorot initialization to prevent gradient issues."""
+        for name, param in self.named_parameters():
+            if 'weight_ih' in name:
+                # Input-hidden weights
+                nn.init.xavier_uniform_(param.data)
+            elif 'weight_hh' in name:
+                # Hidden-hidden weights
+                nn.init.orthogonal_(param.data)
+            elif 'bias' in name:
+                # Bias terms
+                nn.init.constant_(param.data, 0.0)
+        
+        # Initialize the fully connected layer
+        nn.init.xavier_uniform_(self.fc.weight)
+        nn.init.constant_(self.fc.bias, 0.0)
 
     def forward(self, x, h_0=None):
         """
@@ -52,11 +72,19 @@ class GRUModel(nn.Module):
                  this example applies fc to all outputs of GRU.
         """
         x = x.to(self.device)
+        
+        # Check for NaN or infinite values in input
+        if torch.isnan(x).any() or torch.isinf(x).any():
+            raise ValueError("Input contains NaN or infinite values")
+        
         if h_0 is None:
             # Initialize hidden state if not provided
-            h_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_units, device=self.device).requires_grad_()
+            h_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_units, device=self.device)
         else:
             h_0 = h_0.to(self.device)
+            # Check for NaN or infinite values in hidden state
+            if torch.isnan(h_0).any() or torch.isinf(h_0).any():
+                raise ValueError("Hidden state contains NaN or infinite values")
 
         # GRU output: output features for each time step, and the final hidden state
         out, h_n = self.gru(x, h_0)
@@ -69,5 +97,9 @@ class GRUModel(nn.Module):
         # Apply the fully connected layer to the last time step only (for sequence-to-one prediction)
         # This matches the behavior of LSTMModel and avoids shape mismatches during training
         out = self.fc(out[:, -1, :])  # Shape: (batch_size, output_size)
+        
+        # Check for NaN or infinite values in output
+        if torch.isnan(out).any() or torch.isinf(out).any():
+            raise ValueError("Model output contains NaN or infinite values")
 
         return out, h_n
