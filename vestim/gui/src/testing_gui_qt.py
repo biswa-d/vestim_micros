@@ -176,6 +176,18 @@ class VEstimTestingGUI(QMainWindow):
         self.progress = QProgressBar(self)
         self.progress.setMaximum(100)
         self.progress.setValue(0)
+        self.progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #87CEEB;
+                border-radius: 5px;
+                text-align: center;
+                background-color: #f0f8ff;
+            }
+            QProgressBar::chunk {
+                background-color: #87CEEB;
+                border-radius: 4px;
+            }
+        """)
         self.main_layout.addWidget(self.progress)
 
         # Button to open results folder
@@ -419,7 +431,7 @@ class VEstimTestingGUI(QMainWindow):
                 self.show_training_history_plot(training_history_path, task_id)
 
     def plot_model_result(self, predictions_file, save_dir, target_column_name):
-        """Plot test results for a specific model with dynamic units."""
+        """Plot test results for a specific model with dynamic units and enhanced interactivity."""
         try:
             print(f"Plotting results from predictions file: {predictions_file} with target: {target_column_name}")
             if not os.path.exists(predictions_file):
@@ -431,16 +443,20 @@ class VEstimTestingGUI(QMainWindow):
             # Determine column names based on target_column_name
             true_col = None
             pred_col = None
-            diff_col = None
+            error_col = None
+            timestamp_col = None
             
-            # Look for columns containing 'True Values', 'Predictions', and 'Difference'
+            # Look for columns with more flexible matching
             for col in df.columns:
-                if 'True Value' in col: # Changed from 'True Values' to 'True Value'
+                col_lower = col.lower()
+                if 'true' in col_lower and target_column_name.lower() in col_lower:
                     true_col = col
-                elif 'Predictions' in col:
+                elif 'predicted' in col_lower and target_column_name.lower() in col_lower:
                     pred_col = col
-                elif 'Error' in col: # Changed from 'Difference' to 'Error'
-                    diff_col = col
+                elif 'error' in col_lower and ('absolute' in col_lower or 'mV' in col or '%' in col):
+                    error_col = col
+                elif 'timestamp' in col_lower or 'time' in col_lower:
+                    timestamp_col = col
             
             if not true_col or not pred_col:
                 QMessageBox.critical(self, "Error", f"Required columns not found in predictions file.\nAvailable columns: {list(df.columns)}")
@@ -449,7 +465,8 @@ class VEstimTestingGUI(QMainWindow):
             # Determine unit display based on target and columns
             unit_display_short = ""
             unit_display_long = target_column_name
-            is_percentage_target = False # Flag for SOC, SOE, SOP
+            error_unit = ""
+            is_percentage_target = False
 
             if "voltage" in target_column_name.lower():
                 unit_display_short = "V"
@@ -460,20 +477,20 @@ class VEstimTestingGUI(QMainWindow):
                 unit_display_long = "SOC (% SOC)"
                 error_unit = "% SOC"
                 is_percentage_target = True
-            elif "soe" in target_column_name.lower(): # New case for SOE
+            elif "soe" in target_column_name.lower():
                 unit_display_short = "% SOE"
                 unit_display_long = "SOE (% SOE)"
                 error_unit = "% SOE"
                 is_percentage_target = True
-            elif "sop" in target_column_name.lower(): # New case for SOP
+            elif "sop" in target_column_name.lower():
                 unit_display_short = "% SOP"
                 unit_display_long = "SOP (% SOP)"
                 error_unit = "% SOP"
                 is_percentage_target = True
             elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
-                unit_display_short = "Deg C"
-                unit_display_long = "Temperature (Deg C)"
-                error_unit = "Deg C"
+                unit_display_short = "°C"
+                unit_display_long = "Temperature (°C)"
+                error_unit = "°C"
             else:
                 # Extract from column name if possible
                 if "(" in true_col and ")" in true_col:
@@ -486,72 +503,160 @@ class VEstimTestingGUI(QMainWindow):
                     unit_display_long = target_column_name
                     error_unit = ""
             
-            # Calculate errors for plot text, applying scaling if necessary
-            # errors_for_plot_text will be used for RMS and Max error display on the plot
-            errors_for_plot_text = df[diff_col] if diff_col else df[true_col] - df[pred_col]
-            if "voltage" in target_column_name.lower():
-                errors_for_plot_text *= 1000 # Convert V to mV for plot text
-            elif is_percentage_target and np.max(np.abs(df[true_col])) <= 1.0:
-                errors_for_plot_text *= 100 # Convert 0-1 to % for plot text
+            # Use error column if available, otherwise calculate
+            if error_col:
+                errors_for_plot = df[error_col]
+            else:
+                errors_for_plot = np.abs(df[true_col] - df[pred_col])
+                # Convert to appropriate units for display
+                if "voltage" in target_column_name.lower():
+                    errors_for_plot *= 1000  # Convert V to mV
+                elif is_percentage_target and np.max(np.abs(df[true_col])) <= 1.0:
+                    errors_for_plot *= 100  # Convert 0-1 to %
 
-            rms_error = np.sqrt(np.mean(errors_for_plot_text**2))
-            max_error = np.max(np.abs(errors_for_plot_text))
+            # Calculate error metrics
+            rms_error = np.sqrt(np.mean(errors_for_plot**2))
+            max_error = np.max(errors_for_plot)
+            mean_error = np.mean(errors_for_plot)
+            std_error = np.std(errors_for_plot)
 
-            # Create a new dialog for the plot
+            # Create x-axis (use timestamp if available, otherwise index)
+            if timestamp_col and timestamp_col in df.columns:
+                try:
+                    # Try to parse timestamps with explicit format specification
+                    x_axis = pd.to_datetime(df[timestamp_col], format='mixed', errors='coerce')
+                    # If that fails, try without format specification but suppress warnings
+                    if x_axis.isna().any():
+                        import warnings
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            x_axis = pd.to_datetime(df[timestamp_col], errors='coerce')
+                    x_label = "Time"
+                except:
+                    x_axis = df.index
+                    x_label = "Sample Index"
+            else:
+                x_axis = df.index
+                x_label = "Sample Index"
+
+            # Create a new dialog for the plot with enhanced features
             plot_dialog = QDialog(self)
-            plot_dialog.setWindowTitle(f"Test Result: {os.path.basename(predictions_file)}")
-            plot_dialog.setGeometry(150, 150, 1000, 800)
+            plot_dialog.setWindowTitle(f"Test Results: {os.path.basename(predictions_file)}")
+            plot_dialog.setGeometry(100, 100, 1400, 1000)
             
             layout = QVBoxLayout()
             
-            # Matplotlib Figure
-            fig = Figure(figsize=(10, 8))
+            # Create matplotlib figure with enhanced styling
+            fig = Figure(figsize=(14, 10), dpi=100)
             canvas = FigureCanvas(fig)
             
-            # Main plot (True vs. Predicted)
-            ax1 = fig.add_subplot(2, 1, 1)
-            ax1.plot(df.index, df[true_col], label='True Values', color='blue')
-            ax1.plot(df.index, df[pred_col], label='Predictions', color='red', linestyle='--')
-            ax1.set_title(f'Model Predictions vs. True Values for {os.path.basename(predictions_file)}')
-            ax1.set_ylabel(unit_display_long)
-            ax1.legend()
-            ax1.grid(True)
+            # Enable navigation toolbar for zooming and panning
+            from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+            toolbar = NavigationToolbar(canvas, plot_dialog)
             
-            # Error plot
-            ax2 = fig.add_subplot(2, 1, 2, sharex=ax1)
-            ax2.plot(df.index, errors_for_plot_text, label=f'Error ({error_unit})', color='green')
-            ax2.set_title('Prediction Error')
-            ax2.set_xlabel('Time Steps')
-            ax2.set_ylabel(f'Error ({error_unit})')
-            ax2.legend()
-            ax2.grid(True)
+            # Set style for professional appearance
+            plt.style.use('seaborn-v0_8-darkgrid')
             
-            # Add RMS and Max Error text to the error plot
-            ax2.text(0.05, 0.95, f'RMS Error: {rms_error:.2f} {error_unit}\nMax Error: {max_error:.2f} {error_unit}',
-                     transform=ax2.transAxes, fontsize=10,
-                     verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5))
+            # Main plot (True vs. Predicted) - Top subplot
+            ax1 = fig.add_subplot(3, 1, 1)
+            line1 = ax1.plot(x_axis, df[true_col], label='True Values', color='#2E86AB', linewidth=2, alpha=0.8)
+            line2 = ax1.plot(x_axis, df[pred_col], label='Predictions', color='#A23B72', linewidth=2, linestyle='--', alpha=0.8)
             
-            fig.tight_layout()
+            ax1.set_title(f'Model Predictions vs. True Values\n{os.path.basename(predictions_file)}', 
+                         fontsize=14, fontweight='bold', pad=20)
+            ax1.set_ylabel(unit_display_long, fontsize=12)
+            ax1.legend(fontsize=11, loc='upper right')
+            ax1.grid(True, alpha=0.3)
             
+            # Error plot - Middle subplot
+            ax2 = fig.add_subplot(3, 1, 2, sharex=ax1)
+            line3 = ax2.plot(x_axis, errors_for_plot, label=f'Absolute Error ({error_unit})', 
+                            color='#F18F01', linewidth=1.5, alpha=0.7)
+            ax2.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+            ax2.set_title('Prediction Error Over Time', fontsize=12, fontweight='bold')
+            ax2.set_ylabel(f'Error ({error_unit})', fontsize=12)
+            ax2.legend(fontsize=11)
+            ax2.grid(True, alpha=0.3)
+            
+            # Error statistics box
+            stats_text = f'RMS Error: {rms_error:.3f} {error_unit}\n'
+            stats_text += f'Max Error: {max_error:.3f} {error_unit}\n'
+            stats_text += f'Mean Error: {mean_error:.3f} {error_unit}\n'
+            stats_text += f'Std Error: {std_error:.3f} {error_unit}'
+            
+            ax2.text(0.02, 0.98, stats_text, transform=ax2.transAxes, fontsize=10,
+                     verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5', 
+                     facecolor='lightblue', alpha=0.8, edgecolor='navy'))
+            
+            # Error histogram - Bottom subplot
+            ax3 = fig.add_subplot(3, 1, 3)
+            n, bins, patches = ax3.hist(errors_for_plot, bins=50, alpha=0.7, color='#F18F01', 
+                                       edgecolor='black', linewidth=0.5)
+            ax3.axvline(x=mean_error, color='red', linestyle='--', linewidth=2, label=f'Mean: {mean_error:.3f}')
+            ax3.axvline(x=mean_error + std_error, color='orange', linestyle=':', linewidth=2, label=f'+1σ: {mean_error + std_error:.3f}')
+            ax3.axvline(x=mean_error - std_error, color='orange', linestyle=':', linewidth=2, label=f'-1σ: {mean_error - std_error:.3f}')
+            
+            ax3.set_title('Error Distribution', fontsize=12, fontweight='bold')
+            ax3.set_xlabel(f'Error ({error_unit})', fontsize=12)
+            ax3.set_ylabel('Frequency', fontsize=12)
+            ax3.legend(fontsize=10)
+            ax3.grid(True, alpha=0.3)
+            
+            # Set x-axis label for the bottom plot
+            ax3.set_xlabel(x_label, fontsize=12)
+            
+            fig.tight_layout(pad=3.0)
+            
+            # Add toolbar and canvas to layout
+            layout.addWidget(toolbar)
             layout.addWidget(canvas)
+            
+            # Button layout
+            button_layout = QHBoxLayout()
             
             # Save button
             save_button = QPushButton("Save Plot")
+            save_button.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px; font-weight: bold;")
             save_button.clicked.connect(lambda: self.save_plot(fig, predictions_file, save_dir))
-            layout.addWidget(save_button)
+            button_layout.addWidget(save_button)
+            
+            # Export data button
+            export_button = QPushButton("Export Data")
+            export_button.setStyleSheet("background-color: #2196F3; color: white; padding: 8px; font-weight: bold;")
+            export_button.clicked.connect(lambda: self.export_plot_data(df, predictions_file, save_dir))
+            button_layout.addWidget(export_button)
+            
+            # Close button
+            close_button = QPushButton("Close")
+            close_button.setStyleSheet("background-color: #f44336; color: white; padding: 8px; font-weight: bold;")
+            close_button.clicked.connect(plot_dialog.close)
+            button_layout.addWidget(close_button)
+            
+            layout.addLayout(button_layout)
             
             plot_dialog.setLayout(layout)
             plot_dialog.exec_()
 
         except Exception as e:
-            QMessageBox.critical(self, "Plotting Error", f"An error occurred while plotting: {e}")
+            import traceback
+            error_msg = f"An error occurred while plotting: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            QMessageBox.critical(self, "Plotting Error", error_msg)
+    def export_plot_data(self, df, predictions_file, save_dir):
+        """Export plot data to CSV for further analysis."""
+        try:
+            file_name = os.path.splitext(os.path.basename(predictions_file))[0]
+            export_path = os.path.join(save_dir, f"{file_name}_plot_data.csv")
+            df.to_csv(export_path, index=False)
+            QMessageBox.information(self, "Data Exported", f"Plot data exported to {export_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Could not export data: {e}")
 
     def save_plot(self, fig, test_file_path, save_dir):
         """Save the current plot as a PNG image."""
         try:
             file_name = os.path.splitext(os.path.basename(test_file_path))[0]
             save_path = os.path.join(save_dir, f"{file_name}_test_plot.png")
-            fig.savefig(save_path)
+            fig.savefig(save_path, dpi=300, bbox_inches='tight')
             QMessageBox.information(self, "Plot Saved", f"Plot saved to {save_path}")
         except Exception as e:
             QMessageBox.critical(self, "Save Error", f"Could not save plot: {e}")
