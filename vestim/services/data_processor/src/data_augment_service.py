@@ -410,49 +410,46 @@ class DataAugmentService:
 
         return padded_df
 
-    def apply_normalization(self, df: pd.DataFrame, scaler: object, columns_to_normalize: List[str]) -> pd.DataFrame:
+    def apply_normalization(self, df: pd.DataFrame, scaler: object, columns_to_normalize: List[str], normalize_all_numeric: bool = True) -> pd.DataFrame:
         """
         Applies normalization to the specified columns of the DataFrame using a pre-fitted scaler.
 
         Args:
             df (pd.DataFrame): The input DataFrame.
             scaler (object): The pre-fitted scaler object.
-            columns_to_normalize (List[str]): List of column names to normalize.
+            columns_to_normalize (List[str]): List of column names that the scaler was fitted on.
+            normalize_all_numeric (bool): If True, normalizes all numeric columns found in the scaler's features.
+                                          If False, normalizes only `columns_to_normalize`.
 
         Returns:
             pd.DataFrame: The DataFrame with specified columns normalized.
         """
-        self.logger.info(f"Applying normalization to {len(columns_to_normalize)} columns: {columns_to_normalize}")
+        self.logger.info(f"Applying normalization with normalize_all_numeric={normalize_all_numeric}.")
         if df.empty:
             self.logger.warning("Input DataFrame to apply_normalization is empty. Returning empty DataFrame.")
             return df
         if not scaler:
             self.logger.error("No scaler object provided for normalization. Returning original DataFrame.")
             return df
-        if not columns_to_normalize:
-            self.logger.warning("No columns specified for normalization. Returning original DataFrame.")
-            return df
+        
+        all_numeric_columns_in_df = df.select_dtypes(include=np.number).columns.tolist()
+        
+        # The scaler was fitted on `columns_to_normalize`. We pass this as `feature_columns`.
+        # The columns we want to *apply* the transform to is determined by `normalize_all_numeric`.
+        
+        cols_to_apply_transform = all_numeric_columns_in_df if normalize_all_numeric else columns_to_normalize
 
         try:
-            # Ensure all specified columns exist in the DataFrame
-            missing_cols = [col for col in columns_to_normalize if col not in df.columns]
-            if missing_cols:
-                self.logger.warning(f"Columns not found in DataFrame for normalization and will be skipped: {missing_cols}")
-                # Filter columns_to_normalize to only include existing columns
-                valid_columns_to_normalize = [col for col in columns_to_normalize if col in df.columns]
-                if not valid_columns_to_normalize:
-                    self.logger.warning("No valid columns left for normalization after checking existence. Returning original DataFrame.")
-                    return df
-            else:
-                valid_columns_to_normalize = columns_to_normalize
-
-            transformed_df = norm_svc.transform_data(df, scaler, valid_columns_to_normalize)
-            self.logger.info("Normalization applied successfully.")
+            transformed_df = norm_svc.transform_data(
+                data_df=df,
+                scaler=scaler,
+                feature_columns=columns_to_normalize, # The columns the scaler was FIT on
+                all_numeric_columns=cols_to_apply_transform # The columns to APPLY the transform to
+            )
+            self.logger.info("Normalization function executed.")
             return transformed_df
         except Exception as e:
             self.logger.error(f"Error during data normalization in service: {e}", exc_info=True)
-            # Depending on desired behavior, could re-raise or return original df
-            # For now, returning original df on error to prevent process stoppage, error logged.
             return df
     
     def save_single_augmented_file(self, augmented_df: pd.DataFrame, output_filepath: str):

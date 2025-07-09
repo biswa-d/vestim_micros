@@ -18,16 +18,18 @@ class WholeSequenceFNNDataHandler(BaseDataHandler):
         self.logger = logging.getLogger(__name__) # Or get it passed in
 
 
-    def load_and_process_data(self, folder_path: str, **kwargs) -> tuple[np.ndarray, np.ndarray]:
+    def load_and_process_data(self, folder_path: str, return_timestamp: bool = False, **kwargs) -> tuple:
         """
         Loads data from CSV files, concatenates them row-wise.
         The `lookback` parameter from kwargs is ignored by this handler.
         
         :param folder_path: Path to the folder containing CSV files.
+        :param return_timestamp: If True, returns timestamps along with X and y data.
         :param kwargs: Additional arguments (lookback is ignored).
-        :return: A tuple (X_data_processed, y_data_processed) as numpy arrays.
+        :return: A tuple (X_data_processed, y_data_processed, timestamps) as numpy arrays.
                  Shape of X is [total_timesteps, num_features].
                  Shape of y is [total_timesteps, num_output_features] (typically [N,1]).
+                 Shape of timestamps is [total_timesteps,].
         """
         csv_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith('.csv')]
         if not csv_files:
@@ -41,6 +43,7 @@ class WholeSequenceFNNDataHandler(BaseDataHandler):
 
         all_X_data_list = []
         all_Y_data_list = []
+        all_timestamps_list = []
 
         for file_path in csv_files:
             df_selected = self._read_and_select_columns(file_path)
@@ -49,14 +52,20 @@ class WholeSequenceFNNDataHandler(BaseDataHandler):
             
             # Convert to numpy arrays
             # Features are expected to be [timesteps, num_features]
-            X_data_file = df_selected[self.feature_cols].values 
+            X_data_file = df_selected[self.feature_cols].values
             # Target is expected to be [timesteps, 1] or [timesteps, num_output_features]
-            Y_data_file = df_selected[[self.target_col]].values # Ensure Y_data_file is 2D
+            Y__data_file = df_selected[[self.target_col]].values # Ensure Y_data_file is 2D
 
             all_X_data_list.append(X_data_file)
             all_Y_data_list.append(Y_data_file)
             
+            if return_timestamp:
+                timestamps = df_selected['Timestamp'].values
+                all_timestamps_list.append(timestamps)
+
             del df_selected, X_data_file, Y_data_file
+            if return_timestamp:
+                del timestamps
             gc.collect()
 
         if not all_X_data_list: # No valid data read from any file
@@ -68,9 +77,14 @@ class WholeSequenceFNNDataHandler(BaseDataHandler):
         X_processed = np.concatenate(all_X_data_list, axis=0)
         y_processed = np.concatenate(all_Y_data_list, axis=0)
         
-        del all_X_data_list, all_Y_data_list
+        if return_timestamp:
+            timestamps_processed = np.concatenate(all_timestamps_list, axis=0)
+        else:
+            timestamps_processed = None
+
+        del all_X_data_list, all_Y_data_list, all_timestamps_list
         gc.collect()
 
         if self.logger:
             self.logger.info(f"WholeSequenceFNNDataHandler: Processed X shape: {X_processed.shape}, y shape: {y_processed.shape}")
-        return X_processed, y_processed
+        return X_processed, y_processed, timestamps_processed

@@ -71,7 +71,7 @@ class DataLoaderService:
         
         handler.logger = self.logger # Pass logger to handler
 
-        X, y = handler.load_and_process_data(folder_path, **handler_kwargs)
+        X, y, _ = handler.load_and_process_data(folder_path, **handler_kwargs)
 
         if X.size == 0 or y.size == 0:
             self.logger.warning("No data loaded by the handler. Returning empty DataLoaders.")
@@ -675,9 +675,9 @@ class DataLoaderService:
             self.logger.info("Loading test data without sequencing for proper evaluation")
             test_handler = WholeSequenceFNNDataHandler(feature_cols, target_col)
             test_handler.logger = self.logger
-            test_X, test_y = test_handler.load_and_process_data(test_folder)
+            test_X, test_y, test_timestamps = test_handler.load_and_process_data(test_folder, return_timestamp=True)
             test_loader = self._create_loader_from_tensors(test_X, test_y, batch_size, num_workers, False, "test")
-            return train_loader, val_loader, test_loader
+            return train_loader, val_loader, test_loader, test_timestamps
         else:
             self.logger.info("Skipping test loader creation (create_test_loader=False)")
             return train_loader, val_loader

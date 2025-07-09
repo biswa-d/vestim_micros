@@ -2,6 +2,8 @@ import time, os, sys, math, json # Added json
 import csv
 import sqlite3
 import torch
+import pandas as pd
+import numpy as np
 from PyQt5.QtCore import QThread, pyqtSignal
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
@@ -614,15 +616,13 @@ class TrainingTaskManager:
                                 e_t_p_n_cpu = epoch_train_preds_norm.cpu().numpy() if epoch_train_preds_norm.is_cuda else epoch_train_preds_norm.numpy()
                                 e_t_t_n_cpu = epoch_train_trues_norm.cpu().numpy() if epoch_train_trues_norm.is_cuda else epoch_train_trues_norm.numpy()
 
-                                temp_df_train_pred = pd.DataFrame(0, index=np.arange(len(e_t_p_n_cpu)), columns=self.scaler_metadata['normalized_columns'])
-                                temp_df_train_pred[target_col_for_scaler] = e_t_p_n_cpu.flatten()
-                                df_train_pred_inv = normalization_service.inverse_transform_data(temp_df_train_pred, self.loaded_scaler, self.scaler_metadata['normalized_columns'])
-                                train_pred_orig = df_train_pred_inv[target_col_for_scaler].values
-
-                                temp_df_train_true = pd.DataFrame(0, index=np.arange(len(e_t_t_n_cpu)), columns=self.scaler_metadata['normalized_columns'])
-                                temp_df_train_true[target_col_for_scaler] = e_t_t_n_cpu.flatten()
-                                df_train_true_inv = normalization_service.inverse_transform_data(temp_df_train_true, self.loaded_scaler, self.scaler_metadata['normalized_columns'])
-                                train_true_orig = df_train_true_inv[target_col_for_scaler].values
+                                # Use the safer single-column denormalization method
+                                train_pred_orig = normalization_service.inverse_transform_single_column(
+                                    e_t_p_n_cpu, self.loaded_scaler, target_col_for_scaler, self.scaler_metadata['normalized_columns']
+                                )
+                                train_true_orig = normalization_service.inverse_transform_single_column(
+                                    e_t_t_n_cpu, self.loaded_scaler, target_col_for_scaler, self.scaler_metadata['normalized_columns']
+                                )
                                 
                                 train_mse_orig = np.mean((train_pred_orig - train_true_orig)**2)
                                 train_rmse_for_gui = np.sqrt(train_mse_orig) * multiplier
@@ -646,15 +646,13 @@ class TrainingTaskManager:
                                 e_v_p_n_cpu = epoch_val_preds_norm.cpu().numpy() if epoch_val_preds_norm.is_cuda else epoch_val_preds_norm.numpy()
                                 e_v_t_n_cpu = epoch_val_trues_norm.cpu().numpy() if epoch_val_trues_norm.is_cuda else epoch_val_trues_norm.numpy()
 
-                                temp_df_val_pred = pd.DataFrame(0, index=np.arange(len(e_v_p_n_cpu)), columns=self.scaler_metadata['normalized_columns'])
-                                temp_df_val_pred[target_col_for_scaler] = e_v_p_n_cpu.flatten()
-                                df_val_pred_inv = normalization_service.inverse_transform_data(temp_df_val_pred, self.loaded_scaler, self.scaler_metadata['normalized_columns'])
-                                val_pred_orig = df_val_pred_inv[target_col_for_scaler].values
-
-                                temp_df_val_true = pd.DataFrame(0, index=np.arange(len(e_v_t_n_cpu)), columns=self.scaler_metadata['normalized_columns'])
-                                temp_df_val_true[target_col_for_scaler] = e_v_t_n_cpu.flatten()
-                                df_val_true_inv = normalization_service.inverse_transform_data(temp_df_val_true, self.loaded_scaler, self.scaler_metadata['normalized_columns'])
-                                val_true_orig = df_val_true_inv[target_col_for_scaler].values
+                                # Use the safer single-column denormalization method
+                                val_pred_orig = normalization_service.inverse_transform_single_column(
+                                    e_v_p_n_cpu, self.loaded_scaler, target_col_for_scaler, self.scaler_metadata['normalized_columns']
+                                )
+                                val_true_orig = normalization_service.inverse_transform_single_column(
+                                    e_v_t_n_cpu, self.loaded_scaler, target_col_for_scaler, self.scaler_metadata['normalized_columns']
+                                )
 
                                 val_mse_orig = np.mean((val_pred_orig - val_true_orig)**2)
                                 current_val_rmse_orig_scale = np.sqrt(val_mse_orig) * multiplier

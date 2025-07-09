@@ -137,31 +137,20 @@ class VEstimTestingService:
                     print(f"Normalization was applied during training. Attempting to load scaler from: {scaler_path_absolute}")
                     scaler_loaded = norm_svc.load_scaler(scaler_path_absolute)
                     if scaler_loaded:
-                        print(f"Scaler loaded. Applying inverse transform to target '{target_column_name}' using original feature set: {normalized_columns_during_training}")
+                        print(f"Scaler loaded. Applying inverse transform to target '{target_column_name}' using standardized method")
                         
-                        # Prepare DataFrame for inverse transform (this is crucial)
-                        # Create a DataFrame with all columns the scaler was fit on
-                        # Fill with dummy values (e.g., 0) then place the target column's data
+                        # Use the standardized denormalization function instead of DataFrame method
+                        y_pred_original_scale = norm_svc.inverse_transform_single_column(
+                            y_pred_normalized, scaler_loaded, target_column_name, normalized_columns_during_training
+                        )
+                        y_test_original_scale = norm_svc.inverse_transform_single_column(
+                            y_test_normalized, scaler_loaded, target_column_name, normalized_columns_during_training
+                        )
                         
-                        # Inverse transform predictions
-                        temp_df_pred = pd.DataFrame(0, index=np.arange(len(y_pred_normalized)), columns=normalized_columns_during_training)
-                        if target_column_name in temp_df_pred.columns:
-                            temp_df_pred[target_column_name] = y_pred_normalized
-                            df_pred_inv = norm_svc.inverse_transform_data(temp_df_pred, scaler_loaded, normalized_columns_during_training)
-                            y_pred_original_scale = df_pred_inv[target_column_name].values
-                        else:
-                            print(f"Warning: Target column '{target_column_name}' not in scaler's known columns. Cannot inverse transform y_pred.")
-
-                        # Inverse transform true values
-                        temp_df_test = pd.DataFrame(0, index=np.arange(len(y_test_normalized)), columns=normalized_columns_during_training)
-                        if target_column_name in temp_df_test.columns:
-                            temp_df_test[target_column_name] = y_test_normalized
-                            df_test_inv = norm_svc.inverse_transform_data(temp_df_test, scaler_loaded, normalized_columns_during_training)
-                            y_test_original_scale = df_test_inv[target_column_name].values
-                        else:
-                            print(f"Warning: Target column '{target_column_name}' not in scaler's known columns. Cannot inverse transform y_test.")
+                        print("Standardized inverse transform applied to y_pred and y_test.")
+                        print(f"Sample denormalized values - Pred: {y_pred_original_scale[:3] if len(y_pred_original_scale) > 3 else y_pred_original_scale}")
+                        print(f"Sample denormalized values - True: {y_test_original_scale[:3] if len(y_test_original_scale) > 3 else y_test_original_scale}")
                         
-                        print("Inverse transform applied to y_pred and y_test.")
                     else:
                         print(f"Warning: Failed to load scaler from {scaler_path_absolute}. Metrics will be on normalized scale.")
                 elif normalization_applied_during_training:

@@ -171,6 +171,8 @@ class VEstimTestingManager:
                 
                 if use_continuous_testing:
                     # Use continuous testing - no test loader needed
+                    test_df = pd.read_csv(test_file_path)
+                    
                     file_results = self.continuous_testing_service.run_continuous_testing(
                         task=task,
                         model_path=model_path,
@@ -178,6 +180,66 @@ class VEstimTestingManager:
                         is_first_file=(test_file_index == 0),
                         warmup_samples=lookback_val  # Use lookback as warmup period
                     )
+                    
+                    # Get timestamps from the corresponding RAW test file since processed files may not have them
+                    # Try to find the raw file that corresponds to this processed file
+                    timestamps = None
+                    try:
+                        # Extract base filename (remove path and extension)
+                        processed_filename = os.path.basename(test_file_path)
+                        base_name = os.path.splitext(processed_filename)[0]
+                        
+                        # Look for the raw file in the raw_data directory
+                        raw_data_dir = test_file_path.replace('processed_data', 'raw_data')
+                        raw_file_dir = os.path.dirname(raw_data_dir)
+                        
+                        # Try common raw file extensions
+                        raw_extensions = ['.csv', '.xlsx', '.mat']
+                        raw_file_path = None
+                        
+                        for ext in raw_extensions:
+                            potential_raw_file = os.path.join(raw_file_dir, base_name + ext)
+                            if os.path.exists(potential_raw_file):
+                                raw_file_path = potential_raw_file
+                                break
+                        
+                        if raw_file_path and raw_file_path.endswith('.csv'):
+                            print(f"Loading timestamps from raw file: {raw_file_path}")
+                            raw_df = pd.read_csv(raw_file_path)
+                            
+                            # Handle different possible timestamp column names
+                            timestamp_columns = ['Timestamp', 'TimeStamp', 'Time', 'timestamp', 'time']
+                            for ts_col in timestamp_columns:
+                                if ts_col in raw_df.columns:
+                                    timestamps = raw_df[ts_col].values
+                                    print(f"Found timestamp column '{ts_col}' in raw file")
+                                    break
+                        else:
+                            print(f"Raw file not found or not CSV, falling back to processed file timestamps")
+                            # Fallback to processed file timestamps
+                            timestamp_columns = ['Timestamp', 'TimeStamp', 'Time', 'timestamp', 'time']
+                            for ts_col in timestamp_columns:
+                                if ts_col in test_df.columns:
+                                    timestamps = test_df[ts_col].values
+                                    print(f"Found timestamp column '{ts_col}' in processed file")
+                                    break
+                                    
+                    except Exception as e:
+                        print(f"Error loading timestamps from raw file: {e}")
+                        # Final fallback to processed file
+                        timestamp_columns = ['Timestamp', 'TimeStamp', 'Time', 'timestamp', 'time']
+                        for ts_col in timestamp_columns:
+                            if ts_col in test_df.columns:
+                                timestamps = test_df[ts_col].values
+                                break
+                    
+                    if timestamps is None:
+                        print("Warning: No timestamp column found, using index as fallback")
+                        timestamps = np.arange(len(file_results.get('predictions', [])))
+                    
+                    # Store timestamps in file_results for later use
+                    if timestamps is not None:
+                        file_results['timestamps'] = timestamps
                 else:
                     # Fallback to old dataloader method - create test loader only when needed
                     data_loader_params = task.get('data_loader_params', {})
@@ -254,10 +316,23 @@ class VEstimTestingManager:
                 # Save predictions with dynamic column names - matching training GUI conventions
                 predictions_file = os.path.join(test_results_dir, f"{file_name}_predictions.csv")
                 
+                # Get timestamps from file_results or create fallback
+                timestamps = file_results.get('timestamps', np.arange(len(y_true_scaled)))
+                
+                # Debug: Check timestamp data
+                if len(timestamps) > 0:
+                    print(f"Timestamp data: first={timestamps[0]}, last={timestamps[-1]}, length={len(timestamps)}")
+                    # Check if timestamps are empty/null
+                    non_null_timestamps = sum(1 for ts in timestamps if ts not in [None, '', 'nan', 'NaN'])
+                    print(f"Non-null timestamps: {non_null_timestamps}/{len(timestamps)}")
+                else:
+                    print("Warning: Empty timestamps array")
+                
                 # Prepare data for DataFrame
                 data_for_csv = {
-                    f'True Value {csv_unit_display}': y_true_scaled, # Changed "Values" to "Value"
-                    f'Predictions {csv_unit_display}': y_pred_scaled,
+                    'Timestamp': timestamps,
+                    f'True {target_column_name} {csv_unit_display}': y_true_scaled,
+                    f'Predicted {target_column_name} {csv_unit_display}': y_pred_scaled,
                 }
                 
                 if "soc" in target_column_name.lower():

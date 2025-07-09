@@ -301,45 +301,40 @@ class ContinuousTestingService:
             return None
     
     def _denormalize_values(self, y_pred, y_true, target_col):
-        """Denormalize predictions and true values using MinMaxScaler formula.
+        """Denormalize predictions and true values using the standardized normalization service function.
         This should only be called when normalization was applied during training."""
         try:
             if self.scaler is None:
                 print("WARNING: Denormalization requested but no scaler available")
                 return y_pred, y_true
             
-            # Get target column index
-            target_idx = list(self.scaler.feature_names_in_).index(target_col)
+            # Use the standardized denormalization function from normalization_service
+            from vestim.services import normalization_service
             
-            # Handle both 1D and 2D scaler arrays (matching reference code exactly)
-            if isinstance(self.scaler.data_min_, np.ndarray) and len(self.scaler.data_min_.shape) == 2:
-                # 2D array case: shape (1, n_features)
-                target_min = self.scaler.data_min_[0][target_idx]
-                target_max = self.scaler.data_max_[0][target_idx]
+            # Get normalized columns list
+            if hasattr(self.scaler, 'feature_names_in_'):
+                normalized_columns = list(self.scaler.feature_names_in_)
             else:
-                # 1D array case: shape (n_features,)
-                target_min = self.scaler.data_min_[target_idx]
-                target_max = self.scaler.data_max_[target_idx]
+                print("WARNING: Scaler doesn't have feature_names_in_. Using target column as fallback.")
+                normalized_columns = [target_col]
             
-            target_scale = target_max - target_min
-            
-            print(f"Denormalization parameters for {target_col}:")
-            print(f"  Target index: {target_idx}")
-            print(f"  Scaler data_min_ shape: {self.scaler.data_min_.shape}")
-            print(f"  Scaler data_max_ shape: {self.scaler.data_max_.shape}")
-            print(f"  Data min: {target_min}")
-            print(f"  Data max: {target_max}")
-            print(f"  Scale (max-min): {target_scale}")
+            print(f"Denormalizing values for {target_col} using standardized method")
+            print(f"Scaler type: {type(self.scaler)}")
+            print(f"Normalized columns: {normalized_columns}")
             
             # Show sample values before denormalization
-            print(f"Sample normalized values - Pred: {y_pred[:3]}, True: {y_true[:3]}")
+            print(f"Sample normalized values - Pred: {y_pred[:3] if len(y_pred) > 3 else y_pred}, True: {y_true[:3] if len(y_true) > 3 else y_true}")
             
-            # Apply MinMaxScaler denormalization formula: X_orig = X_scaled * (max - min) + min
-            y_pred_denorm = y_pred * target_scale + target_min
-            y_true_denorm = y_true * target_scale + target_min
+            # Use the standardized denormalization functions
+            y_pred_denorm = normalization_service.inverse_transform_single_column(
+                y_pred, self.scaler, target_col, normalized_columns
+            )
+            y_true_denorm = normalization_service.inverse_transform_single_column(
+                y_true, self.scaler, target_col, normalized_columns
+            )
             
             # Show sample values after denormalization
-            print(f"Sample denormalized values - Pred: {y_pred_denorm[:3]}, True: {y_true_denorm[:3]}")
+            print(f"Sample denormalized values - Pred: {y_pred_denorm[:3] if len(y_pred_denorm) > 3 else y_pred_denorm}, True: {y_true_denorm[:3] if len(y_true_denorm) > 3 else y_true_denorm}")
             print(f"Denormalized value ranges - Pred: [{y_pred_denorm.min():.3f}, {y_pred_denorm.max():.3f}], True: [{y_true_denorm.min():.3f}, {y_true_denorm.max():.3f}]")
             
             print(f"Successfully denormalized values for {target_col}")

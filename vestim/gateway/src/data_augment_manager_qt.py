@@ -35,7 +35,14 @@ import pandas as pd # Added for pd.api.types
 # Set up logging
 logger = setup_logger(log_file='data_augment_manager.log')
 
-DEFAULT_NORM_EXCLUDE_COLS = ['time', 'Time', 'timestamp', 'Timestamp', 'datetime', 'Epoch', 'Cycle_Index', 'Step_Index', 'File_Index']
+# Enhanced default exclusion list for normalization - includes common timestamp and index columns
+DEFAULT_NORM_EXCLUDE_COLS = [
+    'time', 'Time', 'timestamp', 'Timestamp', 'datetime', 'DateTime', 'DATE', 'Date',
+    'Epoch', 'epoch', 'Cycle_Index', 'cycle_index', 'Step_Index', 'step_index', 
+    'File_Index', 'file_index', 'Index', 'index', 'ID', 'id', 'Cycle', 'cycle',
+    'Step', 'step', 'TimeStamp', 'TIMESTAMP', 'Time_s', 'time_s', 'seconds',
+    'Status', 'status'  # Added Status as it's often categorical, not truly numeric
+]
 
 class DataAugmentManager(QObject): # Inherit from QObject
     """Manager class for data augmentation operations"""

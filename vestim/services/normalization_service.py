@@ -221,14 +221,18 @@ def load_scaler(scaler_path):
         print(f"Error loading scaler: {e}")
         return None
 
-def transform_data(data_df, scaler, feature_columns):
+def transform_data(data_df, scaler, feature_columns, all_numeric_columns=None):
     """
     Transforms specified columns of a DataFrame using a pre-fitted scaler.
+    If all_numeric_columns is provided, it will normalize all of them. Otherwise, it defaults
+    to transforming only the feature_columns.
 
     Args:
         data_df (pd.DataFrame): The DataFrame to transform.
         scaler: The pre-fitted scaler object.
-        feature_columns (list): List of column names to transform.
+        feature_columns (list): List of column names that were used to fit the scaler.
+        all_numeric_columns (list, optional): List of all numeric columns to apply the transformation to.
+                                             If None, defaults to feature_columns.
 
     Returns:
         pd.DataFrame: DataFrame with specified columns transformed, or original if error.
@@ -236,30 +240,73 @@ def transform_data(data_df, scaler, feature_columns):
     if not scaler:
         print("Error: No scaler provided for transform_data.")
         return data_df
-    if not all(col in data_df.columns for col in feature_columns):
-        missing_cols = [col for col in feature_columns if col not in data_df.columns]
-        print(f"Warning: transform_data - DataFrame is missing columns: {missing_cols}. Skipping transformation for these.")
-        # Transform only available columns
-        transformable_cols = [col for col in feature_columns if col in data_df.columns]
-        if not transformable_cols:
-            return data_df # No columns to transform
+
+    # Determine which columns to transform
+    if all_numeric_columns:
+        cols_to_transform = [col for col in all_numeric_columns if col in data_df.columns]
     else:
-        transformable_cols = feature_columns
+        cols_to_transform = [col for col in feature_columns if col in data_df.columns]
+
+    if not cols_to_transform:
+        print("Warning: No columns to transform found in the DataFrame.")
+        return data_df
+
+    # Filter out columns that are not in the scaler's feature list
+    # This prevents errors when trying to normalize excluded columns
+    if hasattr(scaler, 'feature_names_in_'):
+        scaler_features = list(scaler.feature_names_in_)
+        cols_to_transform = [col for col in cols_to_transform if col in scaler_features]
+        
+        # Log any excluded columns for debugging
+        excluded_cols = [col for col in (all_numeric_columns or feature_columns) 
+                        if col in data_df.columns and col not in scaler_features]
+        if excluded_cols:
+            print(f"Info: Skipping columns not in scaler features: {excluded_cols}")
+    
+    if not cols_to_transform:
+        print("Warning: No valid columns to transform found after filtering.")
+        return data_df
 
     try:
         data_copy = data_df.copy()
-        # Ensure data is float before transforming
-        data_to_transform_df = data_copy[transformable_cols].astype(float)
-        # Convert to NumPy array to avoid UserWarning about feature names
-        # The order of columns in transformable_cols is derived from feature_columns,
-        # which is the order used to set up the scaler.
-        data_to_transform_np = data_to_transform_df.to_numpy()
         
-        transformed_np = scaler.transform(data_to_transform_np)
+        # Get the scaler features in the correct order
+        scaler_features = list(scaler.feature_names_in_)
         
-        # Assign back to the DataFrame
-        data_copy[transformable_cols] = transformed_np
-        print(f"Data transformed for columns: {transformable_cols}")
+        # Only transform columns that are both in the scaler and should be transformed
+        # Filter cols_to_transform to only include columns that are in scaler_features
+        actual_cols_to_transform = [col for col in cols_to_transform if col in scaler_features]
+        
+        if not actual_cols_to_transform:
+            print("Warning: No columns to transform after filtering by scaler features.")
+            return data_copy
+        
+        # Create a DataFrame with ALL scaler features in the correct order for transformation
+        # This ensures the scaler gets the data in the expected format
+        scaler_data = data_copy[scaler_features].astype(float)
+        
+        # Transform all scaler features (scaler expects all features it was trained on)
+        transformed_data = scaler.transform(scaler_data)
+        
+        # Create a DataFrame with the transformed data
+        transformed_df = pd.DataFrame(transformed_data, index=data_copy.index, columns=scaler_features)
+        
+        # Update the original DataFrame only with the columns that were meant to be transformed
+        # This preserves non-normalized columns like timestamps
+        for col in actual_cols_to_transform:
+            data_copy[col] = transformed_df[col]
+        
+        print(f"Data transformed for columns: {actual_cols_to_transform}")
+        non_transformed_cols = [col for col in data_copy.columns if col not in actual_cols_to_transform]
+        print(f"Preserved non-normalized columns: {non_transformed_cols}")
+        
+        # Debug: Check if timestamp columns are preserved
+        timestamp_cols = [col for col in non_transformed_cols if any(ts in col.lower() for ts in ['time', 'timestamp'])]
+        if timestamp_cols:
+            print(f"✓ Timestamp columns preserved: {timestamp_cols}")
+        else:
+            print("⚠️  No timestamp columns found in preserved columns")
+            
         return data_copy
     except Exception as e:
         print(f"Error during data transformation: {e}")
@@ -293,16 +340,381 @@ def inverse_transform_data(data_df, scaler, feature_columns):
         data_copy = data_df.copy()
         # Convert to NumPy array, ensuring correct column order for inverse_transform
         data_to_inverse_transform_df = data_copy[transformable_cols]
-        data_to_inverse_transform_np = data_to_inverse_transform_df.to_numpy()
-
-        inverse_transformed_np = scaler.inverse_transform(data_to_inverse_transform_np)
         
-        data_copy[transformable_cols] = inverse_transformed_np
+        # Inverse transform the data
+        inverse_transformed_data = scaler.inverse_transform(data_to_inverse_transform_df)
+        
+        # Create a new DataFrame with the inverse-transformed data
+        inverse_transformed_df = pd.DataFrame(inverse_transformed_data, index=data_copy.index, columns=transformable_cols)
+        
+        # Update the original DataFrame with the inverse-transformed columns
+        for col in transformable_cols:
+            data_copy[col] = inverse_transformed_df[col]
+            
         print(f"Data inverse_transformed for columns: {transformable_cols}")
         return data_copy
     except Exception as e:
         print(f"Error during data inverse transformation: {e}")
         return data_df # Return original on error
+
+def inverse_transform_single_column(normalized_values, scaler, target_column, normalized_columns):
+    """
+    Safely inverse transform a single column using scaler parameters directly.
+    This avoids the need to create full DataFrames with zeros for other columns.
+    
+    Args:
+        normalized_values: numpy array or tensor of normalized values for the target column
+        scaler: The fitted scaler object
+        target_column: Name of the target column to denormalize
+        normalized_columns: List of all columns that were normalized (used to find target column index)
+    
+    Returns:
+        numpy array of denormalized values, or original values if error occurs
+    """
+    try:
+        import numpy as np
+        
+        # Convert to numpy if it's a tensor
+        if hasattr(normalized_values, 'cpu'):
+            values = normalized_values.cpu().numpy() if normalized_values.is_cuda else normalized_values.numpy()
+        else:
+            values = np.array(normalized_values)
+        
+        values = values.flatten()
+        
+        # Find the index of the target column in the scaler
+        if hasattr(scaler, 'feature_names_in_'):
+            if target_column not in scaler.feature_names_in_:
+                print(f"Warning: {target_column} not found in scaler features. Returning original values.")
+                return values
+            target_col_index = list(scaler.feature_names_in_).index(target_column)
+        else:
+            # Fallback to using normalized_columns list
+            if target_column not in normalized_columns:
+                print(f"Warning: {target_column} not found in normalized columns. Returning original values.")
+                return values
+            target_col_index = normalized_columns.index(target_column)
+        
+        # Apply inverse transformation based on scaler type
+        if hasattr(scaler, 'data_min_') and hasattr(scaler, 'data_max_'):
+            # MinMaxScaler
+            # Handle both 1D and 2D scaler parameter arrays
+            data_min_array = np.array(scaler.data_min_).flatten()
+            data_max_array = np.array(scaler.data_max_).flatten()
+            data_min = data_min_array[target_col_index]
+            data_max = data_max_array[target_col_index]
+            denormalized = values * (data_max - data_min) + data_min
+            
+            # Debug: Check for unusual normalized values that might indicate scaling issues
+            if len(values) > 0:
+                val_min, val_max = np.min(values), np.max(values)
+                if val_min < -0.1 or val_max > 1.1:
+                    print(f"WARNING: Normalized values outside expected [0,1] range: min={val_min:.6f}, max={val_max:.6f}")
+                    print(f"This suggests the model output is not properly normalized or there's a scaling issue")
+            
+            # Only print range info once per column per session to reduce log spam
+            if not hasattr(inverse_transform_single_column, '_printed_ranges'):
+                inverse_transform_single_column._printed_ranges = set()
+            
+            range_key = f"{target_column}_{data_min:.6f}_{data_max:.6f}"
+            if range_key not in inverse_transform_single_column._printed_ranges:
+                print(f"MinMaxScaler inverse transform for {target_column}: range=({data_min:.6f}, {data_max:.6f}), scale_factor={(data_max - data_min):.6f}")
+                inverse_transform_single_column._printed_ranges.add(range_key)
+                
+        elif hasattr(scaler, 'scale_') and hasattr(scaler, 'mean_'):
+            # StandardScaler - CORRECTED FORMULA
+            # Handle both 1D and 2D scaler parameter arrays
+            scale_array = np.array(scaler.scale_).flatten()
+            mean_array = np.array(scaler.mean_).flatten()
+            scale = scale_array[target_col_index]  # This is actually the std deviation
+            mean = mean_array[target_col_index]
+            denormalized = values * scale + mean  # For StandardScaler: X_original = X_normalized * std + mean
+            print(f"StandardScaler inverse transform: scale(std)={scale:.6f}, mean={mean:.6f}")
+        else:
+            print(f"Warning: Unknown scaler type {type(scaler)}. Returning original values.")
+            denormalized = values
+        
+        return denormalized
+        
+    except Exception as e:
+        print(f"Error in inverse_transform_single_column: {e}")
+        return normalized_values.flatten() if hasattr(normalized_values, 'flatten') else normalized_values
+
+def denormalize_predictions_and_targets(predictions, targets, scaler, target_column, normalized_columns, return_as='numpy'):
+    """
+    Denormalizes predictions and target values for testing/evaluation phase.
+    Handles both individual predictions and batch predictions safely.
+    
+    Args:
+        predictions: numpy array, tensor, or list of prediction values (normalized)
+        targets: numpy array, tensor, or list of target values (normalized) 
+        scaler: The fitted scaler object used during training
+        target_column: Name of the target column that was normalized
+        normalized_columns: List of all columns that were normalized (for index lookup)
+        return_as: 'numpy', 'list', or 'tensor' - format to return results
+    
+    Returns:
+        tuple: (denormalized_predictions, denormalized_targets) in requested format
+    """
+    try:
+        import numpy as np
+        
+        # Convert inputs to numpy arrays
+        if hasattr(predictions, 'cpu'):
+            pred_np = predictions.cpu().numpy() if predictions.is_cuda else predictions.numpy()
+        else:
+            pred_np = np.array(predictions)
+        
+        if hasattr(targets, 'cpu'):
+            targ_np = targets.cpu().numpy() if targets.is_cuda else targets.numpy()
+        else:
+            targ_np = np.array(targets)
+        
+        # Flatten to ensure 1D arrays
+        pred_np = pred_np.flatten()
+        targ_np = targ_np.flatten()
+        
+        # Denormalize both using the single column function
+        denorm_pred = inverse_transform_single_column(pred_np, scaler, target_column, normalized_columns)
+        denorm_targ = inverse_transform_single_column(targ_np, scaler, target_column, normalized_columns)
+        
+        # Return in requested format
+        if return_as == 'list':
+            return denorm_pred.tolist(), denorm_targ.tolist()
+        elif return_as == 'tensor':
+            try:
+                import torch
+                return torch.tensor(denorm_pred), torch.tensor(denorm_targ)
+            except ImportError:
+                print("Warning: PyTorch not available, returning as numpy arrays")
+                return denorm_pred, denorm_targ
+        else:  # numpy (default)
+            return denorm_pred, denorm_targ
+            
+    except Exception as e:
+        print(f"Error in denormalize_predictions_and_targets: {e}")
+        # Return original values in case of error
+        return predictions, targets
+
+def save_denormalized_results_with_metadata(predictions, targets, timestamps, metadata_df, 
+                                          scaler, target_column, normalized_columns, 
+                                          output_file_path, target_units=""):
+    """
+    Saves denormalized predictions and targets along with timestamps and metadata to a CSV file.
+    This is useful for the testing phase where you want to save results with original timestamps.
+    
+    Args:
+        predictions: Normalized prediction values
+        targets: Normalized target values  
+        timestamps: Timestamp column from original data
+        metadata_df: DataFrame containing other metadata columns (IDs, status, etc.)
+        scaler: The fitted scaler object
+        target_column: Name of the target column
+        normalized_columns: List of normalized column names
+        output_file_path: Path where to save the results CSV
+        target_units: String describing the units (e.g., "mV", "% SOC") for column naming
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        import pandas as pd
+        
+        # Denormalize the predictions and targets
+        denorm_pred, denorm_targ = denormalize_predictions_and_targets(
+            predictions, targets, scaler, target_column, normalized_columns, return_as='numpy'
+        )
+        
+        # Create results DataFrame
+        results_df = pd.DataFrame()
+        
+        # Add timestamps if provided
+        if timestamps is not None:
+            if hasattr(timestamps, 'values'):
+                results_df['Timestamp'] = timestamps.values
+            else:
+                results_df['Timestamp'] = timestamps
+        
+        # Add metadata columns if provided
+        if metadata_df is not None and not metadata_df.empty:
+            # Reset index to ensure alignment
+            metadata_reset = metadata_df.reset_index(drop=True)
+            for col in metadata_reset.columns:
+                if col.lower() not in ['timestamp', 'time']:  # Avoid duplicate timestamp
+                    results_df[col] = metadata_reset[col].values
+        
+        # Add denormalized predictions and targets
+        pred_col_name = f'Predicted_{target_column}'
+        true_col_name = f'True_{target_column}'
+        
+        if target_units:
+            pred_col_name += f' ({target_units})'
+            true_col_name += f' ({target_units})'
+        
+        results_df[pred_col_name] = denorm_pred
+        results_df[true_col_name] = denorm_targ
+        
+        # Calculate error metrics
+        rmse = np.sqrt(np.mean((denorm_pred - denorm_targ)**2))
+        mae = np.mean(np.abs(denorm_pred - denorm_targ))
+        mape = np.mean(np.abs((denorm_pred - denorm_targ) / denorm_targ)) * 100
+        
+        results_df[f'Absolute_Error ({target_units})'] = np.abs(denorm_pred - denorm_targ)
+        results_df[f'Relative_Error (%)'] = np.abs((denorm_pred - denorm_targ) / denorm_targ) * 100
+        
+        # Save to CSV
+        os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
+        results_df.to_csv(output_file_path, index=False)
+        
+        print(f"Results saved to: {output_file_path}")
+        print(f"Denormalized RMSE: {rmse:.4f} {target_units}")
+        print(f"Denormalized MAE: {mae:.4f} {target_units}")
+        print(f"Denormalized MAPE: {mape:.2f}%")
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error saving denormalized results: {e}")
+        return False
+
+def diagnose_loss_scale_mismatch(normalized_loss, denormalized_rmse, scaler, target_column, normalized_columns):
+    """
+    Diagnostic function to help understand why normalized loss and denormalized RMSE don't match expected scaling.
+    
+    Args:
+        normalized_loss: The loss value in normalized space (e.g., MSE)
+        denormalized_rmse: The RMSE in original scale (e.g., mV)
+        scaler: The fitted scaler object
+        target_column: Name of the target column
+        normalized_columns: List of normalized column names
+    """
+    try:
+        import numpy as np
+        print(f"\n=== LOSS SCALE DIAGNOSIS for {target_column} ===")
+        print(f"Normalized Loss: {normalized_loss:.6f}")
+        print(f"Denormalized RMSE: {denormalized_rmse:.2f}")
+        
+        # Find the target column index
+        if hasattr(scaler, 'feature_names_in_'):
+            if target_column not in scaler.feature_names_in_:
+                print(f"ERROR: {target_column} not found in scaler features")
+                return
+            target_col_index = list(scaler.feature_names_in_).index(target_column)
+        else:
+            if target_column not in normalized_columns:
+                print(f"ERROR: {target_column} not found in normalized columns")
+                return
+            target_col_index = normalized_columns.index(target_column)
+        
+        # Get scaler parameters
+        if hasattr(scaler, 'data_min_') and hasattr(scaler, 'data_max_'):
+            data_min = np.array(scaler.data_min_).flatten()[target_col_index]
+            data_max = np.array(scaler.data_max_).flatten()[target_col_index]
+            scale_factor = data_max - data_min
+            
+            print(f"Scaler range: [{data_min:.6f}, {data_max:.6f}] V")
+            print(f"Scale factor: {scale_factor:.6f} V")
+            
+            # Expected relationship analysis
+            expected_rmse_from_norm_loss = np.sqrt(normalized_loss) * scale_factor
+            print(f"Expected denormalized RMSE from normalized loss: {expected_rmse_from_norm_loss:.6f} V = {expected_rmse_from_norm_loss*1000:.2f} mV")
+            
+            # Check if the denormalized RMSE is in V or mV
+            if denormalized_rmse > 100:  # Likely in mV
+                denormalized_rmse_in_v = denormalized_rmse / 1000
+                print(f"Denormalized RMSE converted to V: {denormalized_rmse_in_v:.6f} V")
+            else:  # Likely in V
+                denormalized_rmse_in_v = denormalized_rmse
+                print(f"Denormalized RMSE already in V: {denormalized_rmse_in_v:.6f} V")
+            
+            # Calculate what the normalized loss should be
+            expected_norm_loss = (denormalized_rmse_in_v / scale_factor) ** 2
+            print(f"Expected normalized loss from denormalized RMSE: {expected_norm_loss:.6f}")
+            
+            # Check the ratio
+            ratio = normalized_loss / expected_norm_loss if expected_norm_loss > 0 else float('inf')
+            print(f"Ratio (actual/expected normalized loss): {ratio:.2f}")
+            
+            if ratio > 10:
+                print(f"LIKELY ISSUE: Loss function may be using original scale instead of normalized scale")
+            elif ratio > 2:
+                print(f"POSSIBLE ISSUE: Loss aggregation or scaling problem")
+            else:
+                print(f"Loss scaling appears reasonable")
+                
+            # Check for unit consistency
+            if abs(expected_rmse_from_norm_loss - denormalized_rmse_in_v) < 0.001:
+                print("✓ Unit scaling is consistent")
+            else:
+                print("✗ Unit scaling mismatch detected")
+                
+        else:
+            print(f"StandardScaler detected - analysis not implemented yet")
+            
+        print("=== END DIAGNOSIS ===\n")
+        
+    except Exception as e:
+        print(f"Error in diagnose_loss_scale_mismatch: {e}")
+
+def debug_loss_calculation(y_pred, y_true, loss_value, context=""):
+    """
+    Debug function to check if loss calculation is consistent with normalized data.
+    Call this in training loop to diagnose loss scale issues.
+    
+    Args:
+        y_pred: Model predictions (should be normalized 0-1 for MinMaxScaler)
+        y_true: Target values (should be normalized 0-1 for MinMaxScaler)
+        loss_value: Calculated loss value
+        context: String describing where this is called from
+    """
+    try:
+        import numpy as np
+        
+        # Convert to numpy for analysis
+        if hasattr(y_pred, 'cpu'):
+            pred_np = y_pred.cpu().numpy() if y_pred.is_cuda else y_pred.numpy()
+        else:
+            pred_np = np.array(y_pred)
+            
+        if hasattr(y_true, 'cpu'):
+            true_np = y_true.cpu().numpy() if y_true.is_cuda else y_true.numpy()
+        else:
+            true_np = np.array(y_true)
+        
+        pred_flat = pred_np.flatten()
+        true_flat = true_np.flatten()
+        
+        print(f"\n=== LOSS DEBUG ({context}) ===")
+        print(f"Loss value: {loss_value:.6f}")
+        print(f"Predictions - Min: {pred_flat.min():.6f}, Max: {pred_flat.max():.6f}, Mean: {pred_flat.mean():.6f}")
+        print(f"Targets - Min: {true_flat.min():.6f}, Max: {true_flat.max():.6f}, Mean: {true_flat.mean():.6f}")
+        
+        # Check if values are in expected 0-1 range for MinMaxScaler
+        pred_out_of_range = np.sum((pred_flat < -0.1) | (pred_flat > 1.1))
+        true_out_of_range = np.sum((true_flat < -0.1) | (true_flat > 1.1))
+        
+        print(f"Predictions outside [0,1]: {pred_out_of_range}/{len(pred_flat)} ({100*pred_out_of_range/len(pred_flat):.1f}%)")
+        print(f"Targets outside [0,1]: {true_out_of_range}/{len(true_flat)} ({100*true_out_of_range/len(true_flat):.1f}%)")
+        
+        # Manual MSE calculation to verify
+        manual_mse = np.mean((pred_flat - true_flat) ** 2)
+        print(f"Manual MSE calculation: {manual_mse:.6f}")
+        print(f"MSE ratio (reported/manual): {loss_value/manual_mse:.3f}")
+        
+        # Expected loss range for normalized data
+        if pred_out_of_range == 0 and true_out_of_range == 0:
+            print("✓ Data appears to be properly normalized")
+            if loss_value > 4.0:
+                print("⚠️  WARNING: Loss too high for normalized data - check model architecture")
+        else:
+            print("✗ Data is NOT properly normalized - this explains the high loss")
+            
+        print("=== END LOSS DEBUG ===\n")
+        
+    except Exception as e:
+        print(f"Error in debug_loss_calculation: {e}")
+
+# ...existing code...
 
 if __name__ == '__main__':
     # Example Usage (Illustrative - replace with actual file paths and columns)
@@ -364,6 +776,24 @@ if __name__ == '__main__':
                     print("\n6. Inverse transforming data...")
                     inverse_transformed_df = inverse_transform_data(transformed_df.copy(), loaded_scaler, features_to_normalize)
                     print("Inverse Transformed Data1 (should be close to original):\n", inverse_transformed_df)
+
+                    # 7. Denormalize predictions and targets example
+                    print("\n7. Denormalizing predictions and targets example...")
+                    denorm_pred, denorm_targ = denormalize_predictions_and_targets(
+                        transformed_df['A'], transformed_df['B'], loaded_scaler, 'A', features_to_normalize, return_as='numpy'
+                    )
+                    print("Denormalized Predictions (A):", denorm_pred)
+                    print("Denormalized Targets (B):", denorm_targ)
+
+                    # 8. Save denormalized results with metadata example
+                    print("\n8. Saving denormalized results with metadata example...")
+                    timestamps = pd.date_range(start='2023-01-01', periods=len(transformed_df), freq='D')
+                    metadata = pd.DataFrame({'ID': range(1, len(transformed_df)+1), 'Status': ['OK']*len(transformed_df)})
+                    
+                    save_success = save_denormalized_results_with_metadata(
+                        denorm_pred, denorm_targ, timestamps, metadata, loaded_scaler, 'A', features_to_normalize,
+                        output_file_path=os.path.join(dummy_dir, "denormalized_results.csv"), target_units="units"
+                    )
 
     # Clean up dummy files
     # import shutil
