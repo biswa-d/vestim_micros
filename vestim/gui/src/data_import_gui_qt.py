@@ -33,6 +33,41 @@ logger = setup_logger(log_file='default.log')  # Log everything to 'default.log'
 
 DEFAULT_DATA_EXTENSIONS = [".csv", ".txt", ".mat", ".xls", ".xlsx", ".RES"] # Common data file extensions
 
+def shorten_path_for_display(full_path, max_levels=3):
+    """
+    Shorten a file path for display, showing data/.../ format.
+    Keeps the last max_levels directories plus filename.
+    """
+    try:
+        # Normalize the path
+        normalized_path = os.path.normpath(full_path)
+        path_parts = normalized_path.split(os.sep)
+        
+        # Find if 'data' folder exists in path
+        data_index = -1
+        for i, part in enumerate(path_parts):
+            if part.lower() == 'data':
+                data_index = i
+                break
+        
+        if data_index >= 0:
+            # Start from data folder
+            relevant_parts = path_parts[data_index:]
+        else:
+            # No data folder found, use last max_levels + 1 (for filename)
+            relevant_parts = path_parts[-(max_levels + 1):]
+        
+        # If path is too long, show data/.../last_few_parts
+        if len(relevant_parts) > max_levels + 1:
+            display_parts = [relevant_parts[0], '...'] + relevant_parts[-(max_levels-1):]
+        else:
+            display_parts = relevant_parts
+            
+        return '/'.join(display_parts)
+    except:
+        # Fallback to just filename if anything goes wrong
+        return os.path.basename(full_path)
+
 class DataImportGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -287,7 +322,15 @@ class DataImportGUI(QMainWindow):
             for root, _, files in os.walk(folder_path):
                 for file in files:
                     if any(file.lower().endswith(ext) for ext in extensions_to_check):
-                        list_widget.addItem(os.path.join(root, file))
+                        full_path = os.path.join(root, file)
+                        shortened_path = shorten_path_for_display(full_path)
+                        
+                        # Create a list widget item with shortened display text
+                        from PyQt5.QtWidgets import QListWidgetItem
+                        item = QListWidgetItem(shortened_path)
+                        # Store the full path as item data for backend use
+                        item.setData(Qt.UserRole, full_path)
+                        list_widget.addItem(item)
                         items_added_count +=1
         except Exception as e:
             logger.error(f"Error during file iteration or adding item for {folder_path}: {e}", exc_info=True)
@@ -304,10 +347,10 @@ class DataImportGUI(QMainWindow):
     def organize_files(self):
         
         logger.info("Starting file organization process...")
-        # Use selectedItems() to get the selected files
-        train_files = [item.text() for item in self.train_list_widget.selectedItems()]
-        val_files = [item.text() for item in self.val_list_widget.selectedItems()]
-        test_files = [item.text() for item in self.test_list_widget.selectedItems()]
+        # Use selectedItems() to get the selected files - get full paths from stored data
+        train_files = [item.data(Qt.UserRole) for item in self.train_list_widget.selectedItems()]
+        val_files = [item.data(Qt.UserRole) for item in self.val_list_widget.selectedItems()]
+        test_files = [item.data(Qt.UserRole) for item in self.test_list_widget.selectedItems()]
         print(f"Train files: {train_files}")
         print(f"Validation files: {val_files}")
         print(f"Test files: {test_files}")

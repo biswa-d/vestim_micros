@@ -229,6 +229,7 @@ class DataAugmentGUI(QMainWindow):
         padding_group = QGroupBox("Data Padding (Prepend)")
         padding_layout = QVBoxLayout()
         self.padding_checkbox = QCheckBox("Enable data padding")
+        self.padding_checkbox.setToolTip("Prepends rows with zeros to the beginning of the dataset. Useful for creating lead-in data for time series models.")
         self.padding_checkbox.stateChanged.connect(self.toggle_padding_options)
         padding_layout.addWidget(self.padding_checkbox)
         padding_length_layout = QHBoxLayout()
@@ -246,6 +247,7 @@ class DataAugmentGUI(QMainWindow):
         resampling_group = QGroupBox("Data Resampling")
         resampling_layout = QVBoxLayout()
         self.resampling_checkbox = QCheckBox("Enable data resampling")
+        self.resampling_checkbox.setToolTip("Resamples time series data to a different frequency. Useful for standardizing data collection rates or reducing data size.")
         self.resampling_checkbox.stateChanged.connect(self.toggle_resampling_options)
         resampling_layout.addWidget(self.resampling_checkbox)
         frequency_layout = QHBoxLayout()
@@ -262,6 +264,7 @@ class DataAugmentGUI(QMainWindow):
         augmentation_group = QGroupBox("Column Creation")
         augmentation_layout = QVBoxLayout()
         self.column_creation_checkbox = QCheckBox("Create new columns from existing data")
+        self.column_creation_checkbox.setToolTip("Create derived features using mathematical formulas applied to existing columns. Useful for feature engineering and creating non-linear transformations.")
         self.column_creation_checkbox.stateChanged.connect(self.toggle_column_creation)
         augmentation_layout.addWidget(self.column_creation_checkbox)
         self.add_formula_button = QPushButton("Add Column Formula")
@@ -284,7 +287,7 @@ class DataAugmentGUI(QMainWindow):
         normalization_group = QGroupBox("Data Normalization")
         normalization_layout = QVBoxLayout()
         self.normalization_checkbox = QCheckBox("Enable data normalization (Min-Max scaling)")
-        self.normalization_checkbox.setToolTip("Applies Min-Max scaling to numeric columns, excluding time/timestamp and other common non-feature columns.")
+        self.normalization_checkbox.setToolTip("Applies Min-Max scaling (0-1 range) to numeric columns. Automatically excludes time-related and ID columns. Essential for neural networks and improves training stability.")
         # self.normalization_checkbox.stateChanged.connect(self.toggle_normalization_options) # Placeholder if options are added later
         normalization_layout.addWidget(self.normalization_checkbox)
         
