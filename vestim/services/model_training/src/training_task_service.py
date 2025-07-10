@@ -222,7 +222,7 @@ class TrainingTaskService:
     def validate_epoch(self, model, model_type, val_loader, h_s_initial, h_c_initial, epoch, device, stop_requested, task):
         """Validate the model for a single epoch, adapting to model type."""
         model.eval()
-        total_val_loss = 0
+        total_val_loss = []
         all_val_y_pred_normalized = [] # To store all predictions from the epoch
         all_val_y_true_normalized = [] # To store all true values from the epoch
         log_freq = task.get('log_frequency', 100)
@@ -333,7 +333,7 @@ class TrainingTaskService:
 
                     loss = self.criterion(y_pred, y_batch)
 
-                total_val_loss += loss.item() * X_batch.size(0) # Accumulate total loss correctly
+                total_val_loss.append(loss.item()) # Accumulate loss per batch (matches training approach)
                 
                 # Store predictions and true values
                 all_val_y_pred_normalized.append(y_pred.detach().cpu())
@@ -349,7 +349,7 @@ class TrainingTaskService:
                 elif model_type == "GRU": del current_h_s
                 torch.cuda.empty_cache() if device.type == 'cuda' else None
         
-        avg_loss = total_val_loss / len(val_loader.dataset) if len(val_loader.dataset) > 0 else float('nan')
+        avg_loss = sum(total_val_loss) / len(total_val_loss) if total_val_loss else float('nan')
         
         # Concatenate all batch tensors
         if all_val_y_pred_normalized:

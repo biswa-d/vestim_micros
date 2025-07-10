@@ -584,8 +584,8 @@ class VEstimTestingGUI(QMainWindow):
             stats_text += f'Mean Error: {mean_error:.3f} {error_unit}\n'
             stats_text += f'Std Error: {std_error:.3f} {error_unit}'
             
-            ax2.text(0.02, 0.98, stats_text, transform=ax2.transAxes, fontsize=10,
-                     verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5', 
+            ax2.text(0.98, 0.02, stats_text, transform=ax2.transAxes, fontsize=10,
+                     verticalalignment='bottom', horizontalalignment='right', bbox=dict(boxstyle='round,pad=0.5', 
                      facecolor='lightblue', alpha=0.8, edgecolor='navy'))
             
             # Error histogram - Bottom subplot
