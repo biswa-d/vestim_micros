@@ -4,8 +4,8 @@
 # Version: 1.1.0
 # Description: 
 # Entry file for the program and gives the user an UI and to choose folders to select train and test data from.
-# Now it has Digatron, Arbin, STLA and Biologic data sources to choose from from the dropdown menu (Digatron as default)
-# Shows the progress bar for file conversion and the STLA and Arbin data processors are used to convert the files from mat to csv and organize them
+# Now it has CSV, MAT, and XLSX file format options to choose from in the dropdown menu (CSV as default)
+# Shows the progress bar for file conversion and the MAT and XLSX data processors are used to convert the files and organize them
 # The job folder is created and the files are copied and converted to the respective folders as train raw and processed and similar for test files
 # 
 # Next Steps:
@@ -20,9 +20,9 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 
 import os, sys
 from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI  # Import the new data augmentation GUI
-from vestim.services.data_processor.src.data_processor_qt_arbin import DataProcessorArbin
-from vestim.services.data_processor.src.data_processor_qt_stla import DataProcessorSTLA
-from vestim.services.data_processor.src.data_processor_qt_digatron import DataProcessorDigatron
+from vestim.services.data_processor.src.data_processor_qt_csv import DataProcessorCSV
+from vestim.services.data_processor.src.data_processor_qt_mat import DataProcessorMAT
+from vestim.services.data_processor.src.data_processor_qt_xlsx import DataProcessorXLSX
 from vestim.config_manager import get_data_directory
 
 import logging
@@ -31,7 +31,7 @@ from vestim.logger_config import setup_logger  # Assuming you have logger_config
 # Set up initial logging to a default log file
 logger = setup_logger(log_file='default.log')  # Log everything to 'default.log' initially
 
-DEFAULT_DATA_EXTENSIONS = [".csv", ".txt", ".mat", ".xls", ".xlsx", ".RES"] # Added .RES for Biologic, expand as needed
+DEFAULT_DATA_EXTENSIONS = [".csv", ".txt", ".mat", ".xls", ".xlsx", ".RES"] # Common data file extensions
 
 class DataImportGUI(QMainWindow):
     def __init__(self):
@@ -43,9 +43,9 @@ class DataImportGUI(QMainWindow):
         self.selected_train_files = []
         self.selected_val_files = []  # NEW: Added validation files
         self.selected_test_files = []
-        self.data_processor_arbin = DataProcessorArbin()  # Initialize DataProcessor
-        self.data_processor_stla = DataProcessorSTLA()  # Initialize DataProcessor
-        self.data_processor_digatron = DataProcessorDigatron()
+        self.data_processor_csv = DataProcessorCSV()  # Initialize CSV processor
+        self.data_processor_mat = DataProcessorMAT()  # Initialize MAT processor
+        self.data_processor_xlsx = DataProcessorXLSX()  # Initialize XLSX processor
 
         # Resampling moved to data augmentation GUI
         self.organizer_thread = None
@@ -163,13 +163,13 @@ class DataImportGUI(QMainWindow):
         combined_layout = QHBoxLayout()
 
         # Data source label with color change, bold text, and padding
-        data_source_label = QLabel("Data Source:")
+        data_source_label = QLabel("File Format:")
         data_source_label.setStyleSheet("color: purple; font-weight: bold; font-size: 14px; padding-right: 10px;")
         combined_layout.addWidget(data_source_label)
 
         # Data source selection with consistent height and styling
         self.data_source_combo = QComboBox(self)
-        self.data_source_combo.addItems(["Digatron", "Arbin", "STLA", "Biologic"])  # Digatron as default/top option
+        self.data_source_combo.addItems(["csv", "mat", "xlsx"])  # CSV as default/top option
         self.data_source_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
         self.data_source_combo.setFixedWidth(120)  # Set a specific width for the ComboBox
         self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
@@ -213,28 +213,28 @@ class DataImportGUI(QMainWindow):
 
     def on_data_source_selection_changed(self, index):
         """
-        Called when the data source selection changes.
-        Refreshes the file lists based on the new data source.
+        Called when the file format selection changes.
+        Refreshes the file lists based on the new file format.
         """
-        selected_source = self.data_source_combo.currentText()
-        logger.info(f"Data source changed to: {selected_source}. Refreshing file lists.")
+        selected_format = self.data_source_combo.currentText()
+        logger.info(f"File format changed to: {selected_format}. Refreshing file lists.")
         if self.train_folder_path:
-            self.populate_file_list(self.train_folder_path, self.train_list_widget, selected_source)
+            self.populate_file_list(self.train_folder_path, self.train_list_widget, selected_format)
         if self.val_folder_path:
-            self.populate_file_list(self.val_folder_path, self.val_list_widget, selected_source)
+            self.populate_file_list(self.val_folder_path, self.val_list_widget, selected_format)
         if self.test_folder_path:
-            self.populate_file_list(self.test_folder_path, self.test_list_widget, selected_source)
+            self.populate_file_list(self.test_folder_path, self.test_list_widget, selected_format)
 
     def select_train_folder(self):
         # Get default data directory from config, fallback to current directory
         default_dir = get_data_directory() or os.getcwd()
         self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder", default_dir)
         if self.train_folder_path:
-            selected_source = self.data_source_combo.currentText()
+            selected_format = self.data_source_combo.currentText()
             # self.data_source_combo.blockSignals(True) # Not needed if populate_file_list handles current source
             # try:
-            self.populate_file_list(self.train_folder_path, self.train_list_widget, selected_source)
-            logger.info(f"Selected training folder: {self.train_folder_path}. Populated for source: {selected_source}.")
+            self.populate_file_list(self.train_folder_path, self.train_list_widget, selected_format)
+            logger.info(f"Selected training folder: {self.train_folder_path}. Populated for format: {selected_format}.")
             # finally:
             #     self.data_source_combo.blockSignals(False)
         self.check_folders_selected()
@@ -244,11 +244,11 @@ class DataImportGUI(QMainWindow):
         default_dir = get_data_directory() or os.getcwd()
         self.test_folder_path = QFileDialog.getExistingDirectory(self, "Select Testing Folder", default_dir)
         if self.test_folder_path:
-            selected_source = self.data_source_combo.currentText()
+            selected_format = self.data_source_combo.currentText()
             # self.data_source_combo.blockSignals(True)
             # try:
-            self.populate_file_list(self.test_folder_path, self.test_list_widget, selected_source)
-            logger.info(f"Selected testing folder: {self.test_folder_path}. Populated for source: {selected_source}.")
+            self.populate_file_list(self.test_folder_path, self.test_list_widget, selected_format)
+            logger.info(f"Selected testing folder: {self.test_folder_path}. Populated for format: {selected_format}.")
             # finally:
             #     self.data_source_combo.blockSignals(False)
         self.check_folders_selected()
@@ -258,29 +258,29 @@ class DataImportGUI(QMainWindow):
         default_dir = get_data_directory() or os.getcwd()
         self.val_folder_path = QFileDialog.getExistingDirectory(self, "Select Validation Folder", default_dir)
         if self.val_folder_path:
-            selected_source = self.data_source_combo.currentText()
-            self.populate_file_list(self.val_folder_path, self.val_list_widget, selected_source)
-            logger.info(f"Selected validation folder: {self.val_folder_path}. Populated for source: {selected_source}.")
+            selected_format = self.data_source_combo.currentText()
+            self.populate_file_list(self.val_folder_path, self.val_list_widget, selected_format)
+            logger.info(f"Selected validation folder: {self.val_folder_path}. Populated for format: {selected_format}.")
         self.check_folders_selected()
 
-    def populate_file_list(self, folder_path, list_widget, data_source):
+    def populate_file_list(self, folder_path, list_widget, file_format):
         """
-        Populate the list widget with files matching extensions for the given data_source.
+        Populate the list widget with files matching extensions for the given file_format.
         """
         list_widget.clear()
         if not folder_path or not os.path.isdir(folder_path):
             return
 
-        if data_source == "Arbin":
+        if file_format == "mat":
             extensions_to_check = [".mat"]
-        elif data_source == "Digatron":
+        elif file_format == "csv":
             extensions_to_check = [".csv"]
-        elif data_source == "STLA":
-            extensions_to_check = [".xlsx", ".xls"] # Only Excel files for STLA
-        else: # Default for Biologic, and any others not explicitly handled
+        elif file_format == "xlsx":
+            extensions_to_check = [".xlsx", ".xls"] # Excel files
+        else: # Default fallback
             extensions_to_check = [ext.lower() for ext in DEFAULT_DATA_EXTENSIONS]
         
-        logger.info(f"Populating list for '{folder_path}' (Source: {data_source}). Scanning for extensions: {extensions_to_check}")
+        logger.info(f"Populating list for '{folder_path}' (Format: {file_format}). Scanning for extensions: {extensions_to_check}")
         
         items_added_count = 0
         try:
@@ -330,16 +330,16 @@ class DataImportGUI(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
-        # Determine which data processor to use based on the selected data source
-        selected_source = self.data_source_combo.currentText()
-        if selected_source == "Arbin":
-            data_processor = self.data_processor_arbin
-        elif selected_source == "STLA":
-            data_processor = self.data_processor_stla
-        elif selected_source == "Digatron":
-            data_processor = self.data_processor_digatron
+        # Determine which data processor to use based on the selected file format
+        selected_format = self.data_source_combo.currentText()
+        if selected_format == "mat":
+            data_processor = self.data_processor_mat
+        elif selected_format == "xlsx":
+            data_processor = self.data_processor_xlsx
+        elif selected_format == "csv":
+            data_processor = self.data_processor_csv
         else:
-            self.show_error("Invalid data source selected.")
+            self.show_error("Invalid file format selected.")
             return
 
         # Create and start the file organizer thread with the selected data processor

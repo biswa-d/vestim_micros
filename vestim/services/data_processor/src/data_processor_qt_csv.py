@@ -7,7 +7,7 @@ import h5py
 from vestim.gateway.src.job_manager_qt import JobManager
 import logging
 
-class DataProcessorDigatron:
+class DataProcessorCSV:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
@@ -17,10 +17,10 @@ class DataProcessorDigatron:
     def organize_and_convert_files(self, train_files, val_files, test_files, progress_callback=None, sampling_frequency=None):
         # Ensure valid CSV files are provided
         if not all(f.endswith('.csv') for f in train_files + val_files + test_files):
-            self.logger.error("Invalid file types. Only CSV files are accepted for Digatron processor.")
-            raise ValueError("Invalid file types. Only CSV files are accepted for Digatron processor.")
+            self.logger.error("Invalid file types. Only CSV files are accepted for CSV processor.")
+            raise ValueError("Invalid file types. Only CSV files are accepted for CSV processor.")
 
-        self.logger.info("Starting file organization and processing for Digatron CSVs.")
+        self.logger.info("Starting file organization and processing for CSV files.")
         
         job_id, job_folder = self.job_manager.create_new_job()
         self.logger.info(f"Job created with ID: {job_id}, Folder: {job_folder}")
@@ -44,7 +44,7 @@ class DataProcessorDigatron:
         self.processed_files = 0
         self.total_files = len(train_files) + len(val_files) + len(test_files)
         if self.total_files == 0:
-            self.logger.warning("No files provided for Digatron processing.")
+            self.logger.warning("No files provided for CSV processing.")
             return job_folder # Return early if no files
 
         # 1. Copy original CSVs to raw_data folders
@@ -77,7 +77,7 @@ class DataProcessorDigatron:
                     self.processed_files += 1
                     self._update_progress(progress_callback)
                 except Exception as e:
-                    self.logger.error(f"Failed to process Digatron train file {input_csv_path}: {e}")
+                    self.logger.error(f"Failed to process CSV train file {input_csv_path}: {e}")
                     # Optionally, re-raise or handle as per error policy
 
         # Process validation files from raw_data
@@ -90,7 +90,7 @@ class DataProcessorDigatron:
                     self.processed_files += 1
                     self._update_progress(progress_callback)
                 except Exception as e:
-                    self.logger.error(f"Failed to process Digatron validation file {input_csv_path}: {e}")
+                    self.logger.error(f"Failed to process CSV validation file {input_csv_path}: {e}")
                     # Optionally, re-raise or handle as per error policy
 
         # Process testing files from raw_data
@@ -103,14 +103,14 @@ class DataProcessorDigatron:
                     self.processed_files += 1
                     self._update_progress(progress_callback)
                 except Exception as e:
-                    self.logger.error(f"Failed to process Digatron test file {input_csv_path}: {e}")
+                    self.logger.error(f"Failed to process CSV test file {input_csv_path}: {e}")
                     # Optionally, re-raise or handle
 
-        self.logger.info("Digatron CSV processing complete.")
+        self.logger.info("CSV processing complete.")
         return job_folder
 
     def _process_csv_with_custom_header_skip(self, input_csv_path, output_csv_path, sampling_frequency=None):
-        self.logger.info(f"Processing Digatron CSV with custom header skip: {input_csv_path}")
+        self.logger.info(f"Processing CSV with custom header skip: {input_csv_path}")
         try:
             # Headers at Excel row 30 (0-indexed line 29)
             # Data starts at Excel row 32 (0-indexed line 31)
@@ -152,19 +152,19 @@ class DataProcessorDigatron:
                     self.logger.warning(f"Resampling resulted in empty or None data for {input_csv_path}. Using original (cleaned) data.")
             
             df.to_csv(output_csv_path, index=False)
-            self.logger.info(f"Successfully processed Digatron CSV and saved to {output_csv_path}")
+            self.logger.info(f"Successfully processed CSV and saved to {output_csv_path}")
 
         except pd.errors.EmptyDataError:
             self.logger.error(f"Pandas EmptyDataError: Likely header not found as expected or file is empty before data rows in {input_csv_path}. Skipping.")
             open(output_csv_path, 'w').close()
         except Exception as e:
-            self.logger.error(f"Error processing Digatron CSV file {input_csv_path}: {e}")
+            self.logger.error(f"Error processing CSV file {input_csv_path}: {e}")
             open(output_csv_path, 'w').close()
         finally:
             gc.collect()
 
     def _process_standard_csv(self, input_csv_path, output_csv_path, sampling_frequency=None):
-        self.logger.info(f"Processing standard Digatron CSV: {input_csv_path}")
+        self.logger.info(f"Processing standard CSV: {input_csv_path}")
         try:
             # Headers at row 1 (0-indexed 0), data starts at row 2 (0-indexed 1)
             df = pd.read_csv(input_csv_path, header=0, encoding='utf-8', on_bad_lines='warn')
@@ -196,13 +196,13 @@ class DataProcessorDigatron:
                     self.logger.warning(f"Resampling resulted in empty or None data for {input_csv_path}. Using original (cleaned) data.")
             
             df.to_csv(output_csv_path, index=False)
-            self.logger.info(f"Successfully processed standard Digatron CSV and saved to {output_csv_path}")
+            self.logger.info(f"Successfully processed standard CSV and saved to {output_csv_path}")
 
         except pd.errors.EmptyDataError:
             self.logger.error(f"Pandas EmptyDataError: File {input_csv_path} is empty or contains no data rows. Skipping.")
             open(output_csv_path, 'w').close() # Create empty file
         except Exception as e:
-            self.logger.error(f"Error processing standard Digatron CSV file {input_csv_path}: {e}")
+            self.logger.error(f"Error processing standard CSV file {input_csv_path}: {e}")
             open(output_csv_path, 'w').close() # Create empty file
         finally:
             gc.collect()
@@ -229,11 +229,11 @@ class DataProcessorDigatron:
         logger.addHandler(console_handler)
         logger.info(f"Switched logging to {job_log_file}")
 
-    # _copy_file is not directly used by organize_and_convert_files for Digatron anymore,
+    # _copy_file is not directly used by organize_and_convert_files for CSV processor anymore,
     # but kept for potential other uses or if other processors need it.
     def _copy_file(self, file_path, destination_folder, progress_callback=None):
         """ Copy a single file to the destination folder and update progress. """
-        # This method is not directly called by the new Digatron flow for its main processing loop,
+        # This method is not directly called by the new CSV processor flow for its main processing loop,
         # as copying to raw is handled directly, and then processing from raw to processed occurs.
         # However, it's kept here as it might be a utility for other things or was previously used.
         # If it were to be used for progress, ensure self.total_files reflects that.

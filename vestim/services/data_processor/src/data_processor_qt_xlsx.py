@@ -1,6 +1,6 @@
 import os
 import shutil
-# import scipy.io as sio # Not needed for STLA if it handles Excel/CSV
+# import scipy.io as sio # Not needed for XLSX processor if it handles Excel/CSV
 import numpy as np
 import gc  # Explicit garbage collector
 from vestim.gateway.src.job_manager_qt import JobManager
@@ -9,7 +9,7 @@ import pandas as pd
 
 import logging
 
-class DataProcessorSTLA:
+class DataProcessorXLSX:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
@@ -56,11 +56,11 @@ class DataProcessorSTLA:
         self._copy_files(val_files, val_raw_folder, progress_callback)
         self._copy_files(test_files, test_raw_folder, progress_callback)
 
-        # Increment total file count for relevant STLA files (Excel, CSV) for conversion
-        stla_extensions = ('.xlsx', '.xls', '.csv')
-        self.total_files += len([f for f in os.listdir(train_raw_folder) if f.lower().endswith(stla_extensions)])
-        self.total_files += len([f for f in os.listdir(val_raw_folder) if f.lower().endswith(stla_extensions)])
-        self.total_files += len([f for f in os.listdir(test_raw_folder) if f.lower().endswith(stla_extensions)])
+        # Increment total file count for relevant Excel files (Excel, CSV) for conversion
+        xlsx_extensions = ('.xlsx', '.xls', '.csv')
+        self.total_files += len([f for f in os.listdir(train_raw_folder) if f.lower().endswith(xlsx_extensions)])
+        self.total_files += len([f for f in os.listdir(val_raw_folder) if f.lower().endswith(xlsx_extensions)])
+        self.total_files += len([f for f in os.listdir(test_raw_folder) if f.lower().endswith(xlsx_extensions)])
 
         self.logger.info(f"Starting file conversion for relevant Excel/CSV files.")
 
@@ -159,41 +159,41 @@ class DataProcessorSTLA:
                 
                 gc.collect()
 
-    # --- Add CSV and Excel conversion methods (should be similar to Arbin's, without column filtering) ---
+    # --- Add CSV and Excel conversion methods (similar to MAT processor, without column filtering) ---
     def _convert_csv_to_csv(self, csv_file_path, output_folder):
         """Processes a CSV file, saving it to the output folder."""
         try:
             df = pd.read_csv(csv_file_path)
-            # No column filtering or renaming, save as is for STLA.
+            # No column filtering or renaming, save as is for XLSX processor.
             df_processed = df
             
             csv_file_name = os.path.join(output_folder, os.path.basename(csv_file_path))
             df_processed.to_csv(csv_file_name, index=False)
-            self.logger.info(f"Successfully processed STLA CSV {csv_file_path} to {csv_file_name}")
+            self.logger.info(f"Successfully processed CSV {csv_file_path} to {csv_file_name}")
         except Exception as e:
-            self.logger.error(f"Error processing STLA CSV file {csv_file_path}: {e}")
+            self.logger.error(f"Error processing CSV file {csv_file_path}: {e}")
         finally:
             if 'df' in locals(): del df
             gc.collect()
 
     def _convert_excel_to_csv(self, excel_file_path, output_folder):
-        """Converts an Excel file to CSV for STLA."""
+        """Converts an Excel file to CSV for XLSX processor."""
         try:
             df = pd.read_excel(excel_file_path, sheet_name=0)
-            # No column filtering or renaming, save as is for STLA.
+            # No column filtering or renaming, save as is for XLSX processor.
             df_processed = df
 
             csv_file_name = os.path.join(output_folder, os.path.splitext(os.path.basename(excel_file_path))[0] + '.csv')
             df_processed.to_csv(csv_file_name, index=False)
-            self.logger.info(f"Successfully converted STLA Excel {excel_file_path} to {csv_file_name}")
+            self.logger.info(f"Successfully converted Excel {excel_file_path} to {csv_file_name}")
         except Exception as e:
-            self.logger.error(f"Error converting STLA Excel file {excel_file_path}: {e}")
+            self.logger.error(f"Error converting Excel file {excel_file_path}: {e}")
         finally:
             if 'df' in locals(): del df
             gc.collect()
 
     def _convert_csv_to_csv_resampled(self, csv_file_path, output_folder, sampling_frequency='1S'):
-        """Converts and resamples a CSV file for STLA."""
+        """Converts and resamples a CSV file for XLSX processor."""
         try:
             df = pd.read_csv(csv_file_path)
             if 'Timestamp' not in df.columns and 'Time' in df.columns:
@@ -202,28 +202,28 @@ class DataProcessorSTLA:
                  df.rename(columns={'timestamp': 'Timestamp'}, inplace=True)
 
             if 'Timestamp' not in df.columns:
-                self.logger.error(f"A recognizable time column for resampling not found in STLA CSV {csv_file_path}. Saving as is.")
+                self.logger.error(f"A recognizable time column for resampling not found in CSV {csv_file_path}. Saving as is.")
                 self._convert_csv_to_csv(csv_file_path, output_folder)
                 return
             
             df_resampled = self._resample_data(df.copy(), sampling_frequency)
             if df_resampled is None or df_resampled.empty:
-                self.logger.warning(f"Resampling failed or resulted in empty data for STLA CSV {csv_file_path}. Saving original processed version.")
+                self.logger.warning(f"Resampling failed or resulted in empty data for CSV {csv_file_path}. Saving original processed version.")
                 self._convert_csv_to_csv(csv_file_path, output_folder) # Fallback
                 return
 
             csv_file_name = os.path.join(output_folder, os.path.basename(csv_file_path))
             df_resampled.to_csv(csv_file_name, index=False)
-            self.logger.info(f"Successfully converted and resampled STLA CSV {csv_file_path} to {csv_file_name}")
+            self.logger.info(f"Successfully converted and resampled CSV {csv_file_path} to {csv_file_name}")
         except Exception as e:
-            self.logger.error(f"Error converting/resampling STLA CSV {csv_file_path}: {e}")
+            self.logger.error(f"Error converting/resampling CSV {csv_file_path}: {e}")
         finally:
             if 'df' in locals(): del df
             if 'df_resampled' in locals(): del df_resampled
             gc.collect()
 
     def _convert_excel_to_csv_resampled(self, excel_file_path, output_folder, sampling_frequency='1S'):
-        """Converts and resamples an Excel file for STLA."""
+        """Converts and resamples an Excel file for XLSX processor."""
         try:
             df = pd.read_excel(excel_file_path, sheet_name=0)
             if 'Timestamp' not in df.columns and 'Time' in df.columns:
@@ -232,31 +232,31 @@ class DataProcessorSTLA:
                  df.rename(columns={'timestamp': 'Timestamp'}, inplace=True)
 
             if 'Timestamp' not in df.columns:
-                self.logger.error(f"A recognizable time column for resampling not found in STLA Excel {excel_file_path}. Saving as is.")
+                self.logger.error(f"A recognizable time column for resampling not found in Excel {excel_file_path}. Saving as is.")
                 self._convert_excel_to_csv(excel_file_path, output_folder) # Fallback
                 return
             
             df_resampled = self._resample_data(df.copy(), sampling_frequency)
             if df_resampled is None or df_resampled.empty:
-                self.logger.warning(f"Resampling failed or resulted in empty data for STLA Excel {excel_file_path}. Saving original processed version.")
+                self.logger.warning(f"Resampling failed or resulted in empty data for Excel {excel_file_path}. Saving original processed version.")
                 self._convert_excel_to_csv(excel_file_path, output_folder) # Fallback
                 return
 
             csv_file_name = os.path.join(output_folder, os.path.splitext(os.path.basename(excel_file_path))[0] + '.csv')
             df_resampled.to_csv(csv_file_name, index=False)
-            self.logger.info(f"Successfully converted and resampled STLA Excel {excel_file_path} to {csv_file_name}")
+            self.logger.info(f"Successfully converted and resampled Excel {excel_file_path} to {csv_file_name}")
         except Exception as e:
-            self.logger.error(f"Error converting/resampling STLA Excel {excel_file_path}: {e}")
+            self.logger.error(f"Error converting/resampling Excel {excel_file_path}: {e}")
         finally:
             if 'df' in locals(): del df
             if 'df_resampled' in locals(): del df_resampled
             gc.collect()
     # --- End of added CSV and Excel methods ---
 
-    # _resample_data should be the same as the one in DataProcessorArbin (updated version)
+    # _resample_data should be the same as the one in DataProcessorMAT (updated version)
     # If it's not, it needs to be updated here as well. Assuming it is for now.
     # For brevity, I'm not repeating the _resample_data method here if it's identical.
-    # If it was different or older in STLA, it would need the same update as Arbin's.
+    # If it was different or older in XLSX processor, it would need the same update as MAT processor.
     # Let's assume it's the updated one that handles non-numeric types.
     def _resample_data(self, df, sampling_frequency='1S'): # Ensure this is the updated version
         """
@@ -317,7 +317,7 @@ class DataProcessorSTLA:
             self.logger.error(f"Error resampling data: {e}", exc_info=True)
             return None
     
-    # Remove the static _extract_data_from_matfile as it's not used by STLA
+    # Remove the static _extract_data_from_matfile as it's not used by XLSX processor
     # def _extract_data_from_matfile(file_path):
         """
         Extracts specific fields from a .mat file and returns them as a DataFrame.

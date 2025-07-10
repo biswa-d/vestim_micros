@@ -2,7 +2,7 @@
 # Author: Biswanath Dehury
 # Date: `{{date:2025-03-02}}`
 # Version: 1.0.0
-# Description: This is exactly same as DataProcessorSTLA now and changes in the future may be brought for this according to requirements.
+# Description: This processor handles MAT files and converts them to CSV format with proper data extraction.
 # ---------------------------------------------------------------------------------
 
 
@@ -18,7 +18,7 @@ import pandas as pd
 
 import logging
 
-class DataProcessorArbin:
+class DataProcessorMAT:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
