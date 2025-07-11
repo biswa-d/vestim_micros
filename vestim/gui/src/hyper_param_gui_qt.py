@@ -122,6 +122,18 @@ class VEstimHyperParamGUI(QWidget):
                 else:
                     self.logger.info(f"Target column '{original_target}' found in dataset")
             
+            # Validate training method compatibility with model type
+            model_type = validated_params.get("MODEL_TYPE", "LSTM")
+            training_method = validated_params.get("TRAINING_METHOD", "Sequence-to-Sequence")
+            
+            if model_type in ["LSTM", "GRU"] and training_method == "Whole Sequence":
+                validated_params["TRAINING_METHOD"] = "Sequence-to-Sequence"
+                self.logger.info(f"Converted training method from 'Whole Sequence' to 'Sequence-to-Sequence' for {model_type} model")
+            elif model_type == "FNN" and training_method != "WholeSequenceFNN":
+                # For FNN, ensure we use the correct method name that data loader expects
+                validated_params["TRAINING_METHOD"] = "WholeSequenceFNN"
+                self.logger.info(f"Set training method to 'WholeSequenceFNN' for FNN model")
+            
             return validated_params
             
         except Exception as e:
@@ -871,13 +883,20 @@ class VEstimHyperParamGUI(QWidget):
 
             # Special handling for FNN models - ensure training method is set correctly
             if new_params.get("MODEL_TYPE") == "FNN":
-                # For FNN, always use "Whole Sequence" training method
-                new_params["TRAINING_METHOD"] = "Whole Sequence"
+                # For FNN, always use "WholeSequenceFNN" training method (data loader expects this)
+                new_params["TRAINING_METHOD"] = "WholeSequenceFNN"
                 # Ensure batch training is enabled for FNN
                 new_params["BATCH_TRAINING"] = True
                 # Ensure batch size has a proper default for FNN
                 if not new_params.get("BATCH_SIZE") or new_params.get("BATCH_SIZE").strip() == "":
                     new_params["BATCH_SIZE"] = "5000"
+            
+            # Special handling for LSTM/GRU models - ensure compatible training method
+            elif new_params.get("MODEL_TYPE") in ["LSTM", "GRU"]:
+                # For RNN models, only "Sequence-to-Sequence" is supported by data loader
+                if new_params.get("TRAINING_METHOD") == "Whole Sequence":
+                    new_params["TRAINING_METHOD"] = "Sequence-to-Sequence"
+                    self.logger.info("Converted 'Whole Sequence' to 'Sequence-to-Sequence' for LSTM/GRU model")
 
             self.logger.info(f"Proceeding to training with params: {new_params}")
 

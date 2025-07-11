@@ -6,14 +6,14 @@
         "file_format": "csv",
         "hyperparams": {
             "FEATURE_COLUMNS": [
+                "Wh",
                 "Power",
                 "Battery_Temp_degC",
-                "SOC",
-                "Wh"
+                "SOC"
             ],
             "TARGET_COLUMN": "Voltage",
-            "MODEL_TYPE": "FNN",
-            "TRAINING_METHOD": "Whole Sequence",
+            "MODEL_TYPE": "LSTM",
+            "TRAINING_METHOD": "Sequence-to-Sequence",
             "LOOKBACK": "400",
             "BATCH_TRAINING": true,
             "BATCH_SIZE": "200",
@@ -25,14 +25,14 @@
             "PLATEAU_FACTOR": "0.1",
             "VALID_PATIENCE": "10",
             "VALID_FREQUENCY": "1",
-            "MAX_EPOCHS": "15",
+            "MAX_EPOCHS": "10",
             "REPETITIONS": 1,
             "MAX_TRAIN_HOURS": "0",
             "MAX_TRAIN_MINUTES": "0",
             "MAX_TRAIN_SECONDS": "0",
             "DEVICE_SELECTION": "CPU",
-            "FNN_HIDDEN_LAYERS": "16,8",
-            "FNN_DROPOUT_PROB": "0.1",
+            "LAYERS": "1",
+            "HIDDEN_UNITS": "10",
             "MAX_TRAINING_TIME_SECONDS": 0
         }
     },

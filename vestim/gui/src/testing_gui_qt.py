@@ -524,14 +524,22 @@ class VEstimTestingGUI(QMainWindow):
             if timestamp_col and timestamp_col in df.columns:
                 try:
                     # Try to parse timestamps with explicit format specification
-                    x_axis = pd.to_datetime(df[timestamp_col], format='mixed', errors='coerce')
+                    timestamps = pd.to_datetime(df[timestamp_col], format='mixed', errors='coerce')
                     # If that fails, try without format specification but suppress warnings
-                    if x_axis.isna().any():
+                    if timestamps.isna().any():
                         import warnings
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
-                            x_axis = pd.to_datetime(df[timestamp_col], errors='coerce')
-                    x_label = "Time"
+                            timestamps = pd.to_datetime(df[timestamp_col], errors='coerce')
+                    
+                    # Convert to seconds relative to first timestamp for more intuitive drive cycle plotting
+                    if not timestamps.isna().all():
+                        time_seconds = (timestamps - timestamps.iloc[0]).dt.total_seconds()
+                        x_axis = time_seconds
+                        x_label = "Time (seconds)"
+                    else:
+                        x_axis = df.index
+                        x_label = "Sample Index"
                 except:
                     x_axis = df.index
                     x_label = "Sample Index"
@@ -574,6 +582,7 @@ class VEstimTestingGUI(QMainWindow):
                             color='#F18F01', linewidth=1.5, alpha=0.7)
             ax2.axhline(y=0, color='black', linestyle='-', alpha=0.3)
             ax2.set_title('Prediction Error Over Time', fontsize=12, fontweight='bold')
+            ax2.set_xlabel(x_label, fontsize=12)  # Add time label to error plot
             ax2.set_ylabel(f'Error ({error_unit})', fontsize=12)
             ax2.legend(fontsize=11)
             ax2.grid(True, alpha=0.3)
@@ -597,13 +606,13 @@ class VEstimTestingGUI(QMainWindow):
             ax3.axvline(x=mean_error - std_error, color='orange', linestyle=':', linewidth=2, label=f'-1σ: {mean_error - std_error:.3f}')
             
             ax3.set_title('Error Distribution', fontsize=12, fontweight='bold')
-            ax3.set_xlabel(f'Error ({error_unit})', fontsize=12)
+            ax3.set_xlabel(f'Error ({error_unit})', fontsize=12)  # Keep error unit as x-label for histogram
             ax3.set_ylabel('Frequency', fontsize=12)
             ax3.legend(fontsize=10)
             ax3.grid(True, alpha=0.3)
             
-            # Set x-axis label for the bottom plot
-            ax3.set_xlabel(x_label, fontsize=12)
+            # Remove redundant x-axis label setting that was overriding the error unit label
+            # ax3.set_xlabel(x_label, fontsize=12)  # This line removed
             
             fig.tight_layout(pad=3.0)
             

@@ -287,6 +287,7 @@ class DataAugmentGUI(QMainWindow):
         normalization_group = QGroupBox("Data Normalization")
         normalization_layout = QVBoxLayout()
         self.normalization_checkbox = QCheckBox("Enable data normalization (Min-Max scaling)")
+        self.normalization_checkbox.setChecked(True)  # Set as checked by default
         self.normalization_checkbox.setToolTip("Applies Min-Max scaling (0-1 range) to numeric columns. Automatically excludes time-related and ID columns. Essential for neural networks and improves training stability.")
         # self.normalization_checkbox.stateChanged.connect(self.toggle_normalization_options) # Placeholder if options are added later
         normalization_layout.addWidget(self.normalization_checkbox)
