@@ -1,0 +1,44 @@
+{
+    "last_used": {
+        "train_folder": "C:\\Users\\dehuryb\\OneDrive - McMaster University\\Models\\ML_LiB_Models\\vestim_micros\\data\\train_data",
+        "val_folder": "C:\\Users\\dehuryb\\OneDrive - McMaster University\\Models\\ML_LiB_Models\\vestim_micros\\data\\val_data",
+        "test_folder": "C:\\Users\\dehuryb\\OneDrive - McMaster University\\Models\\ML_LiB_Models\\vestim_micros\\data\\test_data",
+        "file_format": "csv",
+        "hyperparams": {
+            "FEATURE_COLUMNS": [
+                "Power",
+                "Battery_Temp_degC",
+                "SOC",
+                "Wh"
+            ],
+            "TARGET_COLUMN": "Voltage",
+            "MODEL_TYPE": "FNN",
+            "TRAINING_METHOD": "Whole Sequence",
+            "LOOKBACK": "400",
+            "BATCH_TRAINING": true,
+            "BATCH_SIZE": "200",
+            "SCHEDULER_TYPE": "StepLR",
+            "INITIAL_LR": "0.0001",
+            "LR_PARAM": "0.1",
+            "LR_PERIOD": "2",
+            "PLATEAU_PATIENCE": "10",
+            "PLATEAU_FACTOR": "0.1",
+            "VALID_PATIENCE": "10",
+            "VALID_FREQUENCY": "1",
+            "MAX_EPOCHS": "15",
+            "REPETITIONS": 1,
+            "MAX_TRAIN_HOURS": "0",
+            "MAX_TRAIN_MINUTES": "0",
+            "MAX_TRAIN_SECONDS": "0",
+            "DEVICE_SELECTION": "CPU",
+            "FNN_HIDDEN_LAYERS": "16,8",
+            "FNN_DROPOUT_PROB": "0.1",
+            "MAX_TRAINING_TIME_SECONDS": 0
+        }
+    },
+    "default_folders": {
+        "train_folder": "C:\\Users\\dehuryb\\OneDrive - McMaster University\\Models\\ML_LiB_Models\\vestim_micros\\data\\train_data",
+        "val_folder": "C:\\Users\\dehuryb\\OneDrive - McMaster University\\Models\\ML_LiB_Models\\vestim_micros\\data\\val_data",
+        "test_folder": "C:\\Users\\dehuryb\\OneDrive - McMaster University\\Models\\ML_LiB_Models\\vestim_micros\\data\\test_data"
+    }
+}

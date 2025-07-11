@@ -1,6 +1,7 @@
 import os
 import json
 from vestim.gateway.src.job_manager_qt import JobManager
+from vestim.config_manager import update_last_used_hyperparams
 import logging
 
 class VEstimHyperParamManager:
@@ -145,6 +146,14 @@ class VEstimHyperParamManager:
 
             self.logger.info(f"Hyperparameters successfully saved to file: {params_file}")
             self.logger.info(f"Saved content: {params_to_save}")
+
+            # Also save to defaults config for next time
+            try:
+                # Use the current_params (which includes GUI fields) for defaults
+                update_last_used_hyperparams(self.current_params)
+                self.logger.info("Successfully saved hyperparameters as defaults for future use")
+            except Exception as e:
+                self.logger.warning(f"Failed to save hyperparameters as defaults: {e}")
 
 
         except Exception as e:

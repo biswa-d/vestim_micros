@@ -21,6 +21,7 @@ import torch
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
+from vestim.config_manager import get_default_hyperparams, update_last_used_hyperparams, load_hyperparams_from_root
 
 # Initialize the JobManager
 job_manager = JobManager()
@@ -37,6 +38,9 @@ class VEstimHyperParamGUI(QWidget):
 
         self.setup_window()
         self.build_gui()
+        
+        # Load default hyperparameters after UI is built
+        self.load_default_hyperparameters()
 
     def setup_window(self):
         """Initial setup for the main window appearance."""
@@ -53,6 +57,76 @@ class VEstimHyperParamGUI(QWidget):
             self.logger.warning("Icon file not found. Make sure 'icon.ico' is in the correct directory.")
         
         self.setStyleSheet("QToolTip { font-weight: normal; font-size: 10pt; }")
+
+    def load_default_hyperparameters(self):
+        """Auto-load default hyperparameters and populate the GUI with column validation"""
+        try:
+            # Get default hyperparameters from config (includes last used params with features/targets)
+            default_params = get_default_hyperparams()
+            
+            # Validate feature/target columns against current dataset
+            validated_params = self.validate_columns_against_dataset(default_params)
+            
+            # Load and validate parameters using the manager (same as load_params_from_json)
+            self.params = self.hyper_param_manager.validate_and_normalize_params(validated_params)
+            self.logger.info("Successfully loaded default hyperparameters automatically")
+
+            # Update GUI elements with loaded parameters (same as load_params_from_json)
+            self.update_gui_with_loaded_params()
+            
+        except Exception as e:
+            self.logger.error(f"Failed to auto-load default hyperparameters: {e}")
+            # If auto-load fails, just continue with empty params - user can manually load
+
+    def validate_columns_against_dataset(self, params):
+        """Validate that feature and target columns exist in the current dataset"""
+        try:
+            # Get available columns from the current dataset
+            available_columns = self.load_column_names()
+            
+            if not available_columns:
+                self.logger.warning("No columns available in dataset, using parameters as-is")
+                return params
+            
+            validated_params = params.copy()
+            
+            # Validate feature columns
+            if "FEATURE_COLUMNS" in params and params["FEATURE_COLUMNS"]:
+                original_features = params["FEATURE_COLUMNS"]
+                if isinstance(original_features, list):
+                    # Filter features to only include available columns
+                    valid_features = [col for col in original_features if col in available_columns]
+                    
+                    if not valid_features:
+                        # No valid features, use first 3 available columns as fallback
+                        valid_features = available_columns[:3] if len(available_columns) >= 3 else available_columns[:-1]
+                        self.logger.warning(f"No saved feature columns found in dataset. Using fallback features: {valid_features}")
+                    elif len(valid_features) < len(original_features):
+                        missing_features = [col for col in original_features if col not in available_columns]
+                        self.logger.info(f"Some saved feature columns not found in dataset. Missing: {missing_features}. Using available: {valid_features}")
+                    
+                    validated_params["FEATURE_COLUMNS"] = valid_features
+                else:
+                    # Handle case where FEATURE_COLUMNS is not a list
+                    validated_params["FEATURE_COLUMNS"] = available_columns[:3] if len(available_columns) >= 3 else available_columns[:-1]
+                    self.logger.warning("Invalid feature columns format, using fallback features")
+            
+            # Validate target column
+            if "TARGET_COLUMN" in params and params["TARGET_COLUMN"]:
+                original_target = params["TARGET_COLUMN"]
+                if original_target not in available_columns:
+                    # Use last available column as fallback target
+                    fallback_target = available_columns[-1] if available_columns else ""
+                    validated_params["TARGET_COLUMN"] = fallback_target
+                    self.logger.warning(f"Saved target column '{original_target}' not found in dataset. Using fallback target: '{fallback_target}'")
+                else:
+                    self.logger.info(f"Target column '{original_target}' found in dataset")
+            
+            return validated_params
+            
+        except Exception as e:
+            self.logger.error(f"Error validating columns against dataset: {e}")
+            return params  # Return original params if validation fails
 
     def build_gui(self):
         """Build the main UI layout with categorized sections for parameters."""
@@ -666,13 +740,13 @@ class VEstimHyperParamGUI(QWidget):
         self.max_time_hours_entry.setFixedWidth(40)
         self.max_time_hours_entry.setPlaceholderText("HH")
         time_layout.addWidget(self.max_time_hours_entry)
-        time_layout.addWidget(QLabel("H :"))
+        time_layout.addWidget(QLabel("H :"));
         
         self.max_time_minutes_entry = QLineEdit(self.params.get("MAX_TRAIN_MINUTES", "0"))
         self.max_time_minutes_entry.setFixedWidth(40)
         self.max_time_minutes_entry.setPlaceholderText("MM")
         time_layout.addWidget(self.max_time_minutes_entry)
-        time_layout.addWidget(QLabel("M :"))
+        time_layout.addWidget(QLabel("M :"));
 
         self.max_time_seconds_entry = QLineEdit(self.params.get("MAX_TRAIN_SECONDS", "0"))
         self.max_time_seconds_entry.setFixedWidth(40)
@@ -856,8 +930,15 @@ class VEstimHyperParamGUI(QWidget):
         filepath, _ = QFileDialog.getOpenFileName(self, "Load Params", "", "JSON Files (*.json);;All Files (*)")
         if filepath:
             try:
+                # Load parameters from file
+                with open(filepath, 'r') as f:
+                    loaded_params = json.load(f)
+                
+                # Validate feature/target columns against current dataset
+                validated_params = self.validate_columns_against_dataset(loaded_params)
+                
                 # Load and validate parameters using the manager
-                self.params = self.hyper_param_manager.load_params(filepath)
+                self.params = self.hyper_param_manager.validate_and_normalize_params(validated_params)
                 self.logger.info(f"Successfully loaded parameters from {filepath}")
 
                 # Update GUI elements with loaded parameters

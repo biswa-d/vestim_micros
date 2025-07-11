@@ -23,7 +23,7 @@ from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI  # Import the new 
 from vestim.services.data_processor.src.data_processor_qt_csv import DataProcessorCSV
 from vestim.services.data_processor.src.data_processor_qt_mat import DataProcessorMAT
 from vestim.services.data_processor.src.data_processor_qt_xlsx import DataProcessorXLSX
-from vestim.config_manager import get_data_directory
+from vestim.config_manager import get_data_directory, get_default_folders, update_last_used_folders, get_default_file_format
 
 import logging
 
@@ -88,6 +88,9 @@ class DataImportGUI(QMainWindow):
         # self.is_selecting_folder_flag = False # Removed flag, will use blockSignals
 
         self.initUI()
+        
+        # Load default settings after UI is initialized
+        self.load_default_settings()
 
     def initUI(self):
         self.setWindowTitle("VEstim Modelling Tool")
@@ -255,47 +258,51 @@ class DataImportGUI(QMainWindow):
         logger.info(f"File format changed to: {selected_format}. Refreshing file lists.")
         if self.train_folder_path:
             self.populate_file_list(self.train_folder_path, self.train_list_widget, selected_format)
+            self.auto_select_all_files(self.train_list_widget)
         if self.val_folder_path:
             self.populate_file_list(self.val_folder_path, self.val_list_widget, selected_format)
+            self.auto_select_all_files(self.val_list_widget)
         if self.test_folder_path:
             self.populate_file_list(self.test_folder_path, self.test_list_widget, selected_format)
+            self.auto_select_all_files(self.test_list_widget)
 
     def select_train_folder(self):
         # Get default data directory from config, fallback to current directory
         default_dir = get_data_directory() or os.getcwd()
-        self.train_folder_path = QFileDialog.getExistingDirectory(self, "Select Training Folder", default_dir)
-        if self.train_folder_path:
+        new_folder = QFileDialog.getExistingDirectory(self, "Select Training Folder", default_dir)
+        if new_folder:
+            self.train_folder_path = new_folder
             selected_format = self.data_source_combo.currentText()
-            # self.data_source_combo.blockSignals(True) # Not needed if populate_file_list handles current source
-            # try:
-            self.populate_file_list(self.train_folder_path, self.train_list_widget, selected_format)
-            logger.info(f"Selected training folder: {self.train_folder_path}. Populated for format: {selected_format}.")
-            # finally:
-            #     self.data_source_combo.blockSignals(False)
+            self.populate_file_list(new_folder, self.train_list_widget, selected_format)
+            self.auto_select_all_files(self.train_list_widget)
+            self.update_button_text(self.train_select_button, new_folder, "Train")
+            logger.info(f"Selected training folder: {new_folder}. Populated for format: {selected_format}.")
         self.check_folders_selected()
 
     def select_test_folder(self):
         # Get default data directory from config, fallback to current directory
         default_dir = get_data_directory() or os.getcwd()
-        self.test_folder_path = QFileDialog.getExistingDirectory(self, "Select Testing Folder", default_dir)
-        if self.test_folder_path:
+        new_folder = QFileDialog.getExistingDirectory(self, "Select Testing Folder", default_dir)
+        if new_folder:
+            self.test_folder_path = new_folder
             selected_format = self.data_source_combo.currentText()
-            # self.data_source_combo.blockSignals(True)
-            # try:
-            self.populate_file_list(self.test_folder_path, self.test_list_widget, selected_format)
-            logger.info(f"Selected testing folder: {self.test_folder_path}. Populated for format: {selected_format}.")
-            # finally:
-            #     self.data_source_combo.blockSignals(False)
+            self.populate_file_list(new_folder, self.test_list_widget, selected_format)
+            self.auto_select_all_files(self.test_list_widget)
+            self.update_button_text(self.test_select_button, new_folder, "Test")
+            logger.info(f"Selected testing folder: {new_folder}. Populated for format: {selected_format}.")
         self.check_folders_selected()
 
     def select_val_folder(self):
         # Get default data directory from config, fallback to current directory
         default_dir = get_data_directory() or os.getcwd()
-        self.val_folder_path = QFileDialog.getExistingDirectory(self, "Select Validation Folder", default_dir)
-        if self.val_folder_path:
+        new_folder = QFileDialog.getExistingDirectory(self, "Select Validation Folder", default_dir)
+        if new_folder:
+            self.val_folder_path = new_folder
             selected_format = self.data_source_combo.currentText()
-            self.populate_file_list(self.val_folder_path, self.val_list_widget, selected_format)
-            logger.info(f"Selected validation folder: {self.val_folder_path}. Populated for format: {selected_format}.")
+            self.populate_file_list(new_folder, self.val_list_widget, selected_format)
+            self.auto_select_all_files(self.val_list_widget)
+            self.update_button_text(self.val_select_button, new_folder, "Validation")
+            logger.info(f"Selected validation folder: {new_folder}. Populated for format: {selected_format}.")
         self.check_folders_selected()
 
     def populate_file_list(self, folder_path, list_widget, file_format):
@@ -359,6 +366,17 @@ class DataImportGUI(QMainWindow):
         if not train_files or not val_files or not test_files:
             self.show_error("No files selected for training, validation, or testing.")
             return
+            
+        # Save current settings as new defaults
+        selected_format = self.data_source_combo.currentText()
+        update_last_used_folders(
+            train_folder=self.train_folder_path,
+            val_folder=self.val_folder_path, 
+            test_folder=self.test_folder_path,
+            file_format=selected_format
+        )
+        logger.info(f"Saved current settings as defaults: Train={self.train_folder_path}, Val={self.val_folder_path}, Test={self.test_folder_path}, Format={selected_format}")
+        
         # Update the button label and color when the process starts
         self.organize_button.setText("Importing and Preprocessing Files")
         self.organize_button.setStyleSheet("""
@@ -433,6 +451,73 @@ class DataImportGUI(QMainWindow):
     def show_error(self, message):
         # Display error message
         QMessageBox.critical(self, "Error", message)
+
+    def load_default_settings(self):
+        """Load default settings and populate the GUI with last used folders"""
+        try:
+            default_settings = get_default_folders()
+            
+            # Set default file format
+            default_format = get_default_file_format()
+            format_index = self.data_source_combo.findText(default_format)
+            if format_index >= 0:
+                self.data_source_combo.setCurrentIndex(format_index)
+            
+            # Load default folder paths
+            train_folder = default_settings.get("train_folder", "")
+            val_folder = default_settings.get("val_folder", "")
+            test_folder = default_settings.get("test_folder", "")
+            
+            # Auto-populate folders if they exist and contain files
+            if train_folder and os.path.exists(train_folder):
+                self.train_folder_path = train_folder
+                self.populate_file_list(train_folder, self.train_list_widget, default_format)
+                self.auto_select_all_files(self.train_list_widget)
+                self.update_button_text(self.train_select_button, train_folder, "Train")
+                logger.info(f"Auto-loaded training folder: {train_folder}")
+            
+            if val_folder and os.path.exists(val_folder):
+                self.val_folder_path = val_folder
+                self.populate_file_list(val_folder, self.val_list_widget, default_format)
+                self.auto_select_all_files(self.val_list_widget)
+                self.update_button_text(self.val_select_button, val_folder, "Validation")
+                logger.info(f"Auto-loaded validation folder: {val_folder}")
+            
+            if test_folder and os.path.exists(test_folder):
+                self.test_folder_path = test_folder
+                self.populate_file_list(test_folder, self.test_list_widget, default_format)
+                self.auto_select_all_files(self.test_list_widget)
+                self.update_button_text(self.test_select_button, test_folder, "Test")
+                logger.info(f"Auto-loaded test folder: {test_folder}")
+            
+            # Check if all folders are loaded
+            self.check_folders_selected()
+            
+            # Update header text if defaults are loaded
+            if self.train_folder_path and self.val_folder_path and self.test_folder_path:
+                self.header_label.setText("Default data folders loaded. Select different folders if needed, or click 'Load and Prepare Files' to proceed.")
+                self.header_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #0b6337;")
+                
+        except Exception as e:
+            logger.error(f"Error loading default settings: {e}")
+    
+    def auto_select_all_files(self, list_widget):
+        """Automatically select all files in a list widget"""
+        try:
+            for i in range(list_widget.count()):
+                item = list_widget.item(i)
+                if item:
+                    item.setSelected(True)
+        except Exception as e:
+            logger.error(f"Error auto-selecting files: {e}")
+    
+    def update_button_text(self, button, folder_path, folder_type):
+        """Update button text to show the loaded folder"""
+        try:
+            folder_name = os.path.basename(folder_path)
+            button.setText(f"{folder_type}: {folder_name}")
+        except Exception as e:
+            logger.error(f"Error updating button text: {e}")
 
 class FileOrganizer(QObject):
     progress = pyqtSignal(int)  # Emit progress percentage
