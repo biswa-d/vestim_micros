@@ -1,12 +1,12 @@
 @echo off
-title Vestim Standalone Installer Builder
+title Vestim Professional Installer Builder
 echo ========================================
-echo Vestim Standalone Installer Builder  
+echo Vestim Professional Installer Builder  
 echo ========================================
 echo.
-echo This script will create a standalone Windows
-echo installer (.exe) for Vestim that users can
-echo simply download and run.
+echo This script will create a professional Windows
+echo installer (.exe) for Vestim with user-configurable
+echo project folders and embedded demo data.
 echo.
 pause
 
@@ -23,7 +23,14 @@ echo Step 1: Installing build dependencies...
 python -m pip install --upgrade pip pyinstaller
 
 echo.
-echo Step 2: Building standalone executable...
+echo Step 2: Preparing installer assets...
+echo - Demo data files (train/val/test)
+echo - Default settings template
+echo - User documentation
+echo.
+
+echo.
+echo Step 3: Building standalone executable...
 python build_exe.py
 
 if not exist "dist\Vestim.exe" (
@@ -33,12 +40,17 @@ if not exist "dist\Vestim.exe" (
 )
 
 echo ✓ Executable created: dist\Vestim.exe
+echo ✓ Installer assets embedded in executable
 
 echo.
-echo Step 3: Creating Windows installer...
+echo Step 4: Creating professional Windows installer...
 echo.
-echo NOTE: This requires Inno Setup to be installed.
-echo Download from: https://jrsoftware.org/isinfo.php
+echo Features:
+echo - User selects Vestim installation directory
+echo - User selects projects folder location  
+echo - Automatic demo data deployment
+echo - Desktop/Start menu shortcuts
+echo - Uninstaller with cleanup
 echo.
 
 REM Check if Inno Setup is available
@@ -55,26 +67,49 @@ if errorlevel 1 (
     exit /b 0
 )
 
-echo Inno Setup found! Creating installer...
+echo Inno Setup found! Creating professional installer...
 iscc vestim_installer.iss
 
 if exist "installer_output\vestim-installer-1.0.0.exe" (
     echo.
     echo ========================================
-    echo SUCCESS! Installer created!
+    echo SUCCESS! Professional Installer Created!
     echo ========================================
     echo.
-    echo Installer location: installer_output\vestim-installer-1.0.0.exe
+    echo Installer: installer_output\vestim-installer-1.0.0.exe
     echo.
-    echo You can now:
-    echo 1. Test the installer on this machine
-    echo 2. Copy it to other Windows machines for testing
-    echo 3. Distribute it to end users
+    echo Installer Features:
+    echo ✓ User selects Vestim installation directory
+    echo ✓ User selects projects folder location
+    echo ✓ Automatic demo data deployment to projects folder
+    echo ✓ Creates: vestim_projects\data\train_data\demo_*.csv
+    echo ✓ Creates: vestim_projects\data\val_data\demo_*.csv  
+    echo ✓ Creates: vestim_projects\data\test_data\demo_*.csv
+    echo ✓ Creates: vestim_projects\default_settings.json
+    echo ✓ Creates: vestim_projects\README.md (comprehensive user guide)
+    echo ✓ Desktop and Start Menu shortcuts
+    echo ✓ Professional uninstaller with cleanup
     echo.
-    echo The installer is completely standalone and includes
-    echo everything needed to run Vestim.
+    echo User Experience:
+    echo ✓ Comprehensive README with step-by-step tutorials
+    echo ✓ All GUI workflows explained in detail  
+    echo ✓ Demo data format and usage instructions
+    echo ✓ Troubleshooting and best practices guide
+    echo ✓ Advanced hyperparameter tuning tips
+    echo.
+    echo Distribution:
+    echo - The installer is completely standalone  
+    echo - Contains embedded demo data and documentation
+    echo - Users can immediately test after installation
+    echo - Job outputs will appear in vestim_projects folder
+    echo.
+    echo Next Steps:
+    echo 1. Test the installer on a clean machine
+    echo 2. Verify demo data loads correctly in the tool
+    echo 3. Distribute to end users
 ) else (
     echo Error: Failed to create installer
+    echo Check the build log above for errors
     pause
     exit /b 1
 )

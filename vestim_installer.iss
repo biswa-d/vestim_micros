@@ -46,6 +46,7 @@ Source: "vestim\gui\resources\*"; DestDir: "{app}\resources"; Flags: ignoreversi
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "hyperparams.json"; DestDir: "{app}"; Flags: ignoreversion
+; Demo data files will be copied to projects folder by installer script
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -106,10 +107,15 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ProjectsBasePath: String;
   ProjectsFullPath: String;
+  DataPath: String;
   ConfigFile: String;
+  SettingsFile: String;
   ConfigContent: String;
+  SettingsContent: String;
   EscapedPath: String;
+  EscapedDataPath: String;
   I: Integer;
+  AppDir: String;
 begin
   // Handle the existing upgrade logic
   if (CurStep=ssInstall) then
@@ -120,18 +126,31 @@ begin
     end;
   end;
   
-  // Create projects folder and save config after installation
+  // Create projects folder structure and copy demo files after installation
   if CurStep = ssPostInstall then
   begin
-    // Get the selected base path and create vestim_projects folder
+    // Get paths
+    AppDir := ExpandConstant('{app}');
     ProjectsBasePath := ProjectsFolderPage.Values[0];
     ProjectsFullPath := ProjectsBasePath + '\vestim_projects';
+    DataPath := ProjectsFullPath + '\data';
     
-    // Create the vestim_projects directory
+    // Create the directory structure
     if not DirExists(ProjectsFullPath) then
       ForceDirectories(ProjectsFullPath);
+    if not DirExists(DataPath) then
+      ForceDirectories(DataPath);
+    if not DirExists(DataPath + '\train_data') then
+      ForceDirectories(DataPath + '\train_data');
+    if not DirExists(DataPath + '\val_data') then
+      ForceDirectories(DataPath + '\val_data');
+    if not DirExists(DataPath + '\test_data') then
+      ForceDirectories(DataPath + '\test_data');
     
-    // Escape backslashes for JSON - manual replacement
+    // Copy demo data files from embedded assets (if they exist in the executable)
+    // Note: The demo files are embedded in the executable and will be extracted by the app
+    
+    // Escape backslashes for JSON - manual replacement for projects path
     EscapedPath := '';
     for I := 1 to Length(ProjectsFullPath) do
     begin
@@ -141,18 +160,67 @@ begin
         EscapedPath := EscapedPath + ProjectsFullPath[I];
     end;
     
-    // Build JSON config content step by step
+    // Escape backslashes for JSON - manual replacement for data path
+    EscapedDataPath := '';
+    for I := 1 to Length(DataPath) do
+    begin
+      if DataPath[I] = '\' then
+        EscapedDataPath := EscapedDataPath + '\\'
+      else
+        EscapedDataPath := EscapedDataPath + DataPath[I];
+    end;
+    
+    // Build JSON config content for vestim_config.json
     ConfigContent := '{';
     ConfigContent := ConfigContent + #13#10;
     ConfigContent := ConfigContent + '  "projects_directory": "' + EscapedPath + '",';
+    ConfigContent := ConfigContent + #13#10;
+    ConfigContent := ConfigContent + '  "data_directory": "' + EscapedDataPath + '",';
     ConfigContent := ConfigContent + #13#10;
     ConfigContent := ConfigContent + '  "created_by_installer": true';
     ConfigContent := ConfigContent + #13#10;
     ConfigContent := ConfigContent + '}';
     
-    // Save the config file
-    ConfigFile := ExpandConstant('{app}\vestim_config.json');
+    // Save the config file in the application directory
+    ConfigFile := AppDir + '\vestim_config.json';
     SaveStringToFile(ConfigFile, ConfigContent, False);
+    
+    // Build JSON content for default_settings.json
+    SettingsContent := '{';
+    SettingsContent := SettingsContent + #13#10;
+    SettingsContent := SettingsContent + '  "last_used": {';
+    SettingsContent := SettingsContent + #13#10;
+    SettingsContent := SettingsContent + '    "train_folder": "' + EscapedDataPath + '\\train_data",';
+    SettingsContent := SettingsContent + #13#10;
+    SettingsContent := SettingsContent + '    "val_folder": "' + EscapedDataPath + '\\val_data",';
+    SettingsContent := SettingsContent + #13#10;
+    SettingsContent := SettingsContent + '    "test_folder": "' + EscapedDataPath + '\\test_data",';
+    SettingsContent := SettingsContent + #13#10;
+    SettingsContent := SettingsContent + '    "file_format": "csv"';
+    SettingsContent := SettingsContent + #13#10;
+    SettingsContent := SettingsContent + '  },';
+    SettingsContent := SettingsContent + #13#10;
+    SettingsContent := SettingsContent + '  "default_folders": {';
+    SettingsContent := SettingsContent + #13#10;
+    SettingsContent := SettingsContent + '    "train_folder": "' + EscapedDataPath + '\\train_data",';
+    SettingsContent := SettingsContent + #13#10;
+    SettingsContent := SettingsContent + '    "val_folder": "' + EscapedDataPath + '\\val_data",';
+    SettingsContent := SettingsContent + #13#10;
+    SettingsContent := SettingsContent + '    "test_folder": "' + EscapedDataPath + '\\test_data"';
+    SettingsContent := SettingsContent + #13#10;
+    SettingsContent := SettingsContent + '  }';
+    SettingsContent := SettingsContent + #13#10;
+    SettingsContent := SettingsContent + '}';
+    
+    // Save the default settings file in the projects directory
+    SettingsFile := ProjectsFullPath + '\default_settings.json';
+    SaveStringToFile(SettingsFile, SettingsContent, False);
+    
+    // Copy the comprehensive user README to projects directory
+    if FileExists(AppDir + '\USER_README.md') then
+      FileCopy(AppDir + '\USER_README.md', ProjectsFullPath + '\README.md', False)
+    else if FileExists(AppDir + '\README.md') then
+      FileCopy(AppDir + '\README.md', ProjectsFullPath + '\README.md', False);
   end;
 end;
 

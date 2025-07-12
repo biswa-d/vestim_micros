@@ -74,9 +74,9 @@ class ConfigManager:
     def _get_default_data_dir(self):
         """Get default data directory"""
         if getattr(sys, 'frozen', False):
-            # Running as compiled executable - use user's Documents folder
-            docs_dir = os.path.expanduser("~/Documents")
-            return os.path.join(docs_dir, "vestim_data")
+            # Running as compiled executable - use projects folder/data
+            projects_dir = self._get_default_projects_dir()
+            return os.path.join(projects_dir, "data")
         else:
             # Running as Python script - use repository's data directory
             script_dir = Path(__file__).parent  # vestim/
@@ -99,9 +99,17 @@ class ConfigManager:
         # Ensure directory exists
         if not os.path.exists(self._data_dir):
             os.makedirs(self._data_dir, exist_ok=True)
+            # Create initial data structure with demo files
+            self.create_initial_data_structure()
             # Only show message for compiled executable
             if getattr(sys, 'frozen', False):
-                print(f"Created data directory: {self._data_dir}")
+                print(f"Created data directory with demo files: {self._data_dir}")
+        else:
+            # Check if subdirectories exist, create them if not
+            for subdir in ["train_data", "val_data", "test_data"]:
+                subdir_path = os.path.join(self._data_dir, subdir)
+                if not os.path.exists(subdir_path):
+                    os.makedirs(subdir_path, exist_ok=True)
         
         return self._data_dir
     
@@ -112,15 +120,20 @@ class ConfigManager:
     def _load_default_settings(self):
         """Load default settings from configuration file"""
         try:
-            # Look for default settings file in application directory
+            # Look for default settings file
             if getattr(sys, 'frozen', False):
-                # Running as compiled executable
-                app_dir = Path(sys.executable).parent
+                # Running as compiled executable - check projects directory first
+                projects_dir = self.get_projects_directory()
+                settings_path = Path(projects_dir) / "default_settings.json"
+                
+                if not settings_path.exists():
+                    # Fallback to application directory
+                    app_dir = Path(sys.executable).parent
+                    settings_path = app_dir / "default_settings.json"
             else:
                 # Running as script - look in script directory
                 app_dir = Path(__file__).parent
-            
-            settings_path = app_dir / "default_settings.json"
+                settings_path = app_dir / "default_settings.json"
             
             if settings_path.exists():
                 with open(settings_path, 'r') as f:
@@ -156,13 +169,13 @@ class ConfigManager:
         try:
             # Determine where to save the settings
             if getattr(sys, 'frozen', False):
-                # Running as compiled executable
-                app_dir = Path(sys.executable).parent
+                # Running as compiled executable - save in projects directory
+                projects_dir = self.get_projects_directory()
+                settings_path = Path(projects_dir) / "default_settings.json"
             else:
-                # Running as script - look in script directory
+                # Running as script - save in script directory
                 app_dir = Path(__file__).parent
-            
-            settings_path = app_dir / "default_settings.json"
+                settings_path = app_dir / "default_settings.json"
             
             with open(settings_path, 'w') as f:
                 json.dump(self._default_settings, f, indent=4)
@@ -215,7 +228,7 @@ class ConfigManager:
     def _get_initial_default_hyperparams(self):
         """Get initial default hyperparameters for first-time setup"""
         return {
-            "FEATURE_COLUMNS": ["Battery_Temp_degC", "Power", "SOC"],
+            "FEATURE_COLUMNS": ["SOC", "Current", "Temp"],  # Updated to match actual CSV columns
             "TARGET_COLUMN": "Voltage",
             "MODEL_TYPE": "LSTM",
             "LAYERS": "1",
@@ -269,6 +282,103 @@ class ConfigManager:
         except Exception as e:
             print(f"Could not load root hyperparams.json: {e}")
             return None
+    
+    def create_initial_data_structure(self):
+        """Create initial data directory structure with demo files for first-time setup"""
+        data_dir = self.get_data_directory()
+        
+        # Create the subdirectories
+        train_dir = os.path.join(data_dir, "train_data")
+        val_dir = os.path.join(data_dir, "val_data") 
+        test_dir = os.path.join(data_dir, "test_data")
+        
+        os.makedirs(train_dir, exist_ok=True)
+        os.makedirs(val_dir, exist_ok=True)
+        os.makedirs(test_dir, exist_ok=True)
+        
+        # For compiled executable, copy demo files from installer assets
+        if getattr(sys, 'frozen', False):
+            self._copy_demo_files_from_assets(data_dir)
+        else:
+            # During development, copy from existing data folder if available
+            self._copy_demo_files_from_dev_data(data_dir)
+        
+        return data_dir
+    
+    def _copy_demo_files_from_assets(self, data_dir):
+        """Copy demo files from installer assets to data directory"""
+        try:
+            # Get the application directory where assets should be bundled
+            app_dir = Path(sys.executable).parent
+            assets_dir = app_dir / "installer_assets" / "demo_data"
+            
+            if assets_dir.exists():
+                import shutil
+                
+                # Copy each subdirectory
+                for subdir in ["train_data", "val_data", "test_data"]:
+                    source_dir = assets_dir / subdir
+                    target_dir = Path(data_dir) / subdir
+                    
+                    if source_dir.exists():
+                        # Copy all files from source to target
+                        for file_path in source_dir.glob("*"):
+                            if file_path.is_file():
+                                shutil.copy2(file_path, target_dir)
+                                print(f"Copied demo file: {file_path.name} to {subdir}")
+                                
+                # Also copy the user README to projects directory
+                readme_source = app_dir / "USER_README.md"
+                if readme_source.exists():
+                    projects_dir = self.get_projects_directory()
+                    readme_target = Path(projects_dir) / "README.md"
+                    shutil.copy2(readme_source, readme_target)
+                    print(f"Copied user README to projects directory")
+                    
+        except Exception as e:
+            print(f"Could not copy demo files from assets: {e}")
+    
+    def _copy_demo_files_from_dev_data(self, data_dir):
+        """Copy demo files from development data folder (for development mode)"""
+        try:
+            # Get the repository root data directory
+            script_dir = Path(__file__).parent  # vestim/
+            repo_root = script_dir.parent  # repo root
+            source_data_dir = repo_root / "data"
+            
+            if source_data_dir.exists():
+                import shutil
+                
+                # Copy training data
+                train_source = source_data_dir / "train_data" / "Combined_Training31-Aug-2023.csv"
+                if train_source.exists():
+                    train_target = Path(data_dir) / "train_data" / "demo_train_data.csv"
+                    shutil.copy2(train_source, train_target)
+                    print(f"Copied demo training data to {train_target}")
+                
+                # Copy validation data
+                val_source = source_data_dir / "val_data" / "raw_data" / "105_UDDS_n20C.csv"
+                if val_source.exists():
+                    val_target = Path(data_dir) / "val_data" / "demo_validation_data.csv"
+                    shutil.copy2(val_source, val_target)
+                    print(f"Copied demo validation data to {val_target}")
+                
+                # Copy test data
+                test_source = source_data_dir / "test_data" / "raw_data" / "107_LA92_n20C.csv"
+                if test_source.exists():
+                    test_target = Path(data_dir) / "test_data" / "demo_test_data.csv"
+                    shutil.copy2(test_source, test_target)
+                    print(f"Copied demo test data to {test_target}")
+                    
+                # Also copy the combined testing file as an alternative
+                combined_test_source = source_data_dir / "Combined_Testing31-Aug-2023.csv"
+                if combined_test_source.exists():
+                    combined_test_target = Path(data_dir) / "test_data" / "demo_combined_test_data.csv"
+                    shutil.copy2(combined_test_source, combined_test_target)
+                    print(f"Copied demo combined test data to {combined_test_target}")
+                    
+        except Exception as e:
+            print(f"Could not copy demo files from development data: {e}")
 
 # Global instance
 _config_manager = None
