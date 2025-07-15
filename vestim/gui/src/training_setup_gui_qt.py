@@ -51,7 +51,19 @@ class VEstimTrainSetupGUI(QWidget):
     def __init__(self, params):
         super().__init__()
         self.logger = logging.getLogger(__name__)  # Set up logger
-        self.params = params
+        
+        # Handle both single params dict and list of params (for Optuna results)
+        if isinstance(params, list):
+            self.param_list = params
+            self.params = params[0] if params else {}  # Use first config for display
+            self.is_multiple_configs = True
+            self.logger.info(f"Initialized with {len(params)} parameter configurations from Optuna")
+        else:
+            self.params = params
+            self.param_list = [params] if params else []
+            self.is_multiple_configs = False
+            self.logger.info("Initialized with single parameter configuration for grid search")
+        
         self.job_manager = JobManager()  # Initialize the JobManager singleton instance directly
         self.timer_running = True  # Ensure this flag is initialized in __init__
         self.param_labels = {
@@ -75,7 +87,14 @@ class VEstimTrainSetupGUI(QWidget):
         self.start_setup()
 
     def build_gui(self):
-        self.setWindowTitle("VEstim - Setting Up Training")
+        # Set window title based on search method
+        if self.is_multiple_configs:
+            self.setWindowTitle("VEstim - Setting Up Training (Optuna Optimized)")
+            title_text = f"Building Models and Training Tasks\nwith {len(self.param_list)} Optuna-Optimized Configurations"
+        else:
+            self.setWindowTitle("VEstim - Setting Up Training (Grid Search)")
+            title_text = "Building Models and Training Tasks\nwith Exhaustive Grid Search"
+            
         self.setMinimumSize(900, 600)
         self.setMaximumSize(900, 600)  # This makes it appear "fixed"
         
@@ -83,7 +102,7 @@ class VEstimTrainSetupGUI(QWidget):
         self.main_layout = QVBoxLayout()
 
         # Title label
-        title_label = QLabel("Building Models and Training Tasks\nwith Hyperparameter Set")
+        title_label = QLabel(title_text)
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 14pt; font-weight: bold; color: #3a3a3a;")
         self.main_layout.addWidget(title_label)

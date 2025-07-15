@@ -423,10 +423,6 @@ class TrainingTaskManager:
             # Ensure BATCH_SIZE from hyperparams (which might be the string from QLineEdit) is correctly converted and available
             # The actual batch size used by train_loader is now determined by DataLoaderService based on use_full_train_batch_flag
             # However, other parts of the code might still refer to hyperparams['BATCH_SIZE']
-            # For logging or other purposes, ensure it's an int.
-            # The convert_hyperparams method already handles BATCH_SIZE if it's a direct hyperparam.
-            # If BATCH_SIZE is under data_loader_params, it's handled in create_data_loaders above.
-            
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams['ValidFrequency']
             valid_patience = hyperparams['VALID_PATIENCE']
@@ -860,7 +856,6 @@ class TrainingTaskManager:
                             'error_unit_label': current_error_unit_label_no_val, 
                             'delta_t_epoch': formatted_epoch_time, 
                             'elapsed_time': format_time(elapsed_time_train_only), 
-                            'task_elapsed_time': task_elapsed_time_train_only,  # Total task time
                             'patience_counter': patience_counter, 
                             'learning_rate': current_lr, 
                             'status': f"Epoch {epoch}/{max_epochs} - Training..."
@@ -1022,7 +1017,6 @@ class TrainingTaskManager:
 
             # Final save and cleanup
             # self.save_model(task) # REMOVED: Best model is saved during validation improvement.
-            # self.logger.info(f"Training loop finished for task {task['task_id']}. Best model is at: {task.get('training_params', {}).get('best_model_path')}") # Redundant
             
             # Calculate final task elapsed time before saving summary
             final_task_elapsed_time = time.time() - self.task_start_time if hasattr(self, 'task_start_time') else 0
@@ -1087,6 +1081,9 @@ class TrainingTaskManager:
         model_type = hyperparams.get('MODEL_TYPE', 'LSTM')
         
         # Common parameters for all model types
+        # Handle boundary format parameters before type conversion
+        self._convert_boundary_format_params(hyperparams)
+        
         hyperparams['BATCH_SIZE'] = int(hyperparams['BATCH_SIZE'])
         hyperparams['MAX_EPOCHS'] = int(hyperparams['MAX_EPOCHS'])
         hyperparams['INITIAL_LR'] = float(hyperparams['INITIAL_LR'])
@@ -1113,6 +1110,47 @@ class TrainingTaskManager:
         hyperparams['LOOKBACK'] = int(hyperparams['LOOKBACK'])
         hyperparams['REPETITIONS'] = int(hyperparams['REPETITIONS'])
         return hyperparams
+
+    def _convert_boundary_format_params(self, hyperparams):
+        """Convert boundary format parameters [min,max] to usable default values."""
+        # Define parameters that should be treated as integers vs floats
+        integer_params = {
+            "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS", 
+            "MAX_EPOCHS", "VALID_PATIENCE", "ValidFrequency", "LOOKBACK",
+            "BATCH_SIZE", "LR_PERIOD", "PLATEAU_PATIENCE", "REPETITIONS"
+        }
+        
+        for param_name, param_value in hyperparams.items():
+            if isinstance(param_value, str) and param_value.startswith('[') and param_value.endswith(']'):
+                try:
+                    # Parse boundary format [min,max]
+                    inner = param_value[1:-1].strip()
+                    parts = [part.strip() for part in inner.split(',')]
+                    
+                    if len(parts) == 2:
+                        min_val = float(parts[0])
+                        max_val = float(parts[1])
+                        
+                        # Set a reasonable default value from the range
+                        if param_name in integer_params:
+                            # For integers, use the middle value rounded to int
+                            default_val = int((min_val + max_val) / 2)
+                        else:
+                            # For floats, use the geometric mean for learning rates, arithmetic mean for others
+                            if param_name in ["INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR", "FNN_DROPOUT_PROB"]:
+                                # Use geometric mean for learning rates and probabilities
+                                import math
+                                default_val = math.sqrt(min_val * max_val)
+                            else:
+                                # Use arithmetic mean for other float parameters
+                                default_val = (min_val + max_val) / 2
+                        
+                        hyperparams[param_name] = default_val
+                        self.logger.info(f"Converted {param_name} boundary format {param_value} to default value: {default_val}")
+                        
+                except (ValueError, IndexError) as e:
+                    self.logger.error(f"Could not parse boundary format for {param_name}: {param_value} - {e}")
+                    raise ValueError(f"Invalid {param_name} value: {param_value}")
 
     def _save_training_task_summary(self, task, best_val_loss_norm, final_train_loss_norm, final_val_loss_norm, final_epoch, max_epochs, early_stopping, elapsed_time, best_train_loss_norm, best_train_loss_denorm):
         """Saves a detailed summary of the completed training task and stores it."""

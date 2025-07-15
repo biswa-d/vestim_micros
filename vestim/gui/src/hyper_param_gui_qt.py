@@ -18,6 +18,8 @@ from PyQt5.QtGui import QIcon
 import pandas as pd
 import torch
 
+import logging
+
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
@@ -165,7 +167,10 @@ class VEstimHyperParamGUI(QWidget):
         main_layout.addLayout(guide_button_layout)
 
         instructions_label = QLabel(
-            "Please enter values for model parameters. Use comma-separated values for multiple inputs.\n"
+            "Please enter values for model parameters:\n"
+            "• For Grid Search: Use comma-separated values (e.g., 1,2,5) or semicolons for multiple configs ([64,128];[32,64])\n"
+            "• For Optuna Search: Use boundary format [min,max] for core hyperparameters (e.g., [1,5] for layers, [0.001,0.1] for learning rate)\n"
+            "• Time and validation parameters (patience, frequency) can use single values for both methods\n"
             "Refer to the guide above for more details."
         )
         instructions_label.setAlignment(Qt.AlignCenter)
@@ -230,12 +235,27 @@ class VEstimHyperParamGUI(QWidget):
         load_button.clicked.connect(self.load_params_from_json)
         button_layout.addWidget(load_button, alignment=Qt.AlignCenter)
 
-        start_button = QPushButton("Create Training Tasks")
-        start_button.setFixedWidth(220)
-        start_button.setFixedHeight(35)
-        start_button.setStyleSheet("background-color: #0b6337; color: white; font-size: 10pt;")
-        start_button.clicked.connect(self.proceed_to_training)
-        button_layout.addWidget(start_button, alignment=Qt.AlignCenter)
+        # **Search Method Selection**
+        search_method_layout = QHBoxLayout()
+        search_method_layout.setAlignment(Qt.AlignCenter)
+        
+        auto_search_button = QPushButton("Auto Search (Optuna)")
+        auto_search_button.setFixedWidth(180)
+        auto_search_button.setFixedHeight(35)
+        auto_search_button.setStyleSheet("background-color: #2E86AB; color: white; font-size: 10pt;")
+        auto_search_button.setToolTip("Use Optuna for automatic hyperparameter optimization.\nRequires boundary format [min,max] for core hyperparameters (layers, hidden units, learning rate, epochs).\nTime and validation parameters can use single values.\nExample: [1,5] for layers, [0.001,0.1] for learning rate")
+        auto_search_button.clicked.connect(self.proceed_to_auto_search)
+        
+        grid_search_button = QPushButton("Exhaustive Grid Search")
+        grid_search_button.setFixedWidth(180)
+        grid_search_button.setFixedHeight(35)
+        grid_search_button.setStyleSheet("background-color: #0b6337; color: white; font-size: 10pt;")
+        grid_search_button.setToolTip("Use traditional exhaustive grid search.\nRequires comma-separated values: 1,2,5 or semicolon for multiple configs: [64,128];[32,64]")
+        grid_search_button.clicked.connect(self.proceed_to_grid_search)
+        
+        search_method_layout.addWidget(auto_search_button)
+        search_method_layout.addWidget(grid_search_button)
+        button_layout.addLayout(search_method_layout)
 
         main_layout.addLayout(button_layout)
         self.setLayout(main_layout)
@@ -500,7 +520,7 @@ class VEstimHyperParamGUI(QWidget):
 
             self.lstm_layers_entry = QLineEdit(self.params.get("LAYERS", "1"))
             self.lstm_layers_entry.setFixedWidth(100)
-            self.lstm_layers_entry.setToolTip("Enter the number of stacked LSTM layers.")
+            self.lstm_layers_entry.setToolTip("Enter the number of stacked LSTM layers.\nGrid Search: 1,2,3 | Optuna: [1,5]")
 
             hidden_units_label = QLabel("Hidden Units:")
             hidden_units_label.setStyleSheet("font-size: 11pt; font-weight: bold;") # Make bold
@@ -508,7 +528,7 @@ class VEstimHyperParamGUI(QWidget):
 
             self.hidden_units_entry = QLineEdit(self.params.get("HIDDEN_UNITS", "10"))
             self.hidden_units_entry.setFixedWidth(100)
-            self.hidden_units_entry.setToolTip("Enter the number of hidden units per LSTM layer.")
+            self.hidden_units_entry.setToolTip("Enter the number of hidden units per LSTM layer.\nGrid Search: 10,20,50 | Optuna: [10,100]")
 
             self.model_param_container.addWidget(lstm_layers_label)
             self.model_param_container.addWidget(self.lstm_layers_entry)
@@ -708,7 +728,7 @@ class VEstimHyperParamGUI(QWidget):
 
         self.max_epochs_entry = QLineEdit(self.params.get("MAX_EPOCHS", "500"))
         self.max_epochs_entry.setFixedWidth(100)
-        self.max_epochs_entry.setToolTip("Enter maximum training epochs. Use commas for multiple values (e.g., 100,200,500)")
+        self.max_epochs_entry.setToolTip("Enter maximum training epochs.\nGrid Search: 100,200,500 | Optuna: [100,1000]")
 
         # **Validation Patience**
         patience_label = QLabel("Validation Patience:")
@@ -838,84 +858,8 @@ class VEstimHyperParamGUI(QWidget):
         return [item.text() for item in self.feature_list.selectedItems()]
 
     def proceed_to_training(self):
-        try:
-            # Fetch all parameters
-            new_params = {}
-
-            # Collect values from stored param entries
-            for param, entry in self.param_entries.items():
-                if isinstance(entry, QLineEdit):
-                    new_params[param] = entry.text().strip()  # Text input
-                elif isinstance(entry, QComboBox):
-                    new_params[param] = entry.currentText()  # Dropdown selection
-                elif isinstance(entry, QCheckBox):
-                    new_params[param] = entry.isChecked()  # Boolean value
-                elif isinstance(entry, QListWidget):  # Multi-select feature list
-                    new_params[param] = [item.text() for item in entry.selectedItems()]
-            # REPETITIONS is a QLineEdit, its text value is collected by the isinstance(entry, QLineEdit) condition.
-            # Validation and conversion to int for REPETITIONS happens below.
-
-            # Ensure critical fields are selected
-            if not new_params.get("FEATURE_COLUMNS"):
-                QMessageBox.critical(self, "Selection Error", "Please select at least one feature column.")
-                return
-            if not new_params.get("TARGET_COLUMN"):
-                QMessageBox.critical(self, "Selection Error", "Please select a target column.")
-                return
-            if not new_params.get("MODEL_TYPE"):
-                QMessageBox.critical(self, "Selection Error", "Please select a model type.")
-                return
-
-            # Validate REPETITIONS specifically as it's a QLineEdit now
-            if "REPETITIONS" in new_params:
-                try:
-                    repetitions_val = int(new_params["REPETITIONS"])
-                    if repetitions_val < 1:
-                        QMessageBox.warning(self, "Invalid Input", "Repetitions must be at least 1.")
-                        return
-                    new_params["REPETITIONS"] = repetitions_val # Store as int after validation
-                except ValueError:
-                    QMessageBox.warning(self, "Invalid Input", "Repetitions (in Validation Criteria) must be a valid integer.")
-                    return
-            else: # Should not happen if REPETITIONS is in param_entries
-                QMessageBox.warning(self, "Missing Information", "Please fill in the 'REPETITIONS' field.")
-                return
-
-            # Special handling for FNN models - ensure training method is set correctly
-            if new_params.get("MODEL_TYPE") == "FNN":
-                # For FNN, always use "WholeSequenceFNN" training method (data loader expects this)
-                new_params["TRAINING_METHOD"] = "WholeSequenceFNN"
-                # Ensure batch training is enabled for FNN
-                new_params["BATCH_TRAINING"] = True
-                # Ensure batch size has a proper default for FNN
-                if not new_params.get("BATCH_SIZE") or new_params.get("BATCH_SIZE").strip() == "":
-                    new_params["BATCH_SIZE"] = "5000"
-            
-            # Special handling for LSTM/GRU models - ensure compatible training method
-            elif new_params.get("MODEL_TYPE") in ["LSTM", "GRU"]:
-                # For RNN models, only "Sequence-to-Sequence" is supported by data loader
-                if new_params.get("TRAINING_METHOD") == "Whole Sequence":
-                    new_params["TRAINING_METHOD"] = "Sequence-to-Sequence"
-                    self.logger.info("Converted 'Whole Sequence' to 'Sequence-to-Sequence' for LSTM/GRU model")
-
-            self.logger.info(f"Proceeding to training with params: {new_params}")
-
-            # Update the parameter manager
-            self.update_params(new_params)
-
-            # Save params only if job folder is set
-            if self.job_manager.get_job_folder():
-                self.hyper_param_manager.save_params()
-            else:
-                self.logger.error("Job folder is not set.")
-                raise ValueError("Job folder is not set.")
-
-            self.close()  # Close current window
-            self.training_setup_gui = VEstimTrainSetupGUI(new_params)  # Pass updated params
-            self.training_setup_gui.show()
-
-        except ValueError as e:
-            QMessageBox.critical(self, "Error", f"Invalid parameter input: {str(e)}")
+        """Legacy method for backward compatibility - uses grid search"""
+        self.proceed_to_grid_search()
 
 
     def show_training_setup_gui(self):
@@ -1055,14 +999,20 @@ class VEstimHyperParamGUI(QWidget):
                         self.max_time_seconds_entry.setText(str(seconds))
                     self.logger.info(f"Populated Max Training Time H:M:S from loaded MAX_TRAINING_TIME_SECONDS ({total_seconds}s).")
                 else:
-                    if hasattr(self, 'max_time_hours_entry'): self.max_time_hours_entry.setText("0")
-                    if hasattr(self, 'max_time_minutes_entry'): self.max_time_minutes_entry.setText("0")
-                    if hasattr(self, 'max_time_seconds_entry'): self.max_time_seconds_entry.setText("0")
+                    if hasattr(self, 'max_time_hours_entry'):
+                        self.max_time_hours_entry.setText("0")
+                    if hasattr(self, 'max_time_minutes_entry'):
+                        self.max_time_minutes_entry.setText("0")
+                    if hasattr(self, 'max_time_seconds_entry'):
+                        self.max_time_seconds_entry.setText("0")
             except (ValueError, TypeError) as e:
                 self.logger.warning(f"Could not parse MAX_TRAINING_TIME_SECONDS ('{self.params.get('MAX_TRAINING_TIME_SECONDS')}') for GUI: {e}. Setting H:M:S to defaults.")
-                if hasattr(self, 'max_time_hours_entry'): self.max_time_hours_entry.setText("0")
-                if hasattr(self, 'max_time_minutes_entry'): self.max_time_minutes_entry.setText("0")
-                if hasattr(self, 'max_time_seconds_entry'): self.max_time_seconds_entry.setText("0")
+                if hasattr(self, 'max_time_hours_entry'):
+                    self.max_time_hours_entry.setText("0")
+                if hasattr(self, 'max_time_minutes_entry'):
+                    self.max_time_minutes_entry.setText("0")
+                if hasattr(self, 'max_time_seconds_entry'):
+                    self.max_time_seconds_entry.setText("0")
         # If MAX_TRAINING_TIME_SECONDS is not in params, the QLineEdit defaults (set during creation) will be used.
 
         self.logger.info("GUI successfully updated with loaded parameters.")
@@ -1078,8 +1028,408 @@ class VEstimHyperParamGUI(QWidget):
         else:
             self.logger.warning("PDF guide not found. Make sure 'hyper_param_guide.pdf' is in the correct directory.")
 
-if __name__ == "__main__":
-    app = QApplication([])
-    gui = VEstimHyperParamGUI()
-    gui.show()
-    app.exec_()
+    def proceed_to_auto_search(self):
+        """Handle auto search (Optuna) button click"""
+        try:
+            # Collect and validate parameters for Optuna (boundary format)
+            new_params = self._collect_and_validate_params_for_optuna()
+            if new_params is None:
+                return  # Validation failed
+            
+            # Import here to avoid circular imports
+            from vestim.gui.src.optuna_optimization_gui_qt import VEstimOptunaOptimizationGUI
+            
+            self.close()  # Close current window
+            self.optuna_gui = VEstimOptunaOptimizationGUI(new_params)
+            self.optuna_gui.show()
+            
+        except Exception as e:
+            self.logger.error(f"Error proceeding to auto search: {e}")
+            QMessageBox.critical(self, "Error", f"Error proceeding to auto search: {str(e)}")
+
+    def proceed_to_grid_search(self):
+        """Handle grid search button click (traditional exhaustive search)"""
+        try:
+            # Collect and validate parameters for grid search (comma-separated format)
+            new_params = self._collect_and_validate_params_for_grid_search()
+            if new_params is None:
+                return  # Validation failed
+            
+            # Proceed directly to training setup with grid search logic
+            self.close()  # Close current window
+            self.training_setup_gui = VEstimTrainSetupGUI(new_params)
+            self.training_setup_gui.show()
+            
+        except Exception as e:
+            self.logger.error(f"Error proceeding to grid search: {e}")
+            QMessageBox.critical(self, "Error", f"Error proceeding to grid search: {str(e)}")
+
+    def _collect_basic_params(self):
+        """Collect basic parameters that are common to both Optuna and grid search."""
+        new_params = {}
+
+        # Collect values from stored param entries
+        for param, entry in self.param_entries.items():
+            if isinstance(entry, QLineEdit):
+                new_params[param] = entry.text().strip()  # Text input
+            elif isinstance(entry, QComboBox):
+                new_params[param] = entry.currentText()  # Dropdown selection
+            elif isinstance(entry, QCheckBox):
+                new_params[param] = entry.isChecked()  # Boolean value
+            elif isinstance(entry, QListWidget):  # Multi-select feature list
+                new_params[param] = [item.text() for item in entry.selectedItems()]
+
+        # Debug: Log collected parameter values
+        self.logger.info("Collected parameters from GUI:")
+        for param, value in new_params.items():
+            self.logger.info(f"  {param}: '{value}' (type: {type(value).__name__})")
+        
+        # Debug: Check scheduler-specific parameters
+        if hasattr(self, 'scheduler_combo'):
+            selected_scheduler = self.scheduler_combo.currentText()
+            self.logger.info(f"Selected scheduler: {selected_scheduler}")
+            
+            if selected_scheduler == "ReduceLROnPlateau":
+                if hasattr(self, 'plateau_factor_entry'):
+                    plateau_gui_value = self.plateau_factor_entry.text().strip()
+                    self.logger.info(f"Plateau Factor GUI field direct read: '{plateau_gui_value}'")
+                    self.logger.info(f"Plateau Factor field visible: {self.plateau_factor_entry.isVisible()}")
+                    self.logger.info(f"Plateau Factor field enabled: {self.plateau_factor_entry.isEnabled()}")
+                
+                if hasattr(self, 'lr_param_entry'):
+                    lr_param_gui_value = self.lr_param_entry.text().strip()
+                    self.logger.info(f"LR Param GUI field direct read: '{lr_param_gui_value}'")
+                    self.logger.info(f"LR Param field visible: {self.lr_param_entry.isVisible()}")
+                    self.logger.info(f"LR Param field enabled: {self.lr_param_entry.isEnabled()}")
+
+        # Ensure critical fields are selected
+        if not new_params.get("FEATURE_COLUMNS"):
+            QMessageBox.critical(self, "Selection Error", "Please select at least one feature column.")
+            return None
+        if not new_params.get("TARGET_COLUMN"):
+            QMessageBox.critical(self, "Selection Error", "Please select a target column.")
+            return None
+        if not new_params.get("MODEL_TYPE"):
+            QMessageBox.critical(self, "Selection Error", "Please select a model type.")
+            return None
+
+        # Validate REPETITIONS specifically as it's a QLineEdit now
+        if "REPETITIONS" in new_params:
+            try:
+                repetitions_val = int(new_params["REPETITIONS"])
+                if repetitions_val < 1:
+                    QMessageBox.warning(self, "Invalid Input", "Repetitions must be at least 1.")
+                    return None
+                new_params["REPETITIONS"] = repetitions_val # Store as int after validation
+            except ValueError:
+                QMessageBox.warning(self, "Invalid Input", "Repetitions (in Validation Criteria) must be a valid integer.")
+                return None
+        else:
+            QMessageBox.warning(self, "Missing Information", "Please fill in the 'REPETITIONS' field.")
+            return None
+
+        # Special handling for FNN models - ensure training method is set correctly
+        if new_params.get("MODEL_TYPE") == "FNN":
+            # For FNN, always use "WholeSequenceFNN" training method (data loader expects this)
+            new_params["TRAINING_METHOD"] = "WholeSequenceFNN"
+            # Ensure batch training is enabled for FNN
+            new_params["BATCH_TRAINING"] = True
+            # Ensure batch size has a proper default for FNN
+            if not new_params.get("BATCH_SIZE") or new_params.get("BATCH_SIZE").strip() == "":
+                new_params["BATCH_SIZE"] = "5000"
+        
+        # Special handling for LSTM/GRU models - ensure compatible training method
+        elif new_params.get("MODEL_TYPE") in ["LSTM", "GRU"]:
+            # For RNN models, only "Sequence-to-Sequence" is supported by data loader
+            if new_params.get("TRAINING_METHOD") == "Whole Sequence":
+                new_params["TRAINING_METHOD"] = "Sequence-to-Sequence"
+                self.logger.info("Converted 'Whole Sequence' to 'Sequence-to-Sequence' for LSTM/GRU model")
+
+        return new_params
+
+    def _validate_boundary_format(self, value, param_name):
+        """Validate that a parameter value is in boundary format [min,max] for Optuna."""
+        if not value or value.strip() == "":
+            return False, f"{param_name} cannot be empty for Optuna optimization.\nCurrent value: '{value}'"
+        
+        value = value.strip()
+        
+        # Check for boundary format [min,max]
+        if value.startswith('[') and value.endswith(']'):
+            try:
+                # Remove brackets and split by comma
+                inner = value[1:-1].strip()
+                parts = [part.strip() for part in inner.split(',')]
+                
+                if len(parts) != 2:
+                    return False, f"{param_name} must have exactly 2 values in format [min,max].\nCurrent value: '{value}'"
+                
+                # Try to convert to numbers
+                min_val = float(parts[0])
+                max_val = float(parts[1])
+                
+                if min_val >= max_val:
+                    return False, f"{param_name}: min value must be less than max value.\nCurrent value: '{value}'"
+                
+                return True, f"Valid boundary format for {param_name}"
+                
+            except ValueError:
+                return False, f"{param_name} must contain numeric values in format [min,max].\nCurrent value: '{value}'"
+        else:
+            return False, f"{param_name} must be in boundary format [min,max] for Optuna optimization.\nCurrent value: '{value}'"
+
+    def _validate_comma_separated_format(self, value, param_name):
+        """Validate that a parameter value is in comma-separated format for grid search."""
+        if not value or value.strip() == "":
+            return False, f"{param_name} cannot be empty for grid search."
+        
+        value = value.strip()
+        
+        # For grid search, we accept various formats:
+        # 1. Comma-separated values: "1,2,3"
+        # 2. Semicolon-separated configs: "[64,128];[32,64]" 
+        # 3. Single values: "10"
+        # Note: We don't reject boundary format here since user might use mixed formats
+        
+        if ';' in value:
+            # Multiple configurations separated by semicolons
+            configs = [config.strip() for config in value.split(';')]
+            for config in configs:
+                if not config:
+                    return False, f"{param_name} contains empty configuration."
+        elif ',' in value:
+            # Single configuration with comma-separated values
+            parts = [part.strip() for part in value.split(',')]
+            for part in parts:
+                if not part:
+                    return False, f"{param_name} contains empty values."
+        else:
+            # Single value - this is also valid
+            pass
+        
+        return True, f"Valid format for {param_name}"
+
+    def _collect_and_validate_params_for_optuna(self):
+        """Collect and validate parameters for Optuna optimization (boundary format)."""
+        try:
+            # Get basic parameters
+            new_params = self._collect_basic_params()
+            if new_params is None:
+                return None
+
+            # Define parameters that need boundary validation for Optuna
+            boundary_params = []
+            
+            # Model-specific parameters that need boundaries
+            model_type = new_params.get("MODEL_TYPE")
+            if model_type == "LSTM":
+                boundary_params.extend(["LAYERS", "HIDDEN_UNITS"])
+            elif model_type == "GRU":
+                boundary_params.extend(["GRU_LAYERS", "GRU_HIDDEN_UNITS"])
+            elif model_type == "FNN":
+                boundary_params.extend(["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB"])
+            
+            # Core hyperparameters that benefit from optimization
+            core_params = ["MAX_EPOCHS", "INITIAL_LR"]
+            
+            # Add scheduler-specific parameters based on selected scheduler
+            selected_scheduler = new_params.get("SCHEDULER_TYPE", "StepLR")
+            if selected_scheduler == "ReduceLROnPlateau":
+                # For ReduceLROnPlateau, the plateau factor is stored in LR_PARAM
+                core_params.append("LR_PARAM")  # This is the plateau factor when ReduceLROnPlateau is selected
+            elif selected_scheduler == "StepLR":
+                # For StepLR, we might want to optimize the drop factor
+                core_params.append("LR_PARAM")  # This is the drop factor when StepLR is selected
+            
+            boundary_params.extend(core_params)
+            
+            # Add lookback if applicable (sequence models)
+            if new_params.get("TRAINING_METHOD") == "Sequence-to-Sequence":
+                boundary_params.append("LOOKBACK")
+            
+            # Add batch size if applicable
+            if new_params.get("BATCH_TRAINING", False):
+                boundary_params.append("BATCH_SIZE")
+
+            # Validate boundary format for relevant parameters
+            self.logger.info(f"Validating boundary format for Optuna parameters: {boundary_params}")
+            for param in boundary_params:
+                if param in new_params:
+                    param_value = new_params[param]
+                    self.logger.info(f"Checking {param}: '{param_value}' (type: {type(param_value).__name__})")
+                    is_valid, message = self._validate_boundary_format(param_value, param)
+                    if not is_valid:
+                        self.logger.warning(f"Boundary validation failed for {param}: {message}")
+                        
+                        # Additional debug: Check what's in the GUI field directly
+                        if param == "PLATEAU_FACTOR" and hasattr(self, 'plateau_factor_entry'):
+                            gui_value = self.plateau_factor_entry.text().strip()
+                            self.logger.warning(f"GUI field value for PLATEAU_FACTOR: '{gui_value}'")
+                            self.logger.warning(f"Collected value for PLATEAU_FACTOR: '{param_value}'")
+                        
+                        QMessageBox.warning(self, "Invalid Optuna Format", 
+                                          f"{message}\n\nFor Optuna optimization, please use boundary format [min,max].\n"
+                                          f"Example: [1,5] for {param}")
+                        return None
+                    else:
+                        self.logger.info(f"Boundary validation passed for {param}")
+                else:
+                    self.logger.info(f"Parameter {param} not found in collected params")
+
+            self.logger.info(f"Collected and validated Optuna params: {new_params}")
+
+            # Convert time fields to total seconds
+            self._convert_time_fields_to_seconds(new_params)
+
+            # Update the parameter manager
+            self.update_params(new_params)
+
+            # Save params only if job folder is set
+            if self.job_manager.get_job_folder():
+                self.hyper_param_manager.save_params()
+            else:
+                self.logger.error("Job folder is not set.")
+                raise ValueError("Job folder is not set.")
+            
+            return new_params
+
+        except ValueError as e:
+            QMessageBox.critical(self, "Error", f"Invalid parameter input: {str(e)}")
+            return None
+
+    def _collect_and_validate_params_for_grid_search(self):
+        """Collect and validate parameters for grid search (comma-separated format)."""
+        try:
+            # Get basic parameters
+            new_params = self._collect_basic_params()
+            if new_params is None:
+                return None
+
+            # Define parameters that can have comma-separated values for grid search
+            grid_params = []
+            
+            # Model-specific parameters
+            model_type = new_params.get("MODEL_TYPE")
+            if model_type == "LSTM":
+                grid_params.extend(["LAYERS", "HIDDEN_UNITS"])
+            elif model_type == "GRU":
+                grid_params.extend(["GRU_LAYERS", "GRU_HIDDEN_UNITS"])
+            elif model_type == "FNN":
+                grid_params.extend(["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB"])
+            
+            # Training parameters
+            grid_params.extend([
+                "MAX_EPOCHS", "VALID_PATIENCE", "VALID_FREQUENCY", 
+                "INITIAL_LR", "LR_PARAM", "LR_PERIOD", "PLATEAU_PATIENCE", "PLATEAU_FACTOR"
+            ])
+            
+            # Add lookback if applicable
+            if new_params.get("TRAINING_METHOD") == "Sequence-to-Sequence":
+                grid_params.append("LOOKBACK")
+            
+            # Add batch size if applicable
+            if new_params.get("BATCH_TRAINING", False):
+                grid_params.append("BATCH_SIZE")
+
+            # Validate comma-separated format for relevant parameters
+            for param in grid_params:
+                if param in new_params:
+                    is_valid, message = self._validate_comma_separated_format(new_params[param], param)
+                    if not is_valid:
+                        QMessageBox.warning(self, "Invalid Grid Search Format", 
+                                          f"{message}\n\nFor grid search, please use comma-separated values.\n"
+                                          f"Example: 1,2,5 or [64,128],[32,64] for {param}")
+                        return None
+
+            self.logger.info(f"Collected and validated grid search params: {new_params}")
+
+            # Convert time fields to total seconds
+            self._convert_time_fields_to_seconds(new_params)
+
+            # Update the parameter manager
+            self.update_params(new_params)
+
+            # Save params only if job folder is set
+            if self.job_manager.get_job_folder():
+                self.hyper_param_manager.save_params()
+            else:
+                self.logger.error("Job folder is not set.")
+                raise ValueError("Job folder is not set.")
+            
+            return new_params
+
+        except ValueError as e:
+            QMessageBox.critical(self, "Error", f"Invalid parameter input: {str(e)}")
+            return None
+
+    def parse_boundary_format(self, value):
+        """Parse boundary format [min,max] and return min, max values."""
+        if not value or not value.strip():
+            return None, None
+        
+        value = value.strip()
+        if value.startswith('[') and value.endswith(']'):
+            try:
+                inner = value[1:-1].strip()
+                parts = [part.strip() for part in inner.split(',')]
+                if len(parts) == 2:
+                    min_val = float(parts[0])
+                    max_val = float(parts[1])
+                    return min_val, max_val
+            except ValueError:
+                pass
+        return None, None
+
+    def convert_params_for_optuna(self, params):
+        """Convert parameter dictionary with boundary format to Optuna-compatible format."""
+        optuna_params = {}
+        
+        # Define which parameters should be treated as integers vs floats
+        integer_params = {
+            "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS", 
+            "MAX_EPOCHS", "VALID_PATIENCE", "VALID_FREQUENCY", "LOOKBACK",
+            "BATCH_SIZE", "LR_PERIOD", "PLATEAU_PATIENCE", "REPETITIONS"
+        }
+        
+        for key, value in params.items():
+            if isinstance(value, str) and '[' in value and ']' in value:
+                min_val, max_val = self.parse_boundary_format(value)
+                if min_val is not None and max_val is not None:
+                    optuna_params[key] = {
+                        'type': 'int' if key in integer_params else 'float',
+                        'low': int(min_val) if key in integer_params else min_val,
+                        'high': int(max_val) if key in integer_params else max_val
+                    }
+                else:
+                    # Keep original value if parsing fails
+                    optuna_params[key] = value
+            else:
+                # Keep non-boundary parameters as-is
+                optuna_params[key] = value
+                
+        return optuna_params
+
+    def _convert_time_fields_to_seconds(self, params):
+        """Convert MAX_TRAIN_HOURS, MAX_TRAIN_MINUTES, MAX_TRAIN_SECONDS to MAX_TRAINING_TIME_SECONDS."""
+        try:
+            hours = int(params.get("MAX_TRAIN_HOURS", "0"))
+            minutes = int(params.get("MAX_TRAIN_MINUTES", "0"))
+            seconds = int(params.get("MAX_TRAIN_SECONDS", "0"))
+            
+            total_seconds = hours * 3600 + minutes * 60 + seconds
+            params["MAX_TRAINING_TIME_SECONDS"] = total_seconds
+            
+            # Remove the individual time components as they're now consolidated
+            for key in ["MAX_TRAIN_HOURS", "MAX_TRAIN_MINUTES", "MAX_TRAIN_SECONDS"]:
+                if key in params:
+                    del params[key]
+                    
+            self.logger.info(f"Converted time fields to total seconds: {total_seconds}")
+            
+        except ValueError as e:
+            self.logger.warning(f"Error converting time fields: {e}. Setting total time to 0.")
+            params["MAX_TRAINING_TIME_SECONDS"] = 0
+
+
+
+

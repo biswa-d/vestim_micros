@@ -53,26 +53,58 @@ class VEstimHyperParamManager:
                     # FNN uses HIDDEN_LAYERS (string) and DROPOUT_PROB (float), no specific integer params
                     pass
                 
-                # Keep the original string for parameters that might be comma-separated
+                # Keep the original string for parameters that might be comma-separated or boundary format
                 if key in integer_params:
-                    # Validate that all values are valid integers
-                    value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
-                    try:
-                        [int(v) for v in value_list]  # Just validate, don't convert
-                        validated_params[key] = value  # Keep as string
-                    except ValueError:
-                        self.logger.error(f"Invalid integer value for {key}: {value}")
-                        raise ValueError(f"Invalid value for {key}: Expected integers, got {value}")
+                    # Check if it's boundary format [min,max] first
+                    if value.strip().startswith('[') and value.strip().endswith(']'):
+                        # Boundary format validation for Optuna
+                        try:
+                            inner = value.strip()[1:-1]
+                            parts = [part.strip() for part in inner.split(',')]
+                            if len(parts) == 2:
+                                int(parts[0])  # Validate min as integer
+                                int(parts[1])  # Validate max as integer
+                                validated_params[key] = value  # Keep boundary format as string
+                            else:
+                                raise ValueError("Boundary format must have exactly 2 values")
+                        except ValueError:
+                            self.logger.error(f"Invalid boundary format for {key}: {value}")
+                            raise ValueError(f"Invalid value for {key}: Expected boundary format [min,max] or integers, got {value}")
+                    else:
+                        # Regular comma-separated validation for grid search
+                        value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
+                        try:
+                            [int(v) for v in value_list]  # Just validate, don't convert
+                            validated_params[key] = value  # Keep as string
+                        except ValueError:
+                            self.logger.error(f"Invalid integer value for {key}: {value}")
+                            raise ValueError(f"Invalid value for {key}: Expected integers, got {value}")
 
-                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB']:
-                    # Validate that all values are valid floats (removed TRAIN_VAL_SPLIT)
-                    value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
-                    try:
-                        [float(v) for v in value_list]  # Just validate, don't convert
-                        validated_params[key] = value  # Keep as string
-                    except ValueError:
-                        self.logger.error(f"Invalid float value for {key}: {value}")
-                        raise ValueError(f"Invalid value for {key}: Expected floats, got {value}")
+                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB', 'LR_PARAM', 'PLATEAU_FACTOR', 'FNN_DROPOUT_PROB']:
+                    # Check if it's boundary format [min,max] first
+                    if value.strip().startswith('[') and value.strip().endswith(']'):
+                        # Boundary format validation for Optuna
+                        try:
+                            inner = value.strip()[1:-1]
+                            parts = [part.strip() for part in inner.split(',')]
+                            if len(parts) == 2:
+                                float(parts[0])  # Validate min as float
+                                float(parts[1])  # Validate max as float
+                                validated_params[key] = value  # Keep boundary format as string
+                            else:
+                                raise ValueError("Boundary format must have exactly 2 values")
+                        except ValueError:
+                            self.logger.error(f"Invalid boundary format for {key}: {value}")
+                            raise ValueError(f"Invalid value for {key}: Expected boundary format [min,max] or floats, got {value}")
+                    else:
+                        # Regular comma-separated validation for grid search
+                        value_list = [v.strip() for v in value.replace(',', ' ').split() if v]
+                        try:
+                            [float(v) for v in value_list]  # Just validate, don't convert
+                            validated_params[key] = value  # Keep as string
+                        except ValueError:
+                            self.logger.error(f"Invalid float value for {key}: {value}")
+                            raise ValueError(f"Invalid value for {key}: Expected floats, got {value}")
 
                 # ✅ Ensure boolean conversion for checkboxes (if applicable)
                 elif key in ['BATCH_TRAINING']:
