@@ -194,12 +194,124 @@ class OptunaOptimizationThread(QThread):
         return params
     
     def _evaluate_params(self, params, trial_num):
-        """Evaluate parameters (placeholder for actual training)"""
-        # This is a placeholder - in reality you'd run actual training here
-        # For now, we'll simulate with a random objective value
-        import random
-        time.sleep(1)  # Simulate training time
-        return random.random()  # Random loss value
+        """Evaluate parameters by running real training and returning validation loss."""
+        import torch
+        import numpy as np
+        from vestim.services.model_training.src.LSTM_model_service_test import LSTMModelService
+        from vestim.services.model_training.src.training_task_service import TrainingTaskService
+        from vestim.services.model_training.src.data_loader_service import DataLoaderService
+        import warnings
+        warnings.filterwarnings("ignore")
+
+        # --- 1. Prepare data loaders (CSV-based, not HDF5) ---
+        lookback = int(float(params.get('LOOKBACK', 400)))
+        batch_size = int(float(params.get('BATCH_SIZE', 100)))
+        feature_columns = params.get('FEATURE_COLUMNS', ['SOC', 'Current', 'Temp'])
+        target_column = params.get('TARGET_COLUMN', 'Voltage')
+        train_folder = params.get('TRAIN_FOLDER')
+        valid_folder = params.get('VALID_FOLDER')
+        if not train_folder or not valid_folder:
+            # Try to get from job manager
+            job_manager = JobManager()
+            train_folder = job_manager.get_train_folder()
+            valid_folder = job_manager.get_val_folder()
+
+        data_loader_service = DataLoaderService()
+        training_method = params.get('TRAINING_METHOD', 'Sequence-to-Sequence')
+        model_type = params.get('MODEL_TYPE', 'LSTM')
+        try:
+            job_manager = JobManager()
+            job_folder_path = job_manager.get_job_folder()
+
+            train_loader, val_loader = data_loader_service.create_data_loaders_from_separate_folders(
+                job_folder_path=job_folder_path,
+                training_method=training_method,
+                feature_cols=feature_columns,
+                target_col=target_column,
+                batch_size=batch_size,
+                num_workers=0,
+                lookback=lookback,
+                concatenate_raw_data=False,
+                seed=trial_num + 42,
+                model_type=model_type,
+                create_test_loader=False
+            )
+        except Exception as e:
+            self.log_message.emit(f"Data loading failed: {e}")
+            return float('inf')
+
+        # --- Check for empty loaders ---
+        def is_loader_empty(loader):
+            try:
+                return len(loader) == 0
+            except Exception:
+                return True
+
+        if is_loader_empty(train_loader):
+            self.log_message.emit("No training data available for this trial. Skipping.")
+            return float('inf')
+        if is_loader_empty(val_loader):
+            self.log_message.emit("No validation data available for this trial. Skipping.")
+            return float('inf')
+
+        # --- 2. Build model ---
+        model_type = params.get('MODEL_TYPE', 'LSTM')
+        input_size = len(feature_columns)
+        hidden_units = int(float(params.get('HIDDEN_UNITS', 10)))
+        layers = int(float(params.get('LAYERS', 1)))
+        device_str = params.get('DEVICE_SELECTION', 'cpu')
+        device = torch.device(device_str if 'cuda' in device_str and torch.cuda.is_available() else 'cpu')
+        model_service = LSTMModelService()
+        model_params = {
+            'INPUT_SIZE': input_size,
+            'HIDDEN_UNITS': hidden_units,
+            'LAYERS': layers
+        }
+        model = model_service.build_lstm_model(model_params, device)
+        model.to(device)
+
+        # --- 3. Training setup ---
+        max_epochs = int(float(params.get('MAX_EPOCHS', 3)))  # Use a small number for Optuna
+        initial_lr = float(params.get('INITIAL_LR', 0.001))
+        optimizer = torch.optim.Adam(model.parameters(), lr=initial_lr)
+        training_service = TrainingTaskService()
+        stop_requested = False
+        
+        # Initialize hidden states for RNN models
+        h_s_initial, h_c_initial = None, None
+        if model_type in ['LSTM', 'GRU']:
+            num_layers = int(float(params.get('LAYERS', 1)))
+            hidden_units = int(float(params.get('HIDDEN_UNITS', 10)))
+            # Use the actual batch size from the data loader
+            actual_batch_size = train_loader.batch_size if train_loader else int(float(params.get('BATCH_SIZE', 100)))
+            h_s_initial = torch.zeros(num_layers, actual_batch_size, hidden_units).to(device)
+            if model_type == 'LSTM':
+                h_c_initial = torch.zeros(num_layers, actual_batch_size, hidden_units).to(device)
+
+        best_val_loss = float('inf')
+
+        # --- 4. Training loop (short, for speed) ---
+        for epoch in range(1, max_epochs+1):
+            # Correctly unpack the tuple returned by train_epoch
+            _, train_loss_norm, _, _ = training_service.train_epoch(
+                model, model_type, train_loader, optimizer, h_s_initial, h_c_initial, epoch, device, stop_requested, task={
+                    'hyperparams': params,
+                    'log_frequency': 100
+                }
+            )
+            # Use the dedicated validate_epoch function for validation
+            val_loss, _, _ = training_service.validate_epoch(
+                model, model_type, val_loader, h_s_initial, h_c_initial, epoch, device, stop_requested, task={
+                    'hyperparams': params,
+                    'log_frequency': 100
+                }
+            )
+
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+
+        # --- 5. Return best validation loss as objective ---
+        return best_val_loss
     
     def _get_best_configurations(self):
         """Get the best N configurations from the study"""

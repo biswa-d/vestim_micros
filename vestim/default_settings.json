@@ -6,7 +6,6 @@
         "file_format": "csv",
         "hyperparams": {
             "FEATURE_COLUMNS": [
-                "Wh",
                 "Power",
                 "Battery_Temp_degC",
                 "SOC"

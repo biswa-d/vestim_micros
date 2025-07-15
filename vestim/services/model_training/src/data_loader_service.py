@@ -46,7 +46,7 @@ class DataLoaderService:
         # Special handling for LSTM/GRU models to prevent data leakage
         if model_type in ["LSTM", "GRU"] and training_method == "Sequence-to-Sequence" and sequence_split_method == "temporal":
             return self.create_temporal_sequence_data_loaders(
-                folder_path, feature_cols, target_col, batch_size, num_workers, 
+                folder_path, feature_cols, target_col, batch_size, num_workers,
                 lookback, concatenate_raw_data, train_split, seed, model_type
             )
         if seed is None:
@@ -501,24 +501,38 @@ class DataLoaderService:
                 continue
         
         # Combine sequences from all files
-        if not all_train_X_sequences:
-            self.logger.warning("No training sequences created from any file.")
+        if not all_train_X_sequences and not all_val_X_sequences:
+            self.logger.warning("No training or validation sequences were created from any file.")
             empty_dataset = TensorDataset(torch.empty(0), torch.empty(0))
             empty_loader = DataLoader(empty_dataset, batch_size=batch_size)
             return empty_loader, empty_loader
-        
+
         # Concatenate all training sequences
-        X_train = np.concatenate(all_train_X_sequences, axis=0)
-        y_train = np.concatenate(all_train_y_sequences, axis=0)
-        
+        if all_train_X_sequences:
+            X_train = np.concatenate(all_train_X_sequences, axis=0)
+            y_train = np.concatenate(all_train_y_sequences, axis=0)
+        else:
+            self.logger.warning("No training sequences created from any file.")
+            # Create empty arrays with correct dimensions
+            X_train = np.empty((0, lookback, len(feature_cols)), dtype=np.float32)
+            y_train = np.empty((0,), dtype=np.float32)
+
         # Concatenate all validation sequences (if any)
         if all_val_X_sequences:
             X_val = np.concatenate(all_val_X_sequences, axis=0)
             y_val = np.concatenate(all_val_y_sequences, axis=0)
         else:
-            # If no validation sequences, create empty arrays
+            self.logger.warning("No validation sequences created from any file.")
+            # Create empty arrays with correct dimensions
             X_val = np.empty((0, lookback, len(feature_cols)), dtype=np.float32)
             y_val = np.empty((0,), dtype=np.float32)
+
+        # Final check for empty datasets to prevent empty loaders
+        if X_train.size == 0 and X_val.size == 0:
+            self.logger.error("Both training and validation datasets are empty. Cannot create loaders.")
+            empty_dataset = TensorDataset(torch.empty(0), torch.empty(0))
+            empty_loader = DataLoader(empty_dataset, batch_size=batch_size)
+            return empty_loader, empty_loader
         
         self.logger.info(f"Total sequences - Train: {len(X_train)}, Validation: {len(X_val)}")
         self.logger.info(f"Train X shape: {X_train.shape}, Train y shape: {y_train.shape}")

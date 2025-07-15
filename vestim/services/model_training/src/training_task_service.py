@@ -85,31 +85,9 @@ class TrainingTaskService:
                 with torch.cuda.amp.autocast():
                     # Forward pass with mixed precision
                     if model_type == "LSTM":
-                        current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
-                        current_h_c = h_c_initial.detach().clone() if h_c_initial is not None else None
-                        
-                        # Dynamic batch size adjustment for hidden states
-                        actual_batch_size = X_batch.shape[0]
-                        if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
-                            # Resize hidden states to match actual batch size
-                            num_layers, _, hidden_size = current_h_s.shape
-                            device = current_h_s.device
-                            current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
-                            current_h_c = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
-                        
-                        y_pred, (h_s_out, h_c_out) = model(X_batch, current_h_s, current_h_c)
+                        y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                     elif model_type == "GRU":
-                        current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
-                        
-                        # Dynamic batch size adjustment for hidden states
-                        actual_batch_size = X_batch.shape[0]
-                        if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
-                            # Resize hidden states to match actual batch size
-                            num_layers, _, hidden_size = current_h_s.shape
-                            device = current_h_s.device
-                            current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
-                        
-                        y_pred, h_s_out = model(X_batch, current_h_s)
+                        y_pred, h_s = model(X_batch, h_s)
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
                     else:
@@ -139,31 +117,14 @@ class TrainingTaskService:
             else:
                 # Standard precision training
                 if model_type == "LSTM":
-                    current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
-                    current_h_c = h_c_initial.detach().clone() if h_c_initial is not None else None
-                    
-                    # Dynamic batch size adjustment for hidden states
-                    actual_batch_size = X_batch.shape[0]
-                    if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
-                        # Resize hidden states to match actual batch size
-                        num_layers, _, hidden_size = current_h_s.shape
-                        device = current_h_s.device
-                        current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
-                        current_h_c = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
-                    
-                    y_pred, (h_s_out, h_c_out) = model(X_batch, current_h_s, current_h_c)
+                    if h_s is None:
+                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                        h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                    y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                 elif model_type == "GRU":
-                    current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
-                    
-                    # Dynamic batch size adjustment for hidden states
-                    actual_batch_size = X_batch.shape[0]
-                    if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
-                        # Resize hidden states to match actual batch size
-                        num_layers, _, hidden_size = current_h_s.shape
-                        device = current_h_s.device
-                        current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
-                    
-                    y_pred, h_s_out = model(X_batch, current_h_s)
+                    if h_s is None:
+                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                    y_pred, h_s = model(X_batch, h_s)
                 elif model_type == "FNN":
                     y_pred = model(X_batch)
                 else:
@@ -204,8 +165,11 @@ class TrainingTaskService:
                     print(f"  Using mixed precision (AMP)")
 
             del X_batch, y_batch, y_pred, loss
-            if model_type == "LSTM": del current_h_s, current_h_c, h_s_out, h_c_out
-            elif model_type == "GRU": del current_h_s, h_s_out
+            if model_type == "LSTM":
+                h_s = h_s.detach()
+                h_c = h_c.detach()
+            elif model_type == "GRU":
+                h_s = h_s.detach()
             torch.cuda.empty_cache() if device.type == 'cuda' else None
 
         avg_epoch_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0
@@ -252,31 +216,9 @@ class TrainingTaskService:
                 if use_mixed_precision:
                     with torch.cuda.amp.autocast():
                         if model_type == "LSTM":
-                            current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
-                            current_h_c = h_c_initial.detach().clone() if h_c_initial is not None else None
-                            
-                            # Dynamic batch size adjustment for hidden states
-                            actual_batch_size = X_batch.shape[0]
-                            if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
-                                # Resize hidden states to match actual batch size
-                                num_layers, _, hidden_size = current_h_s.shape
-                                device = current_h_s.device
-                                current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
-                                current_h_c = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
-                            
-                            y_pred, (_, _) = model(X_batch, current_h_s, current_h_c)
+                            y_pred, (_, _) = model(X_batch, h_s, h_c)
                         elif model_type == "GRU":
-                            current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
-                            
-                            # Dynamic batch size adjustment for hidden states
-                            actual_batch_size = X_batch.shape[0]
-                            if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
-                                # Resize hidden states to match actual batch size
-                                num_layers, _, hidden_size = current_h_s.shape
-                                device = current_h_s.device
-                                current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
-                            
-                            y_pred, _ = model(X_batch, current_h_s)
+                            y_pred, _ = model(X_batch, h_s)
                         elif model_type == "FNN":
                             y_pred = model(X_batch)
                         else:
@@ -293,31 +235,14 @@ class TrainingTaskService:
                         loss = self.criterion(y_pred, y_batch)
                 else:
                     if model_type == "LSTM":
-                        current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
-                        current_h_c = h_c_initial.detach().clone() if h_c_initial is not None else None
-                        
-                        # Dynamic batch size adjustment for hidden states
-                        actual_batch_size = X_batch.shape[0]
-                        if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
-                            # Resize hidden states to match actual batch size
-                            num_layers, _, hidden_size = current_h_s.shape
-                            device = current_h_s.device
-                            current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
-                            current_h_c = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
-                        
-                        y_pred, (_, _) = model(X_batch, current_h_s, current_h_c)
+                        if h_s is None:
+                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                        y_pred, (_, _) = model(X_batch, h_s, h_c)
                     elif model_type == "GRU":
-                        current_h_s = h_s_initial.detach().clone() if h_s_initial is not None else None
-                        
-                        # Dynamic batch size adjustment for hidden states
-                        actual_batch_size = X_batch.shape[0]
-                        if current_h_s is not None and current_h_s.shape[1] != actual_batch_size:
-                            # Resize hidden states to match actual batch size
-                            num_layers, _, hidden_size = current_h_s.shape
-                            device = current_h_s.device
-                            current_h_s = torch.zeros(num_layers, actual_batch_size, hidden_size, device=device)
-                        
-                        y_pred, _ = model(X_batch, current_h_s)
+                        if h_s is None:
+                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                        y_pred, _ = model(X_batch, h_s)
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
                     else:
@@ -345,8 +270,11 @@ class TrainingTaskService:
                         print(f"  Using mixed precision (AMP)")
 
                 del X_batch, y_batch, y_pred, loss
-                if model_type == "LSTM": del current_h_s, current_h_c
-                elif model_type == "GRU": del current_h_s
+                if model_type == "LSTM":
+                    h_s = h_s.detach()
+                    h_c = h_c.detach()
+                elif model_type == "GRU":
+                    h_s = h_s.detach()
                 torch.cuda.empty_cache() if device.type == 'cuda' else None
         
         avg_loss = sum(total_val_loss) / len(total_val_loss) if total_val_loss else float('nan')
