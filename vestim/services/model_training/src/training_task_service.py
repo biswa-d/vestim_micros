@@ -159,8 +159,11 @@ class TrainingTaskService:
             batch_times.append(batch_time)
 
             if batch_idx % log_freq == 0 and batch_times:
-                avg_recent_batch_time = sum(batch_times[-log_freq:]) / len(batch_times[-log_freq:])
-                print(f"Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}, Input: {X_batch.shape}, Pred: {y_pred.shape}")
+                log_callback = task.get('log_callback')
+                if log_callback:
+                    log_callback(f"  Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}")
+                else:
+                    print(f"Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}, Input: {X_batch.shape}, Pred: {y_pred.shape}")
                 if use_mixed_precision:
                     print(f"  Using mixed precision (AMP)")
 
@@ -265,7 +268,11 @@ class TrainingTaskService:
                 all_val_y_true_normalized.append(y_batch.detach().cpu())
 
                 if batch_idx % log_freq == 0:
-                    print(f"Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")
+                    log_callback = task.get('log_callback')
+                    if log_callback:
+                        log_callback(f"  Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")
+                    else:
+                        print(f"Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")
                     if use_mixed_precision:
                         print(f"  Using mixed precision (AMP)")
 

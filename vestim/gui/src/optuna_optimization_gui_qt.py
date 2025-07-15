@@ -195,6 +195,7 @@ class OptunaOptimizationThread(QThread):
     
     def _evaluate_params(self, params, trial_num):
         """Evaluate parameters by running real training and returning validation loss."""
+        self.log_message.emit(f"--- Evaluating Trial {trial_num + 1} ---")
         import torch
         import numpy as np
         from vestim.services.model_training.src.LSTM_model_service_test import LSTMModelService
@@ -271,7 +272,7 @@ class OptunaOptimizationThread(QThread):
         model.to(device)
 
         # --- 3. Training setup ---
-        max_epochs = int(float(params.get('MAX_EPOCHS', 3)))  # Use a small number for Optuna
+        max_epochs = int(float(params.get('MAX_EPOCHS', 10)))  # Use a reasonable number of epochs for Optuna to evaluate trials
         initial_lr = float(params.get('INITIAL_LR', 0.001))
         optimizer = torch.optim.Adam(model.parameters(), lr=initial_lr)
         training_service = TrainingTaskService()
@@ -292,24 +293,29 @@ class OptunaOptimizationThread(QThread):
 
         # --- 4. Training loop (short, for speed) ---
         for epoch in range(1, max_epochs+1):
+            self.log_message.emit(f"  Trial {trial_num + 1}, Epoch {epoch}/{max_epochs}...")
             # Correctly unpack the tuple returned by train_epoch
             _, train_loss_norm, _, _ = training_service.train_epoch(
                 model, model_type, train_loader, optimizer, h_s_initial, h_c_initial, epoch, device, stop_requested, task={
                     'hyperparams': params,
-                    'log_frequency': 100
+                    'log_frequency': 100,
+                    'log_callback': self.log_message.emit
                 }
             )
             # Use the dedicated validate_epoch function for validation
             val_loss, _, _ = training_service.validate_epoch(
                 model, model_type, val_loader, h_s_initial, h_c_initial, epoch, device, stop_requested, task={
                     'hyperparams': params,
-                    'log_frequency': 100
+                    'log_frequency': 100,
+                    'log_callback': self.log_message.emit
                 }
             )
+            self.log_message.emit(f"  Trial {trial_num + 1}, Epoch {epoch}: Train Loss = {train_loss_norm:.6f}, Val Loss = {val_loss:.6f}")
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-
+        
+        self.log_message.emit(f"--- Finished Trial {trial_num + 1} with loss: {best_val_loss:.6f} ---")
         # --- 5. Return best validation loss as objective ---
         return best_val_loss
     
