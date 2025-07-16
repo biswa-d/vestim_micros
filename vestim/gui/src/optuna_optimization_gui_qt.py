@@ -98,6 +98,8 @@ class OptunaOptimizationThread(QThread):
                     self.log_message.emit("Optimization stopped by user")
                     break
                     
+                trial = None
+                params = {}
                 try:
                     # Run single trial
                     trial = self.study.ask()
@@ -127,12 +129,21 @@ class OptunaOptimizationThread(QThread):
                     })
                     
                     self.log_message.emit(f"Trial {trial_num + 1}: objective = {objective_value:.6f}")
-                    
+
+                except optuna.exceptions.TrialPruned:
+                    self.log_message.emit(f"Trial {trial_num + 1} pruned.")
+                    self.trial_completed.emit({
+                        'trial_number': trial_num + 1,
+                        'params': params,
+                        'value': 'N/A',
+                        'state': 'PRUNED'
+                    })
+
                 except Exception as e:
                     self.log_message.emit(f"Trial {trial_num + 1} failed: {str(e)}")
                     self.trial_completed.emit({
                         'trial_number': trial_num + 1,
-                        'params': {},
+                        'params': params,
                         'value': float('inf'),
                         'state': 'FAIL'
                     })
@@ -201,11 +212,13 @@ class OptunaOptimizationThread(QThread):
         
         # This callback will be used by the TrainingTaskManager to report progress
         # and allow Optuna to prune if necessary.
-        def optuna_progress_callback(progress_data):
+        def optuna_progress_callback(progress_data, params_for_callback):
             if isinstance(progress_data, dict):
                 val_loss = progress_data.get('val_loss')
                 epoch = progress_data.get('epoch')
                 if val_loss is not None and epoch is not None:
+                    max_epochs = params_for_callback.get('MAX_EPOCHS', 'N/A')
+                    self.log_message.emit(f"  Epoch {epoch}/{max_epochs} - Val Loss: {val_loss:.6f}")
                     trial.report(val_loss, epoch)
                     if trial.should_prune():
                         raise optuna.exceptions.TrialPruned()
@@ -243,7 +256,7 @@ class OptunaOptimizationThread(QThread):
                 progress_signal = pyqtSignal(dict)
             
             emitter = SignalEmitter()
-            emitter.progress_signal.connect(optuna_progress_callback)
+            emitter.progress_signal.connect(lambda p_data: optuna_progress_callback(p_data, params))
 
             # Run the training. This is a blocking call that will run the entire training loop.
             task_manager.process_task(training_task, emitter.progress_signal)
@@ -251,10 +264,17 @@ class OptunaOptimizationThread(QThread):
             # 3. Extract the final validation loss from the results
             # The results are stored in the task dictionary after completion.
             final_results = training_task.get('results', {})
+            
+            # Check if the trial failed
+            if 'error' in final_results:
+                error_msg = final_results['error']
+                self.log_message.emit(f"--- Trial {trial.number} failed: {error_msg} ---")
+                return float('inf') # Return infinity to penalize failure
+
             best_val_loss = final_results.get('best_validation_loss_normalized', float('inf'))
 
             if best_val_loss == float('inf'):
-                 self.log_message.emit(f"Trial {trial.number} finished, but a valid validation loss was not found. Returning infinity.")
+                 self.log_message.emit(f"Trial {trial.number} finished, but a valid validation loss was not found. This may indicate a problem with the training process. Returning infinity.")
             else:
                  self.log_message.emit(f"--- Finished Trial {trial.number} with best validation loss: {best_val_loss:.6f} ---")
 
@@ -507,8 +527,8 @@ class VEstimOptunaOptimizationGUI(QWidget):
         trial_layout = QVBoxLayout()
         
         self.trial_table = QTableWidget()
-        self.trial_table.setColumnCount(3)
-        self.trial_table.setHorizontalHeaderLabels(["Trial", "Parameters", "Objective Value"])
+        self.trial_table.setColumnCount(4)
+        self.trial_table.setHorizontalHeaderLabels(["Trial", "State", "Objective Value", "Parameters"])
         self.trial_table.horizontalHeader().setStretchLastSection(True)
         
         trial_layout.addWidget(self.trial_table)
@@ -621,8 +641,12 @@ class VEstimOptunaOptimizationGUI(QWidget):
         self.trial_table.insertRow(row)
         
         self.trial_table.setItem(row, 0, QTableWidgetItem(str(trial_info['trial_number'])))
-        self.trial_table.setItem(row, 1, QTableWidgetItem(str(trial_info['params'])))
-        self.trial_table.setItem(row, 2, QTableWidgetItem(f"{trial_info['value']:.6f}"))
+        self.trial_table.setItem(row, 1, QTableWidgetItem(trial_info['state']))
+        
+        value_str = f"{trial_info['value']:.6f}" if isinstance(trial_info['value'], float) else str(trial_info['value'])
+        self.trial_table.setItem(row, 2, QTableWidgetItem(value_str))
+        
+        self.trial_table.setItem(row, 3, QTableWidgetItem(str(trial_info['params'])))
         
         # Auto-scroll to latest trial
         self.trial_table.scrollToBottom()

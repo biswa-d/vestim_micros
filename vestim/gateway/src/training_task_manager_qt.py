@@ -1021,6 +1021,17 @@ class TrainingTaskManager:
             # Calculate final task elapsed time before saving summary
             final_task_elapsed_time = time.time() - self.task_start_time if hasattr(self, 'task_start_time') else 0
 
+            # Populate the results dictionary within the task object itself
+            task['results'] = {
+                'best_validation_loss_normalized': best_validation_loss,
+                'best_validation_loss_denormalized': getattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', float('inf')),
+                'final_train_loss_normalized': train_loss_norm,
+                'final_validation_loss_normalized': val_loss_norm,
+                'completed_epochs': epoch,
+                'early_stopped': early_stopping,
+                'early_stopped_reason': task.get('results', {}).get('early_stopped_reason', 'Patience' if early_stopping else 'Completed')
+            }
+
             # Save detailed training task summary for testing GUI integration
             self._save_training_task_summary(task, best_validation_loss, train_loss_norm, val_loss_norm,
                                            epoch, max_epochs, early_stopping, final_task_elapsed_time,
@@ -1051,6 +1062,12 @@ class TrainingTaskManager:
         # Correctly indented except for the try block starting at line 318
         except Exception as e:
             self.logger.error(f"Error during training for task {task.get('task_id', 'N/A')}: {str(e)}", exc_info=True)
+            # Populate results with failure information so Optuna can handle it
+            task['results'] = {
+                'best_validation_loss_normalized': float('inf'),
+                'error': str(e),
+                'completed_epochs': task.get('results', {}).get('completed_epochs', 0) # Preserve epoch count if available
+            }
             update_progress_callback.emit({'task_error': str(e)})
         # Correctly indented finally for the try block starting at line 318
         finally:
