@@ -34,7 +34,7 @@ class VEstimTestingManager:
         self.job_manager = JobManager()  # Singleton instance of JobManager
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.testing_service = VEstimTestingService()  # Keep old service for fallback
-        self.continuous_testing_service = ContinuousTestingService()  # New continuous testing
+        # self.continuous_testing_service = ContinuousTestingService()  # Removed to prevent race conditions
         self.test_data_service = VEstimTestDataService()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.max_workers = 4  # Number of concurrent threads
@@ -106,8 +106,8 @@ class VEstimTestingManager:
             self.logger.info(f"--- Starting _test_single_model for task_id: {task.get('task_id', 'UnknownTask')} (list index: {idx}) ---") # Added detailed log
             print(f"Preparing test data for Task {idx + 1}...")
             
-            # Reset continuous testing service for each new model
-            self.continuous_testing_service.reset_for_new_model()
+            # Create a new instance of the testing service for each thread to ensure isolation
+            continuous_testing_service = ContinuousTestingService()
             
             # Get required paths and parameters
             lookback = task['hyperparams']['LOOKBACK']
@@ -173,7 +173,7 @@ class VEstimTestingManager:
                     # Use continuous testing - no test loader needed
                     test_df = pd.read_csv(test_file_path)
                     
-                    file_results = self.continuous_testing_service.run_continuous_testing(
+                    file_results = continuous_testing_service.run_continuous_testing(
                         task=task,
                         model_path=model_path,
                         test_file_path=test_file_path,

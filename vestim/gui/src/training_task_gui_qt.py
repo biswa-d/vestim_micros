@@ -241,12 +241,20 @@ class VEstimTrainingTaskGUI(QMainWindow):
             display_val = scheduler_type if scheduler_type else "N/A"
             if scheduler_type == 'StepLR':
                 period = params.get('LR_DROP_PERIOD', params.get('LR_PERIOD', 'N/A')) # Check both keys
-                factor = params.get('LR_DROP_FACTOR', params.get('LR_PARAM', 'N/A'))
-                display_val = f"StepLR (Period: {period}, Factor: {factor})"
+                factor_val = params.get('LR_DROP_FACTOR', params.get('LR_PARAM', 'N/A'))
+                try:
+                    factor_str = f"{float(factor_val):.2f}"
+                except (ValueError, TypeError):
+                    factor_str = str(factor_val)
+                display_val = f"StepLR (Period: {period}, Factor: {factor_str})"
             elif scheduler_type == 'ReduceLROnPlateau':
                 patience = params.get('PLATEAU_PATIENCE', 'N/A')
-                factor = params.get('PLATEAU_FACTOR', params.get('LR_PARAM', 'N/A')) # Check old key too
-                display_val = f"ReduceLROnPlateau (Patience: {patience}, Factor: {factor})"
+                factor_val = params.get('PLATEAU_FACTOR', params.get('LR_PARAM', 'N/A')) # Check old key too
+                try:
+                    factor_str = f"{float(factor_val):.2f}"
+                except (ValueError, TypeError):
+                    factor_str = str(factor_val)
+                display_val = f"ReduceLROnPlateau (Patience: {patience}, Factor: {factor_str})"
             return display_val
 
         # Add items in preferred order
@@ -269,8 +277,14 @@ class VEstimTrainingTaskGUI(QMainWindow):
                     value = get_scheduler_display_val(task_params)
                 else:
                     value = task_params.get(key)
-
-                value_str = str(value)
+                
+                if key == 'INITIAL_LR':
+                    try:
+                        value_str = f"{float(value):.2e}"
+                    except (ValueError, TypeError):
+                        value_str = str(value)
+                else:
+                    value_str = str(value)
                 if isinstance(value, list) and len(value) > 2:
                     display_value = f"[{value[0]}, {value[1]}, ...]"
                 elif isinstance(value, str) and "," in value_str and key not in ['SCHEDULER_TYPE']: # Don't truncate scheduler string

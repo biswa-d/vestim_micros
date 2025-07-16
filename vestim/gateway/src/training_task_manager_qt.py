@@ -298,8 +298,8 @@ class TrainingTaskManager:
                                     self.logger.info(f"Normalized columns: {normalized_columns}")
                                     for i, col in enumerate(normalized_columns):
                                         if i < len(self.loaded_scaler.data_min_) and i < len(self.loaded_scaler.data_max_):
-                                            data_min = self.loaded_scaler.data_min_[i]
-                                            data_max = self.loaded_scaler.data_max_[i]
+                                            data_min = float(self.loaded_scaler.data_min_[i])
+                                            data_max = float(self.loaded_scaler.data_max_[i])
                                             data_range = data_max - data_min
                                             self.logger.info(f"  {col}: min={data_min:.6f}, max={data_max:.6f}, range={data_range:.6f}")
                                             # For voltage, show expected multiplier effect
@@ -315,7 +315,7 @@ class TrainingTaskManager:
                                     self.logger.info(f"Normalized columns: {normalized_columns}")
                                     for i, col in enumerate(normalized_columns):
                                         if i < len(self.loaded_scaler.scale_):
-                                            scale = self.loaded_scaler.scale_[i]
+                                            scale = float(self.loaded_scaler.scale_[i])
                                             self.logger.info(f"  {col}: scale={scale:.6f}")
                                             # For voltage, show expected multiplier effect
                                             if "voltage" in col.lower():
