@@ -13,77 +13,59 @@ class SetupWorker(QThread):
     progress_signal = pyqtSignal(str, str, int)  # Signal to update the status in the main GUI
     finished_signal = pyqtSignal()  # Signal when the setup is finished
 
-    def __init__(self, job_manager):
+    def __init__(self, job_manager, optuna_configs=None):
         super().__init__()
-        self.logger = logging.getLogger(__name__)  # Set up logger
+        self.logger = logging.getLogger(__name__)
         self.job_manager = job_manager
-        # Directly use VEstimTrainingSetupManager(), __new__ ensures singleton
+        self.optuna_configs = optuna_configs
         self.training_setup_manager = VEstimTrainingSetupManager(progress_signal=self.progress_signal, job_manager=self.job_manager)
 
     def run(self):
         self.logger.info("Starting training setup in a separate thread.")
-        print("Starting training setup in a separate thread...")
         try:
-            # Perform the training setup
-            self.training_setup_manager.setup_training()
-            print("Training setup started successfully!")
-            self.logger.info("Training setup started successfully.")
-
-            # Get the number of training tasks created
-            task_count = len(self.training_setup_manager.get_task_list())
-
-            # Emit a signal to update the status
-            self.progress_signal.emit(
-                "Task summary saved in the job folder",
-                self.job_manager.get_job_folder(),
-                task_count
-            )
-
-            # Emit a signal when finished
+            if self.optuna_configs:
+                self.logger.info("Running setup with Optuna configurations.")
+                self.training_setup_manager.setup_training_from_optuna(self.optuna_configs)
+            else:
+                self.logger.info("Running setup with grid search.")
+                self.training_setup_manager.setup_training()
+            
+            self.logger.info("Training setup process completed.")
             self.finished_signal.emit()
 
         except Exception as e:
-            # Emit the error message via the progress signal
             self.logger.error(f"Error occurred during setup: {str(e)}")
             self.progress_signal.emit(f"Error occurred: {str(e)}", "", 0)
 
 class VEstimTrainSetupGUI(QWidget):
-    def __init__(self, params):
+    def __init__(self, params=None, optuna_configs=None):
         super().__init__()
-        self.logger = logging.getLogger(__name__)  # Set up logger
-        
-        # Handle both single params dict and list of params (for Optuna results)
-        if isinstance(params, list):
-            self.param_list = params
-            self.params = params[0] if params else {}  # Use first config for display
+        self.logger = logging.getLogger(__name__)
+        self.optuna_configs = optuna_configs
+
+        if optuna_configs:
+            self.param_list = [config['params'] for config in optuna_configs]
+            self.params = self.param_list[0] if self.param_list else {}
             self.is_multiple_configs = True
-            self.logger.info(f"Initialized with {len(params)} parameter configurations from Optuna")
+            self.logger.info(f"Initialized with {len(self.param_list)} parameter configurations from Optuna")
         else:
             self.params = params
             self.param_list = [params] if params else []
             self.is_multiple_configs = False
             self.logger.info("Initialized with single parameter configuration for grid search")
         
-        self.job_manager = JobManager()  # Initialize the JobManager singleton instance directly
-        self.timer_running = True  # Ensure this flag is initialized in __init__
+        self.job_manager = JobManager()
+        self.timer_running = True
         self.param_labels = {
-            "LAYERS": "Layers",
-            "HIDDEN_UNITS": "Hidden Units",
-            "BATCH_SIZE": "Batch Size",
-            "MAX_EPOCHS": "Max Epochs",
-            "INITIAL_LR": "Initial Learning Rate",
-            "LR_DROP_FACTOR": "LR Drop Factor",
-            "LR_DROP_PERIOD": "LR Drop Period",
-            "VALID_PATIENCE": "Validation Patience",
-            "ValidFrequency": "Validation Frequency",
-            "LOOKBACK": "Lookback Sequence Length",
-            "REPETITIONS": "Repetitions"
+            "LAYERS": "Layers", "HIDDEN_UNITS": "Hidden Units", "BATCH_SIZE": "Batch Size",
+            "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
+            "LR_DROP_FACTOR": "LR Drop Factor", "LR_DROP_PERIOD": "LR Drop Period",
+            "VALID_PATIENCE": "Validation Patience", "ValidFrequency": "Validation Frequency",
+            "LOOKBACK": "Lookback Sequence Length", "REPETITIONS": "Repetitions"
         }
 
-        # Setup GUI
         self.logger.info("Initializing VEstimTrainSetupGUI")
         self.build_gui()
-        # Start the setup process
         self.start_setup()
 
     def build_gui(self):
@@ -165,7 +147,7 @@ class VEstimTrainSetupGUI(QWidget):
         self.show()
 
         # Move the training setup to a separate thread
-        self.worker = SetupWorker(self.job_manager)
+        self.worker = SetupWorker(self.job_manager, self.optuna_configs)
         self.worker.progress_signal.connect(self.update_status)
         self.worker.finished_signal.connect(self.show_proceed_button)
 

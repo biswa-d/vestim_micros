@@ -29,6 +29,7 @@ except ImportError:
 
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
+from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 
 
 class OptunaOptimizationThread(QThread):
@@ -294,12 +295,14 @@ class OptunaOptimizationThread(QThread):
         # --- 4. Training loop (short, for speed) ---
         for epoch in range(1, max_epochs+1):
             self.log_message.emit(f"  Trial {trial_num + 1}, Epoch {epoch}/{max_epochs}...")
+            QApplication.processEvents()
             # Correctly unpack the tuple returned by train_epoch
             _, train_loss_norm, _, _ = training_service.train_epoch(
                 model, model_type, train_loader, optimizer, h_s_initial, h_c_initial, epoch, device, stop_requested, task={
                     'hyperparams': params,
                     'log_frequency': 100,
-                    'log_callback': self.log_message.emit
+                    'log_callback': self.log_message.emit,
+                    'trial_num': trial_num
                 }
             )
             # Use the dedicated validate_epoch function for validation
@@ -307,7 +310,8 @@ class OptunaOptimizationThread(QThread):
                 model, model_type, val_loader, h_s_initial, h_c_initial, epoch, device, stop_requested, task={
                     'hyperparams': params,
                     'log_frequency': 100,
-                    'log_callback': self.log_message.emit
+                    'log_callback': self.log_message.emit,
+                    'trial_num': trial_num
                 }
             )
             self.log_message.emit(f"  Trial {trial_num + 1}, Epoch {epoch}: Train Loss = {train_loss_norm:.6f}, Val Loss = {val_loss:.6f}")
@@ -457,10 +461,10 @@ class VEstimOptunaOptimizationGUI(QWidget):
         self.stop_button.clicked.connect(self.stop_optimization)
         self.stop_button.setEnabled(False)
         
-        self.proceed_button = QPushButton("Prepare Training Tasks →")
+        self.proceed_button = QPushButton("Proceed to Training Setup →")
         self.proceed_button.setFixedHeight(35)
         self.proceed_button.setStyleSheet("background-color: #0b6337; color: white; font-weight: bold;")
-        self.proceed_button.clicked.connect(self.proceed_to_training)
+        self.proceed_button.clicked.connect(self.proceed_to_training_setup)
         self.proceed_button.setEnabled(False)
         
         button_layout.addWidget(back_button)
@@ -776,23 +780,19 @@ class VEstimOptunaOptimizationGUI(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Export Error", f"Failed to export results: {str(e)}")
     
-    def proceed_to_training(self):
-        """Proceed to task preparation with selected configurations"""
+    def proceed_to_training_setup(self):
+        """Proceed to the training setup GUI with the best configurations."""
         if not self.best_configs:
             QMessageBox.warning(self, "No Results", "No optimization results available.")
             return
         
         try:
-            # Import the new Optuna task setup manager
-            from vestim.gui.src.optuna_task_setup_manager_qt import OptunaPrepareTaskManager
-            
-            # Create the task setup manager with base params and best configs
-            self.task_setup_manager = OptunaPrepareTaskManager(self.base_params, self.best_configs)
-            self.task_setup_manager.show()
             self.close()
-            
+            self.training_setup_gui = VEstimTrainSetupGUI(optuna_configs=self.best_configs)
+            self.training_setup_gui.show()
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to proceed to task preparation: {str(e)}")
+            self.logger.error(f"Error proceeding to training setup: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to open training setup: {str(e)}")
     
     def go_back(self):
         """Go back to hyperparameter GUI"""

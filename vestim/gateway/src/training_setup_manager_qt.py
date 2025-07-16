@@ -32,42 +32,53 @@ class VEstimTrainingSetupManager:
             self.initialized = True  # Mark as initialized
 
     def setup_training(self):
-        print("Setting up training by the manager...")
-        self.logger.info("Setting up training...")
-        self.logger.info("Fetching hyperparameters...")
-        """Set up the training process, including building models and creating training tasks."""
+        """Set up the training process for grid search."""
+        self.logger.info("Setting up grid search training...")
         try:
-            print("Fetching hyperparameters...")
             self.params = self.hyper_param_manager.get_hyper_params()
             self.current_hyper_params = self.params
             self.logger.info(f"Params after updating: {self.current_hyper_params}")
 
-            # Emit progress signal to indicate model building is starting
             if self.progress_signal:
                 self.progress_signal.emit("Building models...", "", 0)
 
-            # Build models
             self.build_models()
 
-            # Emit progress signal to indicate training task creation is starting
             if self.progress_signal:
                 self.progress_signal.emit("Creating training tasks...", "", 0)
 
-            # Create training tasks
             self.create_training_tasks()
 
-            # Emit final progress signal after tasks are created
             task_count = len(self.training_tasks)
             if self.progress_signal:
                 self.progress_signal.emit(
-                    f"Setup complete! Task info saved in {self.job_manager.get_job_folder()}.",
+                    f"Setup complete! {task_count} tasks created in {self.job_manager.get_job_folder()}.",
                     self.job_manager.get_job_folder(),
                     task_count
                 )
-
         except Exception as e:
-            self.logger.error(f"Error during setup: {str(e)}")
-            # Handle any error during setup and pass it to the GUI
+            self.logger.error(f"Error during grid search setup: {str(e)}")
+            if self.progress_signal:
+                self.progress_signal.emit(f"Error during setup: {str(e)}", "", 0)
+
+    def setup_training_from_optuna(self, optuna_configs):
+        """Set up the training process using configurations from Optuna."""
+        self.logger.info("Setting up training from Optuna configurations...")
+        try:
+            if self.progress_signal:
+                self.progress_signal.emit("Creating training tasks from Optuna configs...", "", 0)
+
+            self.create_tasks_from_optuna(optuna_configs)
+
+            task_count = len(self.training_tasks)
+            if self.progress_signal:
+                self.progress_signal.emit(
+                    f"Setup complete! {task_count} Optuna tasks created in {self.job_manager.get_job_folder()}.",
+                    self.job_manager.get_job_folder(),
+                    task_count
+                )
+        except Exception as e:
+            self.logger.error(f"Error during Optuna setup: {str(e)}")
             if self.progress_signal:
                 self.progress_signal.emit(f"Error during setup: {str(e)}", "", 0)
 
@@ -287,137 +298,126 @@ class VEstimTrainingSetupManager:
             raise
 
     def create_training_tasks(self):
-        """Create training tasks based on hyperparameters."""
+        """Create training tasks from grid search."""
+        self.create_tasks_from_grid_search()
+
+    def create_tasks_from_optuna(self, best_configs):
+        """Create training tasks from a list of Optuna best configurations."""
         task_list = []
-        job_normalization_metadata = {} # To store data from job_metadata.json once
+        base_params = self.hyper_param_manager.get_hyper_params()
+
+        for i, config_data in enumerate(best_configs):
+            # The 'params' key holds the hyperparameter dictionary from Optuna trial
+            trial_params = config_data['params']
+            
+            # Merge base params with trial-specific params
+            hyperparams = base_params.copy()
+            hyperparams.update(trial_params)
+
+            # Create a single model instance for this task
+            model_task = self._build_single_model(hyperparams)
+            
+            # Create the task info
+            task_info = self._create_task_info(
+                model_task=model_task,
+                hyperparams=hyperparams,
+                repetition=1, # Each Optuna config is a single task
+                job_normalization_metadata=self.load_job_normalization_metadata(),
+                max_training_time_seconds_arg=hyperparams.get('MAX_TRAINING_TIME_SECONDS', 0)
+            )
+            task_list.append(task_info)
+
+        self.training_tasks = task_list
+        self.save_tasks_to_files(task_list)
+        return task_list
+
+    def create_tasks_from_grid_search(self):
+        """Create training tasks from the models built during grid search."""
+        task_list = []
+        repetitions = self.params.get('REPETITIONS', 1)
+        job_normalization_metadata = self.load_job_normalization_metadata()
+        max_training_time_seconds_arg = self.params.get('MAX_TRAINING_TIME_SECONDS', 0)
+
+        for model_task in self.models:
+            for i in range(1, repetitions + 1):
+                # Combine global and model-specific hyperparameters
+                task_hyperparams = self.params.copy()
+                task_hyperparams.update(model_task['hyperparams'])
+
+                task_info = self._create_task_info(
+                    model_task=model_task,
+                    hyperparams=task_hyperparams,
+                    repetition=i,
+                    job_normalization_metadata=job_normalization_metadata,
+                    max_training_time_seconds_arg=max_training_time_seconds_arg
+                )
+                task_list.append(task_info)
+
+        self.training_tasks = task_list
+        self.save_tasks_to_files(task_list)
+        return task_list
+
+    def _build_single_model(self, hyperparams):
+        """Build a single model based on a given hyperparameter set."""
+        model_type = hyperparams.get("MODEL_TYPE", "LSTM")
+        input_size = len(hyperparams.get("FEATURE_COLUMNS", []))
+        output_size = 1
+
+        model_dir = os.path.join(
+            self.job_manager.get_job_folder(),
+            'models',
+            f'optuna_model_{model_type}_trial_{hyperparams.get("OPTUNA_TRIAL_NUMBER", "N/A")}'
+        )
+        os.makedirs(model_dir, exist_ok=True)
+        model_path = os.path.join(model_dir, "untrained_model_template.pth")
+
+        model_params = {
+            "INPUT_SIZE": input_size,
+            "OUTPUT_SIZE": output_size,
+        }
+        if model_type in ["LSTM", "GRU"]:
+            model_params["HIDDEN_UNITS"] = int(hyperparams.get("HIDDEN_UNITS", 10))
+            model_params["LAYERS"] = int(hyperparams.get("LAYERS", 1))
+        elif model_type == "FNN":
+            model_params["HIDDEN_LAYER_SIZES"] = [int(s) for s in hyperparams.get("FNN_HIDDEN_LAYERS", "128,64").split(',')]
+            model_params["DROPOUT_PROB"] = float(hyperparams.get("FNN_DROPOUT_PROB", 0.1))
+
+        model = self.create_selected_model(model_type, model_params, model_path)
+        
+        return {
+            'model': model,
+            'model_type': model_type,
+            'model_dir': model_dir,
+            "FEATURE_COLUMNS": hyperparams.get("FEATURE_COLUMNS", []),
+            "TARGET_COLUMN": hyperparams.get("TARGET_COLUMN", ""),
+            'hyperparams': model_params
+        }
+
+    def load_job_normalization_metadata(self):
+        """Loads normalization metadata from the job folder."""
         job_folder = self.job_manager.get_job_folder()
         metadata_file_path = os.path.join(job_folder, "job_metadata.json")
-
         if os.path.exists(metadata_file_path):
             try:
                 with open(metadata_file_path, 'r') as f_meta:
-                    job_normalization_metadata = json.load(f_meta)
-                self.logger.info(f"Loaded job_metadata.json for task creation: {job_normalization_metadata}")
+                    return json.load(f_meta)
             except Exception as e:
-                self.logger.error(f"Error loading job_metadata.json in create_training_tasks: {e}")
-                # Proceed without normalization info if file is corrupt or unreadable
-        else:
-            self.logger.info("job_metadata.json not found. Tasks will not include normalization metadata.")
+                self.logger.error(f"Error loading job_metadata.json: {e}")
+        return {}
 
-        try:
-            # Parse all comma-separated values
-            max_epochs_list = [int(e.strip()) for e in str(self.current_hyper_params['MAX_EPOCHS']).split(',')]
-            learning_rates = [float(lr.strip()) for lr in str(self.current_hyper_params['INITIAL_LR']).split(',')]
-            # Removed train_val_splits as we now use separate train/val/test folders
-            lookbacks = [int(lb.strip()) for lb in str(self.current_hyper_params['LOOKBACK']).split(',')]
-            batch_sizes = [int(bs.strip()) for bs in str(self.current_hyper_params['BATCH_SIZE']).split(',')]
-            valid_patience = [int(vp.strip()) for vp in str(self.current_hyper_params['VALID_PATIENCE']).split(',')]
-            valid_frequency = int(self.current_hyper_params.get('VALID_FREQUENCY', '3'))
-            repetitions = int(self.current_hyper_params.get('REPETITIONS', '1'))
-            
-            # Robustly get MAX_TRAINING_TIME_SECONDS
-            raw_max_time = self.current_hyper_params.get('MAX_TRAINING_TIME_SECONDS')
-            if isinstance(raw_max_time, (int, float)):
-                max_training_time_seconds = int(raw_max_time)
-            elif isinstance(raw_max_time, str) and raw_max_time.isdigit():
-                max_training_time_seconds = int(raw_max_time)
-            else:
-                max_training_time_seconds = 0 # Default if not found, None, or not a valid number string
-                if raw_max_time is not None:
-                    self.logger.warning(f"Invalid value for MAX_TRAINING_TIME_SECONDS in TrainingSetupManager: '{raw_max_time}'. Defaulting to 0.")
-            self.logger.info(f"TrainingSetupManager using MAX_TRAINING_TIME_SECONDS: {max_training_time_seconds}")
+    def save_tasks_to_files(self, task_list):
+        """Saves task information to JSON files."""
+        for task_info in task_list:
+            task_dir = task_info['model_dir']
+            task_info_file = os.path.join(task_dir, 'task_info.json')
+            serializable_info = {k: v for k, v in task_info.items() if k != 'model'}
+            with open(task_info_file, 'w') as f:
+                json.dump(serializable_info, f, indent=4)
 
-            # Get scheduler type
-            scheduler_type = self.current_hyper_params.get('SCHEDULER_TYPE', 'StepLR')
-
-            # Parse scheduler-specific parameters
-            if scheduler_type == 'StepLR':
-                lr_periods = [int(p.strip()) for p in str(self.current_hyper_params['LR_PERIOD']).split(',')]
-                lr_factors = [float(f.strip()) for f in str(self.current_hyper_params['LR_PARAM']).split(',')]
-            else:  # ReduceLROnPlateau
-                plateau_patience = [int(p.strip()) for p in str(self.current_hyper_params['PLATEAU_PATIENCE']).split(',')]
-                plateau_factors = [float(f.strip()) for f in str(self.current_hyper_params['PLATEAU_FACTOR']).split(',')]
-
-            # Create tasks for each model and combination of hyperparameters
-            for model_task in self.models:
-                for max_epochs in max_epochs_list:  # Add iteration over max_epochs
-                    for lr in learning_rates:
-                        for lookback in lookbacks:
-                            for batch_size in batch_sizes:
-                                for vp in valid_patience:
-                                    if scheduler_type == 'StepLR':
-                                        for period in lr_periods:
-                                            for factor in lr_factors:
-                                                for rep in range(1, repetitions + 1):
-                                                    task_info = self._create_task_info(
-                                                        model_task=model_task,
-                                                        hyperparams={
-                                                            'INITIAL_LR': lr,
-                                                            # Removed TRAIN_VAL_SPLIT as we now use separate folders
-                                                            'LOOKBACK': lookback,
-                                                            'BATCH_SIZE': batch_size,
-                                                            'VALID_PATIENCE': vp,
-                                                            'MAX_EPOCHS': max_epochs,  # Use the current max_epochs value
-                                                            'SCHEDULER_TYPE': 'StepLR',
-                                                            'LR_PERIOD': period,
-                                                            'LR_PARAM': factor,
-                                                            'REPETITIONS': rep,
-                                                            'ValidFrequency': valid_frequency,
-                                                            'MAX_TRAINING_TIME_SECONDS': max_training_time_seconds, # Add here
-                                                        },
-                                                        repetition=rep,
-                                                        job_normalization_metadata=job_normalization_metadata,
-                                                        max_training_time_seconds_arg=max_training_time_seconds # Pass as separate arg for clarity
-                                                    )
-                                                    task_list.append(task_info)
-                                    else:  # ReduceLROnPlateau
-                                        for p_patience in plateau_patience:
-                                            for p_factor in plateau_factors:
-                                                for rep in range(1, repetitions + 1):
-                                                    task_info = self._create_task_info(
-                                                        model_task=model_task,
-                                                        hyperparams={
-                                                            'INITIAL_LR': lr,
-                                                            # Removed TRAIN_VAL_SPLIT as we now use separate folders
-                                                            'LOOKBACK': lookback,
-                                                            'BATCH_SIZE': batch_size,
-                                                            'VALID_PATIENCE': vp,
-                                                            'MAX_EPOCHS': max_epochs,  # Use the current max_epochs value
-                                                            'SCHEDULER_TYPE': 'ReduceLROnPlateau',
-                                                            'PLATEAU_PATIENCE': p_patience,
-                                                            'PLATEAU_FACTOR': p_factor,
-                                                            'REPETITIONS': rep,
-                                                            'ValidFrequency': valid_frequency,
-                                                            'MAX_TRAINING_TIME_SECONDS': max_training_time_seconds, # Add here
-                                                        },
-                                                        repetition=rep,
-                                                        job_normalization_metadata=job_normalization_metadata,
-                                                        max_training_time_seconds_arg=max_training_time_seconds # Pass as separate arg for clarity
-                                                    )
-                                                    task_list.append(task_info)
-
-            # Save the task list and return
-            self.training_tasks = task_list
-            
-            # Save task info for each task
-            for task_info in task_list:
-                task_dir = task_info['model_dir']
-                task_info_file = os.path.join(task_dir, 'task_info.json')
-                serializable_info = {k: v for k, v in task_info.items() if k != 'model'}
-                with open(task_info_file, 'w') as f:
-                    json.dump(serializable_info, f, indent=4)
-
-            # Save tasks summary
-            tasks_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
-            serializable_tasks = [{k: v for k, v in task.items() if k != 'model'} for task in task_list]
-            with open(tasks_summary_file, 'w') as f:
-                json.dump(serializable_tasks, f, indent=4)
-
-            return task_list
-
-        except Exception as e:
-            self.logger.error(f"Error creating training tasks: {e}")
-            raise
+        tasks_summary_file = os.path.join(self.job_manager.get_job_folder(), 'training_tasks_summary.json')
+        serializable_tasks = [{k: v for k, v in task.items() if k != 'model'} for task in task_list]
+        with open(tasks_summary_file, 'w') as f:
+            json.dump(serializable_tasks, f, indent=4)
 
     def _create_task_info(self, model_task, hyperparams, repetition, job_normalization_metadata=None, max_training_time_seconds_arg=0): # Added new arg
         """Helper method to create a task info dictionary."""
