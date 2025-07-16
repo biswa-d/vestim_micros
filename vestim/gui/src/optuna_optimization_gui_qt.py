@@ -240,20 +240,20 @@ class OptunaOptimizationThread(QThread):
             model_service = LSTMModelService()
             model_params['HIDDEN_UNITS'] = int(float(params.get('HIDDEN_UNITS', 10)))
             model_params['LAYERS'] = int(float(params.get('LAYERS', 1)))
-            model = model_service.build_lstm_model(model_params, device).to(device)
+            model = model_service.build_lstm_model(model_params).to(device)
         elif model_type == 'GRU':
             from vestim.services.model_training.src.GRU_model_service import GRUModelService
             model_service = GRUModelService()
             model_params['HIDDEN_UNITS'] = int(float(params.get('HIDDEN_UNITS', 10)))
             model_params['LAYERS'] = int(float(params.get('LAYERS', 1)))
-            model = model_service.build_gru_model(model_params, device).to(device)
+            model = model_service.build_gru_model(model_params).to(device)
         elif model_type == 'FNN':
             from vestim.services.model_training.src.FNN_model_service import FNNModelService
             model_service = FNNModelService()
             hidden_layer_sizes_str = params.get('FNN_HIDDEN_LAYERS', '128,64')
             model_params['HIDDEN_LAYER_SIZES'] = [int(s.strip()) for s in hidden_layer_sizes_str.split(',')]
             model_params['DROPOUT_PROB'] = float(params.get('FNN_DROPOUT_PROB', 0.1))
-            model = model_service.create_model(model_params, device).to(device)
+            model = model_service.build_fnn_model(model_params).to(device)
         else:
             raise ValueError(f"Unsupported model_type in Optuna evaluation: {model_type}")
 
