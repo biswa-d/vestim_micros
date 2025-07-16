@@ -565,9 +565,12 @@ class TrainingTaskManager:
                         best_validation_loss = val_loss_norm
                         # Save to best_model_path
                         best_model_save_path = task.get('training_params', {}).get('best_model_path')
-                        if best_model_save_path:
+                        # Only save the model if the task parameters allow it
+                        if best_model_save_path and task.get('training_params', {}).get('save_best_model', True):
                             self.save_model(task, save_path=best_model_save_path)
                             self.logger.info(f"Best model saved to: {best_model_save_path}")
+                        elif not task.get('training_params', {}).get('save_best_model', True):
+                            self.logger.info("Model saving is disabled for this task (e.g., Optuna trial).")
                         else:
                             self.logger.warning(f"best_model_path not found in task for epoch {epoch}. Best model not saved.")
                         patience_counter = 0

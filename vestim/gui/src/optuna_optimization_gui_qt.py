@@ -149,11 +149,13 @@ class OptunaOptimizationThread(QThread):
                         'state': 'FAIL'
                     })
             
-            # Get best configurations
-            if not self.should_stop:
-                best_configs = self._get_best_configurations()
-                self.log_message.emit(f"Optimization completed! Found {len(best_configs)} best configurations")
-                self.optimization_completed.emit(best_configs)
+            # Get best configurations regardless of whether the optimization was stopped or completed
+            best_configs = self._get_best_configurations()
+            if self.should_stop:
+                self.log_message.emit(f"Optimization stopped by user. Processing {len(best_configs)} best completed trials.")
+            else:
+                self.log_message.emit(f"Optimization completed! Found {len(best_configs)} best configurations.")
+            self.optimization_completed.emit(best_configs)
                 
         except Exception as e:
             self.error_occurred.emit(f"Optimization failed: {str(e)}")
@@ -265,6 +267,9 @@ class OptunaOptimizationThread(QThread):
                 task_manager.process_task(training_task, emitter.progress_signal)
             finally:
                 self.current_task_manager = None
+
+            # Ensure we do not save models during Optuna trials
+            training_task['training_params']['save_best_model'] = False
 
             # 3. Extract the final validation loss from the results
             # The results are stored in the task dictionary after completion.
