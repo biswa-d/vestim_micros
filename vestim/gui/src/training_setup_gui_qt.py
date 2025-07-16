@@ -16,6 +16,8 @@ class SetupWorker(QThread):
     def __init__(self, job_manager, optuna_configs=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
+        if not job_manager:
+            raise ValueError("JobManager instance is required.")
         self.job_manager = job_manager
         self.optuna_configs = optuna_configs
         self.training_setup_manager = VEstimTrainingSetupManager(progress_signal=self.progress_signal, job_manager=self.job_manager)
@@ -42,24 +44,26 @@ class VEstimTrainSetupGUI(QWidget):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.optuna_configs = optuna_configs
-        self.params = params  # Always use the passed params for UI display
+        self.params = params
 
         if optuna_configs:
-            # Optuna workflow: UI shows search space, but tasks are from optimized configs
+            # Optuna workflow: UI shows search space (from params), tasks created from optuna_configs
+            self.param_list = [config['params'] for config in optuna_configs]
             self.is_multiple_configs = True
-            self.logger.info(f"Initialized with {len(optuna_configs)} parameter configurations from Optuna.")
+            self.logger.info(f"Initialized with {len(self.param_list)} parameter configurations from Optuna.")
         else:
             # Grid search workflow: UI shows the grid search definition
+            self.param_list = [params] if params else []
             self.is_multiple_configs = False
             self.logger.info("Initialized with single parameter configuration for grid search.")
-        
+
         self.job_manager = JobManager()
         self.timer_running = True
         self.param_labels = {
             "LAYERS": "Layers", "HIDDEN_UNITS": "Hidden Units", "BATCH_SIZE": "Batch Size",
             "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
             "LR_DROP_FACTOR": "LR Drop Factor", "LR_DROP_PERIOD": "LR Drop Period",
-            "VALID_PATIENCE": "Validation Patience", "ValidFrequency": "Validation Frequency",
+            "VALID_PATIENCE": "Validation Patience", "VALID_FREQUENCY": "Validation Frequency",
             "LOOKBACK": "Lookback Sequence Length", "REPETITIONS": "Repetitions"
         }
 
@@ -146,7 +150,7 @@ class VEstimTrainSetupGUI(QWidget):
         self.show()
 
         # Move the training setup to a separate thread
-        self.worker = SetupWorker(self.job_manager, self.optuna_configs)
+        self.worker = SetupWorker(job_manager=self.job_manager, optuna_configs=self.optuna_configs)
         self.worker.progress_signal.connect(self.update_status)
         self.worker.finished_signal.connect(self.show_proceed_button)
 
