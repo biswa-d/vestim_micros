@@ -49,6 +49,7 @@ class OptunaOptimizationThread(QThread):
         self.study = None
         self.should_stop = False
         self.completed_trials_data = []
+        self.current_task_manager = None
         
         # Extract parameter ranges in boundary format [min,max]
         self.param_ranges = {k: v for k, v in base_params.items()
@@ -259,7 +260,11 @@ class OptunaOptimizationThread(QThread):
             emitter.progress_signal.connect(lambda p_data: optuna_progress_callback(p_data, params))
 
             # Run the training. This is a blocking call that will run the entire training loop.
-            task_manager.process_task(training_task, emitter.progress_signal)
+            self.current_task_manager = task_manager
+            try:
+                task_manager.process_task(training_task, emitter.progress_signal)
+            finally:
+                self.current_task_manager = None
 
             # 3. Extract the final validation loss from the results
             # The results are stored in the task dictionary after completion.
@@ -290,18 +295,23 @@ class OptunaOptimizationThread(QThread):
             return float('inf') # Return a high loss value to penalize failing trials
     
     def _get_best_configurations(self):
-        """Get the best N configurations from the collected trial data."""
+        """Get the best N configurations from the collected trial data, ignoring pruned trials."""
         n_configs = self.optimization_config.get('n_best_configs', 5)
         
-        # Sort the collected trial data by the objective value
-        sorted_trials = sorted(self.completed_trials_data, key=lambda t: t['objective_value'])
+        # Filter out pruned or failed trials (where objective_value is not a float)
+        completed_trials = [t for t in self.completed_trials_data if isinstance(t['objective_value'], float)]
         
-        # Return the top N configurations. Each item is already a complete dictionary.
+        # Sort the completed trials by the objective value
+        sorted_trials = sorted(completed_trials, key=lambda t: t['objective_value'])
+        
+        # Return the top N configurations.
         return sorted_trials[:n_configs]
     
     def stop_optimization(self):
         """Stop the optimization"""
         self.should_stop = True
+        if self.current_task_manager:
+            self.current_task_manager.stop_task()
 
 
 class VEstimOptunaOptimizationGUI(QWidget):
@@ -676,7 +686,18 @@ class VEstimOptunaOptimizationGUI(QWidget):
             self.results_table.setItem(i, 2, QTableWidgetItem(str(config['trial_number'])))
             self.results_table.setItem(i, 3, QTableWidgetItem(str(config['params'])))
         
-        self.add_log_message(f"Optimization completed! Found {len(best_configs)} best configurations.")
+        # Provide a more detailed summary
+        total_trials = self.progress_bar.maximum()
+        completed_count = len([t for t in self.completed_trials_data if t.get('state') == 'COMPLETE'])
+        pruned_count = len([t for t in self.trial_table.findItems('PRUNED', Qt.MatchExactly) if t.column() == 1])
+        failed_count = len([t for t in self.trial_table.findItems('FAIL', Qt.MatchExactly) if t.column() == 1])
+
+        summary_message = (
+            f"Optimization completed! Found {len(best_configs)} best configurations from "
+            f"{completed_count}/{total_trials} completed trials "
+            f"({pruned_count} pruned, {failed_count} failed)."
+        )
+        self.add_log_message(summary_message)
     
     def optimization_error(self, error_msg):
         """Handle optimization error"""

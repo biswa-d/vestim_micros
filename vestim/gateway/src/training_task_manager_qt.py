@@ -615,12 +615,16 @@ class TrainingTaskManager:
                                 e_t_t_n_cpu = epoch_train_trues_norm.cpu().numpy() if epoch_train_trues_norm.is_cuda else epoch_train_trues_norm.numpy()
 
                                 # Use the safer single-column denormalization method
-                                train_pred_orig = normalization_service.inverse_transform_single_column(
-                                    e_t_p_n_cpu, self.loaded_scaler, target_col_for_scaler, self.scaler_metadata['normalized_columns']
-                                )
-                                train_true_orig = normalization_service.inverse_transform_single_column(
-                                    e_t_t_n_cpu, self.loaded_scaler, target_col_for_scaler, self.scaler_metadata['normalized_columns']
-                                )
+                                # Temporarily suppress UserWarning for this calculation
+                                import warnings
+                                with warnings.catch_warnings():
+                                    warnings.simplefilter("ignore", UserWarning)
+                                    train_pred_orig = normalization_service.inverse_transform_single_column(
+                                        e_t_p_n_cpu, self.loaded_scaler, target_col_for_scaler, self.scaler_metadata['normalized_columns']
+                                    )
+                                    train_true_orig = normalization_service.inverse_transform_single_column(
+                                        e_t_t_n_cpu, self.loaded_scaler, target_col_for_scaler, self.scaler_metadata['normalized_columns']
+                                    )
                                 
                                 train_mse_orig = np.mean((train_pred_orig - train_true_orig)**2)
                                 train_rmse_for_gui = np.sqrt(train_mse_orig) * multiplier
@@ -645,12 +649,16 @@ class TrainingTaskManager:
                                 e_v_t_n_cpu = epoch_val_trues_norm.cpu().numpy() if epoch_val_trues_norm.is_cuda else epoch_val_trues_norm.numpy()
 
                                 # Use the safer single-column denormalization method
-                                val_pred_orig = normalization_service.inverse_transform_single_column(
-                                    e_v_p_n_cpu, self.loaded_scaler, target_col_for_scaler, self.scaler_metadata['normalized_columns']
-                                )
-                                val_true_orig = normalization_service.inverse_transform_single_column(
-                                    e_v_t_n_cpu, self.loaded_scaler, target_col_for_scaler, self.scaler_metadata['normalized_columns']
-                                )
+                                # Temporarily suppress UserWarning for this calculation
+                                import warnings
+                                with warnings.catch_warnings():
+                                    warnings.simplefilter("ignore", UserWarning)
+                                    val_pred_orig = normalization_service.inverse_transform_single_column(
+                                        e_v_p_n_cpu, self.loaded_scaler, target_col_for_scaler, self.scaler_metadata['normalized_columns']
+                                    )
+                                    val_true_orig = normalization_service.inverse_transform_single_column(
+                                        e_v_t_n_cpu, self.loaded_scaler, target_col_for_scaler, self.scaler_metadata['normalized_columns']
+                                    )
 
                                 val_mse_orig = np.mean((val_pred_orig - val_true_orig)**2)
                                 current_val_rmse_orig_scale = np.sqrt(val_mse_orig) * multiplier
