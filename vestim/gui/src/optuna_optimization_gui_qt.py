@@ -194,7 +194,6 @@ class OptunaOptimizationThread(QThread):
         self.log_message.emit(f"--- Evaluating Trial {trial.number} ---")
         import torch
         import numpy as np
-        from vestim.services.model_training.src.LSTM_model_service_test import LSTMModelService
         from vestim.services.model_training.src.training_task_service import TrainingTaskService
         from vestim.services.model_training.src.data_loader_service import DataLoaderService
         import warnings
@@ -229,15 +228,34 @@ class OptunaOptimizationThread(QThread):
             self.log_message.emit(f"Data loading failed: {e}")
             return float('inf')
 
-        # --- 2. Build model ---
+        # --- 2. Build model dynamically based on MODEL_TYPE ---
         input_size = len(feature_columns)
-        hidden_units = int(float(params.get('HIDDEN_UNITS', 10)))
-        layers = int(float(params.get('LAYERS', 1)))
         device_str = params.get('DEVICE_SELECTION', 'cpu')
         device = torch.device(device_str if 'cuda' in device_str and torch.cuda.is_available() else 'cpu')
-        model_service = LSTMModelService()
-        model_params = {'INPUT_SIZE': input_size, 'HIDDEN_UNITS': hidden_units, 'LAYERS': layers}
-        model = model_service.build_lstm_model(model_params, device).to(device)
+
+        model_params = {'INPUT_SIZE': input_size, 'OUTPUT_SIZE': 1} # Common params
+
+        if model_type == 'LSTM':
+            from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
+            model_service = LSTMModelService()
+            model_params['HIDDEN_UNITS'] = int(float(params.get('HIDDEN_UNITS', 10)))
+            model_params['LAYERS'] = int(float(params.get('LAYERS', 1)))
+            model = model_service.build_lstm_model(model_params, device).to(device)
+        elif model_type == 'GRU':
+            from vestim.services.model_training.src.GRU_model_service import GRUModelService
+            model_service = GRUModelService()
+            model_params['HIDDEN_UNITS'] = int(float(params.get('HIDDEN_UNITS', 10)))
+            model_params['LAYERS'] = int(float(params.get('LAYERS', 1)))
+            model = model_service.build_gru_model(model_params, device).to(device)
+        elif model_type == 'FNN':
+            from vestim.services.model_training.src.FNN_model_service import FNNModelService
+            model_service = FNNModelService()
+            hidden_layer_sizes_str = params.get('FNN_HIDDEN_LAYERS', '128,64')
+            model_params['HIDDEN_LAYER_SIZES'] = [int(s.strip()) for s in hidden_layer_sizes_str.split(',')]
+            model_params['DROPOUT_PROB'] = float(params.get('FNN_DROPOUT_PROB', 0.1))
+            model = model_service.create_model(model_params, device).to(device)
+        else:
+            raise ValueError(f"Unsupported model_type in Optuna evaluation: {model_type}")
 
         # --- 3. Training setup ---
         max_epochs = int(float(params.get('MAX_EPOCHS', 100))) # Use the full epochs for potential long runs
