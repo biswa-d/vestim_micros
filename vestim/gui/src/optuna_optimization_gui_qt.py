@@ -217,8 +217,8 @@ class OptunaOptimizationThread(QThread):
             setup_manager = VEstimTrainingSetupManager(job_manager=JobManager())
             
             # The setup_manager works with lists of parameter sets. We give it a list with one item.
-            # It will return a list containing one training task.
-            single_config_list = [params]
+            # The expected format is a list of dicts, where each dict has a 'params' key.
+            single_config_list = [{'params': params}]
             setup_manager.setup_training_from_optuna(single_config_list)
             task_list = setup_manager.get_task_list()
 
