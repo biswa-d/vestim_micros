@@ -41,7 +41,8 @@ class LSTMModel(nn.Module):
         out = self.dropout(out)
 
         # Pass the output through the fully connected layer
-        out = self.fc(out)
+        # Apply the fully connected layer to the last time step only (for sequence-to-one prediction)
+        out = self.fc(out[:, -1, :])
 
         return out, (h_s, h_c)
 
