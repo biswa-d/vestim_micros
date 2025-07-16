@@ -424,7 +424,7 @@ class TrainingTaskManager:
             # The actual batch size used by train_loader is now determined by DataLoaderService based on use_full_train_batch_flag
             # However, other parts of the code might still refer to hyperparams['BATCH_SIZE']
             max_epochs = hyperparams['MAX_EPOCHS']
-            valid_freq = hyperparams['ValidFrequency']
+            valid_freq = hyperparams.get('VALID_FREQUENCY', 1)
             valid_patience = hyperparams['VALID_PATIENCE']
             #patience_threshold = int(valid_patience * 0.5) 
             current_lr = hyperparams['INITIAL_LR']
@@ -1106,7 +1106,7 @@ class TrainingTaskManager:
             hyperparams['PLATEAU_PATIENCE'] = int(hyperparams['PLATEAU_PATIENCE'])
             hyperparams['PLATEAU_FACTOR'] = float(hyperparams['PLATEAU_FACTOR'])
         hyperparams['VALID_PATIENCE'] = int(hyperparams['VALID_PATIENCE'])
-        hyperparams['ValidFrequency'] = int(hyperparams['ValidFrequency'])
+        hyperparams['VALID_FREQUENCY'] = int(hyperparams.get('VALID_FREQUENCY', 1))
         hyperparams['LOOKBACK'] = int(hyperparams['LOOKBACK'])
         hyperparams['REPETITIONS'] = int(hyperparams['REPETITIONS'])
         return hyperparams
@@ -1116,7 +1116,7 @@ class TrainingTaskManager:
         # Define parameters that should be treated as integers vs floats
         integer_params = {
             "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS", 
-            "MAX_EPOCHS", "VALID_PATIENCE", "ValidFrequency", "LOOKBACK",
+            "MAX_EPOCHS", "VALID_PATIENCE", "VALID_FREQUENCY", "LOOKBACK",
             "BATCH_SIZE", "LR_PERIOD", "PLATEAU_PATIENCE", "REPETITIONS"
         }
         
