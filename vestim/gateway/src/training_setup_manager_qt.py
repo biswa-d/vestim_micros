@@ -68,6 +68,11 @@ class VEstimTrainingSetupManager:
             if not optuna_configs:
                 raise ValueError("Optuna configurations are missing.")
 
+            # Set the main params from the first config to make them available to helper methods.
+            # This is the crucial step to ensure self.params is not None.
+            self.params = optuna_configs[0]['params']
+            self.current_hyper_params = self.params
+
             if self.progress_signal:
                 self.progress_signal.emit("Creating training tasks from Optuna configs...", "", 0)
 

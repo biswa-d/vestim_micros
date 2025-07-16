@@ -749,6 +749,8 @@ class VEstimOptunaOptimizationGUI(QWidget):
             return
         
         try:
+            self.logger.info("Proceeding to training setup with the following configurations:")
+            self.logger.info(json.dumps(self.best_configs, indent=2))
             self.close()
             # Pass both the original base_params (for display) and the best_configs (for task creation)
             self.training_setup_gui = VEstimTrainSetupGUI(params=self.base_params, optuna_configs=self.best_configs)
