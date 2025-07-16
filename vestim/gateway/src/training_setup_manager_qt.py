@@ -65,6 +65,14 @@ class VEstimTrainingSetupManager:
         """Set up the training process using configurations from Optuna."""
         self.logger.info("Setting up training from Optuna configurations...")
         try:
+            if not optuna_configs:
+                raise ValueError("Optuna configurations are missing.")
+
+            # Set the main params from the first config to make them available to helper methods.
+            # Non-optimized params like FEATURE_COLUMNS are consistent across all configs from a study.
+            self.params = optuna_configs[0]['params']
+            self.current_hyper_params = self.params
+
             if self.progress_signal:
                 self.progress_signal.emit("Creating training tasks from Optuna configs...", "", 0)
 
@@ -304,15 +312,9 @@ class VEstimTrainingSetupManager:
     def create_tasks_from_optuna(self, best_configs):
         """Create training tasks from a list of Optuna best configurations."""
         task_list = []
-        base_params = self.hyper_param_manager.get_hyper_params()
-
         for i, config_data in enumerate(best_configs):
-            # The 'params' key holds the hyperparameter dictionary from Optuna trial
-            trial_params = config_data['params']
-            
-            # Merge base params with trial-specific params
-            hyperparams = base_params.copy()
-            hyperparams.update(trial_params)
+            # Each config from Optuna is a complete set of hyperparameters.
+            hyperparams = config_data['params']
 
             # Create a single model instance for this task
             model_task = self._build_single_model(hyperparams)
@@ -321,7 +323,7 @@ class VEstimTrainingSetupManager:
             task_info = self._create_task_info(
                 model_task=model_task,
                 hyperparams=hyperparams,
-                repetition=1, # Each Optuna config is a single task
+                repetition=1,  # Each Optuna config is a single task
                 job_normalization_metadata=self.load_job_normalization_metadata(),
                 max_training_time_seconds_arg=hyperparams.get('MAX_TRAINING_TIME_SECONDS', 0)
             )
