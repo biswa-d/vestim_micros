@@ -508,8 +508,9 @@ class TrainingTaskManager:
                 # Train the model for one epoch
                 model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM')) # Get model_type
                 # train_epoch now returns: avg_batch_time, avg_loss (normalized), all_train_y_pred_normalized, all_train_y_true_normalized
+                verbose = task.get('verbose', True)
                 avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch(
-                    model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task
+                    model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task, verbose=verbose
                 )
                 
                 if train_loss_norm < best_train_loss_norm:
@@ -547,8 +548,9 @@ class TrainingTaskManager:
 
                     model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM')) # Get model_type
                     # validate_epoch now returns: avg_loss (normalized), all_val_y_pred_normalized, all_val_y_true_normalized
+                    verbose = task.get('verbose', True)
                     val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
-                        model, model_type, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task
+                        model, model_type, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task, verbose=verbose
                     )
 
                     current_time = time.time()

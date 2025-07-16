@@ -45,7 +45,7 @@ class TrainingTaskService:
         conn.commit()
         conn.close()
         
-    def train_epoch(self, model, model_type, train_loader, optimizer, h_s_initial, h_c_initial, epoch, device, stop_requested, task):
+    def train_epoch(self, model, model_type, train_loader, optimizer, h_s_initial, h_c_initial, epoch, device, stop_requested, task, verbose=True):
         """Train the model for a single epoch, adapting to model type."""
         model.train()
         total_train_loss = []
@@ -158,7 +158,7 @@ class TrainingTaskService:
             batch_time = end_batch_time - start_batch_time
             batch_times.append(batch_time)
 
-            if batch_idx % log_freq == 0 and batch_times:
+            if verbose and batch_idx % log_freq == 0 and batch_times:
                 log_callback = task.get('log_callback')
                 if log_callback:
                     log_callback(f"  Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}")
@@ -184,7 +184,7 @@ class TrainingTaskService:
             
         return avg_epoch_batch_time, avg_loss, all_train_y_pred_normalized, all_train_y_true_normalized
 
-    def validate_epoch(self, model, model_type, val_loader, h_s_initial, h_c_initial, epoch, device, stop_requested, task):
+    def validate_epoch(self, model, model_type, val_loader, h_s_initial, h_c_initial, epoch, device, stop_requested, task, verbose=True):
         """Validate the model for a single epoch, adapting to model type."""
         model.eval()
         total_val_loss = []
@@ -265,7 +265,7 @@ class TrainingTaskService:
                 all_val_y_pred_normalized.append(y_pred.detach().cpu())
                 all_val_y_true_normalized.append(y_batch.detach().cpu())
 
-                if batch_idx % log_freq == 0:
+                if verbose and batch_idx % log_freq == 0:
                     log_callback = task.get('log_callback')
                     if log_callback:
                         log_callback(f"  Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")

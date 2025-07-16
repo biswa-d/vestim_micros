@@ -218,7 +218,7 @@ class OptunaOptimizationThread(QThread):
                 epoch = progress_data.get('epoch')
                 if val_loss is not None and epoch is not None:
                     max_epochs = params_for_callback.get('MAX_EPOCHS', 'N/A')
-                    self.log_message.emit(f"  Epoch {epoch}/{max_epochs} - Val Loss: {val_loss:.6f}")
+                    self.log_message.emit(f"  Trial {trial.number} | Epoch {epoch}/{max_epochs} - Reported Val Loss: {val_loss:.6f}")
                     trial.report(val_loss, epoch)
                     if trial.should_prune():
                         raise optuna.exceptions.TrialPruned()
