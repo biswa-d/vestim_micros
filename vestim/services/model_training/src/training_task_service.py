@@ -164,8 +164,6 @@ class TrainingTaskService:
                     log_callback(f"  Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}")
                 else:
                     print(f"Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}, Input: {X_batch.shape}, Pred: {y_pred.shape}")
-                if use_mixed_precision:
-                    print(f"  Using mixed precision (AMP)")
 
             del X_batch, y_batch, y_pred, loss
             if model_type == "LSTM":
@@ -273,8 +271,6 @@ class TrainingTaskService:
                         log_callback(f"  Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")
                     else:
                         print(f"Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")
-                    if use_mixed_precision:
-                        print(f"  Using mixed precision (AMP)")
 
                 del X_batch, y_batch, y_pred, loss
                 if model_type == "LSTM":

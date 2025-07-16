@@ -104,7 +104,7 @@ class OptunaOptimizationThread(QThread):
                     params = self._suggest_params(trial)
                     
                     # Evaluate parameters (simulate training for now)
-                    objective_value = self._evaluate_params(params, trial_num)
+                    objective_value = self._evaluate_params(params, trial)
                     
                     # Tell study the result
                     self.study.tell(trial, objective_value)
@@ -189,9 +189,9 @@ class OptunaOptimizationThread(QThread):
                 
         return params
     
-    def _evaluate_params(self, params, trial_num):
+    def _evaluate_params(self, params, trial):
         """Evaluate parameters by running real training and returning validation loss."""
-        self.log_message.emit(f"--- Evaluating Trial {trial_num + 1} ---")
+        self.log_message.emit(f"--- Evaluating Trial {trial.number} ---")
         import torch
         import numpy as np
         from vestim.services.model_training.src.LSTM_model_service_test import LSTMModelService
@@ -200,26 +200,18 @@ class OptunaOptimizationThread(QThread):
         import warnings
         warnings.filterwarnings("ignore")
 
-        # --- 1. Prepare data loaders (CSV-based, not HDF5) ---
+        # --- 1. Prepare data loaders ---
         lookback = int(float(params.get('LOOKBACK', 400)))
         batch_size = int(float(params.get('BATCH_SIZE', 100)))
         feature_columns = params.get('FEATURE_COLUMNS', ['SOC', 'Current', 'Temp'])
         target_column = params.get('TARGET_COLUMN', 'Voltage')
-        train_folder = params.get('TRAIN_FOLDER')
-        valid_folder = params.get('VALID_FOLDER')
-        if not train_folder or not valid_folder:
-            # Try to get from job manager
-            job_manager = JobManager()
-            train_folder = job_manager.get_train_folder()
-            valid_folder = job_manager.get_val_folder()
+        job_manager = JobManager()
+        job_folder_path = job_manager.get_job_folder()
 
         data_loader_service = DataLoaderService()
         training_method = params.get('TRAINING_METHOD', 'Sequence-to-Sequence')
         model_type = params.get('MODEL_TYPE', 'LSTM')
         try:
-            job_manager = JobManager()
-            job_folder_path = job_manager.get_job_folder()
-
             train_loader, val_loader = data_loader_service.create_data_loaders_from_separate_folders(
                 job_folder_path=job_folder_path,
                 training_method=training_method,
@@ -229,7 +221,7 @@ class OptunaOptimizationThread(QThread):
                 num_workers=0,
                 lookback=lookback,
                 concatenate_raw_data=False,
-                seed=trial_num + 42,
+                seed=trial.number + 42,
                 model_type=model_type,
                 create_test_loader=False
             )
@@ -237,85 +229,46 @@ class OptunaOptimizationThread(QThread):
             self.log_message.emit(f"Data loading failed: {e}")
             return float('inf')
 
-        # --- Check for empty loaders ---
-        def is_loader_empty(loader):
-            try:
-                return len(loader) == 0
-            except Exception:
-                return True
-
-        if is_loader_empty(train_loader):
-            self.log_message.emit("No training data available for this trial. Skipping.")
-            return float('inf')
-        if is_loader_empty(val_loader):
-            self.log_message.emit("No validation data available for this trial. Skipping.")
-            return float('inf')
-
         # --- 2. Build model ---
-        model_type = params.get('MODEL_TYPE', 'LSTM')
         input_size = len(feature_columns)
         hidden_units = int(float(params.get('HIDDEN_UNITS', 10)))
         layers = int(float(params.get('LAYERS', 1)))
         device_str = params.get('DEVICE_SELECTION', 'cpu')
         device = torch.device(device_str if 'cuda' in device_str and torch.cuda.is_available() else 'cpu')
         model_service = LSTMModelService()
-        model_params = {
-            'INPUT_SIZE': input_size,
-            'HIDDEN_UNITS': hidden_units,
-            'LAYERS': layers
-        }
-        model = model_service.build_lstm_model(model_params, device)
-        model.to(device)
+        model_params = {'INPUT_SIZE': input_size, 'HIDDEN_UNITS': hidden_units, 'LAYERS': layers}
+        model = model_service.build_lstm_model(model_params, device).to(device)
 
         # --- 3. Training setup ---
-        max_epochs = int(float(params.get('MAX_EPOCHS', 10)))  # Use a reasonable number of epochs for Optuna to evaluate trials
+        max_epochs = int(float(params.get('MAX_EPOCHS', 100))) # Use the full epochs for potential long runs
         initial_lr = float(params.get('INITIAL_LR', 0.001))
         optimizer = torch.optim.Adam(model.parameters(), lr=initial_lr)
         training_service = TrainingTaskService()
         stop_requested = False
-        
-        # Initialize hidden states for RNN models
-        h_s_initial, h_c_initial = None, None
-        if model_type in ['LSTM', 'GRU']:
-            num_layers = int(float(params.get('LAYERS', 1)))
-            hidden_units = int(float(params.get('HIDDEN_UNITS', 10)))
-            # Use the actual batch size from the data loader
-            actual_batch_size = train_loader.batch_size if train_loader else int(float(params.get('BATCH_SIZE', 100)))
-            h_s_initial = torch.zeros(num_layers, actual_batch_size, hidden_units).to(device)
-            if model_type == 'LSTM':
-                h_c_initial = torch.zeros(num_layers, actual_batch_size, hidden_units).to(device)
-
         best_val_loss = float('inf')
 
-        # --- 4. Training loop (short, for speed) ---
-        for epoch in range(1, max_epochs+1):
-            self.log_message.emit(f"  Trial {trial_num + 1}, Epoch {epoch}/{max_epochs}...")
+        # --- 4. Training loop with Pruning ---
+        for epoch in range(1, max_epochs + 1):
+            self.log_message.emit(f"  Trial {trial.number}, Epoch {epoch}/{max_epochs}...")
             QApplication.processEvents()
-            # Correctly unpack the tuple returned by train_epoch
-            _, train_loss_norm, _, _ = training_service.train_epoch(
-                model, model_type, train_loader, optimizer, h_s_initial, h_c_initial, epoch, device, stop_requested, task={
-                    'hyperparams': params,
-                    'log_frequency': 100,
-                    'log_callback': self.log_message.emit,
-                    'trial_num': trial_num
-                }
-            )
-            # Use the dedicated validate_epoch function for validation
-            val_loss, _, _ = training_service.validate_epoch(
-                model, model_type, val_loader, h_s_initial, h_c_initial, epoch, device, stop_requested, task={
-                    'hyperparams': params,
-                    'log_frequency': 100,
-                    'log_callback': self.log_message.emit,
-                    'trial_num': trial_num
-                }
-            )
-            self.log_message.emit(f"  Trial {trial_num + 1}, Epoch {epoch}: Train Loss = {train_loss_norm:.6f}, Val Loss = {val_loss:.6f}")
+
+            _, train_loss_norm, _, _ = training_service.train_epoch(model, model_type, train_loader, optimizer, None, None, epoch, device, stop_requested, task={'hyperparams': params})
+            val_loss, _, _ = training_service.validate_epoch(model, model_type, val_loader, None, None, epoch, device, stop_requested, task={'hyperparams': params})
+            
+            self.log_message.emit(f"  Trial {trial.number}, Epoch {epoch}: Train Loss = {train_loss_norm:.6f}, Val Loss = {val_loss:.6f}")
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-        
-        self.log_message.emit(f"--- Finished Trial {trial_num + 1} with loss: {best_val_loss:.6f} ---")
-        # --- 5. Return best validation loss as objective ---
+
+            # Report intermediate value to Optuna
+            trial.report(val_loss, epoch)
+
+            # Handle pruning
+            if trial.should_prune():
+                self.log_message.emit(f"--- Trial {trial.number} pruned at epoch {epoch} ---")
+                raise optuna.exceptions.TrialPruned()
+
+        self.log_message.emit(f"--- Finished Trial {trial.number} with loss: {best_val_loss:.6f} ---")
         return best_val_loss
     
     def _get_best_configurations(self):
