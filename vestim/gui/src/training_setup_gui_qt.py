@@ -5,6 +5,7 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 import sys
 import time
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.gateway.src.optuna_setup_manager_qt import OptunaSetupManager
 from vestim.gui.src.training_task_gui_qt import VEstimTrainingTaskGUI
 from vestim.gateway.src.job_manager_qt import JobManager
 import logging

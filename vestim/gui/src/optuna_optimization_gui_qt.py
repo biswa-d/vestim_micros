@@ -196,7 +196,7 @@ class OptunaOptimizationThread(QThread):
         """
         self.log_message.emit(f"--- Evaluating Trial {trial.number} ---")
         
-        from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+        from vestim.gateway.src.optuna_setup_manager_qt import OptunaSetupManager
         from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
         
         # This callback will be used by the TrainingTaskManager to report progress
@@ -212,13 +212,12 @@ class OptunaOptimizationThread(QThread):
             QApplication.processEvents()
 
         try:
-            # 1. Use VEstimTrainingSetupManager to create a single, complete training task
-            # This manager knows how to correctly parse parameters and build a valid task
-            setup_manager = VEstimTrainingSetupManager(job_manager=JobManager())
+            # 1. Use the new OptunaSetupManager to create a single, complete training task.
+            # This manager is non-singleton and designed for this purpose.
+            setup_manager = OptunaSetupManager(job_manager=JobManager())
             
-            # The setup_manager works with lists of parameter sets. We give it a list with one item.
             # The expected format is a list of dicts, where each dict has a 'params' key.
-            single_config_list = [{'params': params}]
+            single_config_list = [{'params': params, 'trial_number': trial.number}]
             setup_manager.setup_training_from_optuna(single_config_list)
             task_list = setup_manager.get_task_list()
 

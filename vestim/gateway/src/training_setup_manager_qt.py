@@ -9,18 +9,27 @@ import logging
 import torch
 
 class VEstimTrainingSetupManager:
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(VEstimTrainingSetupManager, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self, progress_signal=None, job_manager=None):
-        self.logger = logging.getLogger(__name__)
-        self.params = None
-        self.current_hyper_params = None
-        self.hyper_param_manager = VEstimHyperParamManager()
-        self.lstm_model_service = LSTMModelService()
-        self.gru_model_service = GRUModelService()
-        self.fnn_model_service = FNNModelService()
-        self.job_manager = job_manager if job_manager else JobManager()
-        self.models = []
-        self.training_tasks = []
-        self.progress_signal = progress_signal
+        if not hasattr(self, 'initialized'):  # Ensure initialization only happens once
+            self.logger = logging.getLogger(__name__)  # Initialize logger
+            self.params = None
+            self.current_hyper_params = None
+            self.hyper_param_manager = VEstimHyperParamManager()  # Initialize your hyperparameter manager here
+            self.lstm_model_service = LSTMModelService()  # Initialize your model service here
+            self.gru_model_service = GRUModelService()  # Initialize GRU model service
+            self.fnn_model_service = FNNModelService()  # Initialize FNN model service
+            self.job_manager = job_manager  # JobManager should be passed in or initialized separately
+            self.models = []  # Store model information
+            self.training_tasks = []  # Store created tasks
+            self.progress_signal = progress_signal  # Signal to communicate progress with the GUI
+            self.initialized = True  # Mark as initialized
 
     def setup_training(self):
         """Set up the training process for grid search."""
