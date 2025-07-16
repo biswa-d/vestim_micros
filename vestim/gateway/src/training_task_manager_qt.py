@@ -1200,6 +1200,12 @@ class TrainingTaskManager:
     def save_model(self, task, save_path=None):
         """Save the trained model to disk. Uses save_path if provided, else defaults to task['model_path']."""
         try:
+            # Ensure INPUT_SIZE and OUTPUT_SIZE are present in hyperparams for model saving
+            if 'INPUT_SIZE' not in task['hyperparams']:
+                task['hyperparams']['INPUT_SIZE'] = len(task['data_loader_params']['feature_columns'])
+            if 'OUTPUT_SIZE' not in task['hyperparams']:
+                task['hyperparams']['OUTPUT_SIZE'] = 1  # Default to 1 if not specified
+
             path_to_save = save_path if save_path else task.get('model_path')
             
             if path_to_save is None:

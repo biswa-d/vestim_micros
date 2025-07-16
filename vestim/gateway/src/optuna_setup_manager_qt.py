@@ -44,9 +44,13 @@ class OptunaSetupManager:
 
             model_task = self._build_single_model(hyperparams, trial_number, rank)
             
+            # Combine the Optuna-provided hyperparams with the model-specific ones (like INPUT_SIZE)
+            task_hyperparams = hyperparams.copy()
+            task_hyperparams.update(model_task['hyperparams'])
+
             task_info = self._create_task_info(
                 model_task=model_task,
-                hyperparams=hyperparams,
+                hyperparams=task_hyperparams,
                 repetition=1,
                 job_normalization_metadata=self.load_job_normalization_metadata(),
                 max_training_time_seconds_arg=hyperparams.get('MAX_TRAINING_TIME_SECONDS', 0)
