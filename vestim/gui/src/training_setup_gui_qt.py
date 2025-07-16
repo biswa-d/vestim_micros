@@ -63,7 +63,7 @@ class VEstimTrainSetupGUI(QWidget):
             "LAYERS": "Layers", "HIDDEN_UNITS": "Hidden Units", "BATCH_SIZE": "Batch Size",
             "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
             "LR_DROP_FACTOR": "LR Drop Factor", "LR_DROP_PERIOD": "LR Drop Period",
-            "VALID_PATIENCE": "Validation Patience", "VALID_FREQUENCY": "Validation Frequency",
+            "VALID_PATIENCE": "Validation Patience", "VALID_FREQUENCY": "Validation Freq",
             "LOOKBACK": "Lookback Sequence Length", "REPETITIONS": "Repetitions"
         }
 
@@ -220,14 +220,21 @@ class VEstimTrainSetupGUI(QWidget):
 
     def transition_to_training_gui(self):
         try:
-            # Initialize the task screen
-            task_list = self.worker.training_setup_manager.get_task_list()  # Get the task list
-            self.training_gui = VEstimTrainingTaskGUI(task_list, self.params)
-            # Get the current window's geometry and set it for the new window
+            task_list = self.worker.training_setup_manager.get_task_list()
+            if not task_list:
+                print("No tasks to train.")
+                return
+
+            # Use the fully-resolved hyperparameters from the first task for the GUI
+            # This ensures the task GUI receives a single, valid configuration
+            first_task_params = task_list[0]['hyperparams']
+            
+            self.training_gui = VEstimTrainingTaskGUI(task_list, first_task_params)
+            
             current_geometry = self.geometry()
-            self.training_gui.setGeometry(current_geometry) 
-            self.training_gui.show()   
-            # After the new window is successfully displayed, close the current one
+            self.training_gui.setGeometry(current_geometry)
+            self.training_gui.show()
+            
             self.logger.info("Transitioning to training task GUI.")
             self.close()
         except Exception as e:
