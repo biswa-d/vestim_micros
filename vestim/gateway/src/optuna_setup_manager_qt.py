@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import torch
+import time
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
 from vestim.services.model_training.src.GRU_model_service import GRUModelService
