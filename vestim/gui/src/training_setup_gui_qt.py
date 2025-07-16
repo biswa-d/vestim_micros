@@ -59,6 +59,9 @@ class VEstimTrainSetupGUI(QWidget):
 
         self.job_manager = JobManager()
         self.timer_running = True
+        self.auto_proceed_timer = QTimer(self)
+        self.auto_proceed_timer.setSingleShot(True)
+        self.auto_proceed_timer.timeout.connect(self.transition_to_training_gui)
         self.param_labels = {
             "LAYERS": "Layers", "HIDDEN_UNITS": "Hidden Units", "BATCH_SIZE": "Batch Size",
             "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
@@ -210,6 +213,7 @@ class VEstimTrainSetupGUI(QWidget):
         """)
         proceed_button.adjustSize()  # Make sure the button size wraps text appropriately
         proceed_button.clicked.connect(self.transition_to_training_gui)
+        self.auto_proceed_timer.start(60000)  # 60 seconds
 
         # Center the button and control its layout
         button_layout = QHBoxLayout()
@@ -220,6 +224,7 @@ class VEstimTrainSetupGUI(QWidget):
 
     def transition_to_training_gui(self):
         try:
+            self.auto_proceed_timer.stop()  # Stop timer if manually clicked or auto-triggered
             task_list = self.worker.training_setup_manager.get_task_list()
             if not task_list:
                 print("No tasks to train.")

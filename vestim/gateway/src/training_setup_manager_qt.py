@@ -315,9 +315,11 @@ class VEstimTrainingSetupManager:
         for i, config_data in enumerate(best_configs):
             # Each 'params' dictionary from Optuna is a complete, self-contained configuration.
             hyperparams = config_data['params']
+            trial_number = config_data.get('trial_number', 'N/A')
+            rank = i + 1
 
             # Create a single model instance for this task
-            model_task = self._build_single_model(hyperparams)
+            model_task = self._build_single_model(hyperparams, trial_number, rank)
             
             # Create the task info using only the complete hyperparams for this task
             task_info = self._create_task_info(
@@ -359,7 +361,7 @@ class VEstimTrainingSetupManager:
         self.save_tasks_to_files(task_list)
         return task_list
 
-    def _build_single_model(self, hyperparams):
+    def _build_single_model(self, hyperparams, trial_number, rank):
         """Build a single model based on a given hyperparameter set."""
         model_type = hyperparams.get("MODEL_TYPE", "LSTM")
         input_size = len(hyperparams.get("FEATURE_COLUMNS", []))
@@ -368,7 +370,7 @@ class VEstimTrainingSetupManager:
         model_dir = os.path.join(
             self.job_manager.get_job_folder(),
             'models',
-            f'optuna_model_{model_type}_trial_{hyperparams.get("OPTUNA_TRIAL_NUMBER", "N/A")}'
+            f'trial_{trial_number}_best_{rank}'
         )
         os.makedirs(model_dir, exist_ok=True)
         model_path = os.path.join(model_dir, "untrained_model_template.pth")

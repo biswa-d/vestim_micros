@@ -73,6 +73,9 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.current_task_index = 0
         self.current_error_unit_label = "RMS Error" # Default error label
         self.training_results = {}
+        self.auto_proceed_timer = QTimer(self)
+        self.auto_proceed_timer.setSingleShot(True)
+        self.auto_proceed_timer.timeout.connect(self.transition_to_testing_gui)
  
         self.param_labels = {
             "LAYERS": "Layers",
@@ -833,8 +836,10 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Ensure the button is shown
         self.stop_button.hide()
         self.proceed_button.show()
+        self.auto_proceed_timer.start(60000)  # 60 seconds
 
     def transition_to_testing_gui(self):
+        self.auto_proceed_timer.stop()
         training_results = self.training_task_manager.get_training_results()
         self.testing_gui = VEstimTestingGUI(self.params, self.task_list, training_results)
         self.testing_gui.show()

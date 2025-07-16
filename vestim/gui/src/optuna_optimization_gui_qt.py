@@ -110,11 +110,12 @@ class OptunaOptimizationThread(QThread):
                     self.study.tell(trial, objective_value)
                     
                     # Store the complete data for this successful trial
-                    self.completed_trials_data.append({
-                        'params': params,  # The full parameter set
+                    trial_data = {
+                        'params': params,
                         'objective_value': objective_value,
                         'trial_number': trial.number
-                    })
+                    }
+                    self.completed_trials_data.append(trial_data)
 
                     # Emit progress and trial info
                     self.progress_updated.emit(trial_num + 1, n_trials)
@@ -341,6 +342,9 @@ class VEstimOptunaOptimizationGUI(QWidget):
         self.base_params = base_params
         self.optimization_thread = None
         self.best_configs = []
+        self.auto_proceed_timer = QTimer(self)
+        self.auto_proceed_timer.setSingleShot(True)
+        self.auto_proceed_timer.timeout.connect(self.proceed_to_training_setup)
         
         # Extract parameter ranges from base_params
         self.param_ranges = {k: v for k, v in base_params.items() 
@@ -683,6 +687,7 @@ class VEstimOptunaOptimizationGUI(QWidget):
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.proceed_button.setEnabled(True)
+        self.auto_proceed_timer.start(60000)  # 60 seconds
         
         # Hide progress bar
         self.progress_bar.setVisible(False)
@@ -744,6 +749,7 @@ class VEstimOptunaOptimizationGUI(QWidget):
     
     def proceed_to_training_setup(self):
         """Proceed to the training setup GUI with the best configurations."""
+        self.auto_proceed_timer.stop()  # Stop timer if manually clicked or auto-triggered
         if not self.best_configs:
             QMessageBox.warning(self, "No Results", "No optimization results available.")
             return
