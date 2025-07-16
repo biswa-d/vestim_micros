@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QProgressBar, QTextEdit, QTabWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QFrame, QScrollArea, QFormLayout
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QObject
 from PyQt5.QtGui import QIcon, QFont
 
 try:
@@ -190,104 +190,78 @@ class OptunaOptimizationThread(QThread):
         return params
     
     def _evaluate_params(self, params, trial):
-        """Evaluate parameters by running real training and returning validation loss."""
+        """
+        Evaluate parameters by running a full, robust training task for a single configuration.
+        This now uses the main application's TrainingTaskManager to ensure a perfect simulation.
+        """
         self.log_message.emit(f"--- Evaluating Trial {trial.number} ---")
-        import torch
-        import numpy as np
-        from vestim.services.model_training.src.training_task_service import TrainingTaskService
-        from vestim.services.model_training.src.data_loader_service import DataLoaderService
-        import warnings
-        warnings.filterwarnings("ignore")
-
-        # --- 1. Prepare data loaders ---
-        lookback = int(float(params.get('LOOKBACK', 400)))
-        batch_size = int(float(params.get('BATCH_SIZE', 100)))
-        feature_columns = params.get('FEATURE_COLUMNS', ['SOC', 'Current', 'Temp'])
-        target_column = params.get('TARGET_COLUMN', 'Voltage')
-        job_manager = JobManager()
-        job_folder_path = job_manager.get_job_folder()
-
-        data_loader_service = DataLoaderService()
-        training_method = params.get('TRAINING_METHOD', 'Sequence-to-Sequence')
-        model_type = params.get('MODEL_TYPE', 'LSTM')
-        try:
-            train_loader, val_loader = data_loader_service.create_data_loaders_from_separate_folders(
-                job_folder_path=job_folder_path,
-                training_method=training_method,
-                feature_cols=feature_columns,
-                target_col=target_column,
-                batch_size=batch_size,
-                num_workers=0,
-                lookback=lookback,
-                concatenate_raw_data=False,
-                seed=trial.number + 42,
-                model_type=model_type,
-                create_test_loader=False
-            )
-        except Exception as e:
-            self.log_message.emit(f"Data loading failed: {e}")
-            return float('inf')
-
-        # --- 2. Build model dynamically based on MODEL_TYPE ---
-        input_size = len(feature_columns)
-        device_str = params.get('DEVICE_SELECTION', 'cpu')
-        device = torch.device(device_str if 'cuda' in device_str and torch.cuda.is_available() else 'cpu')
-
-        model_params = {'INPUT_SIZE': input_size, 'OUTPUT_SIZE': 1} # Common params
-
-        if model_type == 'LSTM':
-            from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
-            model_service = LSTMModelService()
-            model_params['HIDDEN_UNITS'] = int(float(params.get('HIDDEN_UNITS', 10)))
-            model_params['LAYERS'] = int(float(params.get('LAYERS', 1)))
-            model = model_service.build_lstm_model(model_params).to(device)
-        elif model_type == 'GRU':
-            from vestim.services.model_training.src.GRU_model_service import GRUModelService
-            model_service = GRUModelService()
-            model_params['HIDDEN_UNITS'] = int(float(params.get('HIDDEN_UNITS', 10)))
-            model_params['LAYERS'] = int(float(params.get('LAYERS', 1)))
-            model = model_service.build_gru_model(model_params).to(device)
-        elif model_type == 'FNN':
-            from vestim.services.model_training.src.FNN_model_service import FNNModelService
-            model_service = FNNModelService()
-            hidden_layer_sizes_str = params.get('FNN_HIDDEN_LAYERS', '128,64')
-            model_params['HIDDEN_LAYER_SIZES'] = [int(s.strip()) for s in hidden_layer_sizes_str.split(',')]
-            model_params['DROPOUT_PROB'] = float(params.get('FNN_DROPOUT_PROB', 0.1))
-            model = model_service.build_fnn_model(model_params).to(device)
-        else:
-            raise ValueError(f"Unsupported model_type in Optuna evaluation: {model_type}")
-
-        # --- 3. Training setup ---
-        max_epochs = int(float(params.get('MAX_EPOCHS', 100))) # Use the full epochs for potential long runs
-        initial_lr = float(params.get('INITIAL_LR', 0.001))
-        optimizer = torch.optim.Adam(model.parameters(), lr=initial_lr)
-        training_service = TrainingTaskService()
-        stop_requested = False
-        best_val_loss = float('inf')
-
-        # --- 4. Training loop with Pruning ---
-        for epoch in range(1, max_epochs + 1):
-            self.log_message.emit(f"  Trial {trial.number}, Epoch {epoch}/{max_epochs}...")
+        
+        from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+        from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
+        
+        # This callback will be used by the TrainingTaskManager to report progress
+        # and allow Optuna to prune if necessary.
+        def optuna_progress_callback(progress_data):
+            if isinstance(progress_data, dict):
+                val_loss = progress_data.get('val_loss')
+                epoch = progress_data.get('epoch')
+                if val_loss is not None and epoch is not None:
+                    trial.report(val_loss, epoch)
+                    if trial.should_prune():
+                        raise optuna.exceptions.TrialPruned()
             QApplication.processEvents()
 
-            _, train_loss_norm, _, _ = training_service.train_epoch(model, model_type, train_loader, optimizer, None, None, epoch, device, stop_requested, task={'hyperparams': params})
-            val_loss, _, _ = training_service.validate_epoch(model, model_type, val_loader, None, None, epoch, device, stop_requested, task={'hyperparams': params})
+        try:
+            # 1. Use VEstimTrainingSetupManager to create a single, complete training task
+            # This manager knows how to correctly parse parameters and build a valid task
+            setup_manager = VEstimTrainingSetupManager(job_manager=JobManager())
             
-            self.log_message.emit(f"  Trial {trial.number}, Epoch {epoch}: Train Loss = {train_loss_norm:.6f}, Val Loss = {val_loss:.6f}")
+            # The setup_manager works with lists of parameter sets. We give it a list with one item.
+            # It will return a list containing one training task.
+            single_config_list = [params]
+            setup_manager.setup_training_from_optuna(single_config_list)
+            task_list = setup_manager.get_task_list()
 
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            if not task_list:
+                raise RuntimeError("Training task setup failed to create a task.")
+            
+            training_task = task_list[0]
 
-            # Report intermediate value to Optuna
-            trial.report(val_loss, epoch)
+            # 2. Use the main TrainingTaskManager to run the task
+            # This ensures we use the exact same robust training logic as a normal run
+            task_manager = TrainingTaskManager(global_params=self.base_params)
+            
+            # The task manager uses a pyqtSignal for progress, so we connect our callback to it.
+            # We need a dummy QObject to host the signal for this thread.
+            class SignalEmitter(QObject):
+                progress_signal = pyqtSignal(dict)
+            
+            emitter = SignalEmitter()
+            emitter.progress_signal.connect(optuna_progress_callback)
 
-            # Handle pruning
-            if trial.should_prune():
-                self.log_message.emit(f"--- Trial {trial.number} pruned at epoch {epoch} ---")
-                raise optuna.exceptions.TrialPruned()
+            # Run the training. This is a blocking call that will run the entire training loop.
+            task_manager.process_task(training_task, emitter.progress_signal)
 
-        self.log_message.emit(f"--- Finished Trial {trial.number} with loss: {best_val_loss:.6f} ---")
-        return best_val_loss
+            # 3. Extract the final validation loss from the results
+            # The results are stored in the task dictionary after completion.
+            final_results = training_task.get('results', {})
+            best_val_loss = final_results.get('best_validation_loss_normalized', float('inf'))
+
+            if best_val_loss == float('inf'):
+                 self.log_message.emit(f"Trial {trial.number} finished, but a valid validation loss was not found. Returning infinity.")
+            else:
+                 self.log_message.emit(f"--- Finished Trial {trial.number} with best validation loss: {best_val_loss:.6f} ---")
+
+            return best_val_loss
+
+        except optuna.exceptions.TrialPruned:
+            self.log_message.emit(f"--- Trial {trial.number} pruned. ---")
+            raise  # Re-raise the exception so Optuna handles it
+        except Exception as e:
+            self.log_message.emit(f"An error occurred during trial {trial.number}: {e}")
+            import traceback
+            self.log_message.emit(traceback.format_exc())
+            return float('inf') # Return a high loss value to penalize failing trials
     
     def _get_best_configurations(self):
         """Get the best N configurations from the collected trial data."""
