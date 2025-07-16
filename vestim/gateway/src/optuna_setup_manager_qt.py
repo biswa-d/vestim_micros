@@ -132,12 +132,21 @@ class OptunaSetupManager:
         logs_dir = os.path.join(task_dir, 'logs')
         os.makedirs(logs_dir, exist_ok=True)
 
+        # Get model architecture parameters
+        input_size = model_task['hyperparams']['INPUT_SIZE']
+        output_size = model_task['hyperparams']['OUTPUT_SIZE']
+
         return {
             'task_id': task_id,
             'model': model_task['model'],
             'model_dir': task_dir,
             'model_path': os.path.join(task_dir, 'model.pth'),
             'logs_dir': logs_dir,
+            'model_metadata': {
+                'model_type': model_task.get('model_type', 'LSTM'),
+                'input_size': input_size,
+                'output_size': output_size
+            },
             'hyperparams': hyperparams,
             'data_loader_params': {
                 'lookback': hyperparams['LOOKBACK'],

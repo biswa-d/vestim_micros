@@ -230,6 +230,13 @@ class OptunaOptimizationThread(QThread):
             # This ensures we use the exact same robust training logic as a normal run
             task_manager = TrainingTaskManager(global_params=self.base_params)
             
+            # Create a logging callback to capture epoch-wise logs from the training service
+            def log_callback(message):
+                self.log_message.emit(message)
+
+            # Inject the log_callback into the task dictionary
+            training_task['log_callback'] = log_callback
+            
             # The task manager uses a pyqtSignal for progress, so we connect our callback to it.
             # We need a dummy QObject to host the signal for this thread.
             class SignalEmitter(QObject):
