@@ -87,7 +87,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             "PLATEAU_PATIENCE": "Plateau Patience", # For ReduceLROnPlateau
             "PLATEAU_FACTOR": "Plateau Factor",   # For ReduceLROnPlateau
             "VALID_PATIENCE": "Validation Patience",
-            "ValidFrequency": "Validation Freq", # Shorter
+            "VALID_FREQUENCY": "Validation Freq", # Shorter
             "LOOKBACK": "Lookback", # Shorter
             "REPETITIONS": "Repetitions",
             "NUM_LEARNABLE_PARAMS": "# Params", # Shorter
@@ -353,7 +353,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
         # Plot Setup
         max_epochs = int(task['hyperparams']['MAX_EPOCHS'])
-        valid_frequency = int(task['hyperparams']['ValidFrequency'])
+        valid_frequency = int(task['hyperparams']['VALID_FREQUENCY'])
 
         # Matplotlib figure setup
         fig = Figure(figsize=(6, 2.5), dpi=100)
