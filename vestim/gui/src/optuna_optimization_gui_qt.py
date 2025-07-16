@@ -48,9 +48,10 @@ class OptunaOptimizationThread(QThread):
         self.optimization_config = optimization_config
         self.study = None
         self.should_stop = False
+        self.completed_trials_data = []
         
         # Extract parameter ranges in boundary format [min,max]
-        self.param_ranges = {k: v for k, v in base_params.items() 
+        self.param_ranges = {k: v for k, v in base_params.items()
                            if isinstance(v, str) and '[' in v and ']' in v}
         
     def run(self):
@@ -108,6 +109,13 @@ class OptunaOptimizationThread(QThread):
                     # Tell study the result
                     self.study.tell(trial, objective_value)
                     
+                    # Store the complete data for this successful trial
+                    self.completed_trials_data.append({
+                        'params': params,  # The full parameter set
+                        'objective_value': objective_value,
+                        'trial_number': trial.number
+                    })
+
                     # Emit progress and trial info
                     self.progress_updated.emit(trial_num + 1, n_trials)
                     self.trial_completed.emit({
@@ -139,59 +147,45 @@ class OptunaOptimizationThread(QThread):
     
     def _suggest_params(self, trial):
         """Suggest parameters for a trial based on boundary format from GUI"""
-        params = self.base_params.copy()
+        params = {}  # Create a new dictionary for this trial
         
-        # Define which parameters should be treated as integers vs floats
         integer_params = {
-            "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS", 
+            "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS",
             "MAX_EPOCHS", "VALID_PATIENCE", "VALID_FREQUENCY", "LOOKBACK",
             "BATCH_SIZE", "LR_PERIOD", "PLATEAU_PATIENCE", "REPETITIONS"
         }
-        
-        # Process parameters that are in boundary format [min,max]
+        float_log_params = {"INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR", "FNN_DROPOUT_PROB"}
+
+        # Iterate through all base parameters to build the complete config for this trial
         for param_name, param_value in self.base_params.items():
+            # Check if the parameter has a search space defined (e.g., '[10, 20]')
             if isinstance(param_value, str) and param_value.startswith('[') and param_value.endswith(']'):
                 try:
-                    # Parse the boundary format [min,max]
                     inner = param_value[1:-1].strip()
                     parts = [part.strip() for part in inner.split(',')]
                     
                     if len(parts) == 2:
-                        min_val = float(parts[0])
-                        max_val = float(parts[1])
+                        min_val, max_val = float(parts[0]), float(parts[1])
                         
+                        # Suggest a value from the defined range
                         if param_name in integer_params:
-                            # Suggest integer value
-                            suggested_value = trial.suggest_int(param_name.lower(), int(min_val), int(max_val))
+                            suggested_value = trial.suggest_int(param_name, int(min_val), int(max_val))
+                        elif param_name in float_log_params:
+                            suggested_value = trial.suggest_float(param_name, min_val, max_val, log=True)
                         else:
-                            # Suggest float value
-                            if param_name in ["INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR", "FNN_DROPOUT_PROB"]:
-                                # Use log scale for learning rates and probabilities
-                                suggested_value = trial.suggest_float(param_name.lower(), min_val, max_val, log=True)
-                            else:
-                                suggested_value = trial.suggest_float(param_name.lower(), min_val, max_val)
+                            suggested_value = trial.suggest_float(param_name, min_val, max_val)
                         
                         params[param_name] = str(suggested_value)
-                        
+                    else:
+                        # If format is incorrect, keep the original value
+                        params[param_name] = param_value
                 except (ValueError, IndexError) as e:
-                    self.log_message.emit(f"Could not parse boundary format for {param_name}: {param_value}")
-                    # Keep original value if parsing fails
-                    continue
-        
-        return params
-        
-        if 'learning_rate_range' in config:
-            min_val, max_val = config['learning_rate_range']
-            params['INITIAL_LR'] = str(trial.suggest_float('learning_rate', min_val, max_val, log=True))
-        
-        if 'lookback_range' in config and params.get('TRAINING_METHOD') == 'Sequence-to-Sequence':
-            min_val, max_val = config['lookback_range']
-            params['LOOKBACK'] = str(trial.suggest_int('lookback', min_val, max_val))
-        
-        if 'dropout_range' in config and self.base_params.get('MODEL_TYPE') == 'FNN':
-            min_val, max_val = config['dropout_range']
-            params['FNN_DROPOUT_PROB'] = str(trial.suggest_float('dropout', min_val, max_val))
-        
+                    self.log_message.emit(f"Could not parse boundary format for {param_name}: {param_value}. Using original value.")
+                    params[param_name] = param_value
+            else:
+                # If it's a static parameter, just copy it over
+                params[param_name] = param_value
+                
         return params
     
     def _evaluate_params(self, params, trial_num):
@@ -324,46 +318,14 @@ class OptunaOptimizationThread(QThread):
         return best_val_loss
     
     def _get_best_configurations(self):
-        """Get the best N configurations from the study"""
+        """Get the best N configurations from the collected trial data."""
         n_configs = self.optimization_config.get('n_best_configs', 5)
         
-        # Get best trials
-        best_trials = sorted(self.study.trials, key=lambda t: t.value if t.value is not None else float('inf'))
-        best_trials = [t for t in best_trials if t.state == optuna.trial.TrialState.COMPLETE]
-        best_trials = best_trials[:n_configs]
+        # Sort the collected trial data by the objective value
+        sorted_trials = sorted(self.completed_trials_data, key=lambda t: t['objective_value'])
         
-        best_configs = []
-        for trial in best_trials:
-            config = self.base_params.copy()
-            
-            # Update with optimized parameters
-            for key, value in trial.params.items():
-                if key == 'hidden_units':
-                    if config.get('MODEL_TYPE') == 'LSTM':
-                        config['HIDDEN_UNITS'] = str(value)
-                    elif config.get('MODEL_TYPE') == 'GRU':
-                        config['GRU_HIDDEN_UNITS'] = str(value)
-                elif key == 'layers':
-                    if config.get('MODEL_TYPE') == 'LSTM':
-                        config['LAYERS'] = str(value)
-                    elif config.get('MODEL_TYPE') == 'GRU':
-                        config['GRU_LAYERS'] = str(value)
-                elif key == 'batch_size':
-                    config['BATCH_SIZE'] = str(value)
-                elif key == 'learning_rate':
-                    config['INITIAL_LR'] = str(value)
-                elif key == 'lookback':
-                    config['LOOKBACK'] = str(value)
-                elif key == 'dropout':
-                    config['FNN_DROPOUT_PROB'] = str(value)
-            
-            best_configs.append({
-                'params': config,
-                'objective_value': trial.value,
-                'trial_number': trial.number
-            })
-        
-        return best_configs
+        # Return the top N configurations. Each item is already a complete dictionary.
+        return sorted_trials[:n_configs]
     
     def stop_optimization(self):
         """Stop the optimization"""
@@ -788,7 +750,8 @@ class VEstimOptunaOptimizationGUI(QWidget):
         
         try:
             self.close()
-            self.training_setup_gui = VEstimTrainSetupGUI(optuna_configs=self.best_configs)
+            # Pass both the original base_params (for display) and the best_configs (for task creation)
+            self.training_setup_gui = VEstimTrainSetupGUI(params=self.base_params, optuna_configs=self.best_configs)
             self.training_setup_gui.show()
         except Exception as e:
             self.logger.error(f"Error proceeding to training setup: {e}")

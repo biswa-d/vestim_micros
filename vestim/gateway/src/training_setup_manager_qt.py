@@ -68,11 +68,6 @@ class VEstimTrainingSetupManager:
             if not optuna_configs:
                 raise ValueError("Optuna configurations are missing.")
 
-            # Set the main params from the first config to make them available to helper methods.
-            # Non-optimized params like FEATURE_COLUMNS are consistent across all configs from a study.
-            self.params = optuna_configs[0]['params']
-            self.current_hyper_params = self.params
-
             if self.progress_signal:
                 self.progress_signal.emit("Creating training tasks from Optuna configs...", "", 0)
 
@@ -313,13 +308,13 @@ class VEstimTrainingSetupManager:
         """Create training tasks from a list of Optuna best configurations."""
         task_list = []
         for i, config_data in enumerate(best_configs):
-            # Each config from Optuna is a complete set of hyperparameters.
+            # Each 'params' dictionary from Optuna is a complete, self-contained configuration.
             hyperparams = config_data['params']
 
             # Create a single model instance for this task
             model_task = self._build_single_model(hyperparams)
             
-            # Create the task info
+            # Create the task info using only the complete hyperparams for this task
             task_info = self._create_task_info(
                 model_task=model_task,
                 hyperparams=hyperparams,
@@ -491,16 +486,16 @@ class VEstimTrainingSetupManager:
                 'output_size': output_size
             },
             'hyperparams': {
-                'MODEL_TYPE': model_type,  # Add MODEL_TYPE to hyperparams
-                'TRAINING_METHOD': self.current_hyper_params.get('TRAINING_METHOD', 'Sequence-to-Sequence'),  # Add TRAINING_METHOD
+                'MODEL_TYPE': model_type,
+                'TRAINING_METHOD': hyperparams.get('TRAINING_METHOD', 'Sequence-to-Sequence'),
                 'INPUT_SIZE': input_size,
                 'OUTPUT_SIZE': output_size,
-                'BATCH_TRAINING': self.current_hyper_params.get('BATCH_TRAINING', True), # Propagate BATCH_TRAINING
+                'BATCH_TRAINING': hyperparams.get('BATCH_TRAINING', True),
                 'BATCH_SIZE': hyperparams['BATCH_SIZE'],
                 'MAX_EPOCHS': hyperparams['MAX_EPOCHS'],
                 'INITIAL_LR': hyperparams['INITIAL_LR'],
                 'VALID_PATIENCE': hyperparams['VALID_PATIENCE'],
-                'ValidFrequency': hyperparams['ValidFrequency'],
+                'VALID_FREQUENCY': hyperparams['VALID_FREQUENCY'],
                 'LOOKBACK': hyperparams['LOOKBACK'],
                 'SCHEDULER_TYPE': hyperparams['SCHEDULER_TYPE'],
                 'LR_PERIOD': hyperparams.get('LR_PERIOD'),

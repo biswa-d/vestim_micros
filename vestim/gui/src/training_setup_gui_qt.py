@@ -42,17 +42,16 @@ class VEstimTrainSetupGUI(QWidget):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.optuna_configs = optuna_configs
+        self.params = params  # Always use the passed params for UI display
 
         if optuna_configs:
-            self.param_list = [config['params'] for config in optuna_configs]
-            self.params = self.param_list[0] if self.param_list else {}
+            # Optuna workflow: UI shows search space, but tasks are from optimized configs
             self.is_multiple_configs = True
-            self.logger.info(f"Initialized with {len(self.param_list)} parameter configurations from Optuna")
+            self.logger.info(f"Initialized with {len(optuna_configs)} parameter configurations from Optuna.")
         else:
-            self.params = params
-            self.param_list = [params] if params else []
+            # Grid search workflow: UI shows the grid search definition
             self.is_multiple_configs = False
-            self.logger.info("Initialized with single parameter configuration for grid search")
+            self.logger.info("Initialized with single parameter configuration for grid search.")
         
         self.job_manager = JobManager()
         self.timer_running = True
