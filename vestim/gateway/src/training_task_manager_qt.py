@@ -223,7 +223,7 @@ class TrainingTaskManager:
         print(f"Log files for task {task['task_id']} (relative to output): CSV: {log_csv_file}, DB: {log_db_file}")
 
         # Ensure the model_dir exists
-        if not os.path.exists(model_dir):
+        if model_dir and not os.path.exists(model_dir):
             os.makedirs(model_dir)  # Create the directory if it does not exist
 
         # Create SQLite tables if they do not exist
@@ -231,6 +231,9 @@ class TrainingTaskManager:
 
     def create_sql_tables(self, db_log_file):
         """Create the necessary SQL tables for task-level and batch-level logging."""
+        if not db_log_file:
+            self.logger.warning("Database log file path is not provided. Skipping SQL table creation.")
+            return
         try:
             # Ensure the database file path is valid
             if not os.path.isfile(db_log_file):
@@ -488,12 +491,13 @@ class TrainingTaskManager:
             scheduler = self.scheduler
 
             # Initialize CSV logging for epoch-wise data
-            csv_log_file = task['csv_log_file']
-            # Ensure the directory for csv_log_file exists (it's task_dir/logs/)
-            os.makedirs(os.path.dirname(csv_log_file), exist_ok=True)
-            with open(csv_log_file, 'w', newline='') as f: # Added newline=''
-                csv_writer = csv.writer(f)
-                csv_writer.writerow(["epoch", "train_loss_norm", "val_loss_norm", "best_val_loss_norm", "learning_rate", "elapsed_time_sec", "avg_batch_time_sec", "patience_counter", "model_memory_mb"]) # Header
+            csv_log_file = task.get('csv_log_file')
+            if csv_log_file:
+                # Ensure the directory for csv_log_file exists (it's task_dir/logs/)
+                os.makedirs(os.path.dirname(csv_log_file), exist_ok=True)
+                with open(csv_log_file, 'w', newline='') as f: # Added newline=''
+                    csv_writer = csv.writer(f)
+                    csv_writer.writerow(["epoch", "train_loss_norm", "val_loss_norm", "best_val_loss_norm", "learning_rate", "elapsed_time_sec", "avg_batch_time_sec", "patience_counter", "model_memory_mb"]) # Header
 
             # Training loop
             for epoch in range(1, max_epochs + 1):
@@ -728,19 +732,20 @@ class TrainingTaskManager:
                     # Log to CSV (after validation)
                     model_memory_usage_val = torch.cuda.memory_allocated(device=self.device) if self.device.type == 'cuda' else 0
                     model_memory_usage_mb_val = model_memory_usage_val / (1024 * 1024) if model_memory_usage_val > 0 else 0
-                    with open(csv_log_file, 'a', newline='') as f:
-                        csv_writer_val = csv.writer(f)
-                        csv_writer_val.writerow([
-                            epoch,
-                            f"{train_loss_norm:.6f}" if train_loss_norm is not None else 'nan',
-                            f"{val_loss_norm:.6f}" if val_loss_norm is not None else 'nan',
-                            f"{best_validation_loss:.6f}" if best_validation_loss is not None else 'nan', # best_validation_loss is normalized
-                            f"{current_lr:.1e}" if current_lr is not None else 'nan',
-                            f"{elapsed_time:.2f}" if elapsed_time is not None else 'nan', # elapsed_time for validation epoch
-                            f"{avg_batch_time:.4f}" if avg_batch_time is not None else 'nan', # avg_batch_time for train part of this epoch
-                            patience_counter if patience_counter is not None else 'nan',
-                            f"{model_memory_usage_mb_val:.3f}" if model_memory_usage_mb_val is not None else 'nan'
-                        ])
+                    if csv_log_file:
+                        with open(csv_log_file, 'a', newline='') as f:
+                            csv_writer_val = csv.writer(f)
+                            csv_writer_val.writerow([
+                                epoch,
+                                f"{train_loss_norm:.6f}" if train_loss_norm is not None else 'nan',
+                                f"{val_loss_norm:.6f}" if val_loss_norm is not None else 'nan',
+                                f"{best_validation_loss:.6f}" if best_validation_loss is not None else 'nan', # best_validation_loss is normalized
+                                f"{current_lr:.1e}" if current_lr is not None else 'nan',
+                                f"{elapsed_time:.2f}" if elapsed_time is not None else 'nan', # elapsed_time for validation epoch
+                                f"{avg_batch_time:.4f}" if avg_batch_time is not None else 'nan', # avg_batch_time for train part of this epoch
+                                patience_counter if patience_counter is not None else 'nan',
+                                f"{model_memory_usage_mb_val:.3f}" if model_memory_usage_mb_val is not None else 'nan'
+                            ])
                     
                     self.logger.info(f"Epoch {epoch} | Train Loss (Norm): {train_loss_norm:.6f} | Val Loss (Norm): {val_loss_norm:.6f} | GUI Train RMSE: {train_rmse_for_gui:.4f} {error_unit_label} | GUI Val RMSE: {val_rmse_for_gui:.4f} {error_unit_label} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss (Norm): {best_validation_loss:.6f} | GUI Best Val RMSE: {best_val_rmse_for_gui:.4f} {error_unit_label} | Patience: {patience_counter}")
                     
@@ -872,19 +877,20 @@ class TrainingTaskManager:
                             if train_loss_norm is not None and not math.isnan(train_loss_norm): train_rmse_for_gui_no_val = math.sqrt(max(0, train_loss_norm)) * multiplier_no_val
 
                         # Log to CSV for non-validation epochs
-                        with open(csv_log_file, 'a', newline='') as f:
-                            csv_writer_train_only = csv.writer(f)
-                            csv_writer_train_only.writerow([
-                                epoch,
-                                f"{train_loss_norm:.6f}" if train_loss_norm is not None else 'nan',
-                                'nan', 
-                                f"{best_validation_loss:.6f}" if best_validation_loss is not None else 'nan', 
-                                f"{current_lr:.1e}" if current_lr is not None else 'nan',
-                                f"{elapsed_time_train_only:.2f}" if elapsed_time_train_only is not None else 'nan',
-                                f"{avg_batch_time:.4f}" if avg_batch_time is not None else 'nan',
-                                patience_counter if patience_counter is not None else 'nan',
-                                f"{model_memory_usage_mb:.3f}" if model_memory_usage_mb is not None else 'nan'
-                            ])
+                        if csv_log_file:
+                            with open(csv_log_file, 'a', newline='') as f:
+                                csv_writer_train_only = csv.writer(f)
+                                csv_writer_train_only.writerow([
+                                    epoch,
+                                    f"{train_loss_norm:.6f}" if train_loss_norm is not None else 'nan',
+                                    'nan',
+                                    f"{best_validation_loss:.6f}" if best_validation_loss is not None else 'nan',
+                                    f"{current_lr:.1e}" if current_lr is not None else 'nan',
+                                    f"{elapsed_time_train_only:.2f}" if elapsed_time_train_only is not None else 'nan',
+                                    f"{avg_batch_time:.4f}" if avg_batch_time is not None else 'nan',
+                                    patience_counter if patience_counter is not None else 'nan',
+                                    f"{model_memory_usage_mb:.3f}" if model_memory_usage_mb is not None else 'nan'
+                                ])
                         
                         # Update GUI via signal (for non-validation epochs)
                         task_elapsed_time_train_only = time.time() - self.task_start_time if hasattr(self, 'task_start_time') else elapsed_time_train_only
@@ -906,99 +912,6 @@ class TrainingTaskManager:
                         # DON'T update GUI for non-validation epochs - only during validation
                         # update_progress_callback.emit(progress_data_train_only)
                         self.logger.info(f"Epoch {epoch}/{max_epochs} - Training only (no validation, ValidFreq={valid_freq}) - GUI not updated")
-# This block is for epochs where validation did not run.
-                        current_time_train_only = time.time()
-                        elapsed_time_train_only = current_time_train_only - loop_start_time # Changed start_time to loop_start_time
-                        model_memory_usage_train_only = torch.cuda.memory_allocated(device=self.device) if self.device.type == 'cuda' else 0
-                        model_memory_usage_mb_train_only = model_memory_usage_train_only / (1024 * 1024) if model_memory_usage_train_only > 0 else 0
-                        
-                        # Calculate scaled RMSE for training for GUI if possible
-                        train_rmse_for_gui_no_val = float('nan')
-                        target_column_no_val = task['data_loader_params']['target_column']
-                        # Determine error_unit_label and multiplier for this context
-                        current_error_unit_label_no_val = "RMS Error" # Default
-                        multiplier_no_val = 1.0 # Default
-                        if "voltage" in target_column_no_val.lower():
-                            current_error_unit_label_no_val = "RMS Error [mV]"
-                            multiplier_no_val = 1000.0
-                        elif "soc" in target_column_no_val.lower():
-                            current_error_unit_label_no_val = "RMS Error [% SOC]"
-                            multiplier_no_val = 100.0
-                        elif "soe" in target_column_no_val.lower():
-                            current_error_unit_label_no_val = "RMS Error [% SOE]"
-                            multiplier_no_val = 100.0
-                        elif "sop" in target_column_no_val.lower():
-                            current_error_unit_label_no_val = "RMS Error [% SOP]"
-                            multiplier_no_val = 100.0
-                        elif "temperature" in target_column_no_val.lower() or "temp" in target_column_no_val.lower():
-                            current_error_unit_label_no_val = "RMS Error [Deg C]"
-                            multiplier_no_val = 1.0
-
-                        if self.loaded_scaler and target_column_no_val in self.scaler_metadata.get('normalized_columns', []):
-                            if epoch_train_preds_norm is not None and epoch_train_trues_norm is not None and len(epoch_train_preds_norm) > 0:
-                                try:
-                                    # Ensure pandas and numpy are available
-                                    import pandas as pd 
-                                    import numpy as np
-                                    from vestim.services import normalization_service 
-                                    e_t_p_n_cpu_no_val = epoch_train_preds_norm.cpu().numpy() if epoch_train_preds_norm.is_cuda else epoch_train_preds_norm.numpy()
-                                    e_t_t_n_cpu_no_val = epoch_train_trues_norm.cpu().numpy() if epoch_train_trues_norm.is_cuda else epoch_train_trues_norm.numpy()
-                                    temp_df_train_pred_no_val = pd.DataFrame(0, index=np.arange(len(e_t_p_n_cpu_no_val)), columns=self.scaler_metadata['normalized_columns'])
-                                    temp_df_train_pred_no_val[target_column_no_val] = e_t_p_n_cpu_no_val.flatten()
-                                    df_train_pred_inv_no_val = normalization_service.inverse_transform_data(temp_df_train_pred_no_val, self.loaded_scaler, self.scaler_metadata['normalized_columns'])
-                                    train_pred_orig_no_val = df_train_pred_inv_no_val[target_column_no_val].values
-                                    temp_df_train_true_no_val = pd.DataFrame(0, index=np.arange(len(e_t_t_n_cpu_no_val)), columns=self.scaler_metadata['normalized_columns'])
-                                    temp_df_train_true_no_val[target_column_no_val] = e_t_t_n_cpu_no_val.flatten()
-                                    df_train_true_inv_no_val = normalization_service.inverse_transform_data(temp_df_train_true_no_val, self.loaded_scaler, self.scaler_metadata['normalized_columns'])
-                                    train_true_orig_no_val = df_train_true_inv_no_val[target_column_no_val].values
-                                    train_mse_orig_no_val = np.mean((train_pred_orig_no_val - train_true_orig_no_val)**2)
-                                    train_rmse_for_gui_no_val = np.sqrt(train_mse_orig_no_val) * multiplier_no_val
-                                except Exception as e_inv_train_no_val:
-                                    self.logger.error(f"Error during inverse transform for training data (non-val epoch {epoch}): {e_inv_train_no_val}.")
-                                    if train_loss_norm is not None and not math.isnan(train_loss_norm): train_rmse_for_gui_no_val = math.sqrt(max(0, train_loss_norm)) * multiplier_no_val
-                        else: 
-                            if train_loss_norm is not None and not math.isnan(train_loss_norm): train_rmse_for_gui_no_val = math.sqrt(max(0, train_loss_norm)) * multiplier_no_val
-
-                        # Log to CSV for non-validation epochs
-                        with open(csv_log_file, 'a', newline='') as f:
-                            csv_writer_train_only = csv.writer(f)
-                            csv_writer_train_only.writerow([
-                                epoch,
-                                f"{train_loss_norm:.6f}" if train_loss_norm is not None else 'nan',
-                                'nan', 
-                                f"{best_validation_loss:.6f}" if best_validation_loss is not None else 'nan', 
-                                f"{current_lr:.1e}" if current_lr is not None else 'nan',
-                                f"{elapsed_time_train_only:.2f}" if elapsed_time_train_only is not None else 'nan',
-                                f"{avg_batch_time:.4f}" if avg_batch_time is not None else 'nan',
-                                patience_counter if patience_counter is not None else 'nan',
-                                f"{model_memory_usage_mb_train_only:.3f}" if model_memory_usage_mb_train_only is not None else 'nan'
-                            ])
-                        
-                        # Update GUI via signal (for non-validation epochs)
-                        progress_data_train_only = {
-                            'epoch': epoch,
-                            'train_loss_norm': train_loss_norm, 
-                            'val_loss_norm': float('nan'),      
-                            'train_rmse_scaled': train_rmse_for_gui_no_val, 
-                            'val_rmse_scaled': float('nan'),         
-                            'best_val_rmse_scaled': getattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', float('inf')), 
-                            'error_unit_label': current_error_unit_label_no_val, 
-                            'delta_t_epoch': formatted_epoch_time, 
-                            'elapsed_time': format_time(elapsed_time_train_only), 
-                            'patience_counter': patience_counter, 
-                            'learning_rate': current_lr, 
-                            'status': f"Epoch {epoch}/{max_epochs} - Training..."
-                        }
-                        # DON'T update GUI for non-validation epochs - only during validation
-                        # update_progress_callback.emit(progress_data_train_only)
-                        # self.log_to_sqlite(
-                        #     task=task, epoch=epoch, train_loss=train_loss_norm,
-                        #     val_loss=float('nan'),
-                        #     best_val_loss=best_validation_loss,
-                        #     elapsed_time=elapsed_time,
-                        #     avg_batch_time=avg_batch_time, early_stopping=False,
-                        #     model_memory_usage=round(model_memory_usage_mb, 3), current_lr=current_lr
-                        # )
                     elif (epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs): # If it IS a validation epoch but did NOT early stop
                         model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
                         model_memory_usage_mb = model_memory_usage / (1024 * 1024)
@@ -1081,11 +994,12 @@ class TrainingTaskManager:
                                            best_train_loss_norm, best_train_loss_denorm)
 
             # Log final summary to txt file
-            with open(os.path.join(task['model_dir'], 'training_summary.txt'), 'w') as f:
-                f.write(f"Training completed\n")
-                f.write(f"Best validation loss: {best_validation_loss:.6f}\n")
-                f.write(f"Final learning rate: {optimizer.param_groups[0]['lr']:.8f}\n")
-                f.write(f"Stopped at epoch: {epoch}/{max_epochs}\n")
+            if task.get('model_dir'):
+                with open(os.path.join(task['model_dir'], 'training_summary.txt'), 'w') as f:
+                    f.write(f"Training completed\n")
+                    f.write(f"Best validation loss: {best_validation_loss:.6f}\n")
+                    f.write(f"Final learning rate: {optimizer.param_groups[0]['lr']:.8f}\n")
+                    f.write(f"Stopped at epoch: {epoch}/{max_epochs}\n")
 
             self.logger.info(f"Training loop finished for task {task['task_id']}. Best model is at: {task.get('training_params', {}).get('best_model_path')}")
             formatted_task_time = format_time(final_task_elapsed_time)
@@ -1169,11 +1083,12 @@ class TrainingTaskManager:
             overall_training_start_time = time.time()
             optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
             scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_drop_period, gamma=lr_drop_factor)
-            csv_log_file = task['csv_log_file']
-            os.makedirs(os.path.dirname(csv_log_file), exist_ok=True)
-            with open(csv_log_file, 'w', newline='') as f:
-                csv_writer = csv.writer(f)
-                csv_writer.writerow(["epoch", "train_loss_norm", "val_loss_norm", "best_val_loss_norm", "learning_rate", "elapsed_time_sec", "avg_batch_time_sec", "patience_counter", "model_memory_mb"])
+            csv_log_file = task.get('csv_log_file')
+            if csv_log_file:
+                os.makedirs(os.path.dirname(csv_log_file), exist_ok=True)
+                with open(csv_log_file, 'w', newline='') as f:
+                    csv_writer = csv.writer(f)
+                    csv_writer.writerow(["epoch", "train_loss_norm", "val_loss_norm", "best_val_loss_norm", "learning_rate", "elapsed_time_sec", "avg_batch_time_sec", "patience_counter", "model_memory_mb"])
 
             # Training loop
             for epoch in range(1, max_epochs + 1):
@@ -1333,7 +1248,10 @@ class TrainingTaskManager:
         """Saves a detailed summary of the completed training task and stores it."""
         try:
             task_id = task['task_id']
-            task_dir = task['model_dir']
+            task_dir = task.get('model_dir')
+            if not task_dir:
+                self.logger.warning(f"No model_dir found for task {task_id}. Skipping summary save.")
+                return
             summary_file_path = os.path.join(task_dir, 'training_summary.json')
 
             # Get the final denormalized losses from the attributes set during training

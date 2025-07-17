@@ -5,8 +5,8 @@
 # Description: Optuna-based hyperparameter optimization GUI for VEstim
 # ---------------------------------------------------------------------------------
 
-import os
 import torch
+import os
 import json
 import logging
 import time
