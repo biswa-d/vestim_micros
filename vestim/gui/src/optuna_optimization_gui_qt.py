@@ -234,7 +234,10 @@ class OptunaOptimizationThread(QThread):
         try:
             # 1. Use the new OptunaSetupManager to create a single, complete training task.
             # This manager is non-singleton and designed for this purpose.
-            setup_manager = OptunaSetupManager(job_manager=self.job_manager)
+            setup_manager = OptunaSetupManager(
+                job_manager=self.job_manager,
+                progress_signal=self.log_message  # Pass the log signal for progress updates
+            )
             
             # The expected format is a list of dicts, where each dict has a 'params' key.
             single_config_list = [{'params': params, 'trial_number': trial.number}]

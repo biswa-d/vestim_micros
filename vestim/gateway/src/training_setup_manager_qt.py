@@ -416,6 +416,7 @@ class VEstimTrainingSetupManager:
             'model': model,
             'model_type': model_type,
             'model_dir': model_dir,
+            'task_dir': model_dir,  # Add this line
             "FEATURE_COLUMNS": hyperparams.get("FEATURE_COLUMNS", []),
             "TARGET_COLUMN": hyperparams.get("TARGET_COLUMN", ""),
             'hyperparams': {**model_params, 'model_path': model_path}
