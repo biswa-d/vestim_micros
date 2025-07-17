@@ -116,6 +116,7 @@ class TrainingTaskManager:
         # Initialize task timer at the very beginning
         self.task_start_time = time.time()
         
+        train_loader, val_loader = None, None  # Initialize to ensure they exist for the finally block
         try:
             # Concise log for starting task - only include model-appropriate parameters
             task_hyperparams = task['hyperparams']
@@ -168,6 +169,19 @@ class TrainingTaskManager:
         except Exception as e:
             self.logger.error(f"Error during task processing: {str(e)}")
             update_progress_callback.emit({'task_error': str(e)})
+        finally:
+            # Explicitly delete DataLoaders and call garbage collector to free memory after each trial
+            self.logger.info(f"Cleaning up resources for task {task.get('task_id', 'N/A')}")
+            try:
+                if train_loader:
+                    del train_loader
+                if val_loader:
+                    del val_loader
+                import gc
+                gc.collect()
+                self.logger.info("Successfully cleaned up DataLoaders and performed garbage collection.")
+            except Exception as cleanup_error:
+                self.logger.error(f"Error during resource cleanup: {cleanup_error}")
 
     def setup_job_logging(self, task):
         """
