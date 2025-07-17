@@ -183,7 +183,7 @@ class ContinuousTestingService:
                         # LSTM forward pass with persistent hidden states
                         output, (h_s, h_c) = self.model_instance.lstm(x_t, (self.hidden_states['h_s'], self.hidden_states['h_c']))
                         # Get final prediction
-                        y_pred = self.model_instance.linear(output[:, -1, :])
+                        y_pred = self.model_instance.fc(output[:, -1, :])
                         # Update hidden states for next sample
                         self.hidden_states['h_s'] = h_s.detach()
                         self.hidden_states['h_c'] = h_c.detach()

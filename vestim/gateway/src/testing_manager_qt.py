@@ -240,7 +240,8 @@ class VEstimTestingManager:
                     
                     # Store timestamps in file_results for later use
                     if timestamps is not None:
-                        file_results['timestamps'] = timestamps
+                        if file_results is not None and timestamps is not None:
+                            file_results['timestamps'] = timestamps
                 else:
                     # Fallback to old dataloader method - create test loader only when needed
                     data_loader_params = task.get('data_loader_params', {})
