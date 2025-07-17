@@ -1041,6 +1041,10 @@ class VEstimHyperParamGUI(QWidget):
                 QMessageBox.warning(self, "Validation Error", error_message)
                 return
             
+            # Update the manager with the latest params and save them
+            self.hyper_param_manager.update_params(new_params)
+            self.hyper_param_manager.save_params()
+
             # Import here to avoid circular imports
             from vestim.gui.src.optuna_optimization_gui_qt import VEstimOptunaOptimizationGUI
             
@@ -1065,6 +1069,10 @@ class VEstimHyperParamGUI(QWidget):
                 QMessageBox.warning(self, "Validation Error", error_message)
                 return
             
+            # Update the manager with the latest params and save them
+            self.hyper_param_manager.update_params(new_params)
+            self.hyper_param_manager.save_params()
+
             # Proceed directly to training setup with grid search logic
             self.close()  # Close current window
             self.training_setup_gui = VEstimTrainSetupGUI(new_params)

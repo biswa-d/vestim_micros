@@ -181,11 +181,7 @@ class VEstimHyperParamManager:
             self.logger.error("No parameters available to save.")
             raise ValueError("No parameters available for saving.")
 
-        # Save the raw, user-defined parameters to hyperparams.json
         params_file = os.path.join(job_folder, 'hyperparams.json')
-        with open(params_file, 'w') as f:
-            json.dump(self.current_params, f, indent=4)
-        self.logger.info(f"Saved definitive hyperparameters to {params_file}")
 
         try:
             # Create a copy to modify for saving, especially for max_training_time_seconds
@@ -216,6 +212,12 @@ class VEstimHyperParamManager:
             # Note: validate_and_normalize_params might need adjustment if it expects H/M/S and they are removed
             # For now, we validate self.current_params which still has H/M/S, then save the modified params_to_save
             _ = self.validate_and_normalize_params(self.current_params) # Validate original structure
+
+            with open(params_file, 'w') as file:
+                json.dump(params_to_save, file, indent=4) # Save the modified dict
+
+            self.logger.info(f"Hyperparameters successfully saved to file: {params_file}")
+            self.logger.info(f"Saved content: {params_to_save}")
 
             # Also save to defaults config for next time
             try:
