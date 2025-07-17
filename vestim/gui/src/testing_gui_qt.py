@@ -124,9 +124,28 @@ class VEstimTestingGUI(QMainWindow):
         # Hyperparameters Display
         self.hyperparam_frame = QWidget()
         self.main_layout.addWidget(self.hyperparam_frame)
-        self.hyper_params = self.hyper_param_manager.get_hyper_params()
-        self.display_hyperparameters(self.hyper_params)
-        print(f"Displayed hyperparameters: {self.hyper_params}")
+        try:
+            # Load hyperparameters directly from the job folder for robustness
+            job_folder = self.job_manager.get_job_folder()
+            hyperparams_path = os.path.join(job_folder, 'hyperparams.json')
+            
+            if not os.path.exists(hyperparams_path):
+                # As a fallback for older jobs or different flows, try to get from the manager's memory
+                self.logger.warning(f"Could not find hyperparams.json in job folder: {hyperparams_path}. Using in-memory parameters as a fallback.")
+                self.hyper_params = self.hyper_param_manager.get_hyper_params()
+            else:
+                # This is the primary, robust method: load from the job's definitive file
+                self.hyper_params = self.hyper_param_manager.load_params(hyperparams_path)
+                self.logger.info(f"Successfully loaded hyperparameters from {hyperparams_path}")
+            
+            self.display_hyperparameters(self.hyper_params)
+            print(f"Displayed hyperparameters: {self.hyper_params}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to load and display hyperparameters: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to load hyperparameters for testing: {e}")
+            self.hyper_params = {} # Ensure it's an empty dict on failure
+            self.display_hyperparameters(self.hyper_params)
         
         # Timer Label
         self.time_label = QLabel("Testing Time: 00h:00m:00s")
