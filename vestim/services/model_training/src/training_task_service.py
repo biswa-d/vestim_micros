@@ -85,8 +85,13 @@ class TrainingTaskService:
                 with torch.cuda.amp.autocast():
                     # Forward pass with mixed precision
                     if model_type == "LSTM":
+                        if h_s is None or h_c is None: # Ensure hidden states are initialized
+                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                         y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                     elif model_type == "GRU":
+                        if h_s is None: # Ensure hidden state is initialized
+                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                         y_pred, h_s = model(X_batch, h_s)
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
@@ -217,9 +222,14 @@ class TrainingTaskService:
                 if use_mixed_precision:
                     with torch.cuda.amp.autocast():
                         if model_type == "LSTM":
-                            y_pred, (_, _) = model(X_batch, h_s, h_c)
+                            if h_s is None or h_c is None:
+                                h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                                h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                            y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                         elif model_type == "GRU":
-                            y_pred, _ = model(X_batch, h_s)
+                            if h_s is None:
+                                h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                            y_pred, h_s = model(X_batch, h_s)
                         elif model_type == "FNN":
                             y_pred = model(X_batch)
                         else:
