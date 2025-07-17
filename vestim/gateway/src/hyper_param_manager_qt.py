@@ -21,48 +21,48 @@ class VEstimHyperParamManager:
             self.initialized = True
             self.logger.info("VEstimHyperParamManager initialized.")
     
-        def validate_hyperparameters_for_gui(self, params):
-            """
-            Performs validation specific to the GUI inputs before proceeding.
-            Returns (bool, str): (is_valid, error_message)
-            """
-            model_type = params.get('MODEL_TYPE')
-    
-            if model_type == 'FNN':
-                fnn_n_layers_str = params.get('FNN_N_LAYERS', '')
-                fnn_units_str = params.get('FNN_UNITS', '')
-                fnn_hidden_layers_str = params.get('FNN_HIDDEN_LAYERS', '')
-    
-                is_optuna_dynamic_fnn = fnn_n_layers_str.strip().startswith('[') and fnn_units_str.strip().startswith('[')
-    
-                if is_optuna_dynamic_fnn:
+    def validate_hyperparameters_for_gui(self, params):
+        """
+        Performs validation specific to the GUI inputs before proceeding.
+        Returns (bool, str): (is_valid, error_message)
+        """
+        model_type = params.get('MODEL_TYPE')
+
+        if model_type == 'FNN':
+            fnn_n_layers_str = params.get('FNN_N_LAYERS', '')
+            fnn_units_str = params.get('FNN_UNITS', '')
+            fnn_hidden_layers_str = params.get('FNN_HIDDEN_LAYERS', '')
+
+            is_optuna_dynamic_fnn = fnn_n_layers_str.strip().startswith('[') and fnn_units_str.strip().startswith('[')
+
+            if is_optuna_dynamic_fnn:
+                try:
+                    n_layers_range = json.loads(fnn_n_layers_str)
+                    units_range = json.loads(fnn_units_str)
+                    if not (isinstance(n_layers_range, list) and len(n_layers_range) == 2 and all(isinstance(i, int) for i in n_layers_range)):
+                        return False, "FNN_N_LAYERS for Optuna must be a JSON list of two integers, e.g., [1, 5]."
+                    if not (isinstance(units_range, list) and len(units_range) == 2 and all(isinstance(i, int) for i in units_range)):
+                        return False, "FNN_UNITS for Optuna must be a JSON list of two integers, e.g., [32, 256]."
+                except (json.JSONDecodeError, TypeError):
+                    return False, "Invalid format for FNN_N_LAYERS or FNN_UNITS. Must be a JSON list like [min, max]."
+            elif fnn_hidden_layers_str:
+                architectures = [arch.strip() for arch in fnn_hidden_layers_str.split(';')]
+                for arch in architectures:
+                    if not arch: continue
                     try:
-                        n_layers_range = json.loads(fnn_n_layers_str)
-                        units_range = json.loads(fnn_units_str)
-                        if not (isinstance(n_layers_range, list) and len(n_layers_range) == 2 and all(isinstance(i, int) for i in n_layers_range)):
-                            return False, "FNN_N_LAYERS for Optuna must be a JSON list of two integers, e.g., [1, 5]."
-                        if not (isinstance(units_range, list) and len(units_range) == 2 and all(isinstance(i, int) for i in units_range)):
-                            return False, "FNN_UNITS for Optuna must be a JSON list of two integers, e.g., [32, 256]."
-                    except (json.JSONDecodeError, TypeError):
-                        return False, "Invalid format for FNN_N_LAYERS or FNN_UNITS. Must be a JSON list like [min, max]."
-                elif fnn_hidden_layers_str:
-                    architectures = [arch.strip() for arch in fnn_hidden_layers_str.split(';')]
-                    for arch in architectures:
-                        if not arch: continue
-                        try:
-                            [int(unit.strip()) for unit in arch.split(',')]
-                        except ValueError:
-                            return False, f"Invalid architecture in FNN_HIDDEN_LAYERS: '{arch}'. Each layer size must be an integer."
-                else:
-                    # This case can be hit if neither dynamic search nor grid search is defined.
-                    # Depending on desired behavior, this could be an error.
-                    # For now, we assume it's valid if empty, as it might be disabled.
-                    pass
-    
-            return True, ""
-    
-        def load_params(self, filepath):
-            """Load and validate parameters from a JSON file."""
+                        [int(unit.strip()) for unit in arch.split(',')]
+                    except ValueError:
+                        return False, f"Invalid architecture in FNN_HIDDEN_LAYERS: '{arch}'. Each layer size must be an integer."
+            else:
+                # This case can be hit if neither dynamic search nor grid search is defined.
+                # Depending on desired behavior, this could be an error.
+                # For now, we assume it's valid if empty, as it might be disabled.
+                pass
+
+        return True, ""
+
+    def load_params(self, filepath):
+        """Load and validate parameters from a JSON file."""
         self.logger.info(f"Loading parameters from {filepath}")
         with open(filepath, 'r') as file:
             params = json.load(file)
