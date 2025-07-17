@@ -1045,7 +1045,7 @@ class VEstimHyperParamGUI(QWidget):
             from vestim.gui.src.optuna_optimization_gui_qt import VEstimOptunaOptimizationGUI
             
             self.close()
-            self.optuna_gui = VEstimOptunaOptimizationGUI(job_manager=self.job_manager, params=new_params)
+            self.optuna_gui = VEstimOptunaOptimizationGUI(params=new_params)
             self.optuna_gui.show()
             
         except Exception as e:
