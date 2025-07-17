@@ -96,7 +96,7 @@ class VEstimTrainingSetupManager:
         model_map = {
             "LSTM": self.lstm_model_service.create_and_save_lstm_model,
             #"LSTM Batch Norm": self.lstm_model_service.create_and_save_lstm_model_with_BN,
-            "LSTM Layer Norm": self.lstm_model_service.create_and_save_lstm_model_with_LN,
+            #"LSTM Layer Norm": self.lstm_model_service.create_and_save_lstm_model_with_LN,  # Removed: method does not exist
             #"Transformer": self.transformer_model_service.create_and_save_transformer_model,
             #"FCNN": self.fcnn_model_service.create_and_save_fcnn_model,
             "GRU": self.gru_model_service.create_and_save_gru_model,
@@ -394,7 +394,7 @@ class VEstimTrainingSetupManager:
             'model_dir': model_dir,
             "FEATURE_COLUMNS": hyperparams.get("FEATURE_COLUMNS", []),
             "TARGET_COLUMN": hyperparams.get("TARGET_COLUMN", ""),
-            'hyperparams': model_params
+            'hyperparams': {**model_params, 'model_path': model_path}
         }
 
     def load_job_normalization_metadata(self):
@@ -482,9 +482,9 @@ class VEstimTrainingSetupManager:
         return {
             'task_id': task_id,
             'model': model_task['model'],
-            'model_dir': task_dir,
+            'model_dir': model_task['model_dir'],
             'task_dir': task_dir,
-            'model_path': os.path.join(task_dir, 'model.pth'),
+            'model_path': model_task['hyperparams']['model_path'],
             'logs_dir': logs_dir,
             'model_metadata': {
                 'model_type': model_task.get('model_type', 'LSTM'),
