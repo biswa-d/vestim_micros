@@ -172,11 +172,17 @@ class OptunaOptimizationThread(QThread):
             "BATCH_SIZE", "LR_PERIOD", "PLATEAU_PATIENCE", "REPETITIONS"
         }
         float_log_params = {"INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR", "FNN_DROPOUT_PROB"}
+        categorical_params = {"FNN_HIDDEN_LAYERS"}
 
         # Iterate through all base parameters to build the complete config for this trial
         for param_name, param_value in self.base_params.items():
-            # Check if the parameter has a search space defined (e.g., '[10, 20]')
-            if isinstance(param_value, str) and param_value.startswith('[') and param_value.endswith(']'):
+            if param_name in categorical_params and isinstance(param_value, str) and ';' in param_value:
+                # Handle categorical parameters like FNN architecture
+                choices = [choice.strip() for choice in param_value.split(';')]
+                suggested_value = trial.suggest_categorical(param_name, choices)
+                params[param_name] = suggested_value
+            elif isinstance(param_value, str) and param_value.startswith('[') and param_value.endswith(']'):
+                # Handle numerical ranges
                 try:
                     inner = param_value[1:-1].strip()
                     parts = [part.strip() for part in inner.split(',')]
@@ -184,7 +190,6 @@ class OptunaOptimizationThread(QThread):
                     if len(parts) == 2:
                         min_val, max_val = float(parts[0]), float(parts[1])
                         
-                        # Suggest a value from the defined range
                         if param_name in integer_params:
                             suggested_value = trial.suggest_int(param_name, int(min_val), int(max_val))
                         elif param_name in float_log_params:
@@ -194,13 +199,11 @@ class OptunaOptimizationThread(QThread):
                         
                         params[param_name] = str(suggested_value)
                     else:
-                        # If format is incorrect, keep the original value
                         params[param_name] = param_value
-                except (ValueError, IndexError) as e:
-                    self.log_message.emit(f"Could not parse boundary format for {param_name}: {param_value}. Using original value.")
+                except (ValueError, IndexError):
                     params[param_name] = param_value
             else:
-                # If it's a static parameter, just copy it over
+                # Static parameter
                 params[param_name] = param_value
                 
         return params

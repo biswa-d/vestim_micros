@@ -452,7 +452,12 @@ class VEstimTestingManager:
         # Get common parameters
         batch_size = hyperparams.get('BATCH_SIZE', 'NA')
         max_epochs = hyperparams.get('MAX_EPOCHS', 'NA')
-        lr = hyperparams.get('INITIAL_LR', 'NA')
+        lr_val = hyperparams.get('INITIAL_LR', 'NA')
+        try:
+            # Attempt to convert to float and format, otherwise use original string
+            lr = f"{float(lr_val):.1e}"
+        except (ValueError, TypeError):
+            lr = lr_val
         lr_drop_period = hyperparams.get('LR_DROP_PERIOD', 'NA')
         valid_patience = hyperparams.get('VALID_PATIENCE', 'NA')
         valid_frequency = hyperparams.get('ValidFrequency', 'NA')
