@@ -259,7 +259,8 @@ class OptunaOptimizationThread(QThread):
             model_service_class = self._get_class_from_string(model_service_map[params['MODEL_TYPE']])
             model_service = model_service_class()
 
-            model = model_service.create_model(params, device=self.job_manager.device)
+            device = torch.device(params.get('DEVICE_SELECTION', 'cuda:0') if torch.cuda.is_available() else 'cpu')
+            model = model_service.create_model(params, device=device)
             
             training_task = {
                 'task_id': f"optuna_trial_{trial.number}",
