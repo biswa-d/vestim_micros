@@ -842,10 +842,23 @@ class VEstimTrainingTaskGUI(QMainWindow):
     def transition_to_testing_gui(self):
         self.auto_proceed_timer.stop()
         training_results = self.training_task_manager.get_training_results()
-        
-        # This is the correct place to ensure the singleton is populated.
-        # We use the parameters from the *first* task, as they contain the global settings.
-        final_params = self.task_list[0]['hyperparams']
+
+        # Get the job folder from the job manager
+        job_folder = self.job_manager.get_job_folder()
+        hyperparams_path = os.path.join(job_folder, 'hyperparams.json')
+
+        final_params = None
+        try:
+            with open(hyperparams_path, 'r') as f:
+                final_params = json.load(f)
+            self.logger.info("Successfully loaded definitive hyperparameters from the job folder.")
+        except Exception as e:
+            self.logger.error(f"Could not load hyperparams.json from {hyperparams_path} for testing transition: {e}")
+            # Fallback to using parameters from the first task if loading fails
+            final_params = self.task_list[0]['hyperparams']
+            QMessageBox.warning(self, "Warning", f"Could not load definitive hyperparameters from the job folder. Testing may use stale data.\n\nError: {e}")
+
+        # Ensure the singleton is populated with the definitive parameters
         self.training_setup_manager.hyper_param_manager.update_params(final_params)
         self.logger.info("Updated HyperParamManager singleton with final parameters before transitioning to testing.")
 
