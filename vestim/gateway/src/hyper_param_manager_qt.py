@@ -21,6 +21,55 @@ class VEstimHyperParamManager:
             self.initialized = True
             self.logger.info("VEstimHyperParamManager initialized.")
     
+    def validate_for_optuna(self, params):
+        """
+        Performs strict validation for Optuna search.
+        - Allows [min,max] boundary format for tunable parameters.
+        - Allows single values.
+        - Rejects comma-separated lists for tunable parameters.
+        Returns (bool, str): (is_valid, error_message)
+        """
+        self.logger.info("Performing strict validation for Optuna mode.")
+        tunable_keys = [
+            'LAYERS', 'HIDDEN_UNITS', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS',
+            'BATCH_SIZE', 'MAX_EPOCHS', 'INITIAL_LR', 'LR_PARAM', 'LR_PERIOD',
+            'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'VALID_PATIENCE', 'LOOKBACK',
+            'FNN_DROPOUT_PROB'
+        ]
+        for key, value in params.items():
+            if key in tunable_keys and isinstance(value, str):
+                is_boundary = value.strip().startswith('[') and value.strip().endswith(']')
+                # A comma outside of brackets indicates a grid-search list
+                is_list = ',' in value and not is_boundary
+                if is_list:
+                    msg = f"Invalid format for '{key}' in Auto Search mode. Use [min,max] for ranges or a single value, not a comma-separated list."
+                    self.logger.error(msg)
+                    return False, msg
+        return True, ""
+
+    def validate_for_grid_search(self, params):
+        """
+        Performs strict validation for Grid Search.
+        - Allows comma-separated lists for tunable parameters.
+        - Allows single values.
+        - Rejects [min,max] boundary format.
+        Returns (bool, str): (is_valid, error_message)
+        """
+        self.logger.info("Performing strict validation for Grid Search mode.")
+        tunable_keys = [
+            'LAYERS', 'HIDDEN_UNITS', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS',
+            'BATCH_SIZE', 'MAX_EPOCHS', 'INITIAL_LR', 'LR_PARAM', 'LR_PERIOD',
+            'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'VALID_PATIENCE', 'LOOKBACK',
+            'FNN_DROPOUT_PROB'
+        ]
+        for key, value in params.items():
+            if key in tunable_keys and isinstance(value, str):
+                is_boundary = value.strip().startswith('[') and value.strip().endswith(']')
+                if is_boundary:
+                    msg = f"Invalid format for '{key}' in Exhaustive Search mode. Use comma-separated values for lists, not [min,max]."
+                    self.logger.error(msg)
+                    return False, msg
+        return True, ""
     def validate_hyperparameters_for_gui(self, params):
         """
         Performs validation specific to the GUI inputs before proceeding.

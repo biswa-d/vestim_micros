@@ -75,7 +75,7 @@ class VEstimTestingGUI(QMainWindow):
         self.job_manager = JobManager()
         self.params = params
         self.job_folder = job_folder
-        self.testing_manager = testing_manager if testing_manager else VEstimTestingManager(params=self.params, task_list=task_list, training_results=training_results)
+        self.testing_manager = testing_manager if testing_manager else VEstimTestingManager(params=self.params, task_list=task_list, training_results=self.training_results)
         self.hyper_param_manager = VEstimHyperParamManager()
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.data_cleanup_manager = DataCleanupManager()  # Add cleanup manager

@@ -354,9 +354,9 @@ class VEstimTestingManager:
                 shorthand_name = self.generate_shorthand_name(task)
 
                 # Best losses are now passed from the training GUI
-                best_train_loss = self.training_results.get(task['task_id'], {}).get('best_train_loss', 'N/A')
-                best_valid_loss = self.training_results.get(task['task_id'], {}).get('best_validation_loss', 'N/A')
-                completed_epochs = self.training_results.get(task['task_id'], {}).get('completed_epochs', 'N/A')
+                best_train_loss = self.get(task['task_id'], {}).get('best_train_loss', 'N/A')
+                best_valid_loss = self.get(task['task_id'], {}).get('best_validation_loss', 'N/A')
+                completed_epochs = self.get(task['task_id'], {}).get('completed_epochs', 'N/A')
 
                 summary_row = {
                     "Sl.No": f"{idx + 1}.{test_file_index + 1}",

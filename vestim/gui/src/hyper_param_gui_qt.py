@@ -1031,24 +1031,21 @@ class VEstimHyperParamGUI(QWidget):
     def proceed_to_auto_search(self):
         """Handle auto search (Optuna) button click"""
         try:
-            # Collect and validate parameters for Optuna (boundary format)
             new_params = self._collect_basic_params()
             if new_params is None:
                 return
 
-            is_valid, error_message = self.hyper_param_manager.validate_hyperparameters_for_gui(new_params)
+            is_valid, error_message = self.hyper_param_manager.validate_for_optuna(new_params)
             if not is_valid:
                 QMessageBox.warning(self, "Validation Error", error_message)
                 return
             
-            # Update the manager with the latest params and save them
             self.hyper_param_manager.update_params(new_params)
             self.hyper_param_manager.save_params()
 
-            # Import here to avoid circular imports
             from vestim.gui.src.optuna_optimization_gui_qt import VEstimOptunaOptimizationGUI
             
-            self.close()  # Close current window
+            self.close()
             self.optuna_gui = VEstimOptunaOptimizationGUI(new_params)
             self.optuna_gui.show()
             
@@ -1064,12 +1061,11 @@ class VEstimHyperParamGUI(QWidget):
             if new_params is None:
                 return
 
-            is_valid, error_message = self.hyper_param_manager.validate_hyperparameters_for_gui(new_params)
+            is_valid, error_message = self.hyper_param_manager.validate_for_grid_search(new_params)
             if not is_valid:
                 QMessageBox.warning(self, "Validation Error", error_message)
                 return
             
-            # Update the manager with the latest params and save them
             self.hyper_param_manager.update_params(new_params)
             self.hyper_param_manager.save_params()
 

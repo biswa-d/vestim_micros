@@ -245,86 +245,81 @@ class OptunaOptimizationThread(QThread):
         """
         self.log_message.emit(f"--- Evaluating Trial {trial.number} ---")
         
-        from vestim.gateway.src.optuna_setup_manager_qt import OptunaSetupManager
         from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
-        
-        # This callback is now only for GUI updates, not for pruning logic.
-        def optuna_progress_callback(progress_data):
-            if isinstance(progress_data, dict):
-                epoch = progress_data.get('epoch')
-                if epoch is not None:
-                    # The log message is now emitted from within the training loop where more context is available
-                    pass
-            QApplication.processEvents()
+        from vestim.services.model_training.src.training_task_service import TrainingTaskService
 
         try:
-            # 1. Use the new OptunaSetupManager to create a single, complete training task.
-            setup_manager = OptunaSetupManager(
-                job_manager=self.job_manager,
-                progress_signal=self.log_message
-            )
+            # Create a temporary, in-memory task for evaluation
+            task_service = TrainingTaskService()
+            model_service_map = {
+                "LSTM": "vestim.services.model_training.src.LSTM_model_service.LSTMModelService",
+                "GRU": "vestim.services.model_training.src.GRU_model_service.GRUModelService",
+                "FNN": "vestim.services.model_training.src.FNN_model_service.FNNModelService",
+            }
+            model_service_class = self._get_class_from_string(model_service_map[params['MODEL_TYPE']])
+            model_service = model_service_class()
+
+            model = model_service.create_model(params)
             
-            single_config_list = [{'params': params, 'trial_number': trial.number}]
-            setup_manager.setup_training_from_optuna(single_config_list)
-            task_list = setup_manager.get_task_list()
+            training_task = {
+                'task_id': f"optuna_trial_{trial.number}",
+                'model': model,
+                'hyperparams': params,
+                'optuna_trial': trial,
+                'log_callback': self.log_message.emit,
+                'job_folder_augmented_from': self.job_manager.get_job_folder(),
+                'data_loader_params': {
+                    'lookback': int(params['LOOKBACK']),
+                    'batch_size': int(params['BATCH_SIZE']),
+                    'feature_columns': self.base_params['FEATURE_COLUMNS'],
+                    'target_column': self.base_params['TARGET_COLUMN'],
+                    'num_workers': 4
+                },
+                'training_params': {
+                    'early_stopping': True,
+                    'early_stopping_patience': int(params['VALID_PATIENCE']),
+                    'save_best_model': False, # Do not save models during trials
+                },
+                'results': {}
+            }
 
-            if not task_list:
-                raise RuntimeError("Training task setup failed to create a task.")
-            
-            training_task = task_list[0]
-
-            # Inject the Optuna trial object directly into the task dictionary
-            # This is the key change to enable efficient pruning.
-            training_task['optuna_trial'] = trial
-
-            # 2. Use the main TrainingTaskManager to run the task
             task_manager = TrainingTaskManager(global_params=self.base_params)
-            
-            def log_callback(message):
-                self.log_message.emit(message)
-
-            training_task['log_callback'] = log_callback
             
             class SignalEmitter(QObject):
                 progress_signal = pyqtSignal(dict)
             
             emitter = SignalEmitter()
-            # The callback no longer needs the params, as it's just for GUI updates.
-            emitter.progress_signal.connect(optuna_progress_callback)
-
-            # Run the training. This call will now raise TrialPruned directly if the trial is pruned.
+            
             self.current_task_manager = task_manager
             try:
                 task_manager.process_task(training_task, emitter.progress_signal)
             finally:
                 self.current_task_manager = None
-            
-            # 3. Extract the final validation loss from the results
-            final_results = training_task.get('results', {})
-            
-            if 'error' in final_results:
-                error_msg = final_results['error']
-                self.log_message.emit(f"--- Trial {trial.number} failed: {error_msg} ---")
-                return float('inf')
 
+            final_results = training_task.get('results', {})
             best_val_loss = final_results.get('best_validation_loss_normalized', float('inf'))
 
             if best_val_loss == float('inf'):
-                 self.log_message.emit(f"Trial {trial.number} finished, but a valid validation loss was not found. This may indicate a problem with the training process. Returning infinity.")
+                self.log_message.emit(f"Trial {trial.number} finished, but a valid validation loss was not found.")
             else:
-                 self.log_message.emit(f"--- Finished Trial {trial.number} with best validation loss: {best_val_loss:.6f} ---")
+                self.log_message.emit(f"--- Finished Trial {trial.number} with best validation loss: {best_val_loss:.6f} ---")
 
             return best_val_loss
 
         except optuna.exceptions.TrialPruned:
             self.log_message.emit(f"--- Trial {trial.number} pruned. ---")
-            raise  # Re-raise the exception so Optuna handles it
+            raise
         except Exception as e:
             self.log_message.emit(f"An error occurred during trial {trial.number}: {e}")
             import traceback
             self.log_message.emit(traceback.format_exc())
             return float('inf')
     
+    def _get_class_from_string(self, class_path):
+        """Dynamically import a class from a string path."""
+        module_path, class_name = class_path.rsplit('.', 1)
+        module = __import__(module_path, fromlist=[class_name])
+        return getattr(module, class_name)
     def _get_best_configurations(self):
         """Get the best N configurations from the collected trial data, ignoring pruned trials."""
         n_configs = self.optimization_config.get('n_best_configs', 5)
