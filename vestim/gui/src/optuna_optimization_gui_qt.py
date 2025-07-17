@@ -42,10 +42,11 @@ class OptunaOptimizationThread(QThread):
     error_occurred = pyqtSignal(str)  # error_message
     log_message = pyqtSignal(str)  # log_message
     
-    def __init__(self, base_params, optimization_config, parent=None):
+    def __init__(self, base_params, optimization_config, job_manager, parent=None):
         super().__init__(parent)
         self.base_params = base_params
         self.optimization_config = optimization_config
+        self.job_manager = job_manager
         self.study = None
         self.should_stop = False
         self.completed_trials_data = []
@@ -233,7 +234,7 @@ class OptunaOptimizationThread(QThread):
         try:
             # 1. Use the new OptunaSetupManager to create a single, complete training task.
             # This manager is non-singleton and designed for this purpose.
-            setup_manager = OptunaSetupManager(job_manager=JobManager())
+            setup_manager = OptunaSetupManager(job_manager=self.job_manager)
             
             # The expected format is a list of dicts, where each dict has a 'params' key.
             single_config_list = [{'params': params, 'trial_number': trial.number}]
@@ -334,9 +335,11 @@ class VEstimOptunaOptimizationGUI(QWidget):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.base_params = base_params
+        self.job_manager = JobManager()
         self.optimization_thread = None
         self.best_configs = []
-        self.completed_trials_data = []  # Initialize the attribute to prevent crash
+        self.completed_trials_data = []
+        self.all_trials_data = []
         self.auto_proceed_timer = QTimer(self)
         self.auto_proceed_timer.setSingleShot(True)
         self.auto_proceed_timer.timeout.connect(self.proceed_to_training_setup)
@@ -611,6 +614,7 @@ class VEstimOptunaOptimizationGUI(QWidget):
             self.trial_table.setRowCount(0)
             self.results_table.setRowCount(0)
             self.log_text.clear()
+            self.all_trials_data.clear()
             
             # Show progress bar
             self.progress_bar.setVisible(True)
@@ -618,7 +622,7 @@ class VEstimOptunaOptimizationGUI(QWidget):
             self.progress_bar.setValue(0)
             
             # Start optimization thread
-            self.optimization_thread = OptunaOptimizationThread(self.base_params, config)
+            self.optimization_thread = OptunaOptimizationThread(self.base_params, config, self.job_manager)
             self.optimization_thread.progress_updated.connect(self.update_progress)
             self.optimization_thread.trial_completed.connect(self.trial_completed)
             self.optimization_thread.optimization_completed.connect(self.optimization_completed)
@@ -661,6 +665,7 @@ class VEstimOptunaOptimizationGUI(QWidget):
     
     def trial_completed(self, trial_info):
         """Handle completed trial"""
+        self.all_trials_data.append(trial_info)
         row = self.trial_table.rowCount()
         self.trial_table.insertRow(row)
         
@@ -702,15 +707,15 @@ class VEstimOptunaOptimizationGUI(QWidget):
             self.results_table.setItem(i, 3, QTableWidgetItem(str(config['params'])))
         
         # Provide a more detailed summary
-        total_trials = self.progress_bar.maximum()
-        completed_count = len([t for t in self.completed_trials_data if t.get('state') == 'COMPLETE'])
-        pruned_count = len([t for t in self.trial_table.findItems('PRUNED', Qt.MatchExactly) if t.column() == 1])
-        failed_count = len([t for t in self.trial_table.findItems('FAIL', Qt.MatchExactly) if t.column() == 1])
+        total_trials_run = len(self.all_trials_data)
+        completed_count = len([t for t in self.all_trials_data if t.get('state') == 'COMPLETE'])
+        pruned_count = len([t for t in self.all_trials_data if t.get('state') == 'PRUNED'])
+        failed_count = len([t for t in self.all_trials_data if t.get('state') == 'FAIL'])
 
         summary_message = (
-            f"Optimization completed! Found {len(best_configs)} best configurations from "
-            f"{completed_count}/{total_trials} completed trials "
-            f"({pruned_count} pruned, {failed_count} failed)."
+            f"Optimization finished! Found {len(best_configs)} best configurations from "
+            f"{total_trials_run} trials run "
+            f"({completed_count} completed, {pruned_count} pruned, {failed_count} failed)."
         )
         self.add_log_message(summary_message)
     
