@@ -40,6 +40,13 @@ class VEstimTrainingSetupManager:
             self.current_hyper_params = self.params
             self.logger.info(f"Params after updating: {self.current_hyper_params}")
 
+            # Save the definitive hyperparameters to the job folder
+            job_folder = self.job_manager.get_job_folder()
+            hyperparams_path = os.path.join(job_folder, 'hyperparams.json')
+            with open(hyperparams_path, 'w') as f:
+                json.dump(self.params, f, indent=4)
+            self.logger.info(f"Saved definitive hyperparameters to {hyperparams_path}")
+
             if self.progress_signal:
                 self.progress_signal.emit("Building models...", "", 0)
 

@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QHBoxLayout, QVBoxLayout, QPushButton, QWidget, QFrame, QTextEdit, QGridLayout, QGroupBox
+    QApplication, QMainWindow, QLabel, QHBoxLayout, QVBoxLayout, QPushButton, QWidget, QFrame, QTextEdit, QGridLayout, QGroupBox, QMessageBox
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 import torch
@@ -843,24 +843,15 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.auto_proceed_timer.stop()
         training_results = self.training_task_manager.get_training_results()
         
-        # Load the definitive hyperparameters from the completed job folder
-        # to ensure the testing GUI has the correct context.
-        job_folder = self.job_manager.get_job_folder()
-        hyperparams_path = os.path.join(job_folder, 'hyperparams.json')
-        loaded_params = {}
-        try:
-            with open(hyperparams_path, 'r') as f:
-                loaded_params = json.load(f)
-            self.logger.info(f"Loaded definitive hyperparameters from {hyperparams_path} for testing transition.")
-        except Exception as e:
-            self.logger.error(f"Could not load hyperparams.json from {hyperparams_path} for testing transition: {e}")
-            # Fallback to the params passed during init, which might be stale but is better than crashing.
-            loaded_params = self.params
-            QMessageBox.warning(self, "Warning", f"Could not load definitive hyperparameters from the job folder. Testing may use stale data.\n\nError: {e}")
+        # This is the correct place to ensure the singleton is populated.
+        # We use the parameters from the *first* task, as they contain the global settings.
+        final_params = self.task_list[0]['hyperparams']
+        self.training_setup_manager.hyper_param_manager.update_params(final_params)
+        self.logger.info("Updated HyperParamManager singleton with final parameters before transitioning to testing.")
 
-        # Pass the explicitly loaded params to the testing manager and GUI
-        self.testing_manager = VEstimTestingManager(params=loaded_params, task_list=self.task_list, training_results=training_results)
-        self.testing_gui = VEstimTestingGUI(loaded_params, self.task_list, training_results, self.testing_manager)
+        # The VEstimTestingGUI will now correctly find the parameters in the singleton.
+        self.testing_manager = VEstimTestingManager(params=final_params, task_list=self.task_list, training_results=training_results)
+        self.testing_gui = VEstimTestingGUI(final_params, self.task_list, training_results, self.testing_manager)
         self.testing_gui.show()
         self.close()
 
