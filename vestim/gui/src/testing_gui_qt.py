@@ -69,11 +69,13 @@ class TestingThread(QThread):
 
 
 class VEstimTestingGUI(QMainWindow):
-    def __init__(self, params, task_list, training_results=None, testing_manager=None):
+    def __init__(self, params, task_list, job_folder, training_results=None, testing_manager=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
-        self.testing_manager = testing_manager if testing_manager else VEstimTestingManager(params=params, task_list=task_list, training_results=training_results)
+        self.params = params
+        self.job_folder = job_folder
+        self.testing_manager = testing_manager if testing_manager else VEstimTestingManager(params=self.params, task_list=task_list, training_results=training_results)
         self.hyper_param_manager = VEstimHyperParamManager()
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.data_cleanup_manager = DataCleanupManager()  # Add cleanup manager
@@ -124,28 +126,9 @@ class VEstimTestingGUI(QMainWindow):
         # Hyperparameters Display
         self.hyperparam_frame = QWidget()
         self.main_layout.addWidget(self.hyperparam_frame)
-        try:
-            # Load hyperparameters directly from the job folder for robustness
-            job_folder = self.job_manager.get_job_folder()
-            hyperparams_path = os.path.join(job_folder, 'hyperparams.json')
-            
-            if not os.path.exists(hyperparams_path):
-                # As a fallback for older jobs or different flows, try to get from the manager's memory
-                self.logger.warning(f"Could not find hyperparams.json in job folder: {hyperparams_path}. Using in-memory parameters as a fallback.")
-                self.hyper_params = self.hyper_param_manager.get_hyper_params()
-            else:
-                # This is the primary, robust method: load from the job's definitive file
-                self.hyper_params = self.hyper_param_manager.load_params(hyperparams_path)
-                self.logger.info(f"Successfully loaded hyperparameters from {hyperparams_path}")
-            
-            self.display_hyperparameters(self.hyper_params)
-            print(f"Displayed hyperparameters: {self.hyper_params}")
-
-        except Exception as e:
-            self.logger.error(f"Failed to load and display hyperparameters: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"Failed to load hyperparameters for testing: {e}")
-            self.hyper_params = {} # Ensure it's an empty dict on failure
-            self.display_hyperparameters(self.hyper_params)
+        self.hyper_params = self.params
+        self.display_hyperparameters(self.hyper_params)
+        print(f"Displayed hyperparameters: {self.hyper_params}")
         
         # Timer Label
         self.time_label = QLabel("Testing Time: 00h:00m:00s")
@@ -238,7 +221,7 @@ class VEstimTestingGUI(QMainWindow):
 
     def open_job_folder(self):
         """Open the job folder in the file explorer."""
-        job_folder = self.job_manager.get_job_folder()
+        job_folder = self.job_folder
         if job_folder and os.path.exists(job_folder):
             QDesktopServices.openUrl(QUrl.fromLocalFile(job_folder))
         else:

@@ -842,8 +842,25 @@ class VEstimTrainingTaskGUI(QMainWindow):
     def transition_to_testing_gui(self):
         self.auto_proceed_timer.stop()
         training_results = self.training_task_manager.get_training_results()
-        self.testing_manager = VEstimTestingManager(params=self.params, task_list=self.task_list, training_results=training_results)
-        self.testing_gui = VEstimTestingGUI(self.params, self.task_list, training_results, self.testing_manager)
+        
+        # Load the definitive hyperparameters from the completed job folder
+        # to ensure the testing GUI has the correct context.
+        job_folder = self.job_manager.get_job_folder()
+        hyperparams_path = os.path.join(job_folder, 'hyperparams.json')
+        loaded_params = {}
+        try:
+            with open(hyperparams_path, 'r') as f:
+                loaded_params = json.load(f)
+            self.logger.info(f"Loaded definitive hyperparameters from {hyperparams_path} for testing transition.")
+        except Exception as e:
+            self.logger.error(f"Could not load hyperparams.json from {hyperparams_path} for testing transition: {e}")
+            # Fallback to the params passed during init, which might be stale but is better than crashing.
+            loaded_params = self.params
+            QMessageBox.warning(self, "Warning", f"Could not load definitive hyperparameters from the job folder. Testing may use stale data.\n\nError: {e}")
+
+        # Pass the explicitly loaded params to the testing manager and GUI
+        self.testing_manager = VEstimTestingManager(params=loaded_params, task_list=self.task_list, training_results=training_results)
+        self.testing_gui = VEstimTestingGUI(loaded_params, self.task_list, training_results, self.testing_manager)
         self.testing_gui.show()
         self.close()
 
