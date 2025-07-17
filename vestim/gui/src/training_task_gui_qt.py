@@ -20,6 +20,7 @@ from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gui.src.testing_gui_qt import VEstimTestingGUI
+from vestim.gateway.src.testing_manager_qt import VEstimTestingManager
 
 
 class TrainingThread(QThread):
@@ -841,7 +842,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
     def transition_to_testing_gui(self):
         self.auto_proceed_timer.stop()
         training_results = self.training_task_manager.get_training_results()
-        self.testing_gui = VEstimTestingGUI(self.params, self.task_list, training_results)
+        self.testing_manager = VEstimTestingManager(params=self.params, task_list=self.task_list, training_results=training_results)
+        self.testing_gui = VEstimTestingGUI(self.params, self.task_list, training_results, self.testing_manager)
         self.testing_gui.show()
         self.close()
 

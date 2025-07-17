@@ -68,7 +68,7 @@ class VEstimTestingManager:
 
             # Retrieve task list
             print("Retrieving task list from TrainingSetupManager...")
-            task_list = self.task_list
+            task_list = self.task_list if self.task_list else self.training_setup_manager.get_task_list()
 
             if not task_list:
                 raise ValueError("Task list is not available.")
@@ -103,6 +103,7 @@ class VEstimTestingManager:
     def _test_single_model(self, task, idx, test_folder):
         """Test a single model and save the result."""
         try:
+            model_path = None
             self.logger.info(f"--- Starting _test_single_model for task_id: {task.get('task_id', 'UnknownTask')} (list index: {idx}) ---") # Added detailed log
             print(f"Preparing test data for Task {idx + 1}...")
             

@@ -69,11 +69,11 @@ class TestingThread(QThread):
 
 
 class VEstimTestingGUI(QMainWindow):
-    def __init__(self, params, task_list, training_results=None):
+    def __init__(self, params, task_list, training_results=None, testing_manager=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager()
-        self.testing_manager = VEstimTestingManager(params=params, task_list=task_list, training_results=training_results)
+        self.testing_manager = testing_manager if testing_manager else VEstimTestingManager(params=params, task_list=task_list, training_results=training_results)
         self.hyper_param_manager = VEstimHyperParamManager()
         self.training_setup_manager = VEstimTrainingSetupManager()
         self.data_cleanup_manager = DataCleanupManager()  # Add cleanup manager
