@@ -50,6 +50,7 @@ class OptunaOptimizationThread(QThread):
         self.should_stop = False
         self.completed_trials_data = []
         self.current_task_manager = None
+        self.pruning_initiated = False
         
         # Extract parameter ranges in boundary format [min,max]
         self.param_ranges = {k: v for k, v in base_params.items()
@@ -224,7 +225,9 @@ class OptunaOptimizationThread(QThread):
                     self.log_message.emit(f"  Trial {trial.number} | Epoch {epoch}/{max_epochs} - Reported Val Loss: {val_loss:.6f}")
                     trial.report(val_loss, epoch)
                     if trial.should_prune():
-                        raise optuna.exceptions.TrialPruned()
+                        self.pruning_initiated = True
+                        self.stop_optimization()
+                        return
             QApplication.processEvents()
 
         try:
@@ -267,6 +270,11 @@ class OptunaOptimizationThread(QThread):
                 task_manager.process_task(training_task, emitter.progress_signal)
             finally:
                 self.current_task_manager = None
+            
+            # After the task finishes (or is stopped), check if it was due to pruning
+            if self.pruning_initiated:
+                self.pruning_initiated = False  # Reset for the next trial
+                raise optuna.exceptions.TrialPruned()
 
             # Ensure we do not save models during Optuna trials
             training_task['training_params']['save_best_model'] = False
