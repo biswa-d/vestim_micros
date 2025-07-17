@@ -163,9 +163,40 @@ class OptunaOptimizationThread(QThread):
             self.error_occurred.emit(f"Optimization failed: {str(e)}")
     
     def _suggest_params(self, trial):
-        """Suggest parameters for a trial based on boundary format from GUI"""
-        params = {}  # Create a new dictionary for this trial
-        
+        """Suggest parameters for a trial, with special handling for dynamic FNN architecture search."""
+        params = {}
+        handled_params = set()
+
+        model_type = self.base_params.get('MODEL_TYPE')
+
+        # SOTA Dynamic FNN Architecture Search
+        if model_type == 'FNN' and 'FNN_N_LAYERS' in self.base_params and 'FNN_UNITS' in self.base_params:
+            try:
+                # Suggest number of layers from the specified range
+                n_layers_range_str = self.base_params['FNN_N_LAYERS']
+                n_layers_range = json.loads(n_layers_range_str)
+                n_layers = trial.suggest_int('FNN_N_LAYERS', n_layers_range[0], n_layers_range[1])
+
+                # Suggest number of units for each layer
+                units_range_str = self.base_params['FNN_UNITS']
+                units_range = json.loads(units_range_str)
+                
+                hidden_layers_config = []
+                for i in range(n_layers):
+                    unit_param_name = f'FNN_UNITS_L{i}'
+                    units = trial.suggest_int(unit_param_name, units_range[0], units_range[1])
+                    hidden_layers_config.append(str(units))
+                
+                # This is the parameter the rest of the system uses
+                params['FNN_HIDDEN_LAYERS'] = ",".join(hidden_layers_config)
+                
+                # Mark these as handled so the main loop doesn't process them again
+                handled_params.update(['FNN_N_LAYERS', 'FNN_UNITS', 'FNN_HIDDEN_LAYERS'])
+
+            except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
+                self.log_message.emit(f"Could not parse FNN dynamic ranges: {e}. Falling back to predefined architectures.")
+
+        # General parameter suggestion loop
         integer_params = {
             "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS",
             "MAX_EPOCHS", "VALID_PATIENCE", "VALID_FREQUENCY", "LOOKBACK",
@@ -174,15 +205,15 @@ class OptunaOptimizationThread(QThread):
         float_log_params = {"INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR", "FNN_DROPOUT_PROB"}
         categorical_params = {"FNN_HIDDEN_LAYERS"}
 
-        # Iterate through all base parameters to build the complete config for this trial
         for param_name, param_value in self.base_params.items():
+            if param_name in handled_params:
+                continue
+
             if param_name in categorical_params and isinstance(param_value, str) and ';' in param_value:
-                # Handle categorical parameters like FNN architecture
                 choices = [choice.strip() for choice in param_value.split(';')]
                 suggested_value = trial.suggest_categorical(param_name, choices)
                 params[param_name] = suggested_value
             elif isinstance(param_value, str) and param_value.startswith('[') and param_value.endswith(']'):
-                # Handle numerical ranges
                 try:
                     inner = param_value[1:-1].strip()
                     parts = [part.strip() for part in inner.split(',')]
@@ -203,7 +234,6 @@ class OptunaOptimizationThread(QThread):
                 except (ValueError, IndexError):
                     params[param_name] = param_value
             else:
-                # Static parameter
                 params[param_name] = param_value
                 
         return params
@@ -218,31 +248,22 @@ class OptunaOptimizationThread(QThread):
         from vestim.gateway.src.optuna_setup_manager_qt import OptunaSetupManager
         from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
         
-        # This callback will be used by the TrainingTaskManager to report progress
-        # and allow Optuna to prune if necessary.
-        def optuna_progress_callback(progress_data, params_for_callback):
+        # This callback is now only for GUI updates, not for pruning logic.
+        def optuna_progress_callback(progress_data):
             if isinstance(progress_data, dict):
-                val_loss = progress_data.get('val_loss')
                 epoch = progress_data.get('epoch')
-                if val_loss is not None and epoch is not None:
-                    max_epochs = params_for_callback.get('MAX_EPOCHS', 'N/A')
-                    self.log_message.emit(f"  Trial {trial.number} | Epoch {epoch}/{max_epochs} - Reported Val Loss: {val_loss:.6f}")
-                    trial.report(val_loss, epoch)
-                    if trial.should_prune():
-                        self.pruning_initiated = True
-                        self.stop_optimization()
-                        return
+                if epoch is not None:
+                    # The log message is now emitted from within the training loop where more context is available
+                    pass
             QApplication.processEvents()
 
         try:
             # 1. Use the new OptunaSetupManager to create a single, complete training task.
-            # This manager is non-singleton and designed for this purpose.
             setup_manager = OptunaSetupManager(
                 job_manager=self.job_manager,
-                progress_signal=self.log_message  # Pass the log signal for progress updates
+                progress_signal=self.log_message
             )
             
-            # The expected format is a list of dicts, where each dict has a 'params' key.
             single_config_list = [{'params': params, 'trial_number': trial.number}]
             setup_manager.setup_training_from_optuna(single_config_list)
             task_list = setup_manager.get_task_list()
@@ -252,49 +273,39 @@ class OptunaOptimizationThread(QThread):
             
             training_task = task_list[0]
 
+            # Inject the Optuna trial object directly into the task dictionary
+            # This is the key change to enable efficient pruning.
+            training_task['optuna_trial'] = trial
+
             # 2. Use the main TrainingTaskManager to run the task
-            # This ensures we use the exact same robust training logic as a normal run
             task_manager = TrainingTaskManager(global_params=self.base_params)
             
-            # Create a logging callback to capture epoch-wise logs from the training service
             def log_callback(message):
                 self.log_message.emit(message)
 
-            # Inject the log_callback into the task dictionary
             training_task['log_callback'] = log_callback
             
-            # The task manager uses a pyqtSignal for progress, so we connect our callback to it.
-            # We need a dummy QObject to host the signal for this thread.
             class SignalEmitter(QObject):
                 progress_signal = pyqtSignal(dict)
             
             emitter = SignalEmitter()
-            emitter.progress_signal.connect(lambda p_data: optuna_progress_callback(p_data, params))
+            # The callback no longer needs the params, as it's just for GUI updates.
+            emitter.progress_signal.connect(optuna_progress_callback)
 
-            # Run the training. This is a blocking call that will run the entire training loop.
+            # Run the training. This call will now raise TrialPruned directly if the trial is pruned.
             self.current_task_manager = task_manager
             try:
                 task_manager.process_task(training_task, emitter.progress_signal)
             finally:
                 self.current_task_manager = None
             
-            # After the task finishes (or is stopped), check if it was due to pruning
-            if self.pruning_initiated:
-                self.pruning_initiated = False  # Reset for the next trial
-                raise optuna.exceptions.TrialPruned()
-
-            # Ensure we do not save models during Optuna trials
-            training_task['training_params']['save_best_model'] = False
-
             # 3. Extract the final validation loss from the results
-            # The results are stored in the task dictionary after completion.
             final_results = training_task.get('results', {})
             
-            # Check if the trial failed
             if 'error' in final_results:
                 error_msg = final_results['error']
                 self.log_message.emit(f"--- Trial {trial.number} failed: {error_msg} ---")
-                return float('inf') # Return infinity to penalize failure
+                return float('inf')
 
             best_val_loss = final_results.get('best_validation_loss_normalized', float('inf'))
 
@@ -312,7 +323,7 @@ class OptunaOptimizationThread(QThread):
             self.log_message.emit(f"An error occurred during trial {trial.number}: {e}")
             import traceback
             self.log_message.emit(traceback.format_exc())
-            return float('inf') # Return a high loss value to penalize failing trials
+            return float('inf')
     
     def _get_best_configurations(self):
         """Get the best N configurations from the collected trial data, ignoring pruned trials."""

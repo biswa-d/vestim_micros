@@ -1032,9 +1032,14 @@ class VEstimHyperParamGUI(QWidget):
         """Handle auto search (Optuna) button click"""
         try:
             # Collect and validate parameters for Optuna (boundary format)
-            new_params = self._collect_and_validate_params_for_optuna()
+            new_params = self._collect_basic_params()
             if new_params is None:
-                return  # Validation failed
+                return
+
+            is_valid, error_message = self.hyper_param_manager.validate_hyperparameters_for_gui(new_params)
+            if not is_valid:
+                QMessageBox.warning(self, "Validation Error", error_message)
+                return
             
             # Import here to avoid circular imports
             from vestim.gui.src.optuna_optimization_gui_qt import VEstimOptunaOptimizationGUI
@@ -1051,9 +1056,14 @@ class VEstimHyperParamGUI(QWidget):
         """Handle grid search button click (traditional exhaustive search)"""
         try:
             # Collect and validate parameters for grid search (comma-separated format)
-            new_params = self._collect_and_validate_params_for_grid_search()
+            new_params = self._collect_basic_params()
             if new_params is None:
-                return  # Validation failed
+                return
+
+            is_valid, error_message = self.hyper_param_manager.validate_hyperparameters_for_gui(new_params)
+            if not is_valid:
+                QMessageBox.warning(self, "Validation Error", error_message)
+                return
             
             # Proceed directly to training setup with grid search logic
             self.close()  # Close current window
@@ -1147,220 +1157,6 @@ class VEstimHyperParamGUI(QWidget):
 
         return new_params
 
-    def _validate_boundary_format(self, value, param_name):
-        """Validate that a parameter value is in boundary format [min,max] for Optuna."""
-        if not value or value.strip() == "":
-            return False, f"{param_name} cannot be empty for Optuna optimization.\nCurrent value: '{value}'"
-        
-        value = value.strip()
-        
-        # Check for boundary format [min,max]
-        if value.startswith('[') and value.endswith(']'):
-            try:
-                # Remove brackets and split by comma
-                inner = value[1:-1].strip()
-                parts = [part.strip() for part in inner.split(',')]
-                
-                if len(parts) != 2:
-                    return False, f"{param_name} must have exactly 2 values in format [min,max].\nCurrent value: '{value}'"
-                
-                # Try to convert to numbers
-                min_val = float(parts[0])
-                max_val = float(parts[1])
-                
-                if min_val >= max_val:
-                    return False, f"{param_name}: min value must be less than max value.\nCurrent value: '{value}'"
-                
-                return True, f"Valid boundary format for {param_name}"
-                
-            except ValueError:
-                return False, f"{param_name} must contain numeric values in format [min,max].\nCurrent value: '{value}'"
-        else:
-            return False, f"{param_name} must be in boundary format [min,max] for Optuna optimization.\nCurrent value: '{value}'"
-
-    def _validate_comma_separated_format(self, value, param_name):
-        """Validate that a parameter value is in comma-separated format for grid search."""
-        if not value or value.strip() == "":
-            return False, f"{param_name} cannot be empty for grid search."
-        
-        value = value.strip()
-        
-        # For grid search, we accept various formats:
-        # 1. Comma-separated values: "1,2,3"
-        # 2. Semicolon-separated configs: "[64,128];[32,64]" 
-        # 3. Single values: "10"
-        # Note: We don't reject boundary format here since user might use mixed formats
-        
-        if ';' in value:
-            # Multiple configurations separated by semicolons
-            configs = [config.strip() for config in value.split(';')]
-            for config in configs:
-                if not config:
-                    return False, f"{param_name} contains empty configuration."
-        elif ',' in value:
-            # Single configuration with comma-separated values
-            parts = [part.strip() for part in value.split(',')]
-            for part in parts:
-                if not part:
-                    return False, f"{param_name} contains empty values."
-        else:
-            # Single value - this is also valid
-            pass
-        
-        return True, f"Valid format for {param_name}"
-
-    def _collect_and_validate_params_for_optuna(self):
-        """Collect and validate parameters for Optuna optimization (boundary format)."""
-        try:
-            # Get basic parameters
-            new_params = self._collect_basic_params()
-            if new_params is None:
-                return None
-
-            # Define parameters that need boundary validation for Optuna
-            boundary_params = []
-            
-            # Model-specific parameters that need boundaries
-            model_type = new_params.get("MODEL_TYPE")
-            if model_type == "LSTM":
-                boundary_params.extend(["LAYERS", "HIDDEN_UNITS"])
-            elif model_type == "GRU":
-                boundary_params.extend(["GRU_LAYERS", "GRU_HIDDEN_UNITS"])
-            elif model_type == "FNN":
-                boundary_params.extend(["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB"])
-            
-            # Core hyperparameters that benefit from optimization
-            core_params = ["MAX_EPOCHS", "INITIAL_LR"]
-            
-            # Add scheduler-specific parameters based on selected scheduler
-            selected_scheduler = new_params.get("SCHEDULER_TYPE", "StepLR")
-            if selected_scheduler == "ReduceLROnPlateau":
-                # For ReduceLROnPlateau, the plateau factor is stored in LR_PARAM
-                core_params.append("LR_PARAM")  # This is the plateau factor when ReduceLROnPlateau is selected
-            elif selected_scheduler == "StepLR":
-                # For StepLR, we might want to optimize the drop factor
-                core_params.append("LR_PARAM")  # This is the drop factor when StepLR is selected
-            
-            boundary_params.extend(core_params)
-            
-            # Add lookback if applicable (sequence models)
-            if new_params.get("TRAINING_METHOD") == "Sequence-to-Sequence":
-                boundary_params.append("LOOKBACK")
-            
-            # Add batch size if applicable
-            if new_params.get("BATCH_TRAINING", False):
-                boundary_params.append("BATCH_SIZE")
-
-            # Validate boundary format for relevant parameters
-            self.logger.info(f"Validating boundary format for Optuna parameters: {boundary_params}")
-            for param in boundary_params:
-                if param in new_params:
-                    param_value = new_params[param]
-                    self.logger.info(f"Checking {param}: '{param_value}' (type: {type(param_value).__name__})")
-                    is_valid, message = self._validate_boundary_format(param_value, param)
-                    if not is_valid:
-                        self.logger.warning(f"Boundary validation failed for {param}: {message}")
-                        
-                        # Additional debug: Check what's in the GUI field directly
-                        if param == "PLATEAU_FACTOR" and hasattr(self, 'plateau_factor_entry'):
-                            gui_value = self.plateau_factor_entry.text().strip()
-                            self.logger.warning(f"GUI field value for PLATEAU_FACTOR: '{gui_value}'")
-                            self.logger.warning(f"Collected value for PLATEAU_FACTOR: '{param_value}'")
-                        
-                        QMessageBox.warning(self, "Invalid Optuna Format", 
-                                          f"{message}\n\nFor Optuna optimization, please use boundary format [min,max].\n"
-                                          f"Example: [1,5] for {param}")
-                        return None
-                    else:
-                        self.logger.info(f"Boundary validation passed for {param}")
-                else:
-                    self.logger.info(f"Parameter {param} not found in collected params")
-
-            self.logger.info(f"Collected and validated Optuna params: {new_params}")
-
-            # Convert time fields to total seconds
-            self._convert_time_fields_to_seconds(new_params)
-
-            # Update the parameter manager
-            self.update_params(new_params)
-
-            # Save params only if job folder is set
-            if self.job_manager.get_job_folder():
-                self.hyper_param_manager.save_params()
-            else:
-                self.logger.error("Job folder is not set.")
-                raise ValueError("Job folder is not set.")
-            
-            return new_params
-
-        except ValueError as e:
-            QMessageBox.critical(self, "Error", f"Invalid parameter input: {str(e)}")
-            return None
-
-    def _collect_and_validate_params_for_grid_search(self):
-        """Collect and validate parameters for grid search (comma-separated format)."""
-        try:
-            # Get basic parameters
-            new_params = self._collect_basic_params()
-            if new_params is None:
-                return None
-
-            # Define parameters that can have comma-separated values for grid search
-            grid_params = []
-            
-            # Model-specific parameters
-            model_type = new_params.get("MODEL_TYPE")
-            if model_type == "LSTM":
-                grid_params.extend(["LAYERS", "HIDDEN_UNITS"])
-            elif model_type == "GRU":
-                grid_params.extend(["GRU_LAYERS", "GRU_HIDDEN_UNITS"])
-            elif model_type == "FNN":
-                grid_params.extend(["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB"])
-            
-            # Training parameters
-            grid_params.extend([
-                "MAX_EPOCHS", "VALID_PATIENCE", "VALID_FREQUENCY", 
-                "INITIAL_LR", "LR_PARAM", "LR_PERIOD", "PLATEAU_PATIENCE", "PLATEAU_FACTOR"
-            ])
-            
-            # Add lookback if applicable
-            if new_params.get("TRAINING_METHOD") == "Sequence-to-Sequence":
-                grid_params.append("LOOKBACK")
-            
-            # Add batch size if applicable
-            if new_params.get("BATCH_TRAINING", False):
-                grid_params.append("BATCH_SIZE")
-
-            # Validate comma-separated format for relevant parameters
-            for param in grid_params:
-                if param in new_params:
-                    is_valid, message = self._validate_comma_separated_format(new_params[param], param)
-                    if not is_valid:
-                        QMessageBox.warning(self, "Invalid Grid Search Format", 
-                                          f"{message}\n\nFor grid search, please use comma-separated values.\n"
-                                          f"Example: 1,2,5 or [64,128],[32,64] for {param}")
-                        return None
-
-            self.logger.info(f"Collected and validated grid search params: {new_params}")
-
-            # Convert time fields to total seconds
-            self._convert_time_fields_to_seconds(new_params)
-
-            # Update the parameter manager
-            self.update_params(new_params)
-
-            # Save params only if job folder is set
-            if self.job_manager.get_job_folder():
-                self.hyper_param_manager.save_params()
-            else:
-                self.logger.error("Job folder is not set.")
-                raise ValueError("Job folder is not set.")
-            
-            return new_params
-
-        except ValueError as e:
-            QMessageBox.critical(self, "Error", f"Invalid parameter input: {str(e)}")
-            return None
 
     def parse_boundary_format(self, value):
         """Parse boundary format [min,max] and return min, max values."""

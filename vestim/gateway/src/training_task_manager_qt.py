@@ -107,7 +107,10 @@ class TrainingTaskManager:
 
 
     def process_task(self, task, update_progress_callback):
-        """Process a single training task and set up logging."""
+        """
+        Process a single training task. This method acts as a router,
+        directing the task to the appropriate training loop (standard or Optuna).
+        """
         # Initialize job-level timer on first task
         if self.job_start_time is None:
             self.job_start_time = time.time()
@@ -159,15 +162,28 @@ class TrainingTaskManager:
             self.logger.info(f"DataLoaders configured for task_id: {task.get('task_id', 'N/A')}")
             print(f" dataloader size, Train: {len(train_loader)} | Validation: {len(val_loader)}")
 
-            # Update progress for starting training
-            model_type = task.get('model_metadata', {}).get('model_type', 'LSTM')
-            update_progress_callback.emit({'status': f'Training {model_type} model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
-
-            # Run training with all necessary parameters
-            self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
+            # ROUTER: Check if this is an Optuna task and call the appropriate loop
+            if 'optuna_trial' in task and task['optuna_trial'] is not None:
+                self.logger.info(f"Task {task['task_id']} is an Optuna trial. Using Optuna-specific training loop.")
+                update_progress_callback.emit({'status': f'Running Optuna Trial {task["optuna_trial"].number} for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
+                self.run_optuna_training(task, update_progress_callback, train_loader, val_loader, self.device)
+            else:
+                self.logger.info(f"Task {task['task_id']} is a standard training task. Using standard training loop.")
+                update_progress_callback.emit({'status': f'Training {model_type} model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
+                self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
 
         except Exception as e:
-            self.logger.error(f"Error during task processing: {str(e)}")
+            # Catch TrialPruned exception specifically to avoid logging it as an error
+            # as it's an expected outcome for Optuna.
+            try:
+                import optuna
+                if isinstance(e, optuna.exceptions.TrialPruned):
+                    self.logger.info(f"Optuna trial pruned for task {task.get('task_id', 'N/A')}.")
+                    raise e # Re-raise to be handled by the Optuna study
+            except ImportError:
+                pass # Optuna not installed, can't be a TrialPruned exception.
+            
+            self.logger.error(f"Error during task processing: {str(e)}", exc_info=True)
             update_progress_callback.emit({'task_error': str(e)})
         finally:
             # Explicitly delete DataLoaders and call garbage collector to free memory after each trial
@@ -1118,6 +1134,123 @@ class TrainingTaskManager:
                 relative_best_model_path = best_model_path_final
             self.logger.info(f"Finished run_training attempt for task {task.get('task_id', 'N/A')}. Best model (if saved): {relative_best_model_path}")
     # End of run_training method, convert_hyperparams should be at class level indentation
+
+    def run_optuna_training(self, task, update_progress_callback, train_loader, val_loader, device):
+        """
+        Run the training process for a single Optuna trial, with pruning callbacks.
+        This loop is a copy of run_training but includes Optuna-specific calls.
+        """
+        import optuna # Ensure Optuna is available
+        optuna_trial = task.get('optuna_trial')
+        if not optuna_trial:
+            raise ValueError("run_optuna_training called without an Optuna trial object in the task.")
+
+        try:
+            self.logger.info(f"--- Starting run_optuna_training for trial: {optuna_trial.number} ---")
+            
+            # Most of this setup is identical to run_training
+            setattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', float('inf'))
+            best_train_loss_norm = float('inf')
+            best_train_loss_denorm = float('inf')
+            hyperparams = self.convert_hyperparams(task['hyperparams'])
+            model = task['model'].to(device)
+            max_epochs = hyperparams['MAX_EPOCHS']
+            valid_freq = hyperparams.get('VALID_FREQUENCY', 1)
+            valid_patience = hyperparams['VALID_PATIENCE']
+            current_lr = hyperparams['INITIAL_LR']
+            lr_drop_period = hyperparams['LR_DROP_PERIOD']
+            lr_drop_factor = hyperparams['LR_DROP_FACTOR']
+            best_validation_loss = float('inf')
+            patience_counter = 0
+            loop_start_time = time.time()
+            last_validation_time = loop_start_time
+            early_stopping = False
+            max_training_time_seconds = int(task.get('training_params', {}).get('max_training_time_seconds', 0))
+            overall_training_start_time = time.time()
+            optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_drop_period, gamma=lr_drop_factor)
+            csv_log_file = task['csv_log_file']
+            os.makedirs(os.path.dirname(csv_log_file), exist_ok=True)
+            with open(csv_log_file, 'w', newline='') as f:
+                csv_writer = csv.writer(f)
+                csv_writer.writerow(["epoch", "train_loss_norm", "val_loss_norm", "best_val_loss_norm", "learning_rate", "elapsed_time_sec", "avg_batch_time_sec", "patience_counter", "model_memory_mb"])
+
+            # Training loop
+            for epoch in range(1, max_epochs + 1):
+                if self.stop_requested:
+                    self.logger.info("Training stopped by user request.")
+                    break
+                
+                # Identical training phase as run_training
+                model.train()
+                actual_train_batch_size = train_loader.batch_size or int(hyperparams.get('BATCH_SIZE', 32))
+                h_s, h_c = None, None
+                model_type = task.get('model_metadata', {}).get('model_type', 'LSTM')
+                if model_type in ['LSTM', 'GRU']:
+                    h_s = torch.zeros(model.num_layers, actual_train_batch_size, model.hidden_units).to(device)
+                    if model_type == 'LSTM':
+                        h_c = torch.zeros(model.num_layers, actual_train_batch_size, model.hidden_units).to(device)
+                
+                verbose = task.get('verbose', True)
+                avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch(
+                    model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task, verbose=verbose
+                )
+
+                if self.stop_requested:
+                    break
+
+                # Validation and Pruning Phase
+                if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
+                    val_loss_norm, _, _ = self.training_service.validate_epoch(
+                        model, model_type, val_loader, None, None, epoch, device, self.stop_requested, task, verbose=verbose
+                    )
+                    
+                    # --- OPTUNA PRUNING LOGIC ---
+                    log_callback = task.get('log_callback')
+                    if log_callback:
+                        log_callback(f"  Trial {optuna_trial.number} | Epoch {epoch}/{max_epochs} - Reported Val Loss: {val_loss_norm:.6f}")
+                    
+                    optuna_trial.report(val_loss_norm, epoch)
+                    if optuna_trial.should_prune():
+                        # This exception is caught by Optuna's study runner and marks the trial as pruned.
+                        raise optuna.exceptions.TrialPruned()
+                    # --- END OPTUNA PRUNING LOGIC ---
+
+                    # Standard early stopping logic (can run in parallel with pruning)
+                    if val_loss_norm < best_validation_loss:
+                        best_validation_loss = val_loss_norm
+                        patience_counter = 0
+                        # No model saving during Optuna trials to save disk space and time
+                    else:
+                        patience_counter += 1
+                    
+                    if patience_counter > valid_patience:
+                        self.logger.info(f"Optuna trial {optuna_trial.number} stopped early at epoch {epoch} due to validation patience.")
+                        early_stopping = True
+                        break
+                
+                scheduler.step()
+
+            # Populate results after the loop finishes (or breaks)
+            task['results'] = {
+                'best_validation_loss_normalized': best_validation_loss,
+                'completed_epochs': epoch,
+                'early_stopped': early_stopping,
+                'early_stopped_reason': 'Patience' if early_stopping else 'Completed'
+            }
+            self.logger.info(f"Optuna training loop finished for trial {optuna_trial.number}. Best validation loss: {best_validation_loss:.6f}")
+
+        except optuna.exceptions.TrialPruned:
+            # If a TrialPruned exception was raised, re-raise it so Optuna can handle it.
+            raise
+        except Exception as e:
+            self.logger.error(f"Error during Optuna training for trial {optuna_trial.number}: {str(e)}", exc_info=True)
+            task['results'] = {
+                'best_validation_loss_normalized': float('inf'),
+                'error': str(e),
+                'completed_epochs': 0
+            }
+            # Do not raise here, let the Optuna study log the failure and continue.
 
     def convert_hyperparams(self, hyperparams):
         """Converts all relevant hyperparameters to the correct types based on model type."""
