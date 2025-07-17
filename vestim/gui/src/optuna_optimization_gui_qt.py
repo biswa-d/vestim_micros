@@ -775,7 +775,11 @@ class VEstimOptunaOptimizationGUI(QWidget):
             self.logger.info(json.dumps(self.best_configs, indent=2))
             self.close()
             # Pass both the original base_params (for display) and the best_configs (for task creation)
-            self.training_setup_gui = VEstimTrainSetupGUI(params=self.base_params, optuna_configs=self.best_configs)
+            self.training_setup_gui = VEstimTrainSetupGUI(
+                params=self.base_params,
+                optuna_configs=self.best_configs,
+                job_manager=self.job_manager
+            )
             self.training_setup_gui.show()
         except Exception as e:
             self.logger.error(f"Error proceeding to training setup: {e}")

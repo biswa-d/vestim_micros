@@ -28,7 +28,9 @@ class SetupWorker(QThread):
         try:
             if self.optuna_configs:
                 self.logger.info("Running setup with Optuna configurations.")
-                self.training_setup_manager.setup_training_from_optuna(self.optuna_configs)
+                optuna_setup_manager = OptunaSetupManager(job_manager=self.job_manager)
+                optuna_setup_manager.setup_training_from_optuna(self.optuna_configs)
+                self.training_setup_manager.training_tasks = optuna_setup_manager.get_task_list()
             else:
                 self.logger.info("Running setup with grid search.")
                 self.training_setup_manager.setup_training()
@@ -41,7 +43,7 @@ class SetupWorker(QThread):
             self.progress_signal.emit(f"Error occurred: {str(e)}", "", 0)
 
 class VEstimTrainSetupGUI(QWidget):
-    def __init__(self, params=None, optuna_configs=None):
+    def __init__(self, params=None, optuna_configs=None, job_manager=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.optuna_configs = optuna_configs
@@ -58,7 +60,7 @@ class VEstimTrainSetupGUI(QWidget):
             self.is_multiple_configs = False
             self.logger.info("Initialized with single parameter configuration for grid search.")
 
-        self.job_manager = JobManager()
+        self.job_manager = job_manager if job_manager else JobManager()
         self.timer_running = True
         self.auto_proceed_timer = QTimer(self)
         self.auto_proceed_timer.setSingleShot(True)
