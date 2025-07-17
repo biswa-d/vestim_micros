@@ -43,6 +43,17 @@ class FNNModelService:
         ).to(self.device)
         
         return model
+    def create_model(self, params: dict, device=None):
+        """
+        Create an FNN model in-memory without saving it.
+
+        :param params: Dictionary containing model parameters.
+        :param device: The target device for the model.
+        :return: An instance of FNNModel.
+        """
+        if device is not None:
+            self.device = device
+        return self.build_fnn_model(params)
 
     def save_model(self, model: FNNModel, model_path: str):
         """

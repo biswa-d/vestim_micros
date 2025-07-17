@@ -50,6 +50,19 @@ class GRUModelService:
         ).to(self.device) # Ensure model is on the correct device
         
         return model
+    def create_model(self, params: dict, device=None):
+        """
+        Create a GRU model in-memory without saving it.
+
+        :param params: Dictionary containing model parameters.
+        :param device: The target device for the model.
+        :return: An instance of GRUModel.
+        """
+        # Update device if target_device is specified
+        if device is not None:
+            self.device = device
+            self.logger.info(f"GRU model service device updated to: {device}")
+        return self.build_gru_model(params)
 
     def save_model(self, model: GRUModel, model_path: str):
         """

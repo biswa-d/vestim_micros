@@ -78,6 +78,15 @@ class LSTMModelService:
 
         return model
 
+    def create_model(self, params, device=None):
+        """
+        Create an LSTM model in-memory without saving it.
+
+        :param params: Dictionary containing model parameters.
+        :param device: The target device for the model.
+        :return: An instance of LSTMModel.
+        """
+        return self.build_lstm_model(params, device=device)
     def save_model(self, model, model_path):
         """
         Save the model to the specified path after removing pruning reparameterizations.
