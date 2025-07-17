@@ -120,11 +120,8 @@ class VEstimTrainingSetupManager:
                 target_device = torch.device("cpu")
 
             self.logger.info(f"TrainingSetupManager: Passing target_device {target_device} to model creation for {model_type}")
-            if model_type == "LSTM":
-                # LSTM expects only model_params and model_path
-                return model_map[model_type](model_params, model_path)
-            else:
-                return model_map[model_type](model_params, model_path, target_device)
+            # Pass the target_device to all model creation functions
+            return model_map[model_type](model_params, model_path, target_device)
         
         raise ValueError(f"Unsupported model type: {model_type}")
 
@@ -329,7 +326,8 @@ class VEstimTrainingSetupManager:
                 hyperparams=hyperparams,
                 repetition=1,  # Each Optuna config is a single task
                 job_normalization_metadata=self.load_job_normalization_metadata(),
-                max_training_time_seconds_arg=hyperparams.get('MAX_TRAINING_TIME_SECONDS', 0)
+                max_training_time_seconds_arg=hyperparams.get('MAX_TRAINING_TIME_SECONDS', 0),
+                use_model_dir_as_task_dir=True  # Prevent nested task folders for Optuna runs
             )
             task_list.append(task_info)
 
@@ -388,7 +386,7 @@ class VEstimTrainingSetupManager:
         input_size = len(hyperparams.get("FEATURE_COLUMNS", []))
         output_size = 1
 
-        model_dir_name = f'optuna_best_config_{rank}_of_{n_best}'
+        model_dir_name = self._generate_descriptive_folder_name(hyperparams, rank, n_best)
         model_dir = os.path.join(
             self.job_manager.get_job_folder(),
             'models',
@@ -446,7 +444,41 @@ class VEstimTrainingSetupManager:
         with open(tasks_summary_file, 'w') as f:
             json.dump(serializable_tasks, f, indent=4)
 
-    def _create_task_info(self, model_task, hyperparams, repetition, job_normalization_metadata=None, max_training_time_seconds_arg=0): # Added new arg
+    def _generate_descriptive_folder_name(self, hyperparams, rank=None, n_best=None):
+        """Generates a descriptive folder name from key hyperparameters."""
+        try:
+            model_type = hyperparams.get('MODEL_TYPE', 'MDL')
+            
+            # Core parameters
+            lr = float(hyperparams.get('INITIAL_LR', 0))
+            bs = int(hyperparams.get('BATCH_SIZE', 0))
+            lk = int(hyperparams.get('LOOKBACK', 0))
+            
+            name_parts = [f"LR{lr:.1E}", f"BS{bs}", f"LK{lk}"]
+
+            # Model-specific parameters
+            if model_type in ['LSTM', 'GRU']:
+                layers = int(hyperparams.get('LAYERS', 0))
+                hidden_units = int(hyperparams.get('HIDDEN_UNITS', 0))
+                name_parts.insert(0, f"L{layers}")
+                name_parts.insert(1, f"HU{hidden_units}")
+            elif model_type == 'FNN':
+                hidden_layers_str = hyperparams.get('FNN_HIDDEN_LAYERS', '').replace(',', '_')
+                name_parts.insert(0, f"FNN_{hidden_layers_str}")
+
+            folder_name = '_'.join(name_parts)
+            # Sanitize for filesystem, removing characters that might be problematic
+            sanitized_name = folder_name.replace('.', 'p').replace('-', 'n').replace('+', '')
+            
+            if rank is not None and n_best is not None:
+                return f"rank_{rank}_of_{n_best}_{sanitized_name}"
+            return sanitized_name
+            
+        except Exception as e:
+            self.logger.error(f"Could not generate descriptive folder name: {e}. Falling back to UUID.")
+            return f"task_{uuid.uuid4().hex[:8]}"
+
+    def _create_task_info(self, model_task, hyperparams, repetition, job_normalization_metadata=None, max_training_time_seconds_arg=0, use_model_dir_as_task_dir=False):
         """Helper method to create a task info dictionary."""
         if job_normalization_metadata is None:
             job_normalization_metadata = {} # Default to empty dict if not provided
@@ -456,17 +488,15 @@ class VEstimTrainingSetupManager:
         # Create unique task ID
         task_id = f"task_{timestamp}_{task_counter}_rep_{repetition}"
         
-        # Create task directory with relevant parameters and repetition number
-        scheduler_type = hyperparams['SCHEDULER_TYPE']
-        if scheduler_type == 'StepLR':
-            task_dir_name = f'lr_{hyperparams["INITIAL_LR"]}_period_{hyperparams["LR_PERIOD"]}_factor_{hyperparams["LR_PARAM"]}'
+        if use_model_dir_as_task_dir:
+            # For Optuna final runs, the model_dir is the final task_dir
+            task_dir = model_task['model_dir']
         else:
-            task_dir_name = f'lr_{hyperparams["INITIAL_LR"]}_plat_pat_{hyperparams["PLATEAU_PATIENCE"]}_factor_{hyperparams["PLATEAU_FACTOR"]}'
-        
-        task_dir = os.path.join(
-            model_task['model_dir'],
-            f'{task_id}'
-        )
+            # For Grid Search, create a nested directory for each specific task run
+            task_dir = os.path.join(
+                model_task['model_dir'],
+                f'{task_id}'
+            )
         os.makedirs(task_dir, exist_ok=True)
 
         # Create logs directory within task directory

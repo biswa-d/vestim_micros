@@ -50,27 +50,29 @@ class LSTMModelService:
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def build_lstm_model(self, params):
+    def build_lstm_model(self, params, device=None):
         """
         Build the LSTM model using the provided parameters.
 
         :param params: Dictionary containing model parameters.
+        :param device: The target device for the model.
         :return: An instance of LSTMModel.
         """
-        input_size = params.get("INPUT_SIZE", 3)  # Default input size set to 3, change if needed
-        hidden_units = int(params["HIDDEN_UNITS"])  # Ensure hidden_units is an integer
+        target_device = device if device is not None else self.device
+        input_size = params.get("INPUT_SIZE", 3)
+        hidden_units = int(params["HIDDEN_UNITS"])
         num_layers = int(params["LAYERS"])
-        dropout_prob = params.get("DROPOUT_PROB", 0.5)  # Default dropout probability
+        dropout_prob = params.get("DROPOUT_PROB", 0.5)
 
         print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, "
-              f"num_layers={num_layers}, dropout_prob={dropout_prob}")
+              f"num_layers={num_layers}, dropout_prob={dropout_prob}, device={target_device}")
 
         # Create an instance of the refactored LSTMModel
         model = LSTMModel(
             input_size=input_size,
             hidden_units=hidden_units,
             num_layers=num_layers,
-            device=self.device,
+            device=target_device,
             dropout_prob=dropout_prob
         )
 
@@ -89,14 +91,15 @@ class LSTMModelService:
         torch.save(model.state_dict(), model_path)
         print(f"Model saved to {model_path}")
 
-    def create_and_save_lstm_model(self, params, model_path):
+    def create_and_save_lstm_model(self, params, model_path, device=None):
         """
         Build and save an LSTM model using the provided parameters.
 
         :param params: Dictionary containing model parameters.
         :param model_path: The file path where the model will be saved.
+        :param device: The target device for the model.
         :return: The built LSTM model.
         """
-        model = self.build_lstm_model(params)
+        model = self.build_lstm_model(params, device=device)
         self.save_model(model, model_path)
         return model
