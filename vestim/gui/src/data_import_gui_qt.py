@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 
 import os, sys
+from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI  # Import the new data augmentation GUI
 from vestim.services.data_processor.src.data_processor_qt_csv import DataProcessorCSV
 from vestim.services.data_processor.src.data_processor_qt_mat import DataProcessorMAT
@@ -72,6 +73,7 @@ class DataImportGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.logger = logging.getLogger(__name__)
+        self.job_manager = JobManager()
         self.train_folder_path = ""
         self.val_folder_path = ""  # NEW: Added validation folder
         self.test_folder_path = ""
@@ -445,7 +447,7 @@ class DataImportGUI(QMainWindow):
     def move_to_next_screen(self, job_folder):
         # Changed to open the Data Augmentation GUI instead of Hyperparameter GUI
         self.close()
-        self.data_augment_gui = DataAugmentGUI(job_folder=job_folder)
+        self.data_augment_gui = DataAugmentGUI(job_manager=self.job_manager)
         self.data_augment_gui.show()
 
     def show_error(self, message):

@@ -28,11 +28,11 @@ from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupMana
 import logging
 
 class VEstimTestingManager:
-    def __init__(self, params=None, task_list=None, training_results=None):
+    def __init__(self, job_manager=None, params=None, task_list=None, training_results=None):
         print("Initializing VEstimTestingManager...")
         self.logger = logging.getLogger(__name__)
-        self.job_manager = JobManager()  # Singleton instance of JobManager
-        self.training_setup_manager = VEstimTrainingSetupManager()
+        self.job_manager = job_manager if job_manager else JobManager()
+        self.training_setup_manager = VEstimTrainingSetupManager(job_manager=self.job_manager)
         self.testing_service = VEstimTestingService()  # Keep old service for fallback
         # self.continuous_testing_service = ContinuousTestingService()  # Removed to prevent race conditions
         self.test_data_service = VEstimTestDataService()

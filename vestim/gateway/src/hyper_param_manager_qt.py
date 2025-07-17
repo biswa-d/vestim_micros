@@ -12,10 +12,10 @@ class VEstimHyperParamManager:
             cls._instance = super(VEstimHyperParamManager, cls).__new__(cls)
         return cls._instance
     
-    def __init__(self):
+    def __init__(self, job_manager=None):
         if not hasattr(self, 'initialized'):
             self.logger = logging.getLogger(__name__)  # Set up logger for this class
-            self.job_manager = JobManager()
+            self.job_manager = job_manager if job_manager else JobManager()
             self.current_params = {}  # Initialize current_params as None
             # self.param_sets = []  # Initialize param_sets as an empty list
             self.initialized = True

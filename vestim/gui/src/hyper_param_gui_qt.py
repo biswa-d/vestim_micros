@@ -26,16 +26,15 @@ from vestim.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
 from vestim.config_manager import get_default_hyperparams, update_last_used_hyperparams, load_hyperparams_from_root
 
 # Initialize the JobManager
-job_manager = JobManager()
 import logging
 class VEstimHyperParamGUI(QWidget):
-    def __init__(self):
+    def __init__(self, job_manager=None):
         self.logger = logging.getLogger(__name__)  # Initialize the logger within the instance
         self.logger.info("Initializing Hyperparameter GUI")
         super().__init__()
         self.params = {}  # Initialize an empty params dictionary
-        self.job_manager = job_manager  # Use the shared JobManager instance
-        self.hyper_param_manager = VEstimHyperParamManager()  # Initialize HyperParamManager
+        self.job_manager = job_manager if job_manager else JobManager()
+        self.hyper_param_manager = VEstimHyperParamManager(job_manager=self.job_manager)
         self.param_entries = {}  # To store the entry widgets for parameters
 
         self.setup_window()
@@ -1046,7 +1045,7 @@ class VEstimHyperParamGUI(QWidget):
             from vestim.gui.src.optuna_optimization_gui_qt import VEstimOptunaOptimizationGUI
             
             self.close()
-            self.optuna_gui = VEstimOptunaOptimizationGUI(new_params)
+            self.optuna_gui = VEstimOptunaOptimizationGUI(job_manager=self.job_manager, params=new_params)
             self.optuna_gui.show()
             
         except Exception as e:
@@ -1071,7 +1070,7 @@ class VEstimHyperParamGUI(QWidget):
 
             # Proceed directly to training setup with grid search logic
             self.close()  # Close current window
-            self.training_setup_gui = VEstimTrainSetupGUI(new_params)
+            self.training_setup_gui = VEstimTrainSetupGUI(job_manager=self.job_manager, params=new_params)
             self.training_setup_gui.show()
             
         except Exception as e:

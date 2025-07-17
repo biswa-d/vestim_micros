@@ -28,6 +28,7 @@ import numpy as np
 # from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas # PreviewDialog removed
 
 from vestim.gui.src.hyper_param_gui_qt import VEstimHyperParamGUI
+from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.data_augment_manager_qt import DataAugmentManager
 
 import logging
@@ -169,11 +170,12 @@ class AugmentationWorker(QObject):
             self.criticalError.emit(f"Critical augmentation failure: {e}")
 
 class DataAugmentGUI(QMainWindow):
-    def __init__(self, job_folder=None):
+    def __init__(self, job_manager=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
-        self.job_folder = job_folder
-        self.data_augment_manager = DataAugmentManager()
+        self.job_manager = job_manager
+        self.job_folder = self.job_manager.get_job_folder() if self.job_manager else None
+        self.data_augment_manager = DataAugmentManager(job_manager=self.job_manager)
         self.augmentation_thread = None
         self.augmentation_worker = None
         self.hyper_param_gui = None 
@@ -560,7 +562,7 @@ class DataAugmentGUI(QMainWindow):
         try:
             # Create the new window instance but don't show it immediately.
             # Store it on self temporarily so the slot can access it.
-            self._next_hyper_param_gui = VEstimHyperParamGUI()
+            self._next_hyper_param_gui = VEstimHyperParamGUI(job_manager=self.job_manager)
 
             # Schedule the actual show and close operations to allow current events to process.
             QTimer.singleShot(0, self._execute_gui_transition)

@@ -237,7 +237,7 @@ class VEstimTrainSetupGUI(QWidget):
             # This ensures the task GUI receives a single, valid configuration
             first_task_params = task_list[0]['hyperparams']
             
-            self.training_gui = VEstimTrainingTaskGUI(task_list, first_task_params)
+            self.training_gui = VEstimTrainingTaskGUI(job_manager=self.job_manager, task_list=task_list, params=first_task_params)
             
             current_geometry = self.geometry()
             self.training_gui.setGeometry(current_geometry)

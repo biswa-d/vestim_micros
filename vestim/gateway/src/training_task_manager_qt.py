@@ -25,12 +25,12 @@ def format_time_long(seconds):
     return f"{hours:02d}h:{minutes:02d}m:{seconds:02d}s"
 
 class TrainingTaskManager:
-    def __init__(self, global_params=None):
+    def __init__(self, job_manager=None, global_params=None):
         self.logger = logging.getLogger(__name__)
-        self.job_manager = JobManager()
+        self.job_manager = job_manager if job_manager else JobManager()
         self.data_loader_service = DataLoaderService()
         self.training_service = TrainingTaskService()
-        self.training_setup_manager = VEstimTrainingSetupManager()
+        self.training_setup_manager = VEstimTrainingSetupManager(job_manager=self.job_manager)
         self.current_task = None
         self.stop_requested = False
         self.global_params = global_params if global_params else {}

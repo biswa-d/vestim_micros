@@ -54,12 +54,12 @@ class DataAugmentManager(QObject): # Inherit from QObject
     # Signal to indicate completion (success or failure type)
     augmentationFinished = pyqtSignal(str, list) # job_folder, metadata list
 
-    def __init__(self):
+    def __init__(self, job_manager=None):
         """Initialize the DataAugmentManager"""
         super().__init__() # Call QObject constructor
         self.logger = logging.getLogger(__name__)
         self.service = DataAugmentService()
-        self.job_manager = JobManager() # Instantiate JobManager
+        self.job_manager = job_manager if job_manager else JobManager()
     
     def _set_job_context(self, job_folder: str):
         """Sets the JobManager's context to the given job_folder."""

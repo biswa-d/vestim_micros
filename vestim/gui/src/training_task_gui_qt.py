@@ -44,7 +44,7 @@ class TrainingThread(QThread):
 
 
 class VEstimTrainingTaskGUI(QMainWindow):
-    def __init__(self, task_list, params):
+    def __init__(self, job_manager=None, task_list=None, params=None):
         super().__init__()
         
         #Logger setup
@@ -57,10 +57,10 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.task_list = task_list
         self.params = params # Assign to self.params first
 
-        self.training_task_manager = TrainingTaskManager(global_params=self.params) # Now use self.params
-        self.training_setup_manager = VEstimTrainingSetupManager()
+        self.job_manager = job_manager if job_manager else JobManager()
+        self.training_task_manager = TrainingTaskManager(job_manager=self.job_manager, global_params=self.params) # Now use self.params
+        self.training_setup_manager = VEstimTrainingSetupManager(job_manager=self.job_manager)
         self.training_service = TrainingTaskService()
-        self.job_manager = JobManager()
 
         # Initialize variables
         self.train_loss_values = []
@@ -863,8 +863,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.logger.info("Updated HyperParamManager singleton with final parameters before transitioning to testing.")
 
         # The VEstimTestingGUI will now correctly find the parameters in the singleton.
-        self.testing_manager = VEstimTestingManager(params=final_params, task_list=self.task_list, training_results=training_results)
-        self.testing_gui = VEstimTestingGUI(final_params, self.task_list, training_results, self.testing_manager)
+        self.testing_manager = VEstimTestingManager(job_manager=self.job_manager, params=final_params, task_list=self.task_list, training_results=training_results)
+        self.testing_gui = VEstimTestingGUI(job_manager=self.job_manager, params=final_params, task_list=self.task_list, training_results=training_results)
         self.testing_gui.show()
         self.close()
 
