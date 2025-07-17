@@ -1,5 +1,6 @@
 import os, uuid, time
 import json
+from itertools import product
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
 from vestim.services.model_training.src.GRU_model_service import GRUModelService
@@ -342,24 +343,43 @@ class VEstimTrainingSetupManager:
     def create_tasks_from_grid_search(self):
         """Create training tasks from the models built during grid search."""
         task_list = []
-        repetitions = self.params.get('REPETITIONS', 1)
         job_normalization_metadata = self.load_job_normalization_metadata()
         max_training_time_seconds_arg = self.params.get('MAX_TRAINING_TIME_SECONDS', 0)
 
-        for model_task in self.models:
-            for i in range(1, repetitions + 1):
-                # Combine global and model-specific hyperparameters
-                task_hyperparams = self.params.copy()
-                task_hyperparams.update(model_task['hyperparams'])
+        # Define parameters that can be grid-searched, excluding those handled by model building
+        grid_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'LR_PARAM', 'LR_PERIOD', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'BATCH_SIZE']
+        
+        param_grid = {}
+        for key in grid_keys:
+            if key in self.params and isinstance(self.params[key], str) and ',' in self.params[key]:
+                values = [v.strip() for v in self.params[key].split(',')]
+                param_grid[key] = values
+            else:
+                if self.params.get(key) is not None:
+                    param_grid[key] = [self.params.get(key)]
 
-                task_info = self._create_task_info(
-                    model_task=model_task,
-                    hyperparams=task_hyperparams,
-                    repetition=i,
-                    job_normalization_metadata=job_normalization_metadata,
-                    max_training_time_seconds_arg=max_training_time_seconds_arg
-                )
-                task_list.append(task_info)
+        grid_param_names = list(param_grid.keys())
+        grid_param_values = list(param_grid.values())
+        
+        for model_task in self.models:
+            for param_combination_values in product(*grid_param_values):
+                param_combination = dict(zip(grid_param_names, param_combination_values))
+                
+                repetitions = int(self.params.get('REPETITIONS', 1))
+                for i in range(1, repetitions + 1):
+                    # Combine global, model-specific, and grid-combination hyperparameters
+                    task_hyperparams = self.params.copy()
+                    task_hyperparams.update(model_task['hyperparams'])
+                    task_hyperparams.update(param_combination)
+
+                    task_info = self._create_task_info(
+                        model_task=model_task,
+                        hyperparams=task_hyperparams,
+                        repetition=i,
+                        job_normalization_metadata=job_normalization_metadata,
+                        max_training_time_seconds_arg=max_training_time_seconds_arg
+                    )
+                    task_list.append(task_info)
 
         self.training_tasks = task_list
         self.save_tasks_to_files(task_list)
