@@ -121,9 +121,13 @@ class VEstimTrainingSetupManager:
             except Exception as e:
                 self.logger.error(f"TrainingSetupManager: Error determining target device '{selected_device_str}': {e}. Defaulting model build to CPU.")
                 target_device = torch.device("cpu")
-            
+
             self.logger.info(f"TrainingSetupManager: Passing target_device {target_device} to model creation for {model_type}")
-            return model_map[model_type](model_params, model_path, target_device)
+            if model_type == "LSTM":
+                # LSTM expects only model_params and model_path
+                return model_map[model_type](model_params, model_path)
+            else:
+                return model_map[model_type](model_params, model_path, target_device)
         
         raise ValueError(f"Unsupported model type: {model_type}")
 
