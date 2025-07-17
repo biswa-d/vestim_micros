@@ -38,7 +38,7 @@ class OptunaOptimizationThread(QThread):
     # Signals for communicating with the main GUI thread
     progress_updated = pyqtSignal(int, int)  # current_trial, total_trials
     trial_completed = pyqtSignal(dict)  # trial_info
-    optimization_completed = pyqtSignal(list)  # best_configs
+    optimization_completed = pyqtSignal(list, list)  # best_configs, all_completed_trials
     error_occurred = pyqtSignal(str)  # error_message
     log_message = pyqtSignal(str)  # log_message
     
@@ -156,7 +156,7 @@ class OptunaOptimizationThread(QThread):
                 self.log_message.emit(f"Optimization stopped by user. Processing {len(best_configs)} best completed trials.")
             else:
                 self.log_message.emit(f"Optimization completed! Found {len(best_configs)} best configurations.")
-            self.optimization_completed.emit(best_configs)
+            self.optimization_completed.emit(best_configs, self.completed_trials_data)
                 
         except Exception as e:
             self.error_occurred.emit(f"Optimization failed: {str(e)}")
@@ -336,6 +336,7 @@ class VEstimOptunaOptimizationGUI(QWidget):
         self.base_params = base_params
         self.optimization_thread = None
         self.best_configs = []
+        self.completed_trials_data = []  # Initialize the attribute to prevent crash
         self.auto_proceed_timer = QTimer(self)
         self.auto_proceed_timer.setSingleShot(True)
         self.auto_proceed_timer.timeout.connect(self.proceed_to_training_setup)
@@ -674,9 +675,10 @@ class VEstimOptunaOptimizationGUI(QWidget):
         # Auto-scroll to latest trial
         self.trial_table.scrollToBottom()
     
-    def optimization_completed(self, best_configs):
+    def optimization_completed(self, best_configs, completed_trials_data):
         """Handle completed optimization"""
         self.best_configs = best_configs
+        self.completed_trials_data = completed_trials_data
         
         # Switch to Results tab to show the final results
         self.tab_widget.setCurrentIndex(2)  # Results tab is at index 2
