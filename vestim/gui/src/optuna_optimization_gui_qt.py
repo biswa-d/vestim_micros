@@ -348,7 +348,7 @@ class VEstimOptunaOptimizationGUI(QWidget):
     def __init__(self, params, job_manager=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
-        self.base_params = params
+        self.params = params
         self.job_manager = job_manager if job_manager else JobManager()
         self.optimization_thread = None
         self.best_configs = []
@@ -636,7 +636,7 @@ class VEstimOptunaOptimizationGUI(QWidget):
             self.progress_bar.setValue(0)
             
             # Start optimization thread
-            self.optimization_thread = OptunaOptimizationThread(self.base_params, config, self.job_manager)
+            self.optimization_thread = OptunaOptimizationThread(self.params, config, self.job_manager)
             self.optimization_thread.progress_updated.connect(self.update_progress)
             self.optimization_thread.trial_completed.connect(self.trial_completed)
             self.optimization_thread.optimization_completed.connect(self.optimization_completed)
@@ -790,7 +790,7 @@ class VEstimOptunaOptimizationGUI(QWidget):
             self.close()
             # Pass both the original base_params (for display) and the best_configs (for task creation)
             self.training_setup_gui = VEstimTrainSetupGUI(
-                params=self.base_params,
+                params=self.params,
                 optuna_configs=self.best_configs,
                 job_manager=self.job_manager
             )
