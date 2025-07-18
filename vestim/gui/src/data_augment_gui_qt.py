@@ -129,13 +129,61 @@ class FormulaInputDialog(QDialog):
         logger.info(f"FormulaInputDialog: Accepting new column '{self.new_column_name}' with formula '{self.formula}'")
         self.accept()
 
+class FilterInputDialog(QDialog):
+    """Dialog for entering filter specifications."""
+    def __init__(self, available_columns, parent=None):
+        super().__init__(parent)
+        self.available_columns = available_columns
+        self.column_name = ""
+        self.corner_frequency = 0.0
+        self.initUI()
+        
+    def initUI(self):
+        self.setWindowTitle("Filter Column")
+        self.setMinimumWidth(400)
+        
+        layout = QVBoxLayout()
+        
+        form_layout = QFormLayout()
+        
+        self.column_combo = QComboBox()
+        self.column_combo.addItems(self.available_columns)
+        form_layout.addRow("Select Column:", self.column_combo)
+        
+        self.corner_frequency_spinbox = QDoubleSpinBox()
+        self.corner_frequency_spinbox.setRange(0.01, 100.0)
+        self.corner_frequency_spinbox.setValue(1.0)
+        self.corner_frequency_spinbox.setSingleStep(0.1)
+        form_layout.addRow("Corner Frequency (Hz):", self.corner_frequency_spinbox)
+        
+        layout.addLayout(form_layout)
+        
+        buttons_layout = QHBoxLayout()
+        
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.reject)
+        buttons_layout.addWidget(self.cancel_button)
+        
+        self.submit_button = QPushButton("Apply Filter")
+        self.submit_button.clicked.connect(self.accept_filter)
+        self.submit_button.setStyleSheet("background-color: #0b6337; color: white;")
+        buttons_layout.addWidget(self.submit_button)
+        
+        layout.addLayout(buttons_layout)
+        self.setLayout(layout)
+        
+    def accept_filter(self):
+        self.column_name = self.column_combo.currentText()
+        self.corner_frequency = self.corner_frequency_spinbox.value()
+        self.accept()
+
 class AugmentationWorker(QObject):
     """Worker class for running data augmentation in a separate thread."""
     # Removed progress and finished signals, manager handles these.
     # Keep an error signal for critical failures within the worker's run method itself.
     criticalError = pyqtSignal(str) 
 
-    def __init__(self, data_augment_manager, job_folder, padding_length, resampling_frequency, column_formulas, normalize_data=False): # Added normalize_data
+    def __init__(self, data_augment_manager, job_folder, padding_length, resampling_frequency, column_formulas, normalize_data=False, filter_configs=None): # Added normalize_data and filter_configs
         super().__init__()
         self.data_augment_manager = data_augment_manager
         self.job_folder = job_folder
@@ -143,6 +191,7 @@ class AugmentationWorker(QObject):
         self.resampling_frequency = resampling_frequency
         self.column_formulas = column_formulas
         self.normalize_data = normalize_data # Store normalization flag
+        self.filter_configs = filter_configs
         self.logger = logging.getLogger(__name__ + ".AugmentationWorker")
 
     def run(self):
@@ -157,6 +206,7 @@ class AugmentationWorker(QObject):
                 resampling_frequency=self.resampling_frequency,
                 column_formulas=self.column_formulas,
                 normalize_data=self.normalize_data, # Pass to manager
+                filter_configs=self.filter_configs
                 # The manager will handle feature/exclude columns for now
                 # normalization_feature_columns=None,
                 # normalization_exclude_columns=None
@@ -199,11 +249,12 @@ class DataAugmentGUI(QMainWindow):
             self.test_df = None
         
         self.created_columns = []
+        self.filter_configs = []
         self.initUI()
     
     def initUI(self):
         self.setWindowTitle("VEstim Data Augmentation")
-        self.setGeometry(100, 100, 900, 650) # Increased height for padding section
+        self.setGeometry(100, 100, 900, 750) # Increased height for padding and filtering section
         
         self.central_widget = QWidget(self)
         self.setCentralWidget(self.central_widget)
@@ -283,6 +334,29 @@ class DataAugmentGUI(QMainWindow):
         augmentation_group.setLayout(augmentation_layout)
         self.main_layout.addWidget(augmentation_group)
 
+        # Filtering Group
+        filtering_group = QGroupBox("Data Filtering")
+        filtering_layout = QVBoxLayout()
+        self.filtering_checkbox = QCheckBox("Enable data filtering")
+        self.filtering_checkbox.setToolTip("Apply a Butterworth filter to a selected column.")
+        self.filtering_checkbox.stateChanged.connect(self.toggle_filtering_options)
+        filtering_layout.addWidget(self.filtering_checkbox)
+        self.add_filter_button = QPushButton("Add Filter")
+        self.add_filter_button.clicked.connect(self.show_filter_dialog)
+        self.add_filter_button.setEnabled(False)
+        filtering_layout.addWidget(self.add_filter_button)
+        self.filter_list_label = QLabel("Applied Filters:")
+        filtering_layout.addWidget(self.filter_list_label)
+        self.filter_list = QListWidget()
+        self.filter_list.setMinimumHeight(100)
+        filtering_layout.addWidget(self.filter_list)
+        self.remove_filter_button = QPushButton("Remove Selected Filter")
+        self.remove_filter_button.clicked.connect(self.remove_filter)
+        self.remove_filter_button.setEnabled(False)
+        filtering_layout.addWidget(self.remove_filter_button)
+        filtering_group.setLayout(filtering_layout)
+        self.main_layout.addWidget(filtering_group)
+
         # Normalization Group
         normalization_group = QGroupBox("Data Normalization")
         normalization_layout = QVBoxLayout()
@@ -320,11 +394,13 @@ class DataAugmentGUI(QMainWindow):
             self.padding_checkbox.setEnabled(True) # Enable padding checkbox
             self.resampling_checkbox.setEnabled(True)
             self.column_creation_checkbox.setEnabled(True)
+            self.filtering_checkbox.setEnabled(True)
             self.normalization_checkbox.setEnabled(True) # Enable normalization checkbox
         else:
             self.padding_checkbox.setEnabled(False) # Disable padding checkbox
             self.resampling_checkbox.setEnabled(False)
             self.column_creation_checkbox.setEnabled(False)
+            self.filtering_checkbox.setEnabled(False)
             self.normalization_checkbox.setEnabled(False) # Disable normalization checkbox
     
     def select_job_folder(self):
@@ -343,6 +419,7 @@ class DataAugmentGUI(QMainWindow):
                     self.padding_checkbox.setEnabled(True) # Enable padding
                     self.resampling_checkbox.setEnabled(True)
                     self.column_creation_checkbox.setEnabled(True)
+                    self.filtering_checkbox.setEnabled(True)
                     self.normalization_checkbox.setEnabled(True) # Enable normalization
                 else:
                     self.train_df = None
@@ -351,13 +428,14 @@ class DataAugmentGUI(QMainWindow):
                     self.padding_checkbox.setEnabled(False) # Disable padding
                     self.resampling_checkbox.setEnabled(False)
                     self.column_creation_checkbox.setEnabled(False)
+                    self.filtering_checkbox.setEnabled(False)
                     self.normalization_checkbox.setEnabled(False) # Disable normalization
                     QMessageBox.warning(self, "Warning", "Could not load a sample data file from the train/processed_data directory. Ensure CSV files exist there.")
                     self.logger.warning(f"No sample train data loaded from {self.job_folder}")
             except Exception as e:
                 self.logger.error(f"Error loading sample data for GUI: {e}", exc_info=True)
                 self.train_df = None; self.test_df = None
-                self.apply_button.setEnabled(False); self.padding_checkbox.setEnabled(False); self.resampling_checkbox.setEnabled(False); self.column_creation_checkbox.setEnabled(False); self.normalization_checkbox.setEnabled(False)
+                self.apply_button.setEnabled(False); self.padding_checkbox.setEnabled(False); self.resampling_checkbox.setEnabled(False); self.column_creation_checkbox.setEnabled(False); self.filtering_checkbox.setEnabled(False); self.normalization_checkbox.setEnabled(False)
                 QMessageBox.critical(self, "Error", f"Could not load sample data schema: {e}")
 
     def toggle_padding_options(self, state):
@@ -370,6 +448,10 @@ class DataAugmentGUI(QMainWindow):
         self.add_formula_button.setEnabled(state == Qt.Checked)
         self.remove_formula_button.setEnabled(state == Qt.Checked and self.formula_list.count() > 0)
     
+    def toggle_filtering_options(self, state):
+        self.add_filter_button.setEnabled(state == Qt.Checked)
+        self.remove_filter_button.setEnabled(state == Qt.Checked and self.filter_list.count() > 0)
+
     def show_formula_dialog(self):
         if self.train_df is None:
             QMessageBox.warning(self, "Warning", "Please load data first (select a valid job folder).")
@@ -395,6 +477,27 @@ class DataAugmentGUI(QMainWindow):
         self.created_columns.pop(row)
         if self.formula_list.count() == 0: self.remove_formula_button.setEnabled(False)
     
+    def show_filter_dialog(self):
+        if self.train_df is None:
+            QMessageBox.warning(self, "Warning", "Please load data first (select a valid job folder).")
+            return
+        available_columns = list(self.train_df.columns)
+        
+        dialog = FilterInputDialog(available_columns, self)
+        if dialog.exec_() == QDialog.Accepted:
+            column_name, corner_frequency = dialog.column_name, dialog.corner_frequency
+            self.filter_list.addItem(f"Filter '{column_name}' at {corner_frequency}Hz")
+            self.filter_configs.append({"column": column_name, "corner_frequency": corner_frequency})
+            self.remove_filter_button.setEnabled(True)
+            
+    def remove_filter(self):
+        selected_items = self.filter_list.selectedItems()
+        if not selected_items: return
+        row = self.filter_list.row(selected_items[0])
+        self.filter_list.takeItem(row)
+        self.filter_configs.pop(row)
+        if self.filter_list.count() == 0: self.remove_filter_button.setEnabled(False)
+
     def apply_changes(self):
         self.logger.info("apply_changes method entered.")
         if self.job_folder is None:
@@ -431,6 +534,8 @@ class DataAugmentGUI(QMainWindow):
         
         column_formulas = self.created_columns if self.column_creation_checkbox.isChecked() else None
         
+        filter_configs = self.filter_configs if self.filtering_checkbox.isChecked() else None
+
         normalize_data_flag = self.normalization_checkbox.isChecked()
         # For now, feature_columns and exclude_columns will be handled by the manager based on this flag
         # If more specific GUI controls are added later, they would be gathered here.
@@ -439,6 +544,7 @@ class DataAugmentGUI(QMainWindow):
         self.logger.info(f"Worker - Padding enabled: {padding_enabled}, length: {padding_length}")
         self.logger.info(f"Worker - Resampling enabled: {resampling_enabled}, frequency: {resampling_frequency}")
         self.logger.info(f"Worker - Column formulas: {column_formulas}")
+        self.logger.info(f"Worker - Filter configs: {filter_configs}")
         self.logger.info(f"Worker - Normalization enabled: {normalize_data_flag}")
 
         self.augmentation_thread = QThread()
@@ -449,6 +555,7 @@ class DataAugmentGUI(QMainWindow):
             resampling_frequency=resampling_frequency,
             column_formulas=column_formulas,
             normalize_data=normalize_data_flag, # Pass normalization flag
+            filter_configs=filter_configs
             # normalization_feature_columns=None, # Let manager infer or use defaults
             # normalization_exclude_columns=default_exclude_columns # Or let manager use its defaults
         )
