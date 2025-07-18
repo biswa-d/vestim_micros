@@ -330,7 +330,9 @@ class VEstimTrainingSetupManager:
                 repetition=1,  # Each Optuna config is a single task
                 job_normalization_metadata=self.load_job_normalization_metadata(),
                 max_training_time_seconds_arg=hyperparams.get('MAX_TRAINING_TIME_SECONDS', 0),
-                use_model_dir_as_task_dir=True  # Prevent nested task folders for Optuna runs
+                use_model_dir_as_task_dir=True,  # Prevent nested task folders for Optuna runs
+                rank=rank,
+                n_best=n_best
             )
             task_list.append(task_info)
 
@@ -612,6 +614,7 @@ class VEstimTrainingSetupManager:
             'job_metadata': job_normalization_metadata, # Embed normalization metadata from job_metadata.json
             'job_folder_augmented_from': self.job_manager.get_job_folder() # Add path to job folder for scaler path resolution
         }
+        return task_info
 
     def calculate_fnn_learnable_parameters(self, input_size, hidden_layer_sizes, output_size):
         """
