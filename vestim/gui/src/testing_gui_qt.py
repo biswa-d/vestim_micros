@@ -75,11 +75,11 @@ class VEstimTestingGUI(QMainWindow):
         self.job_manager = job_manager if job_manager else JobManager()
         self.params = params
         self.job_folder = self.job_manager.get_job_folder() if self.job_manager else None
+        self.training_results = training_results if training_results is not None else {}
         self.testing_manager = testing_manager if testing_manager else VEstimTestingManager(job_manager=self.job_manager, params=self.params, task_list=task_list, training_results=self.training_results)
         self.hyper_param_manager = VEstimHyperParamManager(job_manager=self.job_manager)
         self.training_setup_manager = VEstimTrainingSetupManager(job_manager=self.job_manager)
         self.data_cleanup_manager = DataCleanupManager()  # Add cleanup manager
-        self.training_results = training_results if training_results is not None else {}
 
         self.param_labels = {
             "LAYERS": "Layers",
