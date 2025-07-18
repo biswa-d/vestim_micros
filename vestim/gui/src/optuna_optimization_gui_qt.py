@@ -345,10 +345,10 @@ class OptunaOptimizationThread(QThread):
 class VEstimOptunaOptimizationGUI(QWidget):
     """GUI for Optuna-based hyperparameter optimization"""
     
-    def __init__(self, base_params, job_manager=None):
+    def __init__(self, params, job_manager=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
-        self.base_params = base_params
+        self.base_params = params
         self.job_manager = job_manager if job_manager else JobManager()
         self.optimization_thread = None
         self.best_configs = []
