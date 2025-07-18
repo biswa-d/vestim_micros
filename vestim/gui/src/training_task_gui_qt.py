@@ -229,7 +229,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Section 2: Training Method
         train_method_keys = ['TRAINING_METHOD', 'LOOKBACK', 'BATCH_TRAINING', 'BATCH_SIZE']
         # Section 3: Training Control
-        train_control_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE', 'ValidFrequency', 'REPETITIONS']
+        train_control_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS']
         # Section 4: Execution Environment
         exec_env_keys = ['DEVICE_SELECTION', 'MAX_TRAINING_TIME_SECONDS']
 
@@ -353,7 +353,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
         # Plot Setup
         max_epochs = int(task['hyperparams']['MAX_EPOCHS'])
-        valid_frequency = int(task['hyperparams']['ValidFrequency'])
+        valid_frequency = int(task['hyperparams']['VALID_FREQUENCY'])
 
         # Matplotlib figure setup
         fig = Figure(figsize=(6, 2.5), dpi=100)
