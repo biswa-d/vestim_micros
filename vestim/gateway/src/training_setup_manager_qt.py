@@ -481,16 +481,23 @@ class VEstimTrainingSetupManager:
             self.logger.error(f"Could not generate descriptive folder name: {e}. Falling back to UUID.")
             return f"task_{uuid.uuid4().hex[:8]}"
 
-    def _create_task_info(self, model_task, hyperparams, repetition, job_normalization_metadata=None, max_training_time_seconds_arg=0, use_model_dir_as_task_dir=False):
+    def _create_task_info(self, model_task, hyperparams, repetition, job_normalization_metadata=None, max_training_time_seconds_arg=0, use_model_dir_as_task_dir=False, rank=None, n_best=None):
         """Helper method to create a task info dictionary."""
         if job_normalization_metadata is None:
             job_normalization_metadata = {} # Default to empty dict if not provided
-        timestamp = time.strftime("%Y%m%d%H%M%S")
-        task_counter = getattr(self, '_task_counter', 0) + 1
-        self._task_counter = task_counter
-        # Create unique task ID
-        task_id = f"task_{timestamp}_{task_counter}_rep_{repetition}"
         
+        # Generate descriptive names if it's an Optuna task
+        is_optuna_task = use_model_dir_as_task_dir
+        if is_optuna_task and rank is not None and n_best is not None:
+            task_id = f"best_{rank}_of_{n_best}"
+            model_name = self._generate_descriptive_folder_name(hyperparams).replace(f"rank_{rank}_of_{n_best}_", "")
+        else:
+            timestamp = time.strftime("%Y%m%d%H%M%S")
+            task_counter = getattr(self, '_task_counter', 0) + 1
+            self._task_counter = task_counter
+            task_id = f"task_{timestamp}_{task_counter}_rep_{repetition}"
+            model_name = None # Not used for grid search in the same way
+
         if use_model_dir_as_task_dir:
             # For Optuna final runs, the model_dir is the final task_dir
             task_dir = model_task['model_dir']
@@ -535,8 +542,9 @@ class VEstimTrainingSetupManager:
             hidden_units = len(hidden_layer_sizes)  # Number of layers as a proxy
             layers = 1  # FNN doesn't have "layers" in the RNN sense
 
-        return {
+        task_info = {
             'task_id': task_id,
+            'model_name': model_name,  # Add descriptive model name
             'model': model_task['model'],
             'model_dir': model_task['model_dir'],
             'task_dir': task_dir,

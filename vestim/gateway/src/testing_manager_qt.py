@@ -353,7 +353,9 @@ class VEstimTestingManager:
                 max_abs_error_val = np.max(np.abs(difference)) if difference.size > 0 else 0
 
                 # Generate shorthand name for the model task
-                shorthand_name = self.generate_shorthand_name(task)
+                # Use the new descriptive names if available (for Optuna), otherwise generate the old ones
+                display_task_id = task.get('task_id_display', task['task_id'])
+                display_model_name = task.get('model_name', self.generate_shorthand_name(task))
 
                 # Best losses are now passed from the training GUI
                 best_train_loss = self.training_results.get(task['task_id'], {}).get('best_train_loss', 'N/A')
@@ -362,8 +364,8 @@ class VEstimTestingManager:
 
                 summary_row = {
                     "Sl.No": f"{idx + 1}.{test_file_index + 1}",
-                    "Task ID": task['task_id'],
-                    "Model": shorthand_name,
+                    "Task ID": display_task_id,
+                    "Model": display_model_name,
                     "File Name": test_file,
                     "#W&Bs": num_learnable_params,
                     "Best Train Loss": best_train_loss,
@@ -379,9 +381,9 @@ class VEstimTestingManager:
                 # Data to send to GUI for this specific test file
                 gui_result_data = {
                     'saved_dir': test_results_dir,
-                    'task_id': task['task_id'],
+                    'task_id': display_task_id,
                     'sl_no': f"{idx + 1}.{test_file_index + 1}", # Unique Sl.No for GUI based on task and test file
-                    'model': shorthand_name,
+                    'model': display_model_name,
                     'file_name': test_file, # Current test file name
                     '#params': num_learnable_params,
                     'best_train_loss': best_train_loss,
