@@ -43,7 +43,7 @@ class VEstimHyperParamManager:
             if isinstance(value, str):
                 # Model-type aware parameter validation
                 integer_params = ['BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD',
-                                'VALID_PATIENCE', 'ValidFrequency', 'LOOKBACK', 'REPETITIONS',
+                                'VALID_PATIENCE', 'VALID_FREQUENCY', 'LOOKBACK', 'REPETITIONS',
                                 'MAX_TRAIN_HOURS', 'MAX_TRAIN_MINUTES', 'MAX_TRAIN_SECONDS']
                 
                 # Add model-specific integer parameters

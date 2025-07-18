@@ -568,7 +568,7 @@ class VEstimTrainingSetupManager:
                 'MAX_EPOCHS': hyperparams['MAX_EPOCHS'],
                 'INITIAL_LR': hyperparams['INITIAL_LR'],
                 'VALID_PATIENCE': hyperparams['VALID_PATIENCE'],
-                'VALID_FREQUENCY': hyperparams['VALID_FREQUENCY'],
+                'VALID_FREQUENCY': hyperparams.get('VALID_FREQUENCY', hyperparams.get('ValidFrequency')),
                 'LOOKBACK': hyperparams['LOOKBACK'],
                 'SCHEDULER_TYPE': hyperparams['SCHEDULER_TYPE'],
                 'LR_PERIOD': hyperparams.get('LR_PERIOD'),

@@ -428,9 +428,9 @@ class TrainingTaskManager:
             # If BATCH_SIZE is under data_loader_params, it's handled in create_data_loaders above.
             
             max_epochs = hyperparams['MAX_EPOCHS']
-            valid_freq = hyperparams['ValidFrequency']
+            valid_freq = hyperparams['VALID_FREQUENCY']
             valid_patience = hyperparams['VALID_PATIENCE']
-            #patience_threshold = int(valid_patience * 0.5) 
+            #patience_threshold = int(valid_patience * 0.5)
             current_lr = hyperparams['INITIAL_LR']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams['LR_DROP_FACTOR']
@@ -1109,6 +1109,9 @@ class TrainingTaskManager:
             hyperparams['PLATEAU_PATIENCE'] = int(hyperparams['PLATEAU_PATIENCE'])
             hyperparams['PLATEAU_FACTOR'] = float(hyperparams['PLATEAU_FACTOR'])
         hyperparams['VALID_PATIENCE'] = int(hyperparams['VALID_PATIENCE'])
+        # Allow both 'VALID_FREQUENCY' and 'ValidFrequency' for robustness
+        if 'ValidFrequency' in hyperparams and 'VALID_FREQUENCY' not in hyperparams:
+            hyperparams['VALID_FREQUENCY'] = hyperparams.pop('ValidFrequency')
         hyperparams['VALID_FREQUENCY'] = int(hyperparams['VALID_FREQUENCY'])
         hyperparams['LOOKBACK'] = int(hyperparams['LOOKBACK'])
         hyperparams['REPETITIONS'] = int(hyperparams['REPETITIONS'])
