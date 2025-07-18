@@ -1109,7 +1109,7 @@ class TrainingTaskManager:
             hyperparams['PLATEAU_PATIENCE'] = int(hyperparams['PLATEAU_PATIENCE'])
             hyperparams['PLATEAU_FACTOR'] = float(hyperparams['PLATEAU_FACTOR'])
         hyperparams['VALID_PATIENCE'] = int(hyperparams['VALID_PATIENCE'])
-        hyperparams['ValidFrequency'] = int(hyperparams['ValidFrequency'])
+        hyperparams['VALID_FREQUENCY'] = int(hyperparams['VALID_FREQUENCY'])
         hyperparams['LOOKBACK'] = int(hyperparams['LOOKBACK'])
         hyperparams['REPETITIONS'] = int(hyperparams['REPETITIONS'])
         return hyperparams
