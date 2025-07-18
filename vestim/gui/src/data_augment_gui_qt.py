@@ -150,6 +150,10 @@ class FilterInputDialog(QDialog):
         self.column_combo.addItems(self.available_columns)
         form_layout.addRow("Select Column:", self.column_combo)
         
+        self.filter_type_combo = QComboBox()
+        self.filter_type_combo.addItems(["Butterworth"])
+        form_layout.addRow("Filter Type:", self.filter_type_combo)
+
         self.corner_frequency_spinbox = QDoubleSpinBox()
         self.corner_frequency_spinbox.setRange(0.01, 100.0)
         self.corner_frequency_spinbox.setValue(1.0)
@@ -486,10 +490,20 @@ class DataAugmentGUI(QMainWindow):
         dialog = FilterInputDialog(available_columns, self)
         if dialog.exec_() == QDialog.Accepted:
             column_name, corner_frequency = dialog.column_name, dialog.corner_frequency
-            self.filter_list.addItem(f"Filter '{column_name}' at {corner_frequency}Hz")
-            self.filter_configs.append({"column": column_name, "corner_frequency": corner_frequency})
-            self.remove_filter_button.setEnabled(True)
             
+            # Apply the filter immediately to the sample dataframe
+            try:
+                self.train_df = self.data_augment_manager.service.apply_butterworth_filter(
+                    self.train_df,
+                    column_name,
+                    corner_frequency
+                )
+                self.filter_list.addItem(f"Filter '{column_name}' at {corner_frequency}Hz")
+                self.filter_configs.append({"column": column_name, "corner_frequency": corner_frequency})
+                self.remove_filter_button.setEnabled(True)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not apply filter: {e}")
+
     def remove_filter(self):
         selected_items = self.filter_list.selectedItems()
         if not selected_items: return
