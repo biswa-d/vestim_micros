@@ -14,13 +14,14 @@ class SetupWorker(QThread):
     progress_signal = pyqtSignal(str, str, int)  # Signal to update the status in the main GUI
     finished_signal = pyqtSignal()  # Signal when the setup is finished
 
-    def __init__(self, job_manager, optuna_configs=None):
+    def __init__(self, job_manager, optuna_configs=None, base_params=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         if not job_manager:
             raise ValueError("JobManager instance is required.")
         self.job_manager = job_manager
         self.optuna_configs = optuna_configs
+        self.base_params = base_params  # Store base_params
         self.training_setup_manager = VEstimTrainingSetupManager(progress_signal=self.progress_signal, job_manager=self.job_manager)
 
     def run(self):
@@ -29,7 +30,8 @@ class SetupWorker(QThread):
             if self.optuna_configs:
                 self.logger.info("Running setup with Optuna configurations.")
                 optuna_setup_manager = OptunaSetupManager(job_manager=self.job_manager)
-                optuna_setup_manager.setup_training_from_optuna(self.optuna_configs)
+                # Pass both the optimized configs and the base params
+                optuna_setup_manager.setup_training_from_optuna(self.optuna_configs, self.base_params)
                 self.training_setup_manager.training_tasks = optuna_setup_manager.get_task_list()
             else:
                 self.logger.info("Running setup with grid search.")
@@ -156,7 +158,11 @@ class VEstimTrainSetupGUI(QWidget):
         self.show()
 
         # Move the training setup to a separate thread
-        self.worker = SetupWorker(job_manager=self.job_manager, optuna_configs=self.optuna_configs)
+        self.worker = SetupWorker(
+            job_manager=self.job_manager,
+            optuna_configs=self.optuna_configs,
+            base_params=self.params  # Pass base_params to the worker
+        )
         self.worker.progress_signal.connect(self.update_status)
         self.worker.finished_signal.connect(self.show_proceed_button)
 

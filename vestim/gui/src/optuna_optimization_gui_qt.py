@@ -43,9 +43,9 @@ class OptunaOptimizationThread(QThread):
     error_occurred = pyqtSignal(str)  # error_message
     log_message = pyqtSignal(str)  # log_message
     
-    def __init__(self, base_params, optimization_config, job_manager, parent=None):
+    def __init__(self, params, optimization_config, job_manager, parent=None):
         super().__init__(parent)
-        self.base_params = base_params
+        self.params = params
         self.optimization_config = optimization_config
         self.job_manager = job_manager
         self.study = None
@@ -55,7 +55,7 @@ class OptunaOptimizationThread(QThread):
         self.pruning_initiated = False
         
         # Extract parameter ranges in boundary format [min,max]
-        self.param_ranges = {k: v for k, v in base_params.items()
+        self.param_ranges = {k: v for k, v in params.items()
                            if isinstance(v, str) and '[' in v and ']' in v}
         
     def run(self):
@@ -168,18 +168,18 @@ class OptunaOptimizationThread(QThread):
         params = {}
         handled_params = set()
 
-        model_type = self.base_params.get('MODEL_TYPE')
+        model_type = self.params.get('MODEL_TYPE')
 
         # SOTA Dynamic FNN Architecture Search
-        if model_type == 'FNN' and 'FNN_N_LAYERS' in self.base_params and 'FNN_UNITS' in self.base_params:
+        if model_type == 'FNN' and 'FNN_N_LAYERS' in self.params and 'FNN_UNITS' in self.params:
             try:
                 # Suggest number of layers from the specified range
-                n_layers_range_str = self.base_params['FNN_N_LAYERS']
+                n_layers_range_str = self.params['FNN_N_LAYERS']
                 n_layers_range = json.loads(n_layers_range_str)
                 n_layers = trial.suggest_int('FNN_N_LAYERS', n_layers_range[0], n_layers_range[1])
 
                 # Suggest number of units for each layer
-                units_range_str = self.base_params['FNN_UNITS']
+                units_range_str = self.params['FNN_UNITS']
                 units_range = json.loads(units_range_str)
                 
                 hidden_layers_config = []
@@ -206,7 +206,7 @@ class OptunaOptimizationThread(QThread):
         float_log_params = {"INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR", "FNN_DROPOUT_PROB"}
         categorical_params = {"FNN_HIDDEN_LAYERS"}
 
-        for param_name, param_value in self.base_params.items():
+        for param_name, param_value in self.params.items():
             if param_name in handled_params:
                 continue
 
@@ -273,8 +273,8 @@ class OptunaOptimizationThread(QThread):
                 'data_loader_params': {
                     'lookback': int(params['LOOKBACK']),
                     'batch_size': int(params['BATCH_SIZE']),
-                    'feature_columns': self.base_params['FEATURE_COLUMNS'],
-                    'target_column': self.base_params['TARGET_COLUMN'],
+                    'feature_columns': self.params['FEATURE_COLUMNS'],
+                    'target_column': self.params['TARGET_COLUMN'],
                     'num_workers': 4
                 },
                 'training_params': {
@@ -285,7 +285,7 @@ class OptunaOptimizationThread(QThread):
                 'results': {}
             }
 
-            task_manager = TrainingTaskManager(global_params=self.base_params)
+            task_manager = TrainingTaskManager(global_params=self.params)
             
             class SignalEmitter(QObject):
                 progress_signal = pyqtSignal(dict)
@@ -359,7 +359,7 @@ class VEstimOptunaOptimizationGUI(QWidget):
         self.auto_proceed_timer.timeout.connect(self.proceed_to_training_setup)
         
         # Extract parameter ranges from base_params
-        self.param_ranges = {k: v for k, v in base_params.items() 
+        self.param_ranges = {k: v for k, v in self.params.items()
                            if isinstance(v, str) and '[' in v and ']' in v}
         
         # Check if Optuna is available

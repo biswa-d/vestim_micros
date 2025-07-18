@@ -62,22 +62,23 @@ class VEstimTrainingSetupManager:
             if self.progress_signal:
                 self.progress_signal.emit(f"Error during setup: {str(e)}", "", 0)
 
-    def setup_training_from_optuna(self, optuna_configs):
+    def setup_training_from_optuna(self, optuna_configs, base_params):
         """Set up the training process using configurations from Optuna."""
         self.logger.info("Setting up training from Optuna configurations...")
         try:
             if not optuna_configs:
                 raise ValueError("Optuna configurations are missing.")
+            if not base_params:
+                raise ValueError("Base parameters are missing for Optuna setup.")
 
-            # Set the main params from the first config to make them available to helper methods.
-            # This is the crucial step to ensure self.params is not None.
-            self.params = optuna_configs[0]['params']
+            # Set the main params from the base_params to make them available to helper methods.
+            self.params = base_params
             self.current_hyper_params = self.params
 
             if self.progress_signal:
                 self.progress_signal.emit("Creating training tasks from Optuna configs...")
 
-            self.create_tasks_from_optuna(optuna_configs)
+            self.create_tasks_from_optuna(optuna_configs, base_params)
 
             task_count = len(self.training_tasks)
             if self.progress_signal:
@@ -307,12 +308,14 @@ class VEstimTrainingSetupManager:
         """Create training tasks from grid search."""
         self.create_tasks_from_grid_search()
 
-    def create_tasks_from_optuna(self, best_configs):
+    def create_tasks_from_optuna(self, best_configs, base_params):
         """Create training tasks from a list of Optuna best configurations."""
         task_list = []
         for i, config_data in enumerate(best_configs):
-            # Each 'params' dictionary from Optuna is a complete, self-contained configuration.
-            hyperparams = config_data['params']
+            # Create a complete hyperparameter set by starting with the base
+            # and updating it with the optimized values.
+            hyperparams = base_params.copy()
+            hyperparams.update(config_data['params'])
             trial_number = config_data.get('trial_number', 'N/A')
             rank = i + 1
 

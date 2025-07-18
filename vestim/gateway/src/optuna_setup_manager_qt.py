@@ -25,7 +25,7 @@ class OptunaSetupManager:
        )
        self.training_tasks = []
 
-   def setup_training_from_optuna(self, optuna_configs):
+   def setup_training_from_optuna(self, optuna_configs, base_params):
        """Set up the training process using configurations from Optuna."""
        self.logger.info("Setting up training from Optuna configurations using dedicated manager...")
        try:
@@ -33,7 +33,7 @@ class OptunaSetupManager:
                raise ValueError("Optuna configurations are missing.")
            
            # Delegate task creation to the centralized training setup manager
-           self.training_setup_manager.setup_training_from_optuna(optuna_configs)
+           self.training_setup_manager.setup_training_from_optuna(optuna_configs, base_params)
            
            # Retrieve the created tasks
            self.training_tasks = self.training_setup_manager.get_task_list()
