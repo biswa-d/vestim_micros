@@ -532,7 +532,12 @@ class DataAugmentService:
        data = df[column_name].values
        
        # Define the filter
-       nyquist = 0.5 * corner_frequency
+       time_col = next((col for col in df.columns if 'time' in col.lower()), None)
+       if time_col is None:
+           raise ValueError("No time column found to calculate sampling rate.")
+       
+       sampling_rate = 1 / pd.to_numeric(df[time_col].diff().dropna()).mean()
+       nyquist = 0.5 * sampling_rate
        normal_corner = corner_frequency / nyquist
        b, a = butter(filter_order, normal_corner, btype='low', analog=False)
        
