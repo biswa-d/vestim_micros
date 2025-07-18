@@ -87,7 +87,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
             "PLATEAU_PATIENCE": "Plateau Patience", # For ReduceLROnPlateau
             "PLATEAU_FACTOR": "Plateau Factor",   # For ReduceLROnPlateau
             "VALID_PATIENCE": "Validation Patience",
-            "ValidFrequency": "Validation Freq", # Shorter
+            "VALID_FREQUENCY": "Validation Freq", # Shorter
             "LOOKBACK": "Lookback", # Shorter
             "REPETITIONS": "Repetitions",
             "NUM_LEARNABLE_PARAMS": "# Params", # Shorter
