@@ -22,12 +22,12 @@ import pandas as pd
 import logging
 from typing import List, Tuple, Dict, Optional, Union, Any
 from scipy.signal import butter, filtfilt
- 
- from vestim.logger_config import setup_logger
- from vestim.gateway.src.job_manager_qt import JobManager # Import JobManager
- from vestim.services import normalization_service as norm_svc # For normalization
- 
- # Set up logging
+
+from vestim.logger_config import setup_logger
+from vestim.gateway.src.job_manager_qt import JobManager # Import JobManager
+from vestim.services import normalization_service as norm_svc # For normalization
+
+# Set up logging
 logger = setup_logger(log_file='data_augment_service.log')
 
 class DataAugmentService:
@@ -507,7 +507,7 @@ class DataAugmentService:
         self.logger.info(f"Collected info for {len(column_info)} columns")
         return column_info
 
-   def apply_butterworth_filter(self, df: pd.DataFrame, column_name: str, corner_frequency: float, filter_order: int = 4) -> pd.DataFrame:
+    def apply_butterworth_filter(self, df: pd.DataFrame, column_name: str, corner_frequency: float, filter_order: int = 4) -> pd.DataFrame:
        """
        Apply a Butterworth filter to a specific column in the DataFrame.
        
