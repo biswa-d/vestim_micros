@@ -473,7 +473,12 @@ class VEstimTrainingSetupManager:
                 name_parts.insert(0, f"L{layers}")
                 name_parts.insert(1, f"HU{hidden_units}")
             elif model_type == 'FNN':
-                hidden_layers_str = hyperparams.get('FNN_HIDDEN_LAYERS', '').replace(',', '_')
+                # Use the resolved units for a more descriptive name
+                fnn_units = hyperparams.get('FNN_UNITS', hyperparams.get('HIDDEN_LAYER_SIZES', []))
+                if isinstance(fnn_units, list):
+                    hidden_layers_str = '_'.join(map(str, fnn_units))
+                else: # Fallback for grid search string format
+                    hidden_layers_str = str(fnn_units).replace(',', '_')
                 name_parts.insert(0, f"FNN_{hidden_layers_str}")
 
             folder_name = '_'.join(name_parts)
@@ -549,9 +554,53 @@ class VEstimTrainingSetupManager:
             hidden_units = len(hidden_layer_sizes)  # Number of layers as a proxy
             layers = 1  # FNN doesn't have "layers" in the RNN sense
 
+        # Build a clean hyperparameter dictionary for the final task
+        final_hyperparams = {
+            'MODEL_TYPE': model_type,
+            'TRAINING_METHOD': hyperparams.get('TRAINING_METHOD', 'Sequence-to-Sequence'),
+            'INPUT_SIZE': input_size,
+            'OUTPUT_SIZE': output_size,
+            'BATCH_TRAINING': hyperparams.get('BATCH_TRAINING', True),
+            'BATCH_SIZE': hyperparams['BATCH_SIZE'],
+            'MAX_EPOCHS': hyperparams['MAX_EPOCHS'],
+            'INITIAL_LR': hyperparams['INITIAL_LR'],
+            'VALID_PATIENCE': hyperparams['VALID_PATIENCE'],
+            'VALID_FREQUENCY': hyperparams['VALID_FREQUENCY'],
+            'SCHEDULER_TYPE': hyperparams['SCHEDULER_TYPE'],
+            'REPETITIONS': hyperparams['REPETITIONS'],
+            'NUM_LEARNABLE_PARAMS': num_learnable_params,
+        }
+
+        # Add scheduler-specific params
+        if final_hyperparams['SCHEDULER_TYPE'] == 'StepLR':
+            final_hyperparams['LR_PERIOD'] = hyperparams.get('LR_PERIOD')
+            final_hyperparams['LR_PARAM'] = hyperparams.get('LR_PARAM')
+        else: # Plateau
+            final_hyperparams['PLATEAU_PATIENCE'] = hyperparams.get('PLATEAU_PATIENCE')
+            final_hyperparams['PLATEAU_FACTOR'] = hyperparams.get('PLATEAU_FACTOR')
+
+        # Add model-specific and method-specific parameters
+        if model_type in ['LSTM', 'GRU']:
+            final_hyperparams['HIDDEN_UNITS'] = hidden_units
+            final_hyperparams['LAYERS'] = layers
+            final_hyperparams['LOOKBACK'] = hyperparams['LOOKBACK']
+        elif model_type == 'FNN':
+            final_hyperparams['HIDDEN_LAYER_SIZES'] = model_task['hyperparams']['HIDDEN_LAYER_SIZES']
+            final_hyperparams['DROPOUT_PROB'] = model_task['hyperparams']['DROPOUT_PROB']
+            # If not a sequence-based FNN, lookback is not applicable
+            if final_hyperparams['TRAINING_METHOD'] != 'Sequence-to-Sequence':
+                 final_hyperparams['LOOKBACK'] = 'N/A'
+            else:
+                 final_hyperparams['LOOKBACK'] = hyperparams['LOOKBACK']
+
+        # Determine lookback for data loader, defaulting to 0 if not applicable
+        dataloader_lookback = hyperparams['LOOKBACK']
+        if final_hyperparams.get('LOOKBACK') == 'N/A':
+            dataloader_lookback = 0
+
         task_info = {
             'task_id': task_id,
-            'model_name': model_name,  # Add descriptive model name
+            'model_name': model_name,
             'model': model_task['model'],
             'model_dir': model_task['model_dir'],
             'task_dir': task_dir,
@@ -563,40 +612,12 @@ class VEstimTrainingSetupManager:
                 'input_size': input_size,
                 'output_size': output_size
             },
-            'hyperparams': {
-                'MODEL_TYPE': model_type,
-                'TRAINING_METHOD': hyperparams.get('TRAINING_METHOD', 'Sequence-to-Sequence'),
-                'INPUT_SIZE': input_size,
-                'OUTPUT_SIZE': output_size,
-                'BATCH_TRAINING': hyperparams.get('BATCH_TRAINING', True),
-                'BATCH_SIZE': hyperparams['BATCH_SIZE'],
-                'MAX_EPOCHS': hyperparams['MAX_EPOCHS'],
-                'INITIAL_LR': hyperparams['INITIAL_LR'],
-                'VALID_PATIENCE': hyperparams['VALID_PATIENCE'],
-                'VALID_FREQUENCY': hyperparams['VALID_FREQUENCY'],
-                'LOOKBACK': hyperparams['LOOKBACK'],
-                'SCHEDULER_TYPE': hyperparams['SCHEDULER_TYPE'],
-                'LR_PERIOD': hyperparams.get('LR_PERIOD'),
-                'LR_PARAM': hyperparams.get('LR_PARAM'),
-                'PLATEAU_PATIENCE': hyperparams.get('PLATEAU_PATIENCE'),
-                'PLATEAU_FACTOR': hyperparams.get('PLATEAU_FACTOR'),
-                'REPETITIONS': hyperparams['REPETITIONS'],
-                'NUM_LEARNABLE_PARAMS': num_learnable_params,
-                # Add model-specific parameters
-                **({
-                    'HIDDEN_UNITS': hidden_units,
-                    'LAYERS': layers
-                } if model_type in ['LSTM', 'GRU'] else {
-                    'HIDDEN_LAYER_SIZES': model_task['hyperparams']['HIDDEN_LAYER_SIZES'],
-                    'DROPOUT_PROB': model_task['hyperparams']['DROPOUT_PROB']
-                })
-            },
+            'hyperparams': final_hyperparams,
             'data_loader_params': {
-                'lookback': hyperparams['LOOKBACK'],
+                'lookback': dataloader_lookback,
                 'batch_size': hyperparams['BATCH_SIZE'],
                 'feature_columns': model_task['FEATURE_COLUMNS'],
                 'target_column': model_task['TARGET_COLUMN'],
-                # Removed train_val_split as we now use separate train/val/test folders
                 'num_workers': 4
             },
             'training_params': {
@@ -605,7 +626,7 @@ class VEstimTrainingSetupManager:
                 'save_best_model': True,
                 'checkpoint_dir': os.path.join(logs_dir, 'checkpoints'),
                 'best_model_path': os.path.join(task_dir, 'best_model.pth'),
-                'max_training_time_seconds': max_training_time_seconds_arg # Add to training_params
+                'max_training_time_seconds': max_training_time_seconds_arg
             },
             'results': {
                 'best_val_loss': float('inf'),
@@ -616,8 +637,8 @@ class VEstimTrainingSetupManager:
             },
             'csv_log_file': os.path.join(logs_dir, 'training_progress.csv'),
             'db_log_file': os.path.join(logs_dir, f'{task_id}_training.db'),
-            'job_metadata': job_normalization_metadata, # Embed normalization metadata from job_metadata.json
-            'job_folder_augmented_from': self.job_manager.get_job_folder() # Add path to job folder for scaler path resolution
+            'job_metadata': job_normalization_metadata,
+            'job_folder_augmented_from': self.job_manager.get_job_folder()
         }
         return task_info
 
