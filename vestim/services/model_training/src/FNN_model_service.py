@@ -22,15 +22,8 @@ class FNNModelService:
 
         if trial:
             # Optuna-specific hyperparameter suggestion
-            n_layers_bounds = json.loads(params['FNN_N_LAYERS'])
-            n_layers = trial.suggest_int('FNN_N_LAYERS', n_layers_bounds[0], n_layers_bounds[1])
-            
-            hidden_layer_sizes = []
-            units_bounds = json.loads(params['FNN_UNITS'])
-            for i in range(n_layers):
-                min_units, max_units = units_bounds[i]
-                units = trial.suggest_int(f'FNN_UNITS_L{i}', min_units, max_units)
-                hidden_layer_sizes.append(units)
+            n_layers = params['FNN_N_LAYERS']
+            hidden_layer_sizes = params['FNN_UNITS']
             
             dropout_prob_bounds = json.loads(params['FNN_DROPOUT_PROB'])
             dropout_prob = trial.suggest_float('FNN_DROPOUT_PROB', dropout_prob_bounds[0], dropout_prob_bounds[1])
