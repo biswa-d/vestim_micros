@@ -169,6 +169,7 @@ class OptunaOptimizationThread(QThread):
         handled_params = set()
         model_type = self.params.get('MODEL_TYPE')
 
+
         # Dynamic FNN Architecture Search based on the new FNN_HIDDEN_LAYERS format
         if model_type == 'FNN' and 'FNN_HIDDEN_LAYERS' in self.params:
             fnn_hidden_layers_str = self.params.get('FNN_HIDDEN_LAYERS', '').strip()
@@ -201,7 +202,8 @@ class OptunaOptimizationThread(QThread):
         integer_params = {
             "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS",
             "MAX_EPOCHS", "VALID_PATIENCE", "VALID_FREQUENCY", "LOOKBACK",
-            "BATCH_SIZE", "LR_PERIOD", "PLATEAU_PATIENCE", "REPETITIONS"
+            "BATCH_SIZE", "LR_PERIOD", "PLATEAU_PATIENCE", "REPETITIONS",
+            "GRU_LAYERS", "GRU_HIDDEN_UNITS"
         }
         float_log_params = {"INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR"}
         float_params = {"FNN_DROPOUT_PROB", "DROPOUT_PROB"}

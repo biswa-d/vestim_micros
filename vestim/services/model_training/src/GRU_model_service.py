@@ -14,15 +14,15 @@ class GRUModelService:
         :param params: Dictionary containing model parameters. Expected keys:
                        "INPUT_SIZE": int,
                        "HIDDEN_UNITS": int,
-                       "NUM_LAYERS": int,
+                       "LAYERS": int,
                        "OUTPUT_SIZE": int (optional, default 1),
                        "DROPOUT_PROB": float (optional, default 0.0)
         :return: An instance of GRUModel.
         """
         input_size = params.get("INPUT_SIZE", 3)
         hidden_units = params.get("HIDDEN_UNITS")
-        num_layers = params.get("NUM_LAYERS")
-        output_size = params.get("OUTPUT_SIZE", 1) # Default to 1 output neuron
+        num_layers = params.get("LAYERS")  # Use LAYERS for consistency
+        output_size = params.get("OUTPUT_SIZE", 1)
         dropout_prob = params.get("DROPOUT_PROB", 0.0)
 
         if input_size is None:
@@ -32,8 +32,8 @@ class GRUModelService:
             self.logger.error("HIDDEN_UNITS is required for GRUModel.")
             raise ValueError("HIDDEN_UNITS is required for GRUModel.")
         if num_layers is None:
-            self.logger.error("NUM_LAYERS is required for GRUModel.")
-            raise ValueError("NUM_LAYERS is required for GRUModel.")
+            self.logger.error("LAYERS is required for GRUModel.")
+            raise ValueError("LAYERS is required for GRUModel.")
 
         self.logger.info(
             f"Building GRU model with input_size={input_size}, hidden_units={hidden_units}, "
@@ -46,10 +46,11 @@ class GRUModelService:
             num_layers=num_layers,
             output_size=output_size,
             dropout_prob=dropout_prob,
-            device=self.device # Pass device to model constructor
-        ).to(self.device) # Ensure model is on the correct device
+            device=self.device
+        ).to(self.device)
         
         return model
+
     def create_model(self, params: dict, device=None):
         """
         Create a GRU model in-memory without saving it.
