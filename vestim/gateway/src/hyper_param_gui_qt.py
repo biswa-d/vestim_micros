@@ -23,6 +23,21 @@ def setup_training_params(self):
     self.lr_input.setPlaceholderText("0.0001")
     training_layout.addRow("Initial Learning Rate:", self.lr_input)
 
+    # FNN Layers
+    self.fnn_n_layers_input = QLineEdit()
+    self.fnn_n_layers_input.setPlaceholderText("e.g., 3 or [1, 5] for Optuna")
+    training_layout.addRow("FNN Layers:", self.fnn_n_layers_input)
+
+    # FNN Units
+    self.fnn_units_input = QLineEdit()
+    self.fnn_units_input.setPlaceholderText("e.g., 128,64,32 or [[8,64],[8,64]] for Optuna")
+    training_layout.addRow("FNN Units per Layer:", self.fnn_units_input)
+
+    # FNN Dropout
+    self.fnn_dropout_prob_input = QLineEdit()
+    self.fnn_dropout_prob_input.setPlaceholderText("e.g., 0.5 or [0.1, 0.5] for Optuna")
+    training_layout.addRow("FNN Dropout Probability:", self.fnn_dropout_prob_input)
+
     # Other existing parameters...
 
     training_group.setLayout(training_layout)
@@ -36,6 +51,9 @@ def get_current_params(self):
         'MODEL_TYPE': self.model_type_combo.currentText(),
         'LAYERS': self.layers_input.text(),
         'HIDDEN_UNITS': self.hidden_units_input.text(),
+        'FNN_N_LAYERS': self.fnn_n_layers_input.text(),
+        'FNN_UNITS': self.fnn_units_input.text(),
+        'FNN_DROPOUT_PROB': self.fnn_dropout_prob_input.text(),
         'TRAINING_METHOD': self.training_method_combo.currentText(),
         'LOOKBACK': self.lookback_input.text(),
         'BATCH_TRAINING': self.batch_training_checkbox.isChecked(),
@@ -57,4 +75,7 @@ def set_params(self, params):
     """Set parameters in GUI inputs."""
     # ... existing parameter settings ...
     self.max_epochs_input.setText(str(params.get('MAX_EPOCHS', '100')))
-    # ... other parameter settings ... 
+    self.fnn_n_layers_input.setText(str(params.get('FNN_N_LAYERS', '')))
+    self.fnn_units_input.setText(str(params.get('FNN_UNITS', '')))
+    self.fnn_dropout_prob_input.setText(str(params.get('FNN_DROPOUT_PROB', '')))
+    # ... other parameter settings ...

@@ -165,37 +165,38 @@ class OptunaOptimizationThread(QThread):
     
     def _suggest_params(self, trial):
         """Suggest parameters for a trial, with special handling for dynamic FNN architecture search."""
-        params = {}
+        params = self.params.copy()  # Start with base params
         handled_params = set()
 
         model_type = self.params.get('MODEL_TYPE')
 
-        # SOTA Dynamic FNN Architecture Search
+        # Dynamic FNN Architecture Search
         if model_type == 'FNN' and 'FNN_N_LAYERS' in self.params and 'FNN_UNITS' in self.params:
-            try:
-                # Suggest number of layers from the specified range
-                n_layers_range_str = self.params['FNN_N_LAYERS']
-                n_layers_range = json.loads(n_layers_range_str)
-                n_layers = trial.suggest_int('FNN_N_LAYERS', n_layers_range[0], n_layers_range[1])
+            fnn_n_layers_str = self.params.get('FNN_N_LAYERS', '').strip()
+            fnn_units_str = self.params.get('FNN_UNITS', '').strip()
 
-                # Suggest number of units for each layer
-                units_range_str = self.params['FNN_UNITS']
-                units_range = json.loads(units_range_str)
-                
-                hidden_layers_config = []
-                for i in range(n_layers):
-                    unit_param_name = f'FNN_UNITS_L{i}'
-                    units = trial.suggest_int(unit_param_name, units_range[0], units_range[1])
-                    hidden_layers_config.append(str(units))
-                
-                # This is the parameter the rest of the system uses
-                params['FNN_HIDDEN_LAYERS'] = ",".join(hidden_layers_config)
-                
-                # Mark these as handled so the main loop doesn't process them again
-                handled_params.update(['FNN_N_LAYERS', 'FNN_UNITS', 'FNN_HIDDEN_LAYERS'])
+            is_optuna_layers = fnn_n_layers_str.startswith('[') and fnn_n_layers_str.endswith(']')
+            is_optuna_units = fnn_units_str.startswith('[') and fnn_units_str.endswith(']')
 
-            except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
-                self.log_message.emit(f"Could not parse FNN dynamic ranges: {e}. Falling back to predefined architectures.")
+            if is_optuna_layers and is_optuna_units:
+                try:
+                    n_layers_bounds = json.loads(fnn_n_layers_str)
+                    n_layers = trial.suggest_int('FNN_N_LAYERS', n_layers_bounds[0], n_layers_bounds[1])
+                    params['FNN_N_LAYERS'] = n_layers
+
+                    units_bounds = json.loads(fnn_units_str)
+                    hidden_layer_sizes = []
+                    for i in range(n_layers):
+                        min_units, max_units = units_bounds[i]
+                        units = trial.suggest_int(f'FNN_UNITS_L{i}', min_units, max_units)
+                        hidden_layer_sizes.append(units)
+                    
+                    params['FNN_UNITS'] = hidden_layer_sizes
+                    handled_params.update(['FNN_N_LAYERS', 'FNN_UNITS'])
+
+                except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
+                    self.log_message.emit(f"Could not parse FNN dynamic ranges: {e}. Please check the format.")
+                    raise e # Re-raise to fail the trial, as it's a configuration error
 
         # General parameter suggestion loop
         integer_params = {
@@ -203,40 +204,31 @@ class OptunaOptimizationThread(QThread):
             "MAX_EPOCHS", "VALID_PATIENCE", "VALID_FREQUENCY", "LOOKBACK",
             "BATCH_SIZE", "LR_PERIOD", "PLATEAU_PATIENCE", "REPETITIONS"
         }
-        float_log_params = {"INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR", "FNN_DROPOUT_PROB"}
-        categorical_params = {"FNN_HIDDEN_LAYERS"}
+        float_log_params = {"INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR"}
+        float_params = {"FNN_DROPOUT_PROB"}
 
         for param_name, param_value in self.params.items():
             if param_name in handled_params:
                 continue
 
-            if param_name in categorical_params and isinstance(param_value, str) and ';' in param_value:
-                choices = [choice.strip() for choice in param_value.split(';')]
-                suggested_value = trial.suggest_categorical(param_name, choices)
-                params[param_name] = suggested_value
-            elif isinstance(param_value, str) and param_value.startswith('[') and param_value.endswith(']'):
+            if isinstance(param_value, str) and param_value.startswith('[') and param_value.endswith(']'):
                 try:
-                    inner = param_value[1:-1].strip()
-                    parts = [part.strip() for part in inner.split(',')]
-                    
-                    if len(parts) == 2:
-                        min_val, max_val = float(parts[0]), float(parts[1])
+                    bounds = json.loads(param_value)
+                    if len(bounds) == 2:
+                        min_val, max_val = bounds
                         
                         if param_name in integer_params:
-                            suggested_value = trial.suggest_int(param_name, int(min_val), int(max_val))
+                            params[param_name] = trial.suggest_int(param_name, int(min_val), int(max_val))
                         elif param_name in float_log_params:
-                            suggested_value = trial.suggest_float(param_name, min_val, max_val, log=True)
+                            params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val), log=True)
+                        elif param_name in float_params:
+                            params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val))
                         else:
-                            suggested_value = trial.suggest_float(param_name, min_val, max_val)
-                        
-                        params[param_name] = str(suggested_value)
-                    else:
-                        params[param_name] = param_value
-                except (ValueError, IndexError):
-                    params[param_name] = param_value
-            else:
-                params[param_name] = param_value
-                
+                             # Default to float suggestion if not specified
+                            params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val))
+                except (json.JSONDecodeError, ValueError, IndexError):
+                    # Keep original value if parsing fails
+                    pass
         return params
     
     def _evaluate_params(self, params, trial):
@@ -260,8 +252,11 @@ class OptunaOptimizationThread(QThread):
             model_service_class = self._get_class_from_string(model_service_map[params['MODEL_TYPE']])
             model_service = model_service_class()
 
-            device = torch.device(params.get('DEVICE_SELECTION', 'cuda:0') if torch.cuda.is_available() else 'cpu')
-            model = model_service.create_model(params, device=device)
+            device_str = params.get('DEVICE_SELECTION', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+            device = torch.device(device_str.lower())
+            
+            # Pass the trial object to create_model for dynamic model creation
+            model = model_service.create_model(params, trial=trial, device=device)
             
             training_task = {
                 'task_id': f"optuna_trial_{trial.number}",
