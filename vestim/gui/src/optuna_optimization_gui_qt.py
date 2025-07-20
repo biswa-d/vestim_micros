@@ -180,12 +180,12 @@ class OptunaOptimizationThread(QThread):
 
             if is_optuna_layers and is_optuna_units:
                 try:
-                    n_layers_bounds = json.loads(fnn_n_layers_str)
+                    params['FNN_N_LAYERS'] = fnn_n_layers_str
+                    params['FNN_UNITS'] = fnn_units_str
+                    
                     n_layers_bounds = json.loads(fnn_n_layers_str)
                     n_layers = trial.suggest_int('FNN_N_LAYERS', n_layers_bounds[0], n_layers_bounds[1])
-                    # We store the suggested number of layers, but the model service will use the bounds from the original params
-                    params['FNN_N_LAYERS_SUGGESTED'] = n_layers
-
+                    
                     units_bounds = json.loads(fnn_units_str)
                     hidden_layer_sizes = []
                     for i in range(n_layers):
@@ -198,7 +198,7 @@ class OptunaOptimizationThread(QThread):
 
                 except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
                     self.log_message.emit(f"Could not parse FNN dynamic ranges: {e}. Please check the format.")
-                    raise e # Re-raise to fail the trial, as it's a configuration error
+                    raise e
 
         # General parameter suggestion loop
         integer_params = {
