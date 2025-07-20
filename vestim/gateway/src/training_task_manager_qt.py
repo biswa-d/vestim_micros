@@ -1100,7 +1100,7 @@ class TrainingTaskManager:
                 model.train()
                 actual_train_batch_size = train_loader.batch_size or int(hyperparams.get('BATCH_SIZE', 32))
                 h_s, h_c = None, None
-                model_type = task.get('model_metadata', {}).get('model_type', 'LSTM')
+                model_type = task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM') # More reliable source
                 if model_type in ['LSTM', 'GRU']:
                     h_s = torch.zeros(model.num_layers, actual_train_batch_size, model.hidden_units).to(device)
                     if model_type == 'LSTM':
@@ -1116,6 +1116,7 @@ class TrainingTaskManager:
 
                 # Validation and Pruning Phase
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
+                    # For validation, hidden states are managed within validate_epoch, so we pass None
                     val_loss_norm, _, _ = self.training_service.validate_epoch(
                         model, model_type, val_loader, None, None, epoch, device, self.stop_requested, task, verbose=verbose
                     )
