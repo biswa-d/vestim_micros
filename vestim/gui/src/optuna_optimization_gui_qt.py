@@ -170,31 +170,6 @@ class OptunaOptimizationThread(QThread):
 
         model_type = self.params.get('MODEL_TYPE')
 
-        # Dynamic FNN Architecture Search
-        if model_type == 'FNN' and 'FNN_N_LAYERS' in self.params and 'FNN_UNITS' in self.params:
-            fnn_n_layers_str = self.params.get('FNN_N_LAYERS', '').strip()
-            fnn_units_str = self.params.get('FNN_UNITS', '').strip()
-
-            is_optuna_layers = fnn_n_layers_str.startswith('[') and fnn_n_layers_str.endswith(']')
-            is_optuna_units = fnn_units_str.startswith('[') and fnn_units_str.endswith(']')
-
-            if is_optuna_layers and is_optuna_units:
-                try:
-                    # This block is now only for populating the trial object.
-                    # The actual parameter values will be retrieved in the model service.
-                    n_layers_bounds = json.loads(fnn_n_layers_str)
-                    trial.suggest_int('FNN_N_LAYERS', n_layers_bounds[0], n_layers_bounds[1])
-
-                    units_bounds = json.loads(fnn_units_str)
-                    # We don't need to suggest the units here anymore,
-                    # as it will be done in the model service based on the suggested number of layers.
-                    
-                    handled_params.update(['FNN_N_LAYERS', 'FNN_UNITS'])
-
-                except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
-                    self.log_message.emit(f"Could not parse FNN dynamic ranges: {e}. Please check the format.")
-                    raise e
-
         # General parameter suggestion loop
         integer_params = {
             "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS",
