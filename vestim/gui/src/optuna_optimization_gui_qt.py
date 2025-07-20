@@ -255,8 +255,11 @@ class OptunaOptimizationThread(QThread):
             device_str = self.params.get('DEVICE_SELECTION', 'cuda:0' if torch.cuda.is_available() else 'cpu')
             device = torch.device(device_str.lower())
             
-            # Pass the trial object to create_model for dynamic model creation
-            model = model_service.create_model(params, trial=trial, device=device)
+            # Pass the trial object to create_model for dynamic model creation only for FNN
+            if params['MODEL_TYPE'] == 'FNN':
+                model = model_service.create_model(params, trial=trial, device=device)
+            else:
+                model = model_service.create_model(params, device=device)
             
             training_task = {
                 'task_id': f"optuna_trial_{trial.number}",
