@@ -10,48 +10,26 @@ class FNNModelService:
 
     def build_fnn_model(self, params: dict, trial=None):
         """
-        Build an FNN model using the provided parameters.
-        This method is designed to be flexible for both standard model creation and Optuna trials.
-
-        :param params: Dictionary containing model parameters.
-        :param trial: An Optuna trial object, if in an optimization context.
+        Build an FNN model using the provided, fully-resolved parameters.
+        The parameters are expected to be concrete values, not search ranges.
+        
+        :param params: Dictionary containing resolved model parameters.
+        :param trial: An Optuna trial object (optional, for context).
         :return: An instance of FNNModel.
         """
+        self.logger.debug(f"Building FNN model with received params: {params}")
+
         input_size = params.get("INPUT_SIZE", 3)
         output_size = params.get("OUTPUT_SIZE", 1)
 
-        if trial:
-            # Optuna-specific hyperparameter suggestion
-            n_layers_bounds = json.loads(params['FNN_N_LAYERS'])
-            n_layers = trial.suggest_int('FNN_N_LAYERS', n_layers_bounds[0], n_layers_bounds[1])
+        # Directly use the resolved hyperparameters from the params dictionary.
+        # The GUI is now responsible for suggesting the values during an Optuna trial.
+        hidden_layer_sizes = params.get("FNN_UNITS")
+        if not hidden_layer_sizes:
+            # Fallback for backward compatibility or standard runs
+            hidden_layer_sizes = params.get("HIDDEN_LAYER_SIZES")
 
-            units_bounds = json.loads(params['FNN_UNITS'])
-            hidden_layer_sizes = []
-            for i in range(n_layers):
-                min_units, max_units = units_bounds[i]
-                units = trial.suggest_int(f'FNN_UNITS_L{i}', min_units, max_units)
-                hidden_layer_sizes.append(units)
-            
-            dropout_prob_bounds = json.loads(params['FNN_DROPOUT_PROB'])
-            dropout_prob = trial.suggest_float('FNN_DROPOUT_PROB', dropout_prob_bounds[0], dropout_prob_bounds[1])
-
-        else:
-            # Standard model creation from fixed hyperparameters
-            if 'FNN_N_LAYERS' in params and 'FNN_UNITS' in params:
-                n_layers = params['FNN_N_LAYERS']
-                fnn_units = params['FNN_UNITS']
-                if isinstance(fnn_units, str):
-                    hidden_layer_sizes = [int(u.strip()) for u in fnn_units.split(',')]
-                else:
-                    hidden_layer_sizes = fnn_units
-
-                if len(hidden_layer_sizes) != n_layers:
-                    raise ValueError(f"Mismatch between FNN_N_LAYERS ({n_layers}) and the number of units provided in FNN_UNITS ({len(hidden_layer_sizes)}).")
-            else:
-                # Fallback to the original HIDDEN_LAYER_SIZES for backward compatibility
-                hidden_layer_sizes = params.get("HIDDEN_LAYER_SIZES")
-
-            dropout_prob = params.get("DROPOUT_PROB", 0.0)
+        dropout_prob = params.get("FNN_DROPOUT_PROB", params.get("DROPOUT_PROB", 0.0))
 
         if not hidden_layer_sizes:
             self.logger.error("FNN hidden layer configuration is missing or invalid.")

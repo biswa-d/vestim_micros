@@ -165,11 +165,38 @@ class OptunaOptimizationThread(QThread):
     
     def _suggest_params(self, trial):
         """Suggest parameters for a trial, with special handling for dynamic FNN architecture search."""
-        params = self.params.copy()  # Start with base params
+        params = self.params.copy()
         handled_params = set()
-
         model_type = self.params.get('MODEL_TYPE')
 
+        # Dynamic FNN Architecture Search
+        if model_type == 'FNN' and 'FNN_N_LAYERS' in self.params and 'FNN_UNITS' in self.params:
+            fnn_n_layers_str = self.params.get('FNN_N_LAYERS', '').strip()
+            fnn_units_str = self.params.get('FNN_UNITS', '').strip()
+
+            is_optuna_layers = fnn_n_layers_str.startswith('[') and fnn_n_layers_str.endswith(']')
+            is_optuna_units = fnn_units_str.startswith('[') and fnn_units_str.endswith(']')
+
+            if is_optuna_layers and is_optuna_units:
+                try:
+                    n_layers_bounds = json.loads(fnn_n_layers_str)
+                    n_layers = trial.suggest_int('FNN_N_LAYERS', n_layers_bounds[0], n_layers_bounds[1])
+                    params['FNN_N_LAYERS'] = n_layers
+                    
+                    units_bounds = json.loads(fnn_units_str)
+                    hidden_layer_sizes = []
+                    for i in range(n_layers):
+                        min_units, max_units = units_bounds[i]
+                        units = trial.suggest_int(f'FNN_UNITS_L{i}', min_units, max_units)
+                        hidden_layer_sizes.append(units)
+                    
+                    params['FNN_UNITS'] = hidden_layer_sizes
+                    handled_params.update(['FNN_N_LAYERS', 'FNN_UNITS'])
+
+                except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
+                    self.log_message.emit(f"Could not parse FNN dynamic ranges: {e}. Please check the format.")
+                    raise e
+        
         # General parameter suggestion loop
         integer_params = {
             "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS",
@@ -196,11 +223,11 @@ class OptunaOptimizationThread(QThread):
                         elif param_name in float_params:
                             params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val))
                         else:
-                             # Default to float suggestion if not specified
                             params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val))
                 except (json.JSONDecodeError, ValueError, IndexError):
-                    # Keep original value if parsing fails
                     pass
+        
+        self.log_message.emit(f"Suggested params for trial {trial.number}: {params}")
         return params
     
     def _evaluate_params(self, params, trial):
