@@ -203,28 +203,43 @@ class OptunaOptimizationThread(QThread):
             "BATCH_SIZE", "LR_PERIOD", "PLATEAU_PATIENCE", "REPETITIONS"
         }
         float_log_params = {"INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR"}
-        float_params = {"FNN_DROPOUT_PROB"}
+        float_params = {"FNN_DROPOUT_PROB", "DROPOUT_PROB"}
 
         for param_name, param_value in self.params.items():
             if param_name in handled_params:
                 continue
 
-            if isinstance(param_value, str) and param_value.startswith('[') and param_value.endswith(']'):
-                try:
-                    bounds = json.loads(param_value)
-                    if len(bounds) == 2:
-                        min_val, max_val = bounds
-                        
-                        if param_name in integer_params:
-                            params[param_name] = trial.suggest_int(param_name, int(min_val), int(max_val))
-                        elif param_name in float_log_params:
-                            params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val), log=True)
-                        elif param_name in float_params:
-                            params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val))
-                        else:
-                            params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val))
-                except (json.JSONDecodeError, ValueError, IndexError):
-                    pass
+            if isinstance(param_value, str):
+                if param_value.startswith('[') and param_value.endswith(']'):
+                    # Handle hyperparameter ranges for Optuna
+                    try:
+                        bounds = json.loads(param_value)
+                        if len(bounds) == 2:
+                            min_val, max_val = bounds
+                            
+                            if param_name in integer_params:
+                                params[param_name] = trial.suggest_int(param_name, int(min_val), int(max_val))
+                            elif param_name in float_log_params:
+                                params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val), log=True)
+                            elif param_name in float_params:
+                                params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val))
+                            else:
+                                # Default to float suggestion if not specified
+                                params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val))
+                    except (json.JSONDecodeError, ValueError, IndexError):
+                        pass  # Keep original value if parsing fails
+                else:
+                    # Handle single value parameters that are strings and need conversion
+                    if param_name in float_params or param_name in float_log_params:
+                        try:
+                            params[param_name] = float(param_value)
+                        except (ValueError, TypeError):
+                            pass
+                    elif param_name in integer_params:
+                        try:
+                            params[param_name] = int(param_value)
+                        except (ValueError, TypeError):
+                            pass
         
         self.log_message.emit(f"Suggested params for trial {trial.number}: {params}")
         return params
