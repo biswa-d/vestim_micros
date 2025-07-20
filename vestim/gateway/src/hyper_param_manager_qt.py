@@ -78,60 +78,46 @@ class VEstimHyperParamManager:
         model_type = params.get('MODEL_TYPE')
 
         if model_type == 'FNN':
-            fnn_n_layers_str = params.get('FNN_N_LAYERS', '').strip()
-            fnn_units_str = params.get('FNN_UNITS', '').strip()
-
-            # Case 1: Optuna Search with dynamic layers and units
-            is_optuna_layers = fnn_n_layers_str.startswith('[') and fnn_n_layers_str.endswith(']')
-            is_optuna_units = fnn_units_str.startswith('[') and fnn_units_str.endswith(']')
-
-            if is_optuna_layers and is_optuna_units:
+            fnn_hidden_layers_str = params.get('FNN_HIDDEN_LAYERS', '').strip()
+            
+            # Check if the value is intended for Optuna search with the new format
+            if fnn_hidden_layers_str.count('[') == 2 and fnn_hidden_layers_str.count(']') == 2:
                 try:
-                    n_layers_bounds = json.loads(fnn_n_layers_str)
-                    if not (isinstance(n_layers_bounds, list) and len(n_layers_bounds) == 2 and all(isinstance(i, int) for i in n_layers_bounds)):
-                        return False, "Optuna FNN_N_LAYERS must be a list of two integers (min, max)."
-
-                    # The new format for FNN_UNITS is a list of lists, e.g., [[8, 64], [8, 64]]
-                    units_bounds = json.loads(fnn_units_str)
-                    if not (isinstance(units_bounds, list) and all(isinstance(b, list) and len(b) == 2 and all(isinstance(i, int) for i in b) for b in units_bounds)):
-                        return False, "Optuna FNN_UNITS must be a list of [min, max] pairs, one for each potential layer."
+                    # Use regex to find all content within brackets
+                    import re
+                    matches = re.findall(r'\[(.*?)\]', fnn_hidden_layers_str)
                     
-                    if len(units_bounds) < n_layers_bounds[1]:
-                        return False, f"FNN_UNITS must provide a range for each possible layer up to the max of FNN_N_LAYERS ({n_layers_bounds[1]})."
+                    if len(matches) != 2:
+                        return False, "Invalid FNN_HIDDEN_LAYERS format. Expected two lists for min and max bounds, e.g., [min1, min2], [max1, max2]."
 
-                except (json.JSONDecodeError, TypeError) as e:
-                    return False, f"Invalid JSON format for Optuna FNN_N_LAYERS or FNN_UNITS: {e}"
+                    min_bounds_str, max_bounds_str = matches
+                    
+                    min_bounds = [int(x.strip()) for x in min_bounds_str.split(',') if x.strip()]
+                    max_bounds = [int(x.strip()) for x in max_bounds_str.split(',') if x.strip()]
 
-            # Case 2: Fixed architecture for standard training or grid search
-            elif fnn_n_layers_str and fnn_units_str:
-                try:
-                    # FNN_N_LAYERS should be a single integer
-                    n_layers = int(fnn_n_layers_str)
+                    if len(min_bounds) != len(max_bounds):
+                        return False, (f"FNN_HIDDEN_LAYERS dimension mismatch. The number of minimum bounds ({len(min_bounds)}) "
+                                       f"does not match the number of maximum bounds ({len(max_bounds)}).")
                     
-                    # FNN_UNITS should be a comma-separated string of integers
-                    units = [int(u.strip()) for u in fnn_units_str.split(',')]
-                    
-                    if n_layers != len(units):
-                        return False, f"The number of layers in FNN_N_LAYERS ({n_layers}) does not match the number of unit definitions in FNN_UNITS ({len(units)})."
+                    if not min_bounds:
+                        return False, "FNN_HIDDEN_LAYERS bounds cannot be empty."
 
                 except ValueError:
-                    return False, "For fixed FNN architecture, FNN_N_LAYERS must be an integer and FNN_UNITS must be a comma-separated list of integers."
+                    return False, "Invalid number format in FNN_HIDDEN_LAYERS. Ensure all bounds are integers."
+                except Exception as e:
+                    return False, f"Error parsing FNN_HIDDEN_LAYERS: {e}"
             
-            # Case 3: Fallback for backward compatibility with FNN_HIDDEN_LAYERS
-            elif 'FNN_HIDDEN_LAYERS' in params:
-                fnn_hidden_layers_str = params.get('FNN_HIDDEN_LAYERS', '').strip()
-                if fnn_hidden_layers_str:
+            # Fallback for grid search (comma-separated lists of units)
+            elif fnn_hidden_layers_str:
+                try:
+                    # This handles single or semicolon-separated architectures
                     architectures = [arch.strip() for arch in fnn_hidden_layers_str.split(';')]
                     for arch in architectures:
                         if not arch: continue
-                        try:
-                            [int(unit.strip()) for unit in arch.split(',')]
-                        except ValueError:
-                            return False, f"Invalid architecture in FNN_HIDDEN_LAYERS: '{arch}'. Each layer size must be an integer."
-            
-            # If none of the above, it's a potentially valid state (e.g., model not selected)
-            else:
-                pass
+                        # Validate that each part of the architecture is an integer
+                        [int(unit.strip()) for unit in arch.split(',')]
+                except ValueError:
+                    return False, f"Invalid architecture in FNN_HIDDEN_LAYERS for Grid Search: '{arch}'. Each layer size must be an integer."
 
         return True, ""
 
