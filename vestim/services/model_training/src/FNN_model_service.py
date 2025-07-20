@@ -19,6 +19,9 @@ class FNNModelService:
         :return: An instance of FNNModel.
         """
         input_size = params.get("INPUT_SIZE")
+        if input_size is None and "FEATURE_COLUMNS" in params:
+            input_size = len(params["FEATURE_COLUMNS"])
+            params["INPUT_SIZE"] = input_size
         output_size = params.get("OUTPUT_SIZE", 1) # Default to 1 output neuron
         hidden_layer_sizes = params.get("HIDDEN_LAYER_SIZES")
         dropout_prob = params.get("DROPOUT_PROB", 0.0)
@@ -43,6 +46,19 @@ class FNNModelService:
         ).to(self.device)
         
         return model
+
+    def create_model_for_optuna(self, params: dict, device=None):
+        """
+        Create an FNN model in-memory for Optuna trials.
+        Calculates INPUT_SIZE from FEATURE_COLUMNS.
+        """
+        if "INPUT_SIZE" not in params and "FEATURE_COLUMNS" in params:
+            params["INPUT_SIZE"] = len(params["FEATURE_COLUMNS"])
+        
+        if device is not None:
+            self.device = device
+        return self.build_fnn_model(params)
+
     def create_model(self, params: dict, device=None):
         """
         Create an FNN model in-memory without saving it.
