@@ -252,7 +252,7 @@ class OptunaOptimizationThread(QThread):
             model_service_class = self._get_class_from_string(model_service_map[params['MODEL_TYPE']])
             model_service = model_service_class()
 
-            device_str = params.get('DEVICE_SELECTION', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+            device_str = self.params.get('DEVICE_SELECTION', 'cuda:0' if torch.cuda.is_available() else 'cpu')
             device = torch.device(device_str.lower())
             
             # Pass the trial object to create_model for dynamic model creation
