@@ -405,10 +405,15 @@ class VEstimTrainingSetupManager:
             "OUTPUT_SIZE": output_size,
         }
         if model_type in ["LSTM", "GRU"]:
-            model_params["HIDDEN_UNITS"] = int(hyperparams.get("HIDDEN_UNITS", 10))
-            model_params["LAYERS"] = int(hyperparams.get("LAYERS", 1))
+            model_params["HIDDEN_UNITS"] = int(hyperparams.get("HIDDEN_UNITS", hyperparams.get("GRU_HIDDEN_UNITS", 10)))
+            model_params["LAYERS"] = int(hyperparams.get("LAYERS", hyperparams.get("GRU_LAYERS", 1)))
         elif model_type == "FNN":
-            model_params["HIDDEN_LAYER_SIZES"] = [int(s) for s in hyperparams.get("FNN_HIDDEN_LAYERS", "128,64").split(',')]
+            # For Optuna, FNN_UNITS will be a list of ints. For grid search, FNN_HIDDEN_LAYERS is a string.
+            fnn_units = hyperparams.get("FNN_UNITS", hyperparams.get("FNN_HIDDEN_LAYERS"))
+            if isinstance(fnn_units, str):
+                model_params["HIDDEN_LAYER_SIZES"] = [int(s.strip()) for s in fnn_units.split(',')]
+            else:
+                model_params["HIDDEN_LAYER_SIZES"] = fnn_units # Should already be a list of ints
             model_params["DROPOUT_PROB"] = float(hyperparams.get("FNN_DROPOUT_PROB", 0.1))
 
         model = self.create_selected_model(model_type, model_params, model_path)
