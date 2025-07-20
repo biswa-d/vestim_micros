@@ -169,32 +169,31 @@ class OptunaOptimizationThread(QThread):
         handled_params = set()
         model_type = self.params.get('MODEL_TYPE')
 
-        # Dynamic FNN Architecture Search
-        if model_type == 'FNN' and 'FNN_N_LAYERS' in self.params and 'FNN_UNITS' in self.params:
-            fnn_n_layers_str = self.params.get('FNN_N_LAYERS', '').strip()
-            fnn_units_str = self.params.get('FNN_UNITS', '').strip()
-
-            is_optuna_layers = fnn_n_layers_str.startswith('[') and fnn_n_layers_str.endswith(']')
-            is_optuna_units = fnn_units_str.startswith('[') and fnn_units_str.endswith(']')
-
-            if is_optuna_layers and is_optuna_units:
+        # Dynamic FNN Architecture Search based on FNN_HIDDEN_LAYERS
+        if model_type == 'FNN' and 'FNN_HIDDEN_LAYERS' in self.params:
+            fnn_hidden_layers_str = self.params.get('FNN_HIDDEN_LAYERS', '').strip()
+            # The string format is '[8,16],[16,64]'. We need to wrap it in brackets to form a valid JSON array of arrays.
+            if fnn_hidden_layers_str:
+                json_str = f"[{fnn_hidden_layers_str}]"
                 try:
-                    n_layers_bounds = json.loads(fnn_n_layers_str)
-                    n_layers = trial.suggest_int('FNN_N_LAYERS', n_layers_bounds[0], n_layers_bounds[1])
-                    params['FNN_N_LAYERS'] = n_layers
-                    
-                    units_bounds = json.loads(fnn_units_str)
+                    units_bounds = json.loads(json_str)
+                    n_layers = len(units_bounds)
+                    params['FNN_N_LAYERS'] = n_layers  # For logging/info
+
                     hidden_layer_sizes = []
                     for i in range(n_layers):
-                        min_units, max_units = units_bounds[i]
-                        units = trial.suggest_int(f'FNN_UNITS_L{i}', min_units, max_units)
-                        hidden_layer_sizes.append(units)
+                        if len(units_bounds[i]) == 2:
+                            min_units, max_units = units_bounds[i]
+                            units = trial.suggest_int(f'FNN_UNITS_L{i}', min_units, max_units)
+                            hidden_layer_sizes.append(units)
+                        else:
+                            self.log_message.emit(f"Skipping invalid unit bound for FNN layer {i}: {units_bounds[i]}")
                     
                     params['FNN_UNITS'] = hidden_layer_sizes
-                    handled_params.update(['FNN_N_LAYERS', 'FNN_UNITS'])
+                    handled_params.add('FNN_HIDDEN_LAYERS')  # Mark as handled
 
                 except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
-                    self.log_message.emit(f"Could not parse FNN dynamic ranges: {e}. Please check the format.")
+                    self.log_message.emit(f"Could not parse FNN dynamic ranges from FNN_HIDDEN_LAYERS: {e}. Please check the format.")
                     raise e
         
         # General parameter suggestion loop
