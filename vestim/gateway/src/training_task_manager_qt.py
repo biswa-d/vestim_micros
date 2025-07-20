@@ -1200,7 +1200,14 @@ class TrainingTaskManager:
             hyperparams['PLATEAU_FACTOR'] = float(hyperparams['PLATEAU_FACTOR'])
         hyperparams['VALID_PATIENCE'] = int(hyperparams['VALID_PATIENCE'])
         hyperparams['VALID_FREQUENCY'] = int(hyperparams.get('VALID_FREQUENCY', 1))
-        hyperparams['LOOKBACK'] = int(hyperparams['LOOKBACK'])
+        
+        # Handle 'N/A' for LOOKBACK before converting to int
+        lookback_val = hyperparams.get('LOOKBACK', 0)
+        if lookback_val == 'N/A':
+            hyperparams['LOOKBACK'] = 0
+        else:
+            hyperparams['LOOKBACK'] = int(lookback_val)
+            
         hyperparams['REPETITIONS'] = int(hyperparams['REPETITIONS'])
         return hyperparams
 
