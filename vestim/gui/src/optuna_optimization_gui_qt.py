@@ -181,8 +181,10 @@ class OptunaOptimizationThread(QThread):
             if is_optuna_layers and is_optuna_units:
                 try:
                     n_layers_bounds = json.loads(fnn_n_layers_str)
+                    n_layers_bounds = json.loads(fnn_n_layers_str)
                     n_layers = trial.suggest_int('FNN_N_LAYERS', n_layers_bounds[0], n_layers_bounds[1])
-                    params['FNN_N_LAYERS'] = n_layers
+                    # We store the suggested number of layers, but the model service will use the bounds from the original params
+                    params['FNN_N_LAYERS_SUGGESTED'] = n_layers
 
                     units_bounds = json.loads(fnn_units_str)
                     hidden_layer_sizes = []
@@ -191,7 +193,7 @@ class OptunaOptimizationThread(QThread):
                         units = trial.suggest_int(f'FNN_UNITS_L{i}', min_units, max_units)
                         hidden_layer_sizes.append(units)
                     
-                    params['FNN_UNITS'] = hidden_layer_sizes
+                    params['FNN_UNITS_SUGGESTED'] = hidden_layer_sizes
                     handled_params.update(['FNN_N_LAYERS', 'FNN_UNITS'])
 
                 except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
