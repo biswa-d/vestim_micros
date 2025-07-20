@@ -18,7 +18,7 @@ class FNNModelService:
                        "DROPOUT_PROB": float (optional, default 0.0)
         :return: An instance of FNNModel.
         """
-        input_size = params.get("INPUT_SIZE")
+        input_size = params.get("INPUT_SIZE", 3)
         output_size = params.get("OUTPUT_SIZE", 1) # Default to 1 output neuron
         hidden_layer_sizes = params.get("HIDDEN_LAYER_SIZES")
         dropout_prob = params.get("DROPOUT_PROB", 0.0)

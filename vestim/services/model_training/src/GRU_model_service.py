@@ -19,7 +19,7 @@ class GRUModelService:
                        "DROPOUT_PROB": float (optional, default 0.0)
         :return: An instance of GRUModel.
         """
-        input_size = params.get("INPUT_SIZE")
+        input_size = params.get("INPUT_SIZE", 3)
         hidden_units = params.get("HIDDEN_UNITS")
         num_layers = params.get("NUM_LAYERS")
         output_size = params.get("OUTPUT_SIZE", 1) # Default to 1 output neuron
