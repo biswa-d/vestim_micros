@@ -244,6 +244,13 @@ class OptunaOptimizationThread(QThread):
                         except (ValueError, TypeError):
                             pass
         
+        # Final mapping for GRU to align with standardized service
+        if model_type == 'GRU':
+            if 'GRU_HIDDEN_UNITS' in params:
+                params['HIDDEN_UNITS'] = params['GRU_HIDDEN_UNITS']
+            if 'GRU_LAYERS' in params:
+                params['LAYERS'] = params['GRU_LAYERS']
+
         self.log_message.emit(f"Suggested params for trial {trial.number}: {params}")
         return params
     
