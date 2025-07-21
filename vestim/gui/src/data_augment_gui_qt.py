@@ -495,9 +495,9 @@ class DataAugmentGUI(QMainWindow):
         if self.train_df is None:
             QMessageBox.warning(self, "Warning", "Please load data first (select a valid job folder).")
             return
-        available_columns = list(self.train_df.columns)
+        numeric_columns = list(self.train_df.select_dtypes(include=np.number).columns)
         
-        dialog = FilterInputDialog(available_columns, self)
+        dialog = FilterInputDialog(numeric_columns, self)
         if dialog.exec_() == QDialog.Accepted:
             column_name, corner_frequency, sampling_rate = dialog.column_name, dialog.corner_frequency, dialog.sampling_rate
             

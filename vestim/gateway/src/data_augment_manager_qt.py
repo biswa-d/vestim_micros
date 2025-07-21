@@ -8,7 +8,6 @@
 # 2. Apply resampling operations to standardize data frequency
 # 3. Create new columns using custom formulas provided by users
 # 4. Save augmented data back to the job folder
-# 
 # This class serves as an intermediary between the GUI and the data processing services
 # ---------------------------------------------------------------------------------
 
