@@ -156,17 +156,17 @@ class FilterInputDialog(QDialog):
         self.filter_type_combo.addItems(["Butterworth"])
         form_layout.addRow("Filter Type:", self.filter_type_combo)
 
-        self.corner_frequency_spinbox = QDoubleSpinBox()
-        self.corner_frequency_spinbox.setRange(0.01, 100.0)
-        self.corner_frequency_spinbox.setValue(1.0)
-        self.corner_frequency_spinbox.setSingleStep(0.1)
-        form_layout.addRow("Corner Frequency (Hz):", self.corner_frequency_spinbox)
-
         self.sampling_rate_spinbox = QDoubleSpinBox()
         self.sampling_rate_spinbox.setRange(0.01, 10000.0)
         self.sampling_rate_spinbox.setValue(1.0)
         self.sampling_rate_spinbox.setSingleStep(1.0)
         form_layout.addRow("Sampling Rate (Hz):", self.sampling_rate_spinbox)
+
+        self.corner_frequency_spinbox = QDoubleSpinBox()
+        self.corner_frequency_spinbox.setRange(0.01, 100.0)
+        self.corner_frequency_spinbox.setValue(1.0)
+        self.corner_frequency_spinbox.setSingleStep(0.1)
+        form_layout.addRow("Corner Frequency (Hz):", self.corner_frequency_spinbox)
         
         layout.addLayout(form_layout)
         
@@ -495,9 +495,17 @@ class DataAugmentGUI(QMainWindow):
         if self.train_df is None:
             QMessageBox.warning(self, "Warning", "Please load data first (select a valid job folder).")
             return
+        # First, get all columns that are numerically typed.
         numeric_columns = list(self.train_df.select_dtypes(include=np.number).columns)
-        
-        dialog = FilterInputDialog(numeric_columns, self)
+        # Then, explicitly exclude columns that are not suitable for filtering, regardless of type.
+        exclude_names = ['time', 'timestamp', 'status']
+        columns_for_filter = [col for col in numeric_columns if col.lower() not in exclude_names]
+
+        if not columns_for_filter:
+            QMessageBox.warning(self, "No Filterable Columns", "No suitable numeric columns are available for filtering.")
+            return
+            
+        dialog = FilterInputDialog(columns_for_filter, self)
         if dialog.exec_() == QDialog.Accepted:
             column_name, corner_frequency, sampling_rate = dialog.column_name, dialog.corner_frequency, dialog.sampling_rate
             
