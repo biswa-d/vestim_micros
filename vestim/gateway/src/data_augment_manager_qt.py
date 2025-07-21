@@ -95,7 +95,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
        """
        Apply data augmentations (resampling, column creation, padding) to each file
        in the processed_data directories and saves them back, overwriting originals.
-       Order: 1. Resampling, 2. Filtering, 3. Column Creation, 4. Padding.
+       Order: 1. Resampling, 2. Filtering, 3. Column Creation, 4. Normalization, 5. Padding.
        
        Args:
            job_folder: Path to the root job folder.
@@ -171,6 +171,17 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             df_temp_for_stats = pd.read_csv(train_file_path_for_stats)
                             if resampling_frequency and not df_temp_for_stats.empty:
                                 df_temp_for_stats = self.service.resample_data(df_temp_for_stats, resampling_frequency)
+                            
+                            # Also apply filtering during stats calculation pass
+                            if filter_configs and df_temp_for_stats is not None and not df_temp_for_stats.empty:
+                                for config in filter_configs:
+                                    df_temp_for_stats = self.service.apply_butterworth_filter(
+                                        df_temp_for_stats,
+                                        column_name=config['column'],
+                                        corner_frequency=config['corner_frequency'],
+                                        sampling_rate=config['sampling_rate']
+                                    )
+
                             if column_formulas and df_temp_for_stats is not None and not df_temp_for_stats.empty:
                                 df_temp_for_stats = self.service.create_columns(df_temp_for_stats, column_formulas)
                             
@@ -385,29 +396,22 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             # For other unexpected errors during column creation, we might still want to stop or handle differently.
                             # For now, it will be caught by the broader e_file exception if not saved.
                     
-                    # 4. Normalization (New Step - only if no formula error and df is valid)
-                    if not formula_error_occurred and normalize_data and global_scaler and df is not None and not df.empty:
-                        self.logger.info(f"Applying normalization to {file_path} using global scaler for columns: {actual_columns_to_normalize}")
-                        try:
-                            # Assuming DataAugmentService will have a method to call normalization_service.transform_data
-                            # Or, we can call it directly if DataAugmentService doesn't need to be involved here.
-                            # For now, let's assume we add a method to DataAugmentService.
-                            df = self.service.apply_normalization(df, global_scaler, actual_columns_to_normalize) # This method needs to be added to DataAugmentService
-                            self.logger.info(f"Shape after normalization for {file_path}: {df.shape if df is not None else 'None'}")
-                        except Exception as e_norm:
-                            self.logger.error(f"Error during normalization for {file_path}: {e_norm}", exc_info=True)
-                            # Decide if this should be a critical failure for the file
-                            file_metadata['status'] = 'Failed'
-                            file_metadata['error'] = f"Normalization error: {e_norm}"
-                            # Potentially skip saving this file or stop, for now, it will mark as failed.
-                            # To prevent saving, we could set df to None or re-raise, but that might be too disruptive.
-                            # Let's assume it marks as failed and continues to padding if df is still valid.
-
-                    # 5. Padding (only if no formula error and df is valid)
+                    # 4. Padding
                     if not formula_error_occurred and padding_length and padding_length > 0 and df is not None and not df.empty:
                         self.logger.info(f"Applying padding of {padding_length} to {file_path} (after potential resampling, column creation, and normalization)")
                         df = self.service.pad_data(df, padding_length, resample_freq_for_time_padding=actual_resampling_frequency_for_padding)
                         self.logger.info(f"Shape after padding for {file_path}: {df.shape if df is not None else 'None'}")
+
+                    # 5. Normalization (as the final step before saving)
+                    if not formula_error_occurred and normalize_data and global_scaler and df is not None and not df.empty:
+                        self.logger.info(f"Applying normalization to {file_path} using global scaler for columns: {actual_columns_to_normalize}")
+                        try:
+                            df = self.service.apply_normalization(df, global_scaler, actual_columns_to_normalize)
+                            self.logger.info(f"Shape after normalization for {file_path}: {df.shape if df is not None else 'None'}")
+                        except Exception as e_norm:
+                            self.logger.error(f"Error during normalization for {file_path}: {e_norm}", exc_info=True)
+                            file_metadata['status'] = 'Failed'
+                            file_metadata['error'] = f"Normalization error: {e_norm}"
 
                     # Save if no formula error occurred and df is valid (and no critical normalization error made df invalid)
                     if file_metadata['status'] != 'Failed' and df is not None and not df.empty: # Check status too
