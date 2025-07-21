@@ -401,36 +401,33 @@ class ContinuousTestingService:
         try:
             model_metadata = task.get('model_metadata', {})
             model_type = model_metadata.get('model_type', 'LSTM')
-            
+            hyperparams = task.get('hyperparams', {})
+            apply_clipped_relu = hyperparams.get('normalization_applied', False)
+
             # Import model classes
-            from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN
+            from vestim.services.model_training.src.LSTM_model import LSTMModel
             from vestim.services.model_training.src.GRU_model import GRUModel
+            from vestim.services.model_training.src.FNN_model import FNNModel
             
             # Get model parameters
             input_size = len(task.get('data_loader_params', {}).get('feature_columns', []))
             output_size = 1  # Single target prediction
             
             # Model-specific parameter handling
-            if model_type in ['LSTM', 'LSTM_LN', 'LSTM_BN', 'GRU']:
-                hidden_units = model_metadata.get('hidden_units', 64)
-                num_layers = model_metadata.get('num_layers', 2)
-                dropout = model_metadata.get('dropout', 0.2)
+            if model_type in ['LSTM', 'GRU']:
+                hidden_units = hyperparams.get('HIDDEN_UNITS', 64)
+                num_layers = hyperparams.get('LAYERS', 2)
+                dropout = hyperparams.get('DROPOUT_PROB', 0.0)
                 
-                # Create appropriate RNN model type
-                if model_type == 'LSTM_LN':
-                    model = LSTMModelLN(input_size, hidden_units, num_layers, output_size, dropout)
-                elif model_type == 'LSTM_BN':
-                    model = LSTMModelBN(input_size, hidden_units, num_layers, output_size, dropout)
-                elif model_type == 'GRU':
-                    model = GRUModel(input_size, hidden_units, num_layers, output_size, dropout)
+                if model_type == 'GRU':
+                    model = GRUModel(input_size, hidden_units, num_layers, output_size, dropout, apply_clipped_relu=apply_clipped_relu)
                 else:  # Default LSTM
-                    model = LSTMModel(input_size, hidden_units, num_layers, output_size, dropout)
+                    model = LSTMModel(input_size, hidden_units, num_layers, self.device, dropout, apply_clipped_relu=apply_clipped_relu)
             elif model_type == 'FNN':
                 # For FNN models, use different parameters
-                from vestim.services.model_training.src.FNN_model import FNNModel
-                hidden_layer_sizes = model_metadata.get('hidden_layer_sizes', [64, 32])
-                dropout_prob = model_metadata.get('dropout_prob', 0.2)
-                model = FNNModel(input_size, hidden_layer_sizes, output_size, dropout_prob)
+                hidden_layer_sizes = hyperparams.get('HIDDEN_LAYER_SIZES', [64, 32])
+                dropout_prob = hyperparams.get('DROPOUT_PROB', 0.0)
+                model = FNNModel(input_size, output_size, hidden_layer_sizes, dropout_prob, apply_clipped_relu=apply_clipped_relu)
             else:
                 # Fallback for unknown model types
                 hidden_units = model_metadata.get('hidden_units', 64)
