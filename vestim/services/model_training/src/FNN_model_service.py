@@ -8,15 +8,17 @@ class FNNModelService:
         self.logger = logging.getLogger(__name__)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def build_fnn_model(self, params: dict, trial=None):
+    def build_fnn_model(self, params: dict, trial=None, device=None):
         """
         Build an FNN model using the provided, fully-resolved parameters.
         The parameters are expected to be concrete values, not search ranges.
         
         :param params: Dictionary containing resolved model parameters.
         :param trial: An Optuna trial object (optional, for context).
+        :param device: The target device for the model.
         :return: An instance of FNNModel.
         """
+        target_device = device if device is not None else self.device
         self.logger.debug(f"Building FNN model with received params: {params}")
 
         input_size = params.get("INPUT_SIZE", 3)
@@ -37,15 +39,18 @@ class FNNModelService:
 
         self.logger.info(
             f"Building FNN model with input_size={input_size}, output_size={output_size}, "
-            f"hidden_layers={hidden_layer_sizes}, dropout_prob={dropout_prob}, device={self.device}"
+            f"hidden_layers={hidden_layer_sizes}, dropout_prob={dropout_prob}, device={target_device}"
         )
 
+        apply_clipped_relu = params.get("normalization_applied", False)
+        
         model = FNNModel(
             input_size=input_size,
             output_size=output_size,
             hidden_layer_sizes=hidden_layer_sizes,
-            dropout_prob=dropout_prob
-        ).to(self.device)
+            dropout_prob=dropout_prob,
+            apply_clipped_relu=apply_clipped_relu
+        ).to(target_device)
         
         return model
     def create_model(self, params: dict, trial=None, device=None):
@@ -57,9 +62,7 @@ class FNNModelService:
         :param device: The target device for the model.
         :return: An instance of FNNModel.
         """
-        if device:
-            self.device = device
-        return self.build_fnn_model(params, trial=trial)
+        return self.build_fnn_model(params, trial=trial, device=device)
 
     def save_model(self, model: FNNModel, model_path: str):
         """

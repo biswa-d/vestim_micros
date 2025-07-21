@@ -7,7 +7,7 @@ class GRUModelService:
         self.logger = logging.getLogger(__name__)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def build_gru_model(self, params: dict):
+    def build_gru_model(self, params: dict, device=None):
         """
         Build a GRU model using the provided parameters.
 
@@ -17,8 +17,10 @@ class GRUModelService:
                        "LAYERS": int,
                        "OUTPUT_SIZE": int (optional, default 1),
                        "DROPOUT_PROB": float (optional, default 0.0)
+        :param device: The target device for the model.
         :return: An instance of GRUModel.
         """
+        target_device = device if device is not None else self.device
         input_size = params.get("INPUT_SIZE", 3)
         hidden_units = params.get("HIDDEN_UNITS")
         num_layers = params.get("LAYERS")  # Use LAYERS for consistency
@@ -37,7 +39,7 @@ class GRUModelService:
 
         self.logger.info(
             f"Building GRU model with input_size={input_size}, hidden_units={hidden_units}, "
-            f"num_layers={num_layers}, output_size={output_size}, dropout_prob={dropout_prob}, device={self.device}"
+            f"num_layers={num_layers}, output_size={output_size}, dropout_prob={dropout_prob}, device={target_device}"
         )
 
         model = GRUModel(
@@ -46,8 +48,8 @@ class GRUModelService:
             num_layers=num_layers,
             output_size=output_size,
             dropout_prob=dropout_prob,
-            device=self.device
-        ).to(self.device)
+            device=target_device
+        ).to(target_device)
         
         return model
 
@@ -59,11 +61,7 @@ class GRUModelService:
         :param device: The target device for the model.
         :return: An instance of GRUModel.
         """
-        # Update device if target_device is specified
-        if device is not None:
-            self.device = device
-            self.logger.info(f"GRU model service device updated to: {device}")
-        return self.build_gru_model(params)
+        return self.build_gru_model(params, device=device)
 
     def save_model(self, model: GRUModel, model_path: str):
         """

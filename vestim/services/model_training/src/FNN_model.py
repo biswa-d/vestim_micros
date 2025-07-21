@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class FNNModel(nn.Module):
-    def __init__(self, input_size, output_size, hidden_layer_sizes, dropout_prob=0.0):
+    def __init__(self, input_size, output_size, hidden_layer_sizes, dropout_prob=0.0, apply_clipped_relu=False):
         """
         A simple Feedforward Neural Network (FNN/MLP).
 
@@ -12,12 +12,14 @@ class FNNModel(nn.Module):
                                    number of neurons in a hidden layer.
                                    Example: [128, 64, 32] for three hidden layers.
         :param dropout_prob: Dropout probability to apply after each hidden layer.
+        :param apply_clipped_relu: If True, applies a ReLU clipped at 1.0 to the output.
         """
         super(FNNModel, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
         self.hidden_layer_sizes = hidden_layer_sizes
         self.dropout_prob = dropout_prob
+        self.apply_clipped_relu = apply_clipped_relu
 
         layers = []
         current_input_size = input_size
@@ -30,6 +32,12 @@ class FNNModel(nn.Module):
         
         layers.append(nn.Linear(current_input_size, output_size))
         
+        if self.apply_clipped_relu:
+            layers.append(nn.ReLU(inplace=True)) # Using a standard ReLU and then clipping, or a custom lambda
+            # This is a simple way to implement it. A custom lambda could also be used.
+            # Forcing output to be between 0 and 1.
+            layers.append(torch.nn.Hardtanh(min_val=0, max_val=1))
+
         self.network = nn.Sequential(*layers)
 
     def forward(self, x):
