@@ -219,7 +219,8 @@ class VEstimTrainingSetupManager:
                         "INPUT_SIZE": input_size,
                         "OUTPUT_SIZE": output_size,
                         "HIDDEN_LAYER_SIZES": hidden_layer_sizes,
-                        "DROPOUT_PROB": dropout_prob
+                        "DROPOUT_PROB": dropout_prob,
+                        "normalization_applied": self.load_job_normalization_metadata().get('normalization_applied', False)
                     }
 
                     # Create and save the model
@@ -276,7 +277,8 @@ class VEstimTrainingSetupManager:
                                 "INPUT_SIZE": input_size,
                                 "OUTPUT_SIZE": output_size,
                                 "HIDDEN_UNITS": hidden_units,
-                                "LAYERS": layers
+                                "LAYERS": layers,
+                                "normalization_applied": self.load_job_normalization_metadata().get('normalization_applied', False)
                             }
 
                         # Create and save the model

@@ -37,12 +37,12 @@ class FNNModelService:
             self.logger.error("FNN hidden layer configuration is missing or invalid.")
             raise ValueError("Cannot build FNN model without hidden layer sizes.")
 
+        apply_clipped_relu = params.get("normalization_applied", False)
         self.logger.info(
             f"Building FNN model with input_size={input_size}, output_size={output_size}, "
-            f"hidden_layers={hidden_layer_sizes}, dropout_prob={dropout_prob}, device={target_device}"
+            f"hidden_layers={hidden_layer_sizes}, dropout_prob={dropout_prob}, device={target_device}, "
+            f"apply_clipped_relu={apply_clipped_relu}"
         )
-
-        apply_clipped_relu = params.get("normalization_applied", False)
         
         model = FNNModel(
             input_size=input_size,
