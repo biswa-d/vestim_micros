@@ -42,13 +42,16 @@ class GRUModelService:
             f"num_layers={num_layers}, output_size={output_size}, dropout_prob={dropout_prob}, device={target_device}"
         )
 
+        apply_clipped_relu = params.get("normalization_applied", False)
+
         model = GRUModel(
             input_size=input_size,
             hidden_units=hidden_units,
             num_layers=num_layers,
             output_size=output_size,
             dropout_prob=dropout_prob,
-            device=target_device
+            device=target_device,
+            apply_clipped_relu=apply_clipped_relu
         ).to(target_device)
         
         return model

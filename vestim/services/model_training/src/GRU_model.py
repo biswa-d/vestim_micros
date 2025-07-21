@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class GRUModel(nn.Module):
-    def __init__(self, input_size, hidden_units, num_layers, output_size=1, dropout_prob=0.0, device='cpu'):
+    def __init__(self, input_size, hidden_units, num_layers, output_size=1, dropout_prob=0.0, device='cpu', apply_clipped_relu=False):
         """
         Gated Recurrent Unit (GRU) Model.
 
@@ -12,6 +12,7 @@ class GRUModel(nn.Module):
         :param output_size: Number of output features (typically 1 for regression).
         :param dropout_prob: Dropout probability for GRU layers (if num_layers > 1) and an optional final dropout.
         :param device: The device to run the model on ('cpu' or 'cuda').
+        :param apply_clipped_relu: If True, applies a ReLU clipped at 1.0 to the output.
         """
         super(GRUModel, self).__init__()
         self.input_size = input_size
@@ -20,6 +21,7 @@ class GRUModel(nn.Module):
         self.output_size = output_size
         self.dropout_prob = dropout_prob
         self.device = device
+        self.apply_clipped_relu = apply_clipped_relu
 
         self.gru = nn.GRU(
             input_size=input_size,
@@ -36,6 +38,11 @@ class GRUModel(nn.Module):
             self.dropout = None
 
         self.fc = nn.Linear(hidden_units, output_size).to(self.device)
+        
+        if self.apply_clipped_relu:
+            self.final_activation = torch.nn.Hardtanh(min_val=0, max_val=1)
+        else:
+            self.final_activation = nn.Identity()
         
         # Initialize weights properly to prevent gradient issues
         self._initialize_weights()
@@ -97,6 +104,8 @@ class GRUModel(nn.Module):
         # Apply the fully connected layer to the last time step only (for sequence-to-one prediction)
         # This matches the behavior of LSTMModel and avoids shape mismatches during training
         out = self.fc(out[:, -1, :])  # Shape: (batch_size, output_size)
+        
+        out = self.final_activation(out)
         
         # Check for NaN or infinite values in output
         if torch.isnan(out).any() or torch.isinf(out).any():

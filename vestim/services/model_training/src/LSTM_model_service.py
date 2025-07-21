@@ -27,6 +27,8 @@ class LSTMModelService:
 
         print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, "
               f"num_layers={num_layers}, dropout_prob={dropout_prob}, device={target_device}")
+        
+        apply_clipped_relu = params.get("normalization_applied", False)
 
         # Create an instance of the refactored LSTMModel
         model = LSTMModel(
@@ -34,7 +36,8 @@ class LSTMModelService:
             hidden_units=hidden_units,
             num_layers=num_layers,
             device=target_device,
-            dropout_prob=dropout_prob
+            dropout_prob=dropout_prob,
+            apply_clipped_relu=apply_clipped_relu
         )
 
         return model

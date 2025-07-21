@@ -31,6 +31,7 @@ except ImportError:
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 
 
 class OptunaOptimizationThread(QThread):
@@ -371,6 +372,7 @@ class VEstimOptunaOptimizationGUI(QWidget):
         self.logger = logging.getLogger(__name__)
         self.params = base_params
         self.job_manager = job_manager if job_manager else JobManager()
+        self.hyper_param_manager = VEstimHyperParamManager(job_manager=self.job_manager)
         self.optimization_thread = None
         self.best_configs = []
         self.completed_trials_data = []
@@ -634,6 +636,12 @@ class VEstimOptunaOptimizationGUI(QWidget):
     def start_optimization(self):
         """Start the Optuna optimization"""
         try:
+            # Validate parameters for Optuna search
+            is_valid, error_message = self.hyper_param_manager.validate_for_optuna(self.params)
+            if not is_valid:
+                QMessageBox.critical(self, "Validation Error", error_message)
+                return
+
             # Get optimization configuration
             config = self._get_optimization_config()
             

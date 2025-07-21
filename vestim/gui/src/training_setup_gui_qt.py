@@ -8,6 +8,7 @@ from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupMana
 from vestim.gateway.src.optuna_setup_manager_qt import OptunaSetupManager
 from vestim.gui.src.training_task_gui_qt import VEstimTrainingTaskGUI
 from vestim.gateway.src.job_manager_qt import JobManager
+from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 import logging
 
 class SetupWorker(QThread):
@@ -63,6 +64,7 @@ class VEstimTrainSetupGUI(QWidget):
             self.logger.info("Initialized with single parameter configuration for grid search.")
 
         self.job_manager = job_manager if job_manager else JobManager()
+        self.hyper_param_manager = VEstimHyperParamManager(job_manager=self.job_manager)
         self.timer_running = True
         self.auto_proceed_timer = QTimer(self)
         self.auto_proceed_timer.setSingleShot(True)
@@ -150,6 +152,14 @@ class VEstimTrainSetupGUI(QWidget):
             layout.addWidget(value_label, row, col + 1)
 
     def start_setup(self):
+        # Validate parameters for grid search if not in Optuna flow
+        if not self.is_multiple_configs:
+            is_valid, error_message = self.hyper_param_manager.validate_for_grid_search(self.params)
+            if not is_valid:
+                QMessageBox.critical(self, "Validation Error", error_message)
+                self.close()  # Close the window if validation fails
+                return
+
         print("Starting training setup...")
         self.logger.info("Starting training setup...")
         self.start_time = time.time()
