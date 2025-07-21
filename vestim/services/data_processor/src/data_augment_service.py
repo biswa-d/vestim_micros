@@ -507,7 +507,7 @@ class DataAugmentService:
         self.logger.info(f"Collected info for {len(column_info)} columns")
         return column_info
 
-    def apply_butterworth_filter(self, df: pd.DataFrame, column_name: str, corner_frequency: float, filter_order: int = 4) -> pd.DataFrame:
+    def apply_butterworth_filter(self, df: pd.DataFrame, column_name: str, corner_frequency: float, sampling_rate: float, filter_order: int = 4) -> pd.DataFrame:
        """
        Apply a Butterworth filter to a specific column in the DataFrame.
        
@@ -515,12 +515,13 @@ class DataAugmentService:
            df: The input DataFrame.
            column_name: The name of the column to filter.
            corner_frequency: The corner frequency for the filter.
+           sampling_rate: The sampling rate of the data in Hz.
            filter_order: The order of the Butterworth filter.
            
        Returns:
            The DataFrame with the new filtered column.
        """
-       self.logger.info(f"Applying Butterworth filter to column '{column_name}' with corner frequency {corner_frequency}Hz")
+       self.logger.info(f"Applying Butterworth filter to column '{column_name}' with corner frequency {corner_frequency}Hz and sampling rate {sampling_rate}Hz")
        
        if column_name not in df.columns:
            raise ValueError(f"Column '{column_name}' not found in DataFrame.")
@@ -532,12 +533,10 @@ class DataAugmentService:
        data = df[column_name].values
        
        # Define the filter
-       time_col = next((col for col in df.columns if 'time' in col.lower()), None)
-       if time_col is None:
-           raise ValueError("No time column found to calculate sampling rate.")
-       
-       sampling_rate = 1 / pd.to_numeric(df[time_col].diff().dropna()).mean()
        nyquist = 0.5 * sampling_rate
+       if corner_frequency >= nyquist:
+           raise ValueError(f"Corner frequency ({corner_frequency}Hz) must be less than the Nyquist frequency ({nyquist}Hz).")
+       
        normal_corner = corner_frequency / nyquist
        b, a = butter(filter_order, normal_corner, btype='low', analog=False)
        

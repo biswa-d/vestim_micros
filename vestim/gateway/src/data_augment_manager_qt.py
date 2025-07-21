@@ -357,7 +357,8 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                 df = self.service.apply_butterworth_filter(
                                     df,
                                     column_name=config['column'],
-                                    corner_frequency=config['corner_frequency']
+                                    corner_frequency=config['corner_frequency'],
+                                    sampling_rate=config['sampling_rate']
                                 )
                             except Exception as e_filter:
                                 self.logger.error(f"Error applying filter for {file_path}: {e_filter}", exc_info=True)
