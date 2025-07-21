@@ -174,16 +174,12 @@ class ContinuousTestingService:
                         y_pred = self.model_instance(x_flat)
                     elif self.hidden_states['model_type'] == 'GRU':
                         # GRU forward pass with persistent hidden states
-                        output, h_s = self.model_instance.gru(x_t, self.hidden_states['h_s'])
-                        # Get final prediction
-                        y_pred = self.model_instance.fc(output[:, -1, :])
+                        y_pred, h_s = self.model_instance(x_t, self.hidden_states['h_s'])
                         # Update hidden state for next sample
                         self.hidden_states['h_s'] = h_s.detach()
                     else:
                         # LSTM forward pass with persistent hidden states
-                        output, (h_s, h_c) = self.model_instance.lstm(x_t, (self.hidden_states['h_s'], self.hidden_states['h_c']))
-                        # Get final prediction
-                        y_pred = self.model_instance.fc(output[:, -1, :])
+                        y_pred, (h_s, h_c) = self.model_instance(x_t, self.hidden_states['h_s'], self.hidden_states['h_c'])
                         # Update hidden states for next sample
                         self.hidden_states['h_s'] = h_s.detach()
                         self.hidden_states['h_c'] = h_c.detach()
