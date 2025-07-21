@@ -459,7 +459,7 @@ class TrainingTaskManager:
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams.get('VALID_FREQUENCY', 1)
             valid_patience = hyperparams['VALID_PATIENCE']
-            #patience_threshold = int(valid_patience * 0.5) 
+            #patience_threshold = int(valid_patience * 0.5)
             current_lr = hyperparams['INITIAL_LR']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
             lr_drop_factor = hyperparams['LR_DROP_FACTOR']

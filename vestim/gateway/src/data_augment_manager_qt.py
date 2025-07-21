@@ -90,11 +90,12 @@ class DataAugmentManager(QObject): # Inherit from QObject
                            normalize_data: bool = False,
                            normalization_feature_columns: Optional[List[str]] = None,
                            normalization_exclude_columns: Optional[List[str]] = None,
-                           scaler_filename: str = "augmentation_scaler.joblib") -> Tuple[str, List[Dict[str, Any]]]:
+                           scaler_filename: str = "augmentation_scaler.joblib",
+                           filter_configs: Optional[List[Dict[str, Any]]] = None) -> Tuple[str, List[Dict[str, Any]]]:
        """
        Apply data augmentations (resampling, column creation, padding) to each file
        in the processed_data directories and saves them back, overwriting originals.
-       Order: 1. Resampling, 2. Column Creation, 3. Padding.
+       Order: 1. Resampling, 2. Filtering, 3. Column Creation, 4. Padding.
        
        Args:
            job_folder: Path to the root job folder.
@@ -349,7 +350,20 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             self.logger.warning(f"DataFrame is empty or None after resampling for {file_path}. Subsequent steps might be skipped.")
                             df = df_after_resample # df could be None or empty here
                     
-                    # 2. Column Creation
+                    # 2. Filtering
+                    if filter_configs and df is not None and not df.empty:
+                        for config in filter_configs:
+                            try:
+                                df = self.service.apply_butterworth_filter(
+                                    df,
+                                    column_name=config['column'],
+                                    corner_frequency=config['corner_frequency']
+                                )
+                            except Exception as e_filter:
+                                self.logger.error(f"Error applying filter for {file_path}: {e_filter}", exc_info=True)
+                                # Decide how to handle filter error, for now, log and continue
+                   
+                    # 3. Column Creation
                     formula_error_occurred = False # Flag to indicate if a formula error stopped processing
                     if column_formulas and df is not None and not df.empty:
                         try:
@@ -370,7 +384,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             # For other unexpected errors during column creation, we might still want to stop or handle differently.
                             # For now, it will be caught by the broader e_file exception if not saved.
                     
-                    # 3. Normalization (New Step - only if no formula error and df is valid)
+                    # 4. Normalization (New Step - only if no formula error and df is valid)
                     if not formula_error_occurred and normalize_data and global_scaler and df is not None and not df.empty:
                         self.logger.info(f"Applying normalization to {file_path} using global scaler for columns: {actual_columns_to_normalize}")
                         try:
@@ -388,7 +402,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             # To prevent saving, we could set df to None or re-raise, but that might be too disruptive.
                             # Let's assume it marks as failed and continues to padding if df is still valid.
 
-                    # 4. Padding (only if no formula error and df is valid)
+                    # 5. Padding (only if no formula error and df is valid)
                     if not formula_error_occurred and padding_length and padding_length > 0 and df is not None and not df.empty:
                         self.logger.info(f"Applying padding of {padding_length} to {file_path} (after potential resampling, column creation, and normalization)")
                         df = self.service.pad_data(df, padding_length, resample_freq_for_time_padding=actual_resampling_frequency_for_padding)

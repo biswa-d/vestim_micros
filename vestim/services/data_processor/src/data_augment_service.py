@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 import logging
 from typing import List, Tuple, Dict, Optional, Union, Any
+from scipy.signal import butter, filtfilt
 
 from vestim.logger_config import setup_logger
 from vestim.gateway.src.job_manager_qt import JobManager # Import JobManager
@@ -505,3 +506,47 @@ class DataAugmentService:
             column_info[column] = info
         self.logger.info(f"Collected info for {len(column_info)} columns")
         return column_info
+
+    def apply_butterworth_filter(self, df: pd.DataFrame, column_name: str, corner_frequency: float, filter_order: int = 4) -> pd.DataFrame:
+       """
+       Apply a Butterworth filter to a specific column in the DataFrame.
+       
+       Args:
+           df: The input DataFrame.
+           column_name: The name of the column to filter.
+           corner_frequency: The corner frequency for the filter.
+           filter_order: The order of the Butterworth filter.
+           
+       Returns:
+           The DataFrame with the new filtered column.
+       """
+       self.logger.info(f"Applying Butterworth filter to column '{column_name}' with corner frequency {corner_frequency}Hz")
+       
+       if column_name not in df.columns:
+           raise ValueError(f"Column '{column_name}' not found in DataFrame.")
+           
+       # Create the new column name
+       new_column_name = f"{column_name}_filtered"
+       
+       # Get the data from the column
+       data = df[column_name].values
+       
+       # Define the filter
+       time_col = next((col for col in df.columns if 'time' in col.lower()), None)
+       if time_col is None:
+           raise ValueError("No time column found to calculate sampling rate.")
+       
+       sampling_rate = 1 / pd.to_numeric(df[time_col].diff().dropna()).mean()
+       nyquist = 0.5 * sampling_rate
+       normal_corner = corner_frequency / nyquist
+       b, a = butter(filter_order, normal_corner, btype='low', analog=False)
+       
+       # Apply the filter
+       filtered_data = filtfilt(b, a, data)
+       
+       # Add the filtered data to the DataFrame
+       df[new_column_name] = filtered_data
+       
+       self.logger.info(f"Successfully created filtered column '{new_column_name}'")
+       
+       return df
