@@ -227,7 +227,41 @@ class VEstimTestingService:
 
         try:
             # Load the model weights
-            model= torch.load(model_path).to(self.device) # Reverted to weights_only=False (default)
+            state_dict = torch.load(model_path)
+            model_type = task.get('model_metadata', {}).get('model_type', 'LSTM')
+            hyperparams = task.get('hyperparams', {})
+            
+            if model_type == 'LSTM':
+                model = LSTMModel(
+                    input_size=hyperparams['INPUT_SIZE'],
+                    hidden_units=hyperparams['HIDDEN_UNITS'],
+                    num_layers=hyperparams['LAYERS'],
+                    device=self.device,
+                    dropout_prob=hyperparams.get('DROPOUT_PROB', 0.0),
+                    apply_clipped_relu=hyperparams.get('normalization_applied', False)
+                )
+            elif model_type == 'GRU':
+                model = GRUModel(
+                    input_size=hyperparams['INPUT_SIZE'],
+                    hidden_units=hyperparams['HIDDEN_UNITS'],
+                    num_layers=hyperparams['LAYERS'],
+                    device=self.device,
+                    dropout_prob=hyperparams.get('DROPOUT_PROB', 0.0),
+                    apply_clipped_relu=hyperparams.get('normalization_applied', False)
+                )
+            elif model_type == 'FNN':
+                model = FNNModel(
+                    input_size=hyperparams['INPUT_SIZE'],
+                    output_size=hyperparams['OUTPUT_SIZE'],
+                    hidden_layer_sizes=hyperparams['HIDDEN_LAYER_SIZES'],
+                    dropout_prob=hyperparams.get('DROPOUT_PROB', 0.0),
+                    apply_clipped_relu=hyperparams.get('normalization_applied', False)
+                )
+            else:
+                raise ValueError(f"Unsupported model type: {model_type}")
+
+            model.load_state_dict(state_dict)
+            model.to(self.device)
             model.eval()  # Set the model to evaluation mode
 
             # Run the testing process (returns results but does NOT save them)

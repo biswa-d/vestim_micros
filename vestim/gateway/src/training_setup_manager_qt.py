@@ -311,6 +311,7 @@ class VEstimTrainingSetupManager:
     def create_tasks_from_optuna(self, best_configs, base_params):
         """Create training tasks from a list of Optuna best configurations."""
         task_list = []
+        job_normalization_metadata = self.load_job_normalization_metadata()
         for i, config_data in enumerate(best_configs):
             # Create a complete hyperparameter set by starting with the base
             # and updating it with the optimized values.
@@ -321,14 +322,14 @@ class VEstimTrainingSetupManager:
 
             # Create a single model instance for this task
             n_best = len(best_configs)
-            model_task = self._build_single_model(hyperparams, trial_number, rank, n_best)
+            model_task = self._build_single_model(hyperparams, trial_number, rank, n_best, job_normalization_metadata)
             
             # Create the task info using only the complete hyperparams for this task
             task_info = self._create_task_info(
                 model_task=model_task,
                 hyperparams=hyperparams,
                 repetition=1,  # Each Optuna config is a single task
-                job_normalization_metadata=self.load_job_normalization_metadata(),
+                job_normalization_metadata=job_normalization_metadata,
                 max_training_time_seconds_arg=hyperparams.get('MAX_TRAINING_TIME_SECONDS', 0),
                 use_model_dir_as_task_dir=True,  # Prevent nested task folders for Optuna runs
                 rank=rank,
@@ -385,7 +386,7 @@ class VEstimTrainingSetupManager:
         self.save_tasks_to_files(task_list)
         return task_list
 
-    def _build_single_model(self, hyperparams, trial_number, rank, n_best):
+    def _build_single_model(self, hyperparams, trial_number, rank, n_best, job_normalization_metadata=None):
         """Build a single model based on a given hyperparameter set."""
         model_type = hyperparams.get("MODEL_TYPE", "LSTM")
         input_size = len(hyperparams.get("FEATURE_COLUMNS", []))
@@ -403,6 +404,7 @@ class VEstimTrainingSetupManager:
         model_params = {
             "INPUT_SIZE": input_size,
             "OUTPUT_SIZE": output_size,
+            "normalization_applied": job_normalization_metadata.get('normalization_applied', False) if job_normalization_metadata else False
         }
         if model_type in ["LSTM", "GRU"]:
             model_params["HIDDEN_UNITS"] = int(hyperparams.get("HIDDEN_UNITS", hyperparams.get("GRU_HIDDEN_UNITS", 10)))
@@ -570,6 +572,7 @@ class VEstimTrainingSetupManager:
             'REPETITIONS': hyperparams['REPETITIONS'],
             'NUM_LEARNABLE_PARAMS': num_learnable_params,
         }
+        final_hyperparams['normalization_applied'] = job_normalization_metadata.get('normalization_applied', False)
 
         # Add scheduler-specific params
         if final_hyperparams['SCHEDULER_TYPE'] == 'StepLR':
@@ -593,9 +596,7 @@ class VEstimTrainingSetupManager:
             else:
                  final_hyperparams['LOOKBACK'] = hyperparams['LOOKBACK']
             
-            final_hyperparams['normalization_applied'] = job_normalization_metadata.get('normalization_applied', False)
-            
-        # Determine lookback for data loader, defaulting to 0 if not applicable
+            # Determine lookback for data loader, defaulting to 0 if not applicable
         if final_hyperparams.get('LOOKBACK') == 'N/A':
             dataloader_lookback = 0
         else:

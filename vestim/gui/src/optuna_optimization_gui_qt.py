@@ -291,6 +291,7 @@ class OptunaOptimizationThread(QThread):
                 'hyperparams': params,
                 'optuna_trial': trial,
                 'log_callback': self.log_message.emit,
+                'normalization_applied': self.params.get('normalization_applied', False),
                 'job_folder_augmented_from': self.job_manager.get_job_folder(),
                 'data_loader_params': {
                     'lookback': int(params['LOOKBACK']),
