@@ -594,11 +594,12 @@ class VEstimTrainingSetupManager:
                  final_hyperparams['LOOKBACK'] = hyperparams['LOOKBACK']
             
             final_hyperparams['normalization_applied'] = job_normalization_metadata.get('normalization_applied', False)
-    
-            # Determine lookback for data loader, defaulting to 0 if not applicable
-            dataloader_lookback = hyperparams['LOOKBACK']
+            
+        # Determine lookback for data loader, defaulting to 0 if not applicable
         if final_hyperparams.get('LOOKBACK') == 'N/A':
             dataloader_lookback = 0
+        else:
+            dataloader_lookback = hyperparams.get('LOOKBACK', 0)
 
         task_info = {
             'task_id': task_id,
