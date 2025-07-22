@@ -36,8 +36,11 @@ class VEstimHyperParamManager:
             'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'VALID_PATIENCE', 'LOOKBACK',
             'FNN_DROPOUT_PROB'
         ]
+        model_type = params.get('MODEL_TYPE')
         for key, value in params.items():
             if key in tunable_keys and isinstance(value, str):
+                if model_type == 'FNN' and key == 'LOOKBACK':
+                    continue
                 is_boundary = value.strip().startswith('[') and value.strip().endswith(']')
                 # A comma outside of brackets indicates a grid-search list
                 is_list = ',' in value and not is_boundary
@@ -62,8 +65,11 @@ class VEstimHyperParamManager:
             'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'VALID_PATIENCE', 'LOOKBACK',
             'FNN_DROPOUT_PROB'
         ]
+        model_type = params.get('MODEL_TYPE')
         for key, value in params.items():
             if key in tunable_keys and isinstance(value, str):
+                if model_type == 'FNN' and key == 'LOOKBACK':
+                    continue
                 is_boundary = value.strip().startswith('[') and value.strip().endswith(']')
                 if is_boundary:
                     msg = f"Invalid format for '{key}' in Exhaustive Search mode. Use comma-separated values for lists, not [min,max]."
@@ -143,14 +149,14 @@ class VEstimHyperParamManager:
             if isinstance(value, str):
                 # Model-type aware parameter validation
                 integer_params = ['BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD',
-                                'VALID_PATIENCE', 'VALID_FREQUENCY', 'LOOKBACK', 'REPETITIONS',
+                                'VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS',
                                 'MAX_TRAIN_HOURS', 'MAX_TRAIN_MINUTES', 'MAX_TRAIN_SECONDS']
                 
                 # Add model-specific integer parameters
                 if model_type in ['LSTM', 'GRU']:
-                    integer_params.extend(['LAYERS', 'HIDDEN_UNITS'])
+                    integer_params.extend(['LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'])
                 elif model_type == 'FNN':
-                    # FNN uses HIDDEN_LAYERS (string) and DROPOUT_PROB (float), no specific integer params
+                    # FNN does not use LOOKBACK, so it's not added to integer_params
                     pass
                 
                 # Keep the original string for parameters that might be comma-separated or boundary format
