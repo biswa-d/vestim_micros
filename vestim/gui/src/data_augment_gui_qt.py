@@ -293,8 +293,11 @@ class DataAugmentGUI(QMainWindow):
         # --- Top Row Layout ---
         top_row_layout = QHBoxLayout()
 
+        group_box_style = "QGroupBox { font-size: 10pt; font-weight: bold; }"
+
         # Filtering Group
         filtering_group = QGroupBox("Data Filtering")
+        filtering_group.setStyleSheet(group_box_style)
         filtering_layout = QVBoxLayout()
         self.filtering_checkbox = QCheckBox("Enable data filtering")
         self.filtering_checkbox.setToolTip("Apply a Butterworth filter to a selected column.")
@@ -318,6 +321,7 @@ class DataAugmentGUI(QMainWindow):
 
         # Augmentation Group (Column Creation)
         augmentation_group = QGroupBox("Column Creation")
+        augmentation_group.setStyleSheet(group_box_style)
         augmentation_layout = QVBoxLayout()
         self.column_creation_checkbox = QCheckBox("Create new columns from existing data")
         self.column_creation_checkbox.setToolTip("Create derived features using mathematical formulas applied to existing columns. Useful for feature engineering and creating non-linear transformations.")
@@ -346,6 +350,7 @@ class DataAugmentGUI(QMainWindow):
 
         # Resampling Group
         resampling_group = QGroupBox("Data Resampling")
+        resampling_group.setStyleSheet(group_box_style)
         resampling_layout = QVBoxLayout()
         self.resampling_checkbox = QCheckBox("Enable data resampling")
         self.resampling_checkbox.setToolTip("Resamples time series data to a different frequency. Useful for standardizing data collection rates or reducing data size.")
@@ -364,6 +369,7 @@ class DataAugmentGUI(QMainWindow):
 
         # Padding Group
         padding_group = QGroupBox("Data Padding (Prepend)")
+        padding_group.setStyleSheet(group_box_style)
         padding_layout = QVBoxLayout()
         self.padding_checkbox = QCheckBox("Enable data padding")
         self.padding_checkbox.setToolTip("Prepends rows with zeros to the beginning of the dataset. Useful for creating lead-in data for time series models.")
@@ -385,6 +391,7 @@ class DataAugmentGUI(QMainWindow):
 
         # Normalization Group (Full Width)
         normalization_group = QGroupBox("Data Normalization")
+        normalization_group.setStyleSheet(group_box_style)
         normalization_layout = QVBoxLayout()
         self.normalization_checkbox = QCheckBox("Enable data normalization (Min-Max scaling)")
         self.normalization_checkbox.setChecked(True)  # Set as checked by default
