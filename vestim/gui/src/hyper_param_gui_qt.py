@@ -46,7 +46,7 @@ class VEstimHyperParamGUI(QWidget):
     def setup_window(self):
         """Initial setup for the main window appearance."""
         self.setWindowTitle("VEstim - Hyperparameter Selection")
-        self.setGeometry(100, 100, 950, 650)  # Adjusted size for better visibility
+        self.setGeometry(100, 100, 1200, 700)  # Adjusted size for better visibility
 
         # Load the application icon
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')

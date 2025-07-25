@@ -96,7 +96,7 @@ class DataImportGUI(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("VEstim Modelling Tool")
-        self.setGeometry(100, 100, 900, 600)
+        self.setGeometry(100, 100, 1200, 700)
 
         # Main layout
         self.central_widget = QWidget(self)

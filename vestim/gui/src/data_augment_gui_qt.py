@@ -268,17 +268,17 @@ class DataAugmentGUI(QMainWindow):
     
     def initUI(self):
         self.setWindowTitle("VEstim Data Augmentation")
-        self.setGeometry(100, 100, 900, 750) # Increased height for padding and filtering section
-        
+        self.setGeometry(100, 100, 1200, 700) # Adjusted for wider layout
+
         self.central_widget = QWidget(self)
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
-        
+
         self.header_label = QLabel("Data Augmentation, Padding, and Resampling", self)
         self.header_label.setAlignment(Qt.AlignCenter)
         self.header_label.setStyleSheet("font-size: 18px; font-weight: bold; color: green;")
         self.main_layout.addWidget(self.header_label)
-        
+
         if not self.job_folder:
             job_folder_layout = QHBoxLayout()
             self.job_folder_label = QLabel("Select Job Folder:", self)
@@ -290,63 +290,8 @@ class DataAugmentGUI(QMainWindow):
             job_folder_layout.addWidget(self.job_folder_path_label)
             self.main_layout.addLayout(job_folder_layout)
 
-        # Padding Group
-        padding_group = QGroupBox("Data Padding (Prepend)")
-        padding_layout = QVBoxLayout()
-        self.padding_checkbox = QCheckBox("Enable data padding")
-        self.padding_checkbox.setToolTip("Prepends rows with zeros to the beginning of the dataset. Useful for creating lead-in data for time series models.")
-        self.padding_checkbox.stateChanged.connect(self.toggle_padding_options)
-        padding_layout.addWidget(self.padding_checkbox)
-        padding_length_layout = QHBoxLayout()
-        padding_length_label = QLabel("Padding Length (rows):")
-        padding_length_layout.addWidget(padding_length_label)
-        self.padding_length_spinbox = QSpinBox()
-        self.padding_length_spinbox.setRange(0, 1000) # Sensible range
-        self.padding_length_spinbox.setValue(10)      # Default value
-        self.padding_length_spinbox.setEnabled(False)
-        padding_length_layout.addWidget(self.padding_length_spinbox)
-        padding_layout.addLayout(padding_length_layout)
-        padding_group.setLayout(padding_layout)
-        self.main_layout.addWidget(padding_group)
-        
-        resampling_group = QGroupBox("Data Resampling")
-        resampling_layout = QVBoxLayout()
-        self.resampling_checkbox = QCheckBox("Enable data resampling")
-        self.resampling_checkbox.setToolTip("Resamples time series data to a different frequency. Useful for standardizing data collection rates or reducing data size.")
-        self.resampling_checkbox.stateChanged.connect(self.toggle_resampling_options)
-        resampling_layout.addWidget(self.resampling_checkbox)
-        frequency_layout = QHBoxLayout()
-        frequency_label = QLabel("Resampling Frequency:")
-        frequency_layout.addWidget(frequency_label)
-        self.frequency_combo = QComboBox()
-        self.frequency_combo.addItems(["0.1Hz", "0.5Hz", "1Hz", "5Hz", "10Hz"])
-        self.frequency_combo.setEnabled(False)
-        frequency_layout.addWidget(self.frequency_combo)
-        resampling_layout.addLayout(frequency_layout)
-        resampling_group.setLayout(resampling_layout)
-        self.main_layout.addWidget(resampling_group)
-        
-        augmentation_group = QGroupBox("Column Creation")
-        augmentation_layout = QVBoxLayout()
-        self.column_creation_checkbox = QCheckBox("Create new columns from existing data")
-        self.column_creation_checkbox.setToolTip("Create derived features using mathematical formulas applied to existing columns. Useful for feature engineering and creating non-linear transformations.")
-        self.column_creation_checkbox.stateChanged.connect(self.toggle_column_creation)
-        augmentation_layout.addWidget(self.column_creation_checkbox)
-        self.add_formula_button = QPushButton("Add Column Formula")
-        self.add_formula_button.clicked.connect(self.show_formula_dialog)
-        self.add_formula_button.setEnabled(False)
-        augmentation_layout.addWidget(self.add_formula_button)
-        self.formula_list_label = QLabel("Created Columns:")
-        augmentation_layout.addWidget(self.formula_list_label)
-        self.formula_list = QListWidget()
-        self.formula_list.setMinimumHeight(100) # Adjusted height
-        augmentation_layout.addWidget(self.formula_list)
-        self.remove_formula_button = QPushButton("Remove Selected Column")
-        self.remove_formula_button.clicked.connect(self.remove_formula)
-        self.remove_formula_button.setEnabled(False)
-        augmentation_layout.addWidget(self.remove_formula_button)
-        augmentation_group.setLayout(augmentation_layout)
-        self.main_layout.addWidget(augmentation_group)
+        # --- Top Row Layout ---
+        top_row_layout = QHBoxLayout()
 
         # Filtering Group
         filtering_group = QGroupBox("Data Filtering")
@@ -369,9 +314,76 @@ class DataAugmentGUI(QMainWindow):
         self.remove_filter_button.setEnabled(False)
         filtering_layout.addWidget(self.remove_filter_button)
         filtering_group.setLayout(filtering_layout)
-        self.main_layout.addWidget(filtering_group)
+        top_row_layout.addWidget(filtering_group)
 
-        # Normalization Group
+        # Augmentation Group (Column Creation)
+        augmentation_group = QGroupBox("Column Creation")
+        augmentation_layout = QVBoxLayout()
+        self.column_creation_checkbox = QCheckBox("Create new columns from existing data")
+        self.column_creation_checkbox.setToolTip("Create derived features using mathematical formulas applied to existing columns. Useful for feature engineering and creating non-linear transformations.")
+        self.column_creation_checkbox.stateChanged.connect(self.toggle_column_creation)
+        augmentation_layout.addWidget(self.column_creation_checkbox)
+        self.add_formula_button = QPushButton("Add Column Formula")
+        self.add_formula_button.clicked.connect(self.show_formula_dialog)
+        self.add_formula_button.setEnabled(False)
+        augmentation_layout.addWidget(self.add_formula_button)
+        self.formula_list_label = QLabel("Created Columns:")
+        augmentation_layout.addWidget(self.formula_list_label)
+        self.formula_list = QListWidget()
+        self.formula_list.setMinimumHeight(100) # Adjusted height
+        augmentation_layout.addWidget(self.formula_list)
+        self.remove_formula_button = QPushButton("Remove Selected Column")
+        self.remove_formula_button.clicked.connect(self.remove_formula)
+        self.remove_formula_button.setEnabled(False)
+        augmentation_layout.addWidget(self.remove_formula_button)
+        augmentation_group.setLayout(augmentation_layout)
+        top_row_layout.addWidget(augmentation_group)
+        
+        self.main_layout.addLayout(top_row_layout)
+
+        # --- Bottom Row Layout ---
+        bottom_row_layout = QHBoxLayout()
+
+        # Resampling Group
+        resampling_group = QGroupBox("Data Resampling")
+        resampling_layout = QVBoxLayout()
+        self.resampling_checkbox = QCheckBox("Enable data resampling")
+        self.resampling_checkbox.setToolTip("Resamples time series data to a different frequency. Useful for standardizing data collection rates or reducing data size.")
+        self.resampling_checkbox.stateChanged.connect(self.toggle_resampling_options)
+        resampling_layout.addWidget(self.resampling_checkbox)
+        frequency_layout = QHBoxLayout()
+        frequency_label = QLabel("Resampling Frequency:")
+        frequency_layout.addWidget(frequency_label)
+        self.frequency_combo = QComboBox()
+        self.frequency_combo.addItems(["0.1Hz", "0.5Hz", "1Hz", "5Hz", "10Hz"])
+        self.frequency_combo.setEnabled(False)
+        frequency_layout.addWidget(self.frequency_combo)
+        resampling_layout.addLayout(frequency_layout)
+        resampling_group.setLayout(resampling_layout)
+        bottom_row_layout.addWidget(resampling_group)
+
+        # Padding Group
+        padding_group = QGroupBox("Data Padding (Prepend)")
+        padding_layout = QVBoxLayout()
+        self.padding_checkbox = QCheckBox("Enable data padding")
+        self.padding_checkbox.setToolTip("Prepends rows with zeros to the beginning of the dataset. Useful for creating lead-in data for time series models.")
+        self.padding_checkbox.stateChanged.connect(self.toggle_padding_options)
+        padding_layout.addWidget(self.padding_checkbox)
+        padding_length_layout = QHBoxLayout()
+        padding_length_label = QLabel("Padding Length (rows):")
+        padding_length_layout.addWidget(padding_length_label)
+        self.padding_length_spinbox = QSpinBox()
+        self.padding_length_spinbox.setRange(0, 1000) # Sensible range
+        self.padding_length_spinbox.setValue(10)      # Default value
+        self.padding_length_spinbox.setEnabled(False)
+        padding_length_layout.addWidget(self.padding_length_spinbox)
+        padding_layout.addLayout(padding_length_layout)
+        padding_group.setLayout(padding_layout)
+        bottom_row_layout.addWidget(padding_group)
+
+        self.main_layout.addLayout(bottom_row_layout)
+
+        # Normalization Group (Full Width)
         normalization_group = QGroupBox("Data Normalization")
         normalization_layout = QVBoxLayout()
         self.normalization_checkbox = QCheckBox("Enable data normalization (Min-Max scaling)")
