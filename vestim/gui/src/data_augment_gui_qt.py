@@ -268,7 +268,7 @@ class DataAugmentGUI(QMainWindow):
     
     def initUI(self):
         self.setWindowTitle("VEstim Data Augmentation")
-        self.setGeometry(100, 100, 1200, 700) # Adjusted for wider layout
+        self.setGeometry(100, 100, 1200, 800) # Adjusted for wider layout
 
         self.central_widget = QWidget(self)
         self.setCentralWidget(self.central_widget)
@@ -276,7 +276,7 @@ class DataAugmentGUI(QMainWindow):
 
         self.header_label = QLabel("Data Augmentation, Padding, and Resampling", self)
         self.header_label.setAlignment(Qt.AlignCenter)
-        self.header_label.setStyleSheet("font-size: 18px; font-weight: bold; color: green;")
+        self.header_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
         self.main_layout.addWidget(self.header_label)
 
         if not self.job_folder:

@@ -193,20 +193,8 @@ class VEstimTrainingSetupManager:
                     
                     # Create model directory
                     layer_config = str(hidden_units).replace(',', '_')
-                    if len(fnn_configs) > 1:
-                        # If multiple configs, include config number in directory name
-                        model_dir = os.path.join(
-                            self.job_manager.get_job_folder(),
-                            'models',
-                            f'model_{model_type}_config{config_idx + 1}_layers_{layer_config}'
-                        )
-                    else:
-                        # If single config, use simpler naming
-                        model_dir = os.path.join(
-                            self.job_manager.get_job_folder(),
-                            'models',
-                            f'model_{model_type}_layers_{layer_config}'
-                        )
+                    model_dir_name = self._generate_descriptive_folder_name({'MODEL_TYPE': model_type, 'FNN_UNITS': hidden_units}, is_model_dir=True)
+                    model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', model_dir_name)
                     os.makedirs(model_dir, exist_ok=True)
 
                     model_name = "untrained_model_template.pth"
@@ -252,11 +240,8 @@ class VEstimTrainingSetupManager:
                         self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
 
                         # Create model directory for RNN models
-                        model_dir = os.path.join(
-                            self.job_manager.get_job_folder(),
-                            'models',
-                            f'model_{model_type}_hu_{hidden_units}_layers_{layers}'
-                        )
+                        model_dir_name = self._generate_descriptive_folder_name({'MODEL_TYPE': model_type, 'LAYERS': layers, 'HIDDEN_UNITS': hidden_units}, is_model_dir=True)
+                        model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', model_dir_name)
                         os.makedirs(model_dir, exist_ok=True)
 
                         model_name = "untrained_model_template.pth"
@@ -364,6 +349,8 @@ class VEstimTrainingSetupManager:
         grid_param_names = list(param_grid.keys())
         grid_param_values = list(param_grid.values())
         
+        distinct_grid_keys = [key for key, values in param_grid.items() if len(values) > 1]
+
         for model_task in self.models:
             for param_combination_values in product(*grid_param_values):
                 param_combination = dict(zip(grid_param_names, param_combination_values))
@@ -380,7 +367,8 @@ class VEstimTrainingSetupManager:
                         hyperparams=task_hyperparams,
                         repetition=i,
                         job_normalization_metadata=job_normalization_metadata,
-                        max_training_time_seconds_arg=max_training_time_seconds_arg
+                        max_training_time_seconds_arg=max_training_time_seconds_arg,
+                        grid_keys=distinct_grid_keys
                     )
                     task_list.append(task_info)
 
@@ -458,35 +446,47 @@ class VEstimTrainingSetupManager:
         with open(tasks_summary_file, 'w') as f:
             json.dump(serializable_tasks, f, indent=4)
 
-    def _generate_descriptive_folder_name(self, hyperparams, rank=None, n_best=None):
-        """Generates a descriptive folder name from key hyperparameters."""
+    def _generate_descriptive_folder_name(self, hyperparams, grid_keys=None, rank=None, n_best=None, is_model_dir=False):
+        """Generates a descriptive folder name for models and tasks."""
         try:
             model_type = hyperparams.get('MODEL_TYPE', 'MDL')
             
-            # Core parameters
-            lr = float(hyperparams.get('INITIAL_LR', 0))
-            bs = int(hyperparams.get('BATCH_SIZE', 0))
-            lk = int(hyperparams.get('LOOKBACK', 0))
-            
-            name_parts = [f"LR{lr:.1E}", f"BS{bs}", f"LK{lk}"]
+            name_parts = []
 
-            # Model-specific parameters
-            if model_type in ['LSTM', 'GRU']:
-                layers = int(hyperparams.get('LAYERS', 0))
-                hidden_units = int(hyperparams.get('HIDDEN_UNITS', 0))
-                name_parts.insert(0, f"L{layers}")
-                name_parts.insert(1, f"HU{hidden_units}")
-            elif model_type == 'FNN':
-                # Use the resolved units for a more descriptive name
-                fnn_units = hyperparams.get('FNN_UNITS', hyperparams.get('HIDDEN_LAYER_SIZES', []))
-                if isinstance(fnn_units, list):
-                    hidden_layers_str = '_'.join(map(str, fnn_units))
-                else: # Fallback for grid search string format
-                    hidden_layers_str = str(fnn_units).replace(',', '_')
-                name_parts.insert(0, f"FNN_{hidden_layers_str}")
+            # Model-specific parameters for model_dir
+            if is_model_dir:
+                if model_type in ['LSTM', 'GRU']:
+                    layers = int(hyperparams.get('LAYERS', 0))
+                    hidden_units = int(hyperparams.get('HIDDEN_UNITS', 0))
+                    name_parts.extend([f"L{layers}", f"HU{hidden_units}"])
+                elif model_type == 'FNN':
+                    fnn_units = hyperparams.get('FNN_UNITS', hyperparams.get('HIDDEN_LAYER_SIZES', []))
+                    hidden_layers_str = '_'.join(map(str, fnn_units)) if isinstance(fnn_units, list) else str(fnn_units).replace(',', '_')
+                    name_parts.append(f"FNN_{hidden_layers_str}")
+            # Task-specific parameters for task_dir
+            else:
+                if grid_keys and len(grid_keys) > 1:
+                    for key in sorted(grid_keys): # Sort for consistency
+                        if key in hyperparams:
+                            value = hyperparams[key]
+                            prefix = ''.join([c for c in key if c.isupper()]) or key[:2]
+                            name_parts.append(f"{prefix}{value}")
+                else:
+                    lr = float(hyperparams.get('INITIAL_LR', 0))
+                    bs = int(hyperparams.get('BATCH_SIZE', 0))
+                    scheduler_type = hyperparams.get('SCHEDULER_TYPE', 'StepLR')
+                    scheduler_map = {'StepLR': 'SLR', 'ReduceLROnPlateau': 'RLROP', 'CosineAnnealingLR': 'CosAnLR'}
+                    scheduler_name = scheduler_map.get(scheduler_type, scheduler_type)
+                    name_parts.extend([f"B{bs}", f"LR_{scheduler_name}"])
+                    if 'VALID_PATIENCE' not in (grid_keys or []):
+                        vp = hyperparams.get('VALID_PATIENCE', 'N/A')
+                        name_parts.append(f"VP{vp}")
+                    if 'MAX_EPOCHS' not in (grid_keys or []):
+                        me = hyperparams.get('MAX_EPOCHS', 'N/A')
+                        name_parts.append(f"MaxEp{me}")
+
 
             folder_name = '_'.join(name_parts)
-            # Sanitize for filesystem, removing characters that might be problematic
             sanitized_name = folder_name.replace('.', 'p').replace('-', 'n').replace('+', '')
             
             if rank is not None and n_best is not None:
@@ -497,7 +497,7 @@ class VEstimTrainingSetupManager:
             self.logger.error(f"Could not generate descriptive folder name: {e}. Falling back to UUID.")
             return f"task_{uuid.uuid4().hex[:8]}"
 
-    def _create_task_info(self, model_task, hyperparams, repetition, job_normalization_metadata=None, max_training_time_seconds_arg=0, use_model_dir_as_task_dir=False, rank=None, n_best=None):
+    def _create_task_info(self, model_task, hyperparams, repetition, job_normalization_metadata=None, max_training_time_seconds_arg=0, use_model_dir_as_task_dir=False, rank=None, n_best=None, grid_keys=None):
         """Helper method to create a task info dictionary."""
         if job_normalization_metadata is None:
             job_normalization_metadata = {} # Default to empty dict if not provided
@@ -506,7 +506,7 @@ class VEstimTrainingSetupManager:
         is_optuna_task = use_model_dir_as_task_dir
         if is_optuna_task and rank is not None and n_best is not None:
             task_id = f"best_{rank}_of_{n_best}"
-            model_name = self._generate_descriptive_folder_name(hyperparams).replace(f"rank_{rank}_of_{n_best}_", "")
+            model_name = self._generate_descriptive_folder_name(hyperparams, grid_keys=grid_keys).replace(f"rank_{rank}_of_{n_best}_", "")
         else:
             timestamp = time.strftime("%Y%m%d%H%M%S")
             task_counter = getattr(self, '_task_counter', 0) + 1
@@ -514,15 +514,11 @@ class VEstimTrainingSetupManager:
             task_id = f"task_{timestamp}_{task_counter}_rep_{repetition}"
             model_name = None # Not used for grid search in the same way
 
-        if use_model_dir_as_task_dir:
-            # For Optuna final runs, the model_dir is the final task_dir
-            task_dir = model_task['model_dir']
-        else:
-            # For Grid Search, create a nested directory for each specific task run
-            task_dir = os.path.join(
-                model_task['model_dir'],
-                f'{task_id}'
-            )
+        model_dir = model_task['model_dir']
+        task_dir_name = self._generate_descriptive_folder_name(hyperparams, grid_keys=grid_keys)
+        if repetition > 1:
+            task_dir_name += f"_rep_{repetition}"
+        task_dir = os.path.join(model_dir, task_dir_name)
         os.makedirs(task_dir, exist_ok=True)
 
         # Create logs directory within task directory
@@ -575,6 +571,8 @@ class VEstimTrainingSetupManager:
             'NUM_LEARNABLE_PARAMS': num_learnable_params,
         }
         final_hyperparams['normalization_applied'] = job_normalization_metadata.get('normalization_applied', False)
+        final_hyperparams['FEATURE_COLUMNS'] = model_task['FEATURE_COLUMNS']
+        final_hyperparams['TARGET_COLUMN'] = model_task['TARGET_COLUMN']
 
         # Add scheduler-specific params
         if final_hyperparams['SCHEDULER_TYPE'] == 'StepLR':

@@ -18,10 +18,10 @@
             "TRAINING_METHOD": "WholeSequenceFNN",
             "LOOKBACK": "400",
             "BATCH_TRAINING": true,
-            "BATCH_SIZE": "32",
+            "BATCH_SIZE": "512",
             "VALID_PATIENCE": "20",
             "VALID_FREQUENCY": "1",
-            "MAX_EPOCHS": "300",
+            "MAX_EPOCHS": "4",
             "REPETITIONS": 1,
             "MAX_TRAIN_HOURS": "0",
             "MAX_TRAIN_MINUTES": "0",
@@ -35,7 +35,7 @@
             "EXPLOIT_LR": "5e-6",
             "EXPLOIT_PATIENCE": "5",
             "EXPLOIT_FACTOR": "0.5",
-            "FNN_HIDDEN_LAYERS": "128,64",
+            "FNN_HIDDEN_LAYERS": "64,8;32,16",
             "FNN_DROPOUT_PROB": "0.1",
             "MAX_TRAINING_TIME_SECONDS": 0
         }

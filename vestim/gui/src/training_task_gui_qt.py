@@ -111,7 +111,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle(f"VEstim - Training Task {self.current_task_index + 1}")
-        self.setGeometry(100, 100, 900, 600)
+        self.setGeometry(100, 100, 1200, 800)
 
     def build_gui(self, task):
         # Create a main widget to set as central widget in QMainWindow
@@ -125,12 +125,20 @@ class VEstimTrainingTaskGUI(QMainWindow):
         model_type = self.params.get("MODEL_TYPE", "Model")  # Get model type from params
         title_label = QLabel(f"Training {model_type} Model with Hyperparameters")
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
+        title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
         self.main_layout.addWidget(title_label)
 
         # Display hyperparameters
         # Initialize the hyperparameter frame
         self.hyperparam_frame = QFrame(self)
+        self.hyperparam_frame.setObjectName("hyperparamFrame")
+        self.hyperparam_frame.setStyleSheet("""
+            #hyperparamFrame {
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                background-color: #ffffff;
+            }
+        """)
         self.hyperparam_frame.setLayout(QVBoxLayout())
         self.main_layout.addWidget(self.hyperparam_frame)
         self.display_hyperparameters(task['hyperparams'])
@@ -215,6 +223,9 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 widget.deleteLater()
 
         hyperparam_layout = QGridLayout()
+        hyperparam_layout.setContentsMargins(15, 15, 15, 15)
+        hyperparam_layout.setHorizontalSpacing(15)
+        hyperparam_layout.setVerticalSpacing(10)
         
         display_items_ordered = []
         processed_keys = set()
@@ -236,8 +247,13 @@ class VEstimTrainingTaskGUI(QMainWindow):
         train_control_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS']
         # Section 4: Execution Environment
         exec_env_keys = ['DEVICE_SELECTION', 'MAX_TRAINING_TIME_SECONDS']
+        # Section 5: Data Columns
+        data_keys = ['FEATURE_COLUMNS', 'TARGET_COLUMN']
+        
+        self.param_labels['FEATURE_COLUMNS'] = "Feature Columns"
+        self.param_labels['TARGET_COLUMN'] = "Target Column"
 
-        preferred_order = model_arch_keys + train_method_keys + train_control_keys + exec_env_keys
+        preferred_order = model_arch_keys + train_method_keys + train_control_keys + exec_env_keys + data_keys
 
         # Helper to format scheduler string
         def get_scheduler_display_val(params):
@@ -273,10 +289,17 @@ class VEstimTrainingTaskGUI(QMainWindow):
                     if isinstance(max_time_sec, str):
                         try: max_time_sec = int(max_time_sec)
                         except ValueError: max_time_sec = 0
-                    h = max_time_sec // 3600
-                    m = (max_time_sec % 3600) // 60
-                    s = max_time_sec % 60
-                    value = f"{h:02d}H:{m:02d}M:{s:02d}S"
+                    
+                    if max_time_sec > 0:
+                        h = max_time_sec // 3600
+                        m = (max_time_sec % 3600) // 60
+                        s = max_time_sec % 60
+                        value = f"{h:02d}H:{m:02d}M:{s:02d}S"
+                        display_items_ordered.append((label_text, value))
+                    
+                    processed_keys.add(key)
+                    continue # Continue to next key, skipping the generic display logic below
+
                 elif key == 'SCHEDULER_TYPE':
                     value = get_scheduler_display_val(task_params)
                 else:
@@ -289,7 +312,14 @@ class VEstimTrainingTaskGUI(QMainWindow):
                         value_str = str(value)
                 else:
                     value_str = str(value)
-                if isinstance(value, list) and len(value) > 2:
+
+                if key == 'FEATURE_COLUMNS':
+                    features = task_params.get(key, [])
+                    if len(features) > 4:
+                        display_value = f"[{', '.join(features[:4])}, ...]"
+                    else:
+                        display_value = str(features)
+                elif isinstance(value, list) and len(value) > 2:
                     display_value = f"[{value[0]}, {value[1]}, ...]"
                 elif isinstance(value, str) and "," in value_str and key not in ['SCHEDULER_TYPE']: # Don't truncate scheduler string
                     parts = value_str.split(",")
@@ -314,7 +344,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 display_items_ordered.append((label_text, display_value))
 
         # Display items in a grid
-        items_per_row_display = 5
+        items_per_row_display = 4
         for idx, (label, val) in enumerate(display_items_ordered):
             row = idx // items_per_row_display
             col_label = (idx % items_per_row_display) * 2
@@ -322,8 +352,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
             
             param_label_widget = QLabel(f"{label}:")
             value_label_widget = QLabel(str(val))
-            param_label_widget.setStyleSheet("font-size: 10pt;")
-            value_label_widget.setStyleSheet("font-size: 10pt; font-weight: bold;")
+            param_label_widget.setStyleSheet("font-size: 9pt; color: #333;")
+            value_label_widget.setStyleSheet("font-size: 9pt; color: #000000; font-weight: bold;")
 
             hyperparam_layout.addWidget(param_label_widget, row, col_label)
             hyperparam_layout.addWidget(value_label_widget, row, col_value)

@@ -354,8 +354,16 @@ class VEstimTestingManager:
 
                 # Generate shorthand name for the model task
                 # Use the new descriptive names if available (for Optuna), otherwise generate the old ones
-                display_task_id = task.get('task_id_display', task['task_id'])
-                display_model_name = task.get('model_name', self.generate_shorthand_name(task))
+                # The model name is the parent directory of the task directory (e.g., FNN_32_16)
+                task_dir = task.get('task_dir')
+                if task_dir:
+                    display_model_name = os.path.basename(os.path.dirname(task_dir))
+                    # The task name is the descriptive task directory name (e.g., B128_LR_SLR_VP20)
+                    display_task_name = os.path.basename(task_dir)
+                else:
+                    # Fallback for safety
+                    display_model_name = task.get('model_name', self.generate_shorthand_name(task))
+                    display_task_name = task.get('task_id')
 
                 # Best losses are now passed from the training GUI
                 best_train_loss = self.training_results.get(task['task_id'], {}).get('best_train_loss', 'N/A')
@@ -364,7 +372,7 @@ class VEstimTestingManager:
 
                 summary_row = {
                     "Sl.No": f"{idx + 1}.{test_file_index + 1}",
-                    "Task ID": display_task_id,
+                    "Task ID": display_task_name,
                     "Model": display_model_name,
                     "File Name": test_file,
                     "#W&Bs": num_learnable_params,
@@ -381,9 +389,9 @@ class VEstimTestingManager:
                 # Data to send to GUI for this specific test file
                 gui_result_data = {
                     'saved_dir': test_results_dir,
-                    'task_id': display_task_id,
+                    'task_name': display_task_name, # Use the descriptive task name
                     'sl_no': f"{idx + 1}.{test_file_index + 1}", # Unique Sl.No for GUI based on task and test file
-                    'model': display_model_name,
+                    'model_name': display_model_name, # Use the descriptive model name
                     'file_name': test_file, # Current test file name
                     '#params': num_learnable_params,
                     'best_train_loss': best_train_loss,

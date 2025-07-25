@@ -46,7 +46,7 @@ class VEstimHyperParamGUI(QWidget):
     def setup_window(self):
         """Initial setup for the main window appearance."""
         self.setWindowTitle("VEstim - Hyperparameter Selection")
-        self.setGeometry(100, 100, 950, 600)
+        self.setGeometry(100, 100, 1200, 800)
 
         # Load the application icon
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
@@ -149,7 +149,7 @@ class VEstimHyperParamGUI(QWidget):
         # Title & Guide Section
         title_label = QLabel("Select Hyperparameters for Model Training")
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("font-size: 16pt; font-weight: bold; margin-bottom: 10px;")
+        title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
         main_layout.addWidget(title_label)
 
         guide_button = QPushButton("Open Hyperparameter Guide")

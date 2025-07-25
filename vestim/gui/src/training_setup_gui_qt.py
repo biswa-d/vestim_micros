@@ -12,8 +12,8 @@ from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 import logging
 
 class SetupWorker(QThread):
-    progress_signal = pyqtSignal(str, str, int)  # Signal to update the status in the main GUI
-    finished_signal = pyqtSignal()  # Signal when the setup is finished
+    progress_signal = pyqtSignal(str, str, int)
+    finished_signal = pyqtSignal()
 
     def __init__(self, job_manager, optuna_configs=None, base_params=None):
         super().__init__()
@@ -22,7 +22,7 @@ class SetupWorker(QThread):
             raise ValueError("JobManager instance is required.")
         self.job_manager = job_manager
         self.optuna_configs = optuna_configs
-        self.base_params = base_params  # Store base_params
+        self.base_params = base_params
         self.training_setup_manager = VEstimTrainingSetupManager(progress_signal=self.progress_signal, job_manager=self.job_manager)
 
     def run(self):
@@ -31,7 +31,6 @@ class SetupWorker(QThread):
             if self.optuna_configs:
                 self.logger.info("Running setup with Optuna configurations.")
                 optuna_setup_manager = OptunaSetupManager(job_manager=self.job_manager)
-                # Pass both the optimized configs and the base params
                 optuna_setup_manager.setup_training_from_optuna(self.optuna_configs, self.base_params)
                 self.training_setup_manager.training_tasks = optuna_setup_manager.get_task_list()
             else:
@@ -40,7 +39,6 @@ class SetupWorker(QThread):
             
             self.logger.info("Training setup process completed.")
             self.finished_signal.emit()
-
         except Exception as e:
             self.logger.error(f"Error occurred during setup: {str(e)}")
             self.progress_signal.emit(f"Error occurred: {str(e)}", "", 0)
@@ -53,15 +51,11 @@ class VEstimTrainSetupGUI(QWidget):
         self.params = params
 
         if optuna_configs:
-            # Optuna workflow: UI shows search space (from params), tasks created from optuna_configs
             self.param_list = [config['params'] for config in optuna_configs]
             self.is_multiple_configs = True
-            self.logger.info(f"Initialized with {len(self.param_list)} parameter configurations from Optuna.")
         else:
-            # Grid search workflow: UI shows the grid search definition
             self.param_list = [params] if params else []
             self.is_multiple_configs = False
-            self.logger.info("Initialized with single parameter configuration for grid search.")
 
         self.job_manager = job_manager if job_manager else JobManager()
         self.hyper_param_manager = VEstimHyperParamManager(job_manager=self.job_manager)
@@ -82,7 +76,6 @@ class VEstimTrainSetupGUI(QWidget):
         self.start_setup()
 
     def build_gui(self):
-        # Set window title based on search method
         if self.is_multiple_configs:
             self.setWindowTitle("VEstim - Setting Up Training (Optuna Optimized)")
             title_text = f"Building Models and Training Tasks\nwith {len(self.param_list)} Optuna-Optimized Configurations"
@@ -90,130 +83,134 @@ class VEstimTrainSetupGUI(QWidget):
             self.setWindowTitle("VEstim - Setting Up Training (Grid Search)")
             title_text = "Building Models and Training Tasks\nwith Exhaustive Grid Search"
             
-        self.setMinimumSize(900, 600)
-        self.setMaximumSize(900, 600)  # This makes it appear "fixed"
+        self.setGeometry(100, 100, 1200, 800)
         
-        # Main layout
         self.main_layout = QVBoxLayout()
+        self.setLayout(self.main_layout)
 
-        # Title label
+        # --- Top Section ---
+        top_widget = QWidget()
+        top_layout = QVBoxLayout(top_widget)
+        top_layout.setContentsMargins(0, 20, 0, 20)
         title_label = QLabel(title_text)
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("font-size: 14pt; font-weight: bold; color: #3a3a3a;")
-        self.main_layout.addWidget(title_label)
-
-        # Time tracking label
+        title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
+        top_layout.addWidget(title_label)
         time_layout = QHBoxLayout()
+        time_layout.setContentsMargins(0, 10, 0, 10)
         self.static_text_label = QLabel("Time Since Setup Started:")
-        self.static_text_label.setStyleSheet("color: blue; font-size: 10pt;")
+        self.static_text_label.setStyleSheet("color: #555; font-size: 10pt;")
         self.time_value_label = QLabel("00h:00m:00s")
-        self.time_value_label.setStyleSheet("color: purple; font-size: 12pt; font-weight: bold;")
+        self.time_value_label.setStyleSheet("color: #005878; font-size: 12pt; font-weight: bold;")
         time_layout.addStretch(1)
         time_layout.addWidget(self.static_text_label)
         time_layout.addWidget(self.time_value_label)
         time_layout.addStretch(1)
-        self.main_layout.addLayout(time_layout)
+        top_layout.addLayout(time_layout)
+        self.main_layout.addWidget(top_widget)
 
-        # Hyperparameter display area
+        # --- Hyperparameter Section ---
         self.hyperparam_frame = QFrame()
+        self.hyperparam_frame.setObjectName("hyperparamFrame")
+        self.hyperparam_frame.setStyleSheet("""
+            #hyperparamFrame {
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                background-color: #ffffff;
+            }
+        """)
         hyperparam_layout = QGridLayout()
+        hyperparam_layout.setContentsMargins(30, 30, 30, 30)
+        hyperparam_layout.setHorizontalSpacing(25)
+        hyperparam_layout.setVerticalSpacing(20)
         self.display_hyperparameters(hyperparam_layout)
         self.hyperparam_frame.setLayout(hyperparam_layout)
-        self.main_layout.addWidget(self.hyperparam_frame)
-        
-        # Status label
+        h_layout = QHBoxLayout()
+        h_layout.addStretch(1)
+        h_layout.addWidget(self.hyperparam_frame)
+        h_layout.addStretch(1)
+        self.main_layout.addLayout(h_layout)
+
+        # Add stretch to push the bottom content down
+        self.main_layout.addStretch(1)
+
+        # --- Bottom Section ---
+        self.bottom_widget = QWidget()
+        bottom_layout = QVBoxLayout(self.bottom_widget)
+        bottom_layout.setContentsMargins(0, 20, 0, 20)
         self.status_label = QLabel("Setting up training...")
         self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.main_layout.addWidget(self.status_label)
-        # Set the main layout
-        self.setLayout(self.main_layout)
+        bottom_layout.addWidget(self.status_label)
+        self.main_layout.addWidget(self.bottom_widget)
 
     def display_hyperparameters(self, layout):
         items = list(self.params.items())
+        num_cols = 4
+        num_rows = (len(items) + num_cols - 1) // num_cols
 
-        # Iterate through the rows and columns to display hyperparameters
         for i, (param, value) in enumerate(items):
-            row = i // 2
-            col = (i % 2) * 2
-
-            label_text = self.param_labels.get(param, param)
+            row = i % num_rows
+            col = (i // num_rows) * 2
+            label_text = self.param_labels.get(param, param.replace("_", " ").title())
             value_str = str(value)
-
-            # Truncate long value strings for display
-            display_value = ', '.join(value_str.split(',')[:2]) + '...' if ',' in value_str and len(value_str.split(',')) > 2 else value_str
-
             param_label = QLabel(f"{label_text}:")
-            param_label.setStyleSheet("font-size: 10pt; background-color: #f0f0f0; padding: 5px;")
+            param_label.setStyleSheet("font-size: 9pt; color: #333; font-weight: bold;")
+            param_label.setAlignment(Qt.AlignRight | Qt.AlignTop)
+            value_label = QLabel(value_str)
+            value_label.setStyleSheet("font-size: 9pt; color: #005878;")
+            value_label.setWordWrap(True)
+            value_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
             layout.addWidget(param_label, row, col)
-
-            value_label = QLabel(display_value)
-            value_label.setStyleSheet("font-size: 10pt; color: #005878; font-weight: bold; background-color: #f0f0f6; padding: 5px;")
             layout.addWidget(value_label, row, col + 1)
 
+        for c in range(num_cols):
+            layout.setColumnStretch(c * 2, 0)
+            layout.setColumnStretch(c * 2 + 1, 1)
+
     def start_setup(self):
-        # Validate parameters for grid search if not in Optuna flow
         if not self.is_multiple_configs:
             is_valid, error_message = self.hyper_param_manager.validate_for_grid_search(self.params)
             if not is_valid:
                 QMessageBox.critical(self, "Validation Error", error_message)
-                self.close()  # Close the window if validation fails
+                self.close()
                 return
 
-        print("Starting training setup...")
         self.logger.info("Starting training setup...")
         self.start_time = time.time()
-
-        # Ensure the window is fully built and ready
         self.show()
 
-        # Move the training setup to a separate thread
         self.worker = SetupWorker(
             job_manager=self.job_manager,
             optuna_configs=self.optuna_configs,
-            base_params=self.params  # Pass base_params to the worker
+            base_params=self.params
         )
         self.worker.progress_signal.connect(self.update_status)
         self.worker.finished_signal.connect(self.show_proceed_button)
-
-        # Start the worker thread
         self.worker.start()
-        print("Training setup started...")
-
-        # Update elapsed time in the main thread
         self.update_elapsed_time()
 
     def update_status(self, message, path="", task_count=None):
         task_message = f"{task_count} training tasks created,\n" if task_count else ""
-        # Format the status with the job folder and tasks count
         formatted_message = f"{task_message}{message}\n{path}" if path else f"{task_message}{message}"
-
-        # Update the status label with the new message
         self.status_label.setText(formatted_message)
         self.status_label.setStyleSheet("color: green; font-size: 12pt; font-weight: bold;")
 
     def show_proceed_button(self):
         self.logger.info("Training setup complete, showing proceed button.")
-        print("Training setup complete! Enabling proceed button...")
-        # Stop the timer
         self.timer_running = False
-
-        # Cleanup the worker thread
         self.worker.quit()
         self.worker.wait()
 
-        # Calculate the total elapsed time
         elapsed_time = time.time() - self.start_time
         hours, remainder = divmod(elapsed_time, 3600)
         minutes, seconds = divmod(remainder, 60)
         total_time_taken = f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s"
 
-        # Get task count and job folder path
         task_list = self.worker.training_setup_manager.get_task_list() 
         task_count = len(task_list)
         job_folder = self.job_manager.get_job_folder()
 
-        # Final update: tasks created, job folder, and time taken
         formatted_message = f"""
         Setup Complete!<br><br>
         <font color='#FF5733' size='+0'><b>{task_count}</b></font> training tasks created and saved to:<br>
@@ -222,7 +219,6 @@ class VEstimTrainSetupGUI(QWidget):
         """
         self.status_label.setText(formatted_message)
 
-        # Show the proceed button when training setup is done
         proceed_button = QPushButton("Proceed to Training")
         proceed_button.setStyleSheet("""
             background-color: #0b6337; 
@@ -230,27 +226,24 @@ class VEstimTrainSetupGUI(QWidget):
             padding: 10px 20px; 
             color: white;
         """)
-        proceed_button.adjustSize()  # Make sure the button size wraps text appropriately
         proceed_button.clicked.connect(self.transition_to_training_gui)
-        self.auto_proceed_timer.start(60000)  # 60 seconds
+        self.auto_proceed_timer.start(60000)
 
-        # Center the button and control its layout
+        bottom_layout = self.bottom_widget.layout()
         button_layout = QHBoxLayout()
         button_layout.addStretch(1)
         button_layout.addWidget(proceed_button, alignment=Qt.AlignCenter)
         button_layout.addStretch(1)
-        self.main_layout.addLayout(button_layout)
+        bottom_layout.addLayout(button_layout)
 
     def transition_to_training_gui(self):
         try:
-            self.auto_proceed_timer.stop()  # Stop timer if manually clicked or auto-triggered
+            self.auto_proceed_timer.stop()
             task_list = self.worker.training_setup_manager.get_task_list()
             if not task_list:
                 print("No tasks to train.")
                 return
 
-            # Use the fully-resolved hyperparameters from the first task for the GUI
-            # This ensures the task GUI receives a single, valid configuration
             first_task_params = task_list[0]['hyperparams']
             
             self.training_gui = VEstimTrainingTaskGUI(job_manager=self.job_manager, task_list=task_list, params=first_task_params)
@@ -271,14 +264,13 @@ class VEstimTrainSetupGUI(QWidget):
             minutes, seconds = divmod(remainder, 60)
             self.time_value_label.setText(f"{int(hours):02}h:{int(minutes):02}m:{int(seconds):02}s")
             
-            # Schedule the next timer update only if the timer is still running
             if self.timer_running:
                 QTimer.singleShot(1000, self.update_elapsed_time)
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    params = {}  # Assuming you pass hyperparameters here
+    params = {}
     gui = VEstimTrainSetupGUI(params)
     gui.show()
     sys.exit(app.exec_())

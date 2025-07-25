@@ -96,7 +96,7 @@ class DataImportGUI(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("VEstim Modelling Tool")
-        self.setGeometry(100, 100, 1200, 700)
+        self.setGeometry(100, 100, 1200, 800)
 
         # Main layout
         self.central_widget = QWidget(self)
@@ -104,9 +104,9 @@ class DataImportGUI(QMainWindow):
         self.main_layout = QVBoxLayout(self.central_widget)
 
         # Header
-        self.header_label = QLabel("Select training, validation, and test data folders for your LSTM Model", self)
+        self.header_label = QLabel("VEstim Modelling Tool\nData Import and Preparation", self)
         self.header_label.setAlignment(Qt.AlignCenter)
-        self.header_label.setStyleSheet("font-size: 18px; font-weight: bold; color: green;")
+        self.header_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
         self.main_layout.addWidget(self.header_label)
 
         # Training folder section
@@ -497,8 +497,8 @@ class DataImportGUI(QMainWindow):
             
             # Update header text if defaults are loaded
             if self.train_folder_path and self.val_folder_path and self.test_folder_path:
-                self.header_label.setText("Default data folders loaded. Select different folders if needed, or click 'Load and Prepare Files' to proceed.")
-                self.header_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #0b6337;")
+                self.header_label.setText("Default data folders loaded. Select different folders if needed,\nor click 'Load and Prepare Files' to proceed.")
+                self.header_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #0b6337; margin: 10px;")
                 
         except Exception as e:
             logger.error(f"Error loading default settings: {e}")
