@@ -215,8 +215,13 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                 actual_columns_to_normalize = [col for col in feature_columns_for_scaler_basis if col not in normalization_exclude_columns]
                                 self.logger.info(f"Applying user-defined exclusions: {normalization_exclude_columns}")
                             else: # Default exclusions
-                                actual_columns_to_normalize = [col for col in feature_columns_for_scaler_basis if col not in DEFAULT_NORM_EXCLUDE_COLS]
-                                self.logger.info(f"Applying default exclusions: {DEFAULT_NORM_EXCLUDE_COLS}")
+                                # Normalize column names for case-insensitive and space-insensitive comparison
+                                normalized_feature_columns = {col.lower().replace(" ", ""): col for col in feature_columns_for_scaler_basis}
+                                normalized_exclude_cols = {col.lower().replace(" ", "") for col in DEFAULT_NORM_EXCLUDE_COLS}
+                                
+                                columns_to_keep = [original_col for norm_col, original_col in normalized_feature_columns.items() if norm_col not in normalized_exclude_cols]
+                                actual_columns_to_normalize = columns_to_keep
+                                self.logger.info(f"Applying default exclusions (case-insensitive): {DEFAULT_NORM_EXCLUDE_COLS}")
 
                             if not actual_columns_to_normalize:
                                 self.logger.warning("No columns remaining for normalization after exclusions. Skipping normalization.")

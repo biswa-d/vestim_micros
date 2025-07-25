@@ -133,11 +133,20 @@ class DataAugmentService:
             return pd.DataFrame()
 
         time_column = None
-        for col in df.columns:
-            col_lower = col.lower().replace(" ", "")
-            if 'timestamp' in col_lower or 'time' in col_lower or 'date' in col_lower:
-                time_column = col
+        # Prioritize common, exact names first, and ensure they have data
+        preferred_candidates = ['Time', 'Timestamp', 'time', 'timestamp']
+        for col_name in preferred_candidates:
+            if col_name in df.columns and not df[col_name].isnull().all():
+                time_column = col_name
                 break
+        
+        # If no preferred candidate found, search more broadly for a time-like column with data
+        if not time_column:
+            for col in df.columns:
+                col_lower = col.lower().replace(" ", "")
+                if ('timestamp' in col_lower or 'time' in col_lower or 'date' in col_lower) and not df[col].isnull().all():
+                    time_column = col
+                    break
         
         if not time_column:
             self.logger.error("No time column found in DataFrame")
