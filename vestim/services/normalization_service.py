@@ -301,7 +301,7 @@ def transform_data(data_df, scaler, feature_columns, all_numeric_columns=None):
         print(f"Preserved non-normalized columns: {non_transformed_cols}")
         
         # Debug: Check if timestamp columns are preserved
-        timestamp_cols = [col for col in non_transformed_cols if any(ts in col.lower() for ts in ['time', 'timestamp'])]
+        timestamp_cols = [col for col in non_transformed_cols if 'time' in col.lower().replace(" ", "")]
         if timestamp_cols:
             print(f"✓ Timestamp columns preserved: {timestamp_cols}")
         else:

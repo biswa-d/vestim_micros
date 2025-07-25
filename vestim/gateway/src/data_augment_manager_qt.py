@@ -168,7 +168,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
                     for train_file_path_for_stats in train_files_for_stats_calc:
                         try:
                             df_temp_for_stats = pd.read_csv(train_file_path_for_stats)
-                            if resampling_frequency and not df_temp_for_stats.empty:
+                            if resampling_frequency and resampling_frequency != 'None' and not df_temp_for_stats.empty:
                                 df_temp_for_stats = self.service.resample_data(df_temp_for_stats, resampling_frequency)
                             
                             # Also apply filtering during stats calculation pass
@@ -338,7 +338,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
                     actual_resampling_frequency_for_padding = None # Store the frequency used for padding
 
                     # 1. Resampling
-                    if resampling_frequency and df is not None and not df.empty:
+                    if resampling_frequency and resampling_frequency != 'None' and df is not None and not df.empty:
                         self.logger.info(f"DataFrame before resampling for {file_path}:")
                         buffer = io.StringIO()
                         df.info(buf=buffer)

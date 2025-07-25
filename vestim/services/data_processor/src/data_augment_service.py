@@ -133,15 +133,11 @@ class DataAugmentService:
             return pd.DataFrame()
 
         time_column = None
-        for col_name in ['time', 'Time', 'timestamp', 'Timestamp']:
-            if col_name in df.columns:
-                time_column = col_name
+        for col in df.columns:
+            col_lower = col.lower().replace(" ", "")
+            if 'timestamp' in col_lower or 'time' in col_lower or 'date' in col_lower:
+                time_column = col
                 break
-        if not time_column:
-            for col in df.columns:
-                if 'time' in col.lower() or 'date' in col.lower():
-                    time_column = col
-                    break
         
         if not time_column:
             self.logger.error("No time column found in DataFrame")
