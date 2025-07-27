@@ -1,0 +1,48 @@
+{
+    "last_used": {
+        "train_folder": "{PROJECTS_DIR}/data/train_data",
+        "val_folder": "{PROJECTS_DIR}/data/val_data",
+        "test_folder": "{PROJECTS_DIR}/data/test_data",
+        "file_format": "csv",
+        "hyperparams": {
+            "FEATURE_COLUMNS": [
+                "SOC",
+                "Current",
+                "Temp"
+            ],
+            "TARGET_COLUMN": "Voltage",
+            "MODEL_TYPE": "LSTM",
+            "LAYERS": "1",
+            "HIDDEN_UNITS": "10",
+            "TRAINING_METHOD": "Sequence-to-Sequence",
+            "LOOKBACK": "400",
+            "BATCH_TRAINING": true,
+            "BATCH_SIZE": "200",
+            "SCHEDULER_TYPE": "StepLR",
+            "INITIAL_LR": "0.0001",
+            "LR_PARAM": "0.1",
+            "LR_PERIOD": "2",
+            "PLATEAU_PATIENCE": "10",
+            "PLATEAU_FACTOR": "0.1",
+            "VALID_PATIENCE": "10",
+            "VALID_FREQUENCY": "1",
+            "MAX_EPOCHS": "5",
+            "REPETITIONS": 1,
+            "DEVICE_SELECTION": "CPU",
+            "MAX_TRAINING_TIME_SECONDS": 0,
+            "TRAIN_VAL_SPLIT": "0.8",
+            "LR_DROP_FACTOR": "0.5",
+            "LR_DROP_PERIOD": "1",
+            "ValidFrequency": "1",
+            "SEQUENCE_SPLIT_METHOD": "temporal",
+            "MAX_TRAIN_HOURS": "0",
+            "MAX_TRAIN_MINUTES": "30",
+            "MAX_TRAIN_SECONDS": "0"
+        }
+    },
+    "default_folders": {
+        "train_folder": "{PROJECTS_DIR}/data/train_data",
+        "val_folder": "{PROJECTS_DIR}/data/val_data",
+        "test_folder": "{PROJECTS_DIR}/data/test_data"
+    }
+}

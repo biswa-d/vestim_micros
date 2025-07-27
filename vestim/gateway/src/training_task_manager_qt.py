@@ -810,7 +810,7 @@ class TrainingTaskManager:
                             exploit_mode += 1
                             exploit_epochs = hyperparams["EXPLOIT_EPOCHS"]
                             patience_counter = 0  # Reset patience counter
-                            current_patience = exploit_epochs  # Reset patience to exploit_epochs for the cycle
+                            current_patience = exploit_epochs
                             
                             self.logger.info(f"Patience reached at epoch {epoch}. Entering exploit mode iteration {exploit_mode}/{exploit_repetitions}.")
                             self.logger.info(f"Patience counter reset to 0. Current patience set to {current_patience} for exploit phase.")
