@@ -6,6 +6,9 @@ __pycache__/
 # Installer assets
 installer_assets/
 
+# Demo data
+data/
+
 # C extensions
 *.so
 
