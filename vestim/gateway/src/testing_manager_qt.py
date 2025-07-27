@@ -287,10 +287,17 @@ class VEstimTestingManager:
                     unit_suffix = "_mv"
                     csv_unit_display = "(V)"
                     error_unit_display = "(mV)"  # Consistent with training GUI - errors in mV
-                elif "soc" in target_column_name.lower():
+                elif "soc" in target_column_name.lower() or "soe" in target_column_name.lower() or "sop" in target_column_name.lower():
                     unit_suffix = "_percent"
-                    csv_unit_display = "(SOC)"   # Changed from (% SOC)
-                    error_unit_display = "(% SOC)" # Stays as (% SOC) for the error column name
+                    if "soc" in target_column_name.lower():
+                        csv_unit_display = "(SOC)"
+                        error_unit_display = "(% SOC)"
+                    elif "soe" in target_column_name.lower():
+                        csv_unit_display = "(SOE)"
+                        error_unit_display = "(% SOE)"
+                    else: # sop
+                        csv_unit_display = "(SOP)"
+                        error_unit_display = "(% SOP)"
                 elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
                     unit_suffix = "_degC"
                     csv_unit_display = "(Deg C)"   # Match training GUI format
@@ -310,8 +317,8 @@ class VEstimTestingManager:
                 # Apply appropriate multiplier based on target type for consistent error reporting
                 if "voltage" in target_column_name.lower():
                     difference *= 1000  # Convert V difference to mV for CSV display consistency with error metrics
-                elif "soc" in target_column_name.lower() and np.max(np.abs(y_true_scaled)) <= 1.0:
-                    # Check if SOC is in 0-1 range and needs percentage conversion
+                elif ("soc" in target_column_name.lower() or "soe" in target_column_name.lower() or "sop" in target_column_name.lower()) and np.max(np.abs(y_true_scaled)) <= 1.0:
+                    # Check if SOC/SOE/SOP is in 0-1 range and needs percentage conversion
                     difference *= 100  # Convert 0-1 difference to percentage for CSV display
                 
                 # Save predictions with dynamic column names - matching training GUI conventions
@@ -336,12 +343,8 @@ class VEstimTestingManager:
                     f'Predicted {target_column_name} {csv_unit_display}': y_pred_scaled,
                 }
                 
-                if "soc" in target_column_name.lower():
-                    # Use the pre-calculated error from testing_service for SOC
-                    data_for_csv[f'Error {error_unit_display}'] = file_results['error_percent_soc_values']
-                else:
-                    # Use the existing difference calculation for other types
-                    data_for_csv[f'Error {error_unit_display}'] = difference
+                # For all cases, use the calculated and scaled 'difference'
+                data_for_csv[f'Error {error_unit_display}'] = difference
                 
                 pd.DataFrame(data_for_csv).to_csv(predictions_file, index=False)
                 
