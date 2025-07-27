@@ -484,13 +484,13 @@ class TrainingTaskManager:
             self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
             # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
             #self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
-            self.scheduler = torch.optim.lr_scheduler.StepLR(
-                self.optimizer, 
+            main_scheduler = torch.optim.lr_scheduler.StepLR(
+                self.optimizer,
                 step_size=lr_drop_period,  # Number of epochs between drops
                 gamma=lr_drop_factor       # Multiplicative factor for the drop
             )
+            scheduler = main_scheduler  # Start with the main scheduler
             optimizer = self.optimizer
-            scheduler = self.scheduler
 
             # Initialize CSV logging for epoch-wise data
             csv_log_file = task.get('csv_log_file')
@@ -599,9 +599,9 @@ class TrainingTaskManager:
                     if val_loss_norm < best_validation_loss: # best_validation_loss is also on normalized scale
                         print(f"Epoch: {epoch}, Validation loss improved from {best_validation_loss:.6f} to {val_loss_norm:.6f}. Saving model...")
                         best_validation_loss = val_loss_norm
+                        
                         # Save to best_model_path
                         best_model_save_path = task.get('training_params', {}).get('best_model_path')
-                        # Only save the model if the task parameters allow it
                         if best_model_save_path and task.get('training_params', {}).get('save_best_model', True):
                             self.save_model(task, save_path=best_model_save_path)
                             self.logger.info(f"Best model saved to: {best_model_save_path}")
@@ -609,7 +609,16 @@ class TrainingTaskManager:
                             self.logger.info("Model saving is disabled for this task (e.g., Optuna trial).")
                         else:
                             self.logger.warning(f"best_model_path not found in task for epoch {epoch}. Best model not saved.")
+                        
                         patience_counter = 0
+                        
+                        # If we find a better model during exploit mode, revert to the main training phase
+                        # to capitalize on the new discovery with the original training strategy.
+                        if exploit_mode > 0:
+                            self.logger.info(f"New best model found during exploit mode. Reverting to main training phase.")
+                            exploit_mode = 0  # Exit exploit mode
+                            scheduler = main_scheduler  # Revert to the main scheduler
+                            current_patience = valid_patience  # Revert to main patience
                     else:
                         patience_counter += 1
                     # Determine target variable specifics for error reporting
@@ -799,22 +808,29 @@ class TrainingTaskManager:
                         exploit_repetitions = int(hyperparams.get("EXPLOIT_REPETITIONS", 1))
                         if exploit_mode < exploit_repetitions:
                             exploit_mode += 1
-                            patience_counter = 0  # Reset patience for the new exploit cycle
+                            exploit_epochs = int(hyperparams.get("EXPLOIT_EPOCHS", 5))
+                            patience_counter = 0  # Reset patience counter
+                            current_patience = exploit_epochs  # Reset patience to exploit_epochs for the cycle
                             
                             self.logger.info(f"Patience reached at epoch {epoch}. Entering exploit mode iteration {exploit_mode}/{exploit_repetitions}.")
+                            self.logger.info(f"Patience counter reset to 0. Current patience set to {current_patience} for exploit phase.")
                             print(f"Patience reached. Loading best model and reducing LR to exploit best loss surface.")
                             update_progress_callback.emit({'status': f"Patience reached. Exploiting best model..."})
 
                             # Load the best model state from memory or disk
                             best_model_path = task.get('training_params', {}).get('best_model_path')
                             if best_model_path and os.path.exists(best_model_path):
-                                checkpoint = torch.load(best_model_path)
-                                model.load_state_dict(checkpoint['model_state_dict'])
-                                if 'optimizer_state_dict' in checkpoint:
-                                    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                                    self.logger.info(f"Loaded best model and optimizer state_dict from {best_model_path}")
-                                else:
-                                    self.logger.info(f"Loaded best model state_dict from {best_model_path}. Optimizer state not found.")
+                                checkpoint = torch.load(best_model_path, map_location=device)
+                                if 'model_state_dict' in checkpoint:
+                                    model.load_state_dict(checkpoint['model_state_dict'])
+                                    if 'optimizer_state_dict' in checkpoint:
+                                        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                                        self.logger.info(f"Loaded best model and optimizer state_dict from {best_model_path}")
+                                    else:
+                                        self.logger.info(f"Loaded best model state_dict from {best_model_path}. Optimizer state not found.")
+                                else: # Fallback for older model saves
+                                    model.load_state_dict(checkpoint)
+                                    self.logger.info(f"Loaded best model state_dict directly from {best_model_path} (older format).")
                             else:
                                 self.logger.warning("Could not find best model to load for exploit mode. Continuing with current model.")
 
@@ -825,9 +841,7 @@ class TrainingTaskManager:
                             self.logger.info(f"Optimizer LR set to {current_lr} for exploit mode.")
 
                             # Re-initialize scheduler for exploit mode with CosineAnnealingLR
-                            exploit_epochs = int(hyperparams.get("EXPLOIT_EPOCHS", 5))
                             final_lr = float(hyperparams.get("FINAL_LR", 1e-7))
-                            current_patience = exploit_epochs # Use exploit_epochs as patience for this phase
                             self.logger.info(f"Re-initializing scheduler with CosineAnnealingLR for exploit mode. Epochs={exploit_epochs}, Final LR={final_lr}")
                             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                                 optimizer,
