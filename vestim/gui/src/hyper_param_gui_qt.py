@@ -583,7 +583,7 @@ class VEstimHyperParamGUI(QWidget):
         exploit_lr_label.setStyleSheet("font-size: 9pt;")
         exploit_lr_label.setToolTip("Learning rate to use after patience is reached and the best model is reloaded.")
         self.exploit_lr_entry = QLineEdit(self.params.get("EXPLOIT_LR", "1e-5"))
-        self.exploit_lr_entry.setToolTip("Enter a small float value (e.g., 1e-5).")
+        self.exploit_lr_entry.setToolTip("After patience is exhausted, the best model is reloaded and trained with this learning rate.")
         self.param_entries["EXPLOIT_LR"] = self.exploit_lr_entry
 
         # Add Exploit Patience QLineEdit
@@ -591,7 +591,7 @@ class VEstimHyperParamGUI(QWidget):
         exploit_epochs_label.setStyleSheet("font-size: 9pt;")
         exploit_epochs_label.setToolTip("Number of epochs for the Cosine Annealing exploit phase.")
         self.exploit_epochs_entry = QLineEdit(self.params.get("EXPLOIT_EPOCHS", "5"))
-        self.exploit_epochs_entry.setToolTip("Enter an integer (e.g., 5).")
+        self.exploit_epochs_entry.setToolTip("Number of epochs to train from the best state using a Cosine Annealing schedule.")
         self.param_entries["EXPLOIT_EPOCHS"] = self.exploit_epochs_entry
 
         # Add Exploit Factor QLineEdit
@@ -599,14 +599,14 @@ class VEstimHyperParamGUI(QWidget):
         exploit_repetitions_label.setStyleSheet("font-size: 9pt;")
         exploit_repetitions_label.setToolTip("Number of times to repeat the exploit phase.")
         self.exploit_repetitions_entry = QLineEdit(self.params.get("EXPLOIT_REPETITIONS", "1"))
-        self.exploit_repetitions_entry.setToolTip("Enter an integer (e.g., 1).")
+        self.exploit_repetitions_entry.setToolTip("Number of times to repeat the exploit phase if no new best model is found.")
         self.param_entries["EXPLOIT_REPETITIONS"] = self.exploit_repetitions_entry
 
         final_lr_label = QLabel("Final LR:")
         final_lr_label.setStyleSheet("font-size: 9pt;")
         final_lr_label.setToolTip("The final learning rate for the Cosine Annealing scheduler.")
         self.final_lr_entry = QLineEdit(self.params.get("FINAL_LR", "1e-7"))
-        self.final_lr_entry.setToolTip("Enter a float value (e.g., 1e-7).")
+        self.final_lr_entry.setToolTip("The minimum learning rate at the end of the Cosine Annealing cycle.")
         self.param_entries["FINAL_LR"] = self.final_lr_entry
 
         layout.addRow(exploit_lr_label, self.exploit_lr_entry)

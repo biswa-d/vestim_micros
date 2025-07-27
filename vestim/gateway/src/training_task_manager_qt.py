@@ -805,17 +805,17 @@ class TrainingTaskManager:
                     self.logger.info(f"GUI updated for validation epoch {epoch} (ValidFreq={valid_freq})")
 
                     if patience_counter > current_patience:
-                        exploit_repetitions = int(hyperparams.get("EXPLOIT_REPETITIONS", 1))
+                        exploit_repetitions = hyperparams["EXPLOIT_REPETITIONS"]
                         if exploit_mode < exploit_repetitions:
                             exploit_mode += 1
-                            exploit_epochs = int(hyperparams.get("EXPLOIT_EPOCHS", 5))
+                            exploit_epochs = hyperparams["EXPLOIT_EPOCHS"]
                             patience_counter = 0  # Reset patience counter
                             current_patience = exploit_epochs  # Reset patience to exploit_epochs for the cycle
                             
                             self.logger.info(f"Patience reached at epoch {epoch}. Entering exploit mode iteration {exploit_mode}/{exploit_repetitions}.")
                             self.logger.info(f"Patience counter reset to 0. Current patience set to {current_patience} for exploit phase.")
                             print(f"Patience reached. Loading best model and reducing LR to exploit best loss surface.")
-                            update_progress_callback.emit({'status': f"Patience reached. Exploiting best model..."})
+                            update_progress_callback.emit({'status': f"Patience reached. Exploiting for {exploit_repetitions} reps with patience {exploit_epochs} (Rep {exploit_mode})"})
 
                             # Load the best model state from memory or disk
                             best_model_path = task.get('training_params', {}).get('best_model_path')
@@ -835,13 +835,13 @@ class TrainingTaskManager:
                                 self.logger.warning("Could not find best model to load for exploit mode. Continuing with current model.")
 
                             # Set the learning rate to the exploit_lr value
-                            current_lr = float(hyperparams.get("EXPLOIT_LR", 1e-5))
+                            current_lr = hyperparams["EXPLOIT_LR"]
                             for param_group in optimizer.param_groups:
                                 param_group['lr'] = current_lr
                             self.logger.info(f"Optimizer LR set to {current_lr} for exploit mode.")
 
                             # Re-initialize scheduler for exploit mode with CosineAnnealingLR
-                            final_lr = float(hyperparams.get("FINAL_LR", 1e-7))
+                            final_lr = hyperparams["FINAL_LR"]
                             self.logger.info(f"Re-initializing scheduler with CosineAnnealingLR for exploit mode. Epochs={exploit_epochs}, Final LR={final_lr}")
                             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                                 optimizer,
