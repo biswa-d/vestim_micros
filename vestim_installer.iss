@@ -2,7 +2,7 @@
 ; This creates a professional Windows installer
 
 #define MyAppName "Vestim"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "Biswanath Dehury"
 #define MyAppURL "https://github.com/yourusername/vestim"
 #define MyAppExeName "Vestim.exe"

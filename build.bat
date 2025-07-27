@@ -8,13 +8,13 @@ echo This script will create a professional Windows
 echo installer (.exe) for Vestim with user-configurable
 echo project folders and embedded demo data.
 echo.
-pause
+REM pause
 
 REM Check if Python is available
 python --version >nul 2>&1
 if errorlevel 1 (
     echo Error: Python is not installed or not in PATH
-    pause
+    REM pause
     exit /b 1
 )
 
@@ -35,7 +35,7 @@ python build_exe.py
 
 if not exist "dist\Vestim.exe" (
     echo Error: Failed to create executable
-    pause
+    REM pause
     exit /b 1
 )
 
@@ -63,20 +63,20 @@ if errorlevel 1 (
     echo 2. Open vestim_installer.iss in Inno Setup
     echo 3. Click Build to create the installer
     echo.
-    pause
+    REM pause
     exit /b 0
 )
 
 echo Inno Setup found! Creating professional installer...
 iscc vestim_installer.iss
 
-if exist "installer_output\vestim-installer-1.0.0.exe" (
+if exist "installer_output\vestim-installer-2.0.0.exe" (
     echo.
     echo ========================================
     echo SUCCESS! Professional Installer Created!
     echo ========================================
     echo.
-    echo Installer: installer_output\vestim-installer-1.0.0.exe
+    echo Installer: installer_output\vestim-installer-2.0.0.exe
     echo.
     echo Installer Features:
     echo ✓ User selects Vestim installation directory
@@ -110,9 +110,9 @@ if exist "installer_output\vestim-installer-1.0.0.exe" (
 ) else (
     echo Error: Failed to create installer
     echo Check the build log above for errors
-    pause
+    REM pause
     exit /b 1
 )
 
 echo.
-pause
+REM pause

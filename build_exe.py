@@ -274,13 +274,13 @@ StringFileInfo(
   StringTable(
     u'040904B0',
     [StringStruct(u'CompanyName', u'Biswanath Dehury'),
-    StringStruct(u'FileDescription', u'Vestim - Voltage Estimation Tool for Lithium-ion Batteries'),
-    StringStruct(u'FileVersion', u'1.0.0'),
+    StringStruct(u'FileDescription', u'Vestim - Advanced battery modeling with separate train/valid/test datasets and Optuna optimization.'),
+    StringStruct(u'FileVersion', u'2.0.0'),
     StringStruct(u'InternalName', u'Vestim'),
     StringStruct(u'LegalCopyright', u'Copyright (c) 2025 Biswanath Dehury'),
     StringStruct(u'OriginalFilename', u'Vestim.exe'),
     StringStruct(u'ProductName', u'Vestim'),
-    StringStruct(u'ProductVersion', u'1.0.0')])
+    StringStruct(u'ProductVersion', u'2.0.0')])
   ]), 
 VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
   ]
