@@ -1269,6 +1269,17 @@ class TrainingTaskManager:
             hyperparams['LOOKBACK'] = int(lookback_val)
             
         hyperparams['REPETITIONS'] = int(hyperparams['REPETITIONS'])
+
+        # Add conversions for exploit-phase hyperparameters
+        if 'EXPLOIT_EPOCHS' in hyperparams:
+            hyperparams['EXPLOIT_EPOCHS'] = int(hyperparams['EXPLOIT_EPOCHS'])
+        if 'EXPLOIT_REPETITIONS' in hyperparams:
+            hyperparams['EXPLOIT_REPETITIONS'] = int(hyperparams['EXPLOIT_REPETITIONS'])
+        if 'EXPLOIT_LR' in hyperparams:
+            hyperparams['EXPLOIT_LR'] = float(hyperparams['EXPLOIT_LR'])
+        if 'FINAL_LR' in hyperparams:
+            hyperparams['FINAL_LR'] = float(hyperparams['FINAL_LR'])
+            
         return hyperparams
 
     def _convert_boundary_format_params(self, hyperparams):
