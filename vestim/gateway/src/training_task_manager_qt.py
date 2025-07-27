@@ -459,6 +459,7 @@ class TrainingTaskManager:
             max_epochs = hyperparams['MAX_EPOCHS']
             valid_freq = hyperparams.get('VALID_FREQUENCY', 1)
             valid_patience = hyperparams['VALID_PATIENCE']
+            current_patience = valid_patience # Initialize current patience
             #patience_threshold = int(valid_patience * 0.5)
             current_lr = hyperparams['INITIAL_LR']
             lr_drop_period = hyperparams['LR_DROP_PERIOD']
@@ -473,7 +474,7 @@ class TrainingTaskManager:
             loop_start_time = time.time() # Renamed from start_time to avoid confusion with overall training start
             last_validation_time = loop_start_time
             early_stopping = False  # Initialize early stopping flag
-            exploit_mode = False # Initialize exploit mode flag
+            exploit_mode = 0 # Initialize exploit mode counter
 
             # Max training time logic
             max_training_time_seconds = int(task.get('training_params', {}).get('max_training_time_seconds', 0))
@@ -794,12 +795,13 @@ class TrainingTaskManager:
                     update_progress_callback.emit(progress_data)
                     self.logger.info(f"GUI updated for validation epoch {epoch} (ValidFreq={valid_freq})")
 
-                    if patience_counter > valid_patience:
-                        if not exploit_mode:
-                            exploit_mode = True
-                            patience_counter = 0  # Reset patience
+                    if patience_counter > current_patience:
+                        exploit_repetitions = int(hyperparams.get("EXPLOIT_REPETITIONS", 1))
+                        if exploit_mode < exploit_repetitions:
+                            exploit_mode += 1
+                            patience_counter = 0  # Reset patience for the new exploit cycle
                             
-                            self.logger.info(f"Patience reached at epoch {epoch}. Entering exploit mode.")
+                            self.logger.info(f"Patience reached at epoch {epoch}. Entering exploit mode iteration {exploit_mode}/{exploit_repetitions}.")
                             print(f"Patience reached. Loading best model and reducing LR to exploit best loss surface.")
                             update_progress_callback.emit({'status': f"Patience reached. Exploiting best model..."})
 
@@ -825,6 +827,7 @@ class TrainingTaskManager:
                             # Re-initialize scheduler for exploit mode with CosineAnnealingLR
                             exploit_epochs = int(hyperparams.get("EXPLOIT_EPOCHS", 5))
                             final_lr = float(hyperparams.get("FINAL_LR", 1e-7))
+                            current_patience = exploit_epochs # Use exploit_epochs as patience for this phase
                             self.logger.info(f"Re-initializing scheduler with CosineAnnealingLR for exploit mode. Epochs={exploit_epochs}, Final LR={final_lr}")
                             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                                 optimizer,
@@ -846,10 +849,10 @@ class TrainingTaskManager:
                             progress_data['val_rmse_scaled'] = best_val_rmse_for_gui # Use the correct, denormalized best value
                             update_progress_callback.emit(progress_data)
                         else:
-                            # If patience is reached again while in exploit mode, stop.
+                            # If patience is reached and all exploit repetitions are used, stop.
                             early_stopping = True
-                            print(f"Early stopping at epoch {epoch} during exploit mode.")
-                            self.logger.info(f"Early stopping at epoch {epoch} during exploit mode.")
+                            print(f"Early stopping at epoch {epoch} after exhausting exploit repetitions.")
+                            self.logger.info(f"Early stopping at epoch {epoch} after exhausting exploit repetitions.")
                             task['results']['early_stopped_reason'] = 'Patience in Exploit Mode'
                             break
                 
