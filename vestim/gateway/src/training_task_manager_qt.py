@@ -810,20 +810,21 @@ class TrainingTaskManager:
                             )
                             self.logger.info(f"Validation loss after loading best model: {val_loss_after_load:.6f} (Best was: {best_validation_loss:.6f})")
 
-                        # Switch to exploit learning rate
+                        # Switch to exploit learning rate and scheduler
                         exploit_lr = hyperparams.get('EXPLOIT_LR', 1e-5)
-                        for param_group in optimizer.param_groups:
-                            param_group['lr'] = exploit_lr
-                        self.logger.info(f"Switched to exploit learning rate: {exploit_lr}")
+                        exploit_patience = hyperparams.get('EXPLOIT_PATIENCE', 5)
+                        exploit_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=exploit_patience)
+                        
+                        self.logger.info(f"Switched to exploit learning rate: {exploit_lr} with Cosine Annealing for {exploit_patience} epochs.")
                         
                         # Reset patience and continue for a few more epochs
                         patience_counter = 0
-                        exploit_patience = hyperparams.get('EXPLOIT_PATIENCE', 5)
                         for exploit_epoch in range(exploit_patience):
                             # Run a training epoch
                             _, train_loss_norm, _, _ = self.training_service.train_epoch(
                                 model, model_type, train_loader, optimizer, h_s, h_c, epoch + exploit_epoch + 1, device, self.stop_requested, task, verbose=verbose
                             )
+                            exploit_scheduler.step()
                         
                         early_stopping = True # Mark as early stopped after exploit phase
                         self.logger.info("Exploit phase completed. Stopping training.")

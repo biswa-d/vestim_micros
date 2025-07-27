@@ -47,8 +47,12 @@ class ContinuousTestingService:
                 checkpoint = torch.load(model_path, map_location=self.device)
                 
                 # Handle different model save formats
-                if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
-                    # Model saved with state_dict
+                if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                    # Model saved with model_state_dict
+                    self.model_instance = self._create_model_instance(task)
+                    self.model_instance.load_state_dict(checkpoint['model_state_dict'])
+                elif isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+                    # Fallback for older format
                     self.model_instance = self._create_model_instance(task)
                     self.model_instance.load_state_dict(checkpoint['state_dict'])
                 else:
