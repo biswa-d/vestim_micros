@@ -823,12 +823,13 @@ class TrainingTaskManager:
                             self.logger.info(f"Optimizer LR set to {current_lr} for exploit mode.")
 
                             # Re-initialize scheduler for exploit mode with CosineAnnealingLR
-                            exploit_patience = int(hyperparams.get("EXPLOIT_PATIENCE", 5))
-                            self.logger.info(f"Re-initializing scheduler with CosineAnnealingLR for exploit mode. Patience={exploit_patience}")
+                            exploit_epochs = int(hyperparams.get("EXPLOIT_EPOCHS", 5))
+                            final_lr = float(hyperparams.get("FINAL_LR", 1e-7))
+                            self.logger.info(f"Re-initializing scheduler with CosineAnnealingLR for exploit mode. Epochs={exploit_epochs}, Final LR={final_lr}")
                             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                                 optimizer,
-                                T_max=exploit_patience,
-                                eta_min=0
+                                T_max=exploit_epochs,
+                                eta_min=final_lr
                             )
                             
                             # Re-validate immediately to confirm the model has been restored

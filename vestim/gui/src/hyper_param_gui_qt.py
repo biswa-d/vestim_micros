@@ -587,12 +587,12 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["EXPLOIT_LR"] = self.exploit_lr_entry
 
         # Add Exploit Patience QLineEdit
-        exploit_patience_label = QLabel("Exploit Patience:")
-        exploit_patience_label.setStyleSheet("font-size: 9pt;")
-        exploit_patience_label.setToolTip("Patience for ReduceLROnPlateau during exploit mode.")
-        self.exploit_patience_entry = QLineEdit(self.params.get("EXPLOIT_PATIENCE", "5"))
-        self.exploit_patience_entry.setToolTip("Enter an integer (e.g., 5).")
-        self.param_entries["EXPLOIT_PATIENCE"] = self.exploit_patience_entry
+        exploit_epochs_label = QLabel("Exploit Epochs:")
+        exploit_epochs_label.setStyleSheet("font-size: 9pt;")
+        exploit_epochs_label.setToolTip("Number of epochs for the Cosine Annealing exploit phase.")
+        self.exploit_epochs_entry = QLineEdit(self.params.get("EXPLOIT_EPOCHS", "5"))
+        self.exploit_epochs_entry.setToolTip("Enter an integer (e.g., 5).")
+        self.param_entries["EXPLOIT_EPOCHS"] = self.exploit_epochs_entry
 
         # Add Exploit Factor QLineEdit
         exploit_repetitions_label = QLabel("Exploit Repetitions:")
@@ -602,8 +602,16 @@ class VEstimHyperParamGUI(QWidget):
         self.exploit_repetitions_entry.setToolTip("Enter an integer (e.g., 1).")
         self.param_entries["EXPLOIT_REPETITIONS"] = self.exploit_repetitions_entry
 
+        final_lr_label = QLabel("Final LR:")
+        final_lr_label.setStyleSheet("font-size: 9pt;")
+        final_lr_label.setToolTip("The final learning rate for the Cosine Annealing scheduler.")
+        self.final_lr_entry = QLineEdit(self.params.get("FINAL_LR", "1e-7"))
+        self.final_lr_entry.setToolTip("Enter a float value (e.g., 1e-7).")
+        self.param_entries["FINAL_LR"] = self.final_lr_entry
+
         layout.addRow(exploit_lr_label, self.exploit_lr_entry)
-        layout.addRow(exploit_patience_label, self.exploit_patience_entry)
+        layout.addRow(final_lr_label, self.final_lr_entry)
+        layout.addRow(exploit_epochs_label, self.exploit_epochs_entry)
         layout.addRow(exploit_repetitions_label, self.exploit_repetitions_entry)
 
     def add_scheduler_selection(self, layout):
