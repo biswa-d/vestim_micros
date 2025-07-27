@@ -9,6 +9,8 @@ import os
 import sys
 import shutil
 from pathlib import Path
+import datetime
+import subprocess
 
 def prepare_demo_data():
     """Prepare demo data files and documentation for inclusion in the executable"""
@@ -89,9 +91,9 @@ def create_default_settings_template(assets_dir):
     """Create default settings template for the installer"""
     default_settings = {
         "last_used": {
-            "train_folder": "{PROJECTS_DIR}/data/train_data",
-            "val_folder": "{PROJECTS_DIR}/data/val_data",
-            "test_folder": "{PROJECTS_DIR}/data/test_data",
+            "train_folder": "{PROJECTS_DIR}\\data\\train_data",
+            "val_folder": "{PROJECTS_DIR}\\data\\val_data",
+            "test_folder": "{PROJECTS_DIR}\\data\\test_data",
             "file_format": "csv",
             "hyperparams": {
                 "FEATURE_COLUMNS": ["SOC", "Current", "Temp"],
@@ -126,9 +128,9 @@ def create_default_settings_template(assets_dir):
             }
         },
         "default_folders": {
-            "train_folder": "{PROJECTS_DIR}/data/train_data",
-            "val_folder": "{PROJECTS_DIR}/data/val_data",
-            "test_folder": "{PROJECTS_DIR}/data/test_data"
+            "train_folder": "{PROJECTS_DIR}\\data\\train_data",
+            "val_folder": "{PROJECTS_DIR}\\data\\val_data",
+            "test_folder": "{PROJECTS_DIR}\\data\\test_data"
         }
     }
     
@@ -195,10 +197,19 @@ def build_executable():
     if not Path(icon_path).exists():
         icon_path = None
     
+    # Get version, date, and branch for unique naming
+    version = "2.0.0"
+    build_date = datetime.datetime.now().strftime("%Y_%B_%d")
+    try:
+        branch_name = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD']).strip().decode('utf-8')
+    except Exception:
+        branch_name = "unknown"
+    exe_name = f"Vestim_{version}_{build_date}_{branch_name}"
+
     # PyInstaller arguments
     args = [
         main_script,
-        '--name=Vestim',
+        f'--name={exe_name}',
         '--onefile',  # Create single executable
         # Note: Removed --windowed to show console window with logs
         '--add-data=vestim;vestim',  # Include entire vestim package
@@ -237,8 +248,15 @@ def build_executable():
     PyInstaller.__main__.run(args)
     
     print("✓ Executable built successfully!")
-    print(f"✓ Output: dist/Vestim.exe")
+    print(f"✓ Output: dist/{exe_name}.exe")
     print(f"✓ Installer assets included from: {assets_dir}")
+
+    # Rename the executable to the standard name for the installer
+    try:
+        shutil.move(f"dist/{exe_name}.exe", "dist/Vestim.exe")
+        print("✓ Renamed executable to Vestim.exe for installer")
+    except Exception as e:
+        print(f"Error renaming executable: {e}")
 
 def create_version_file():
     """Create version file for Windows executable"""
