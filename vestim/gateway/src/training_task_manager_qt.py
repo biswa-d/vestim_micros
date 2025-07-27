@@ -473,6 +473,7 @@ class TrainingTaskManager:
             loop_start_time = time.time() # Renamed from start_time to avoid confusion with overall training start
             last_validation_time = loop_start_time
             early_stopping = False  # Initialize early stopping flag
+            exploit_mode = False # Initialize exploit mode flag
 
             # Max training time logic
             max_training_time_seconds = int(task.get('training_params', {}).get('max_training_time_seconds', 0))
@@ -794,41 +795,62 @@ class TrainingTaskManager:
                     self.logger.info(f"GUI updated for validation epoch {epoch} (ValidFreq={valid_freq})")
 
                     if patience_counter > valid_patience:
-                        self.logger.info(f"Validation patience reached at epoch {epoch}. Loading best model and entering exploit phase.")
-                        
-                        # Load the best model and optimizer state
-                        best_model_path = task.get('training_params', {}).get('best_model_path')
-                        if best_model_path and os.path.exists(best_model_path):
-                            checkpoint = torch.load(best_model_path)
-                            model.load_state_dict(checkpoint['model_state_dict'])
-                            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                            self.logger.info(f"Reloaded best model and optimizer state from {best_model_path}")
+                        if not exploit_mode:
+                            exploit_mode = True
+                            patience_counter = 0  # Reset patience
+                            
+                            self.logger.info(f"Patience reached at epoch {epoch}. Entering exploit mode.")
+                            print(f"Patience reached. Loading best model and reducing LR to exploit best loss surface.")
+                            update_progress_callback.emit({'status': f"Patience reached. Exploiting best model..."})
 
-                            # Immediate validation to confirm correct model loading
-                            val_loss_after_load, _, _ = self.training_service.validate_epoch(
-                                model, model_type, val_loader, None, None, epoch, device, self.stop_requested, task, verbose=verbose
-                            )
-                            self.logger.info(f"Validation loss after loading best model: {val_loss_after_load:.6f} (Best was: {best_validation_loss:.6f})")
+                            # Load the best model state from memory or disk
+                            best_model_path = task.get('training_params', {}).get('best_model_path')
+                            if best_model_path and os.path.exists(best_model_path):
+                                checkpoint = torch.load(best_model_path)
+                                model.load_state_dict(checkpoint['model_state_dict'])
+                                if 'optimizer_state_dict' in checkpoint:
+                                    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                                    self.logger.info(f"Loaded best model and optimizer state_dict from {best_model_path}")
+                                else:
+                                    self.logger.info(f"Loaded best model state_dict from {best_model_path}. Optimizer state not found.")
+                            else:
+                                self.logger.warning("Could not find best model to load for exploit mode. Continuing with current model.")
 
-                        # Switch to exploit learning rate and scheduler
-                        exploit_lr = hyperparams.get('EXPLOIT_LR', 1e-5)
-                        exploit_patience = hyperparams.get('EXPLOIT_PATIENCE', 5)
-                        exploit_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=exploit_patience)
-                        
-                        self.logger.info(f"Switched to exploit learning rate: {exploit_lr} with Cosine Annealing for {exploit_patience} epochs.")
-                        
-                        # Reset patience and continue for a few more epochs
-                        patience_counter = 0
-                        for exploit_epoch in range(exploit_patience):
-                            # Run a training epoch
-                            _, train_loss_norm, _, _ = self.training_service.train_epoch(
-                                model, model_type, train_loader, optimizer, h_s, h_c, epoch + exploit_epoch + 1, device, self.stop_requested, task, verbose=verbose
+                            # Set the learning rate to the exploit_lr value
+                            current_lr = float(hyperparams.get("EXPLOIT_LR", 1e-5))
+                            for param_group in optimizer.param_groups:
+                                param_group['lr'] = current_lr
+                            self.logger.info(f"Optimizer LR set to {current_lr} for exploit mode.")
+
+                            # Re-initialize scheduler for exploit mode with CosineAnnealingLR
+                            exploit_patience = int(hyperparams.get("EXPLOIT_PATIENCE", 5))
+                            self.logger.info(f"Re-initializing scheduler with CosineAnnealingLR for exploit mode. Patience={exploit_patience}")
+                            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                                optimizer,
+                                T_max=exploit_patience,
+                                eta_min=0
                             )
-                            exploit_scheduler.step()
-                        
-                        early_stopping = True # Mark as early stopped after exploit phase
-                        self.logger.info("Exploit phase completed. Stopping training.")
-                        break
+                            
+                            # Re-validate immediately to confirm the model has been restored
+                            self.logger.info("Re-validating the restored model to confirm best state.")
+                            model.eval() # Ensure model is in evaluation mode for re-validation
+                            val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
+                                model, model_type, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task, verbose=False
+                            )
+                            model.train() # Set model back to training mode
+                            self.logger.info(f"Re-validation complete. Loss: {val_loss_norm:.6f}. This should match the best validation loss.")
+                            
+                            # Update the GUI with the re-validated loss to show the drop
+                            progress_data['val_loss'] = val_loss_norm
+                            progress_data['val_rmse_scaled'] = best_val_rmse_for_gui # Use the correct, denormalized best value
+                            update_progress_callback.emit(progress_data)
+                        else:
+                            # If patience is reached again while in exploit mode, stop.
+                            early_stopping = True
+                            print(f"Early stopping at epoch {epoch} during exploit mode.")
+                            self.logger.info(f"Early stopping at epoch {epoch} during exploit mode.")
+                            task['results']['early_stopped_reason'] = 'Patience in Exploit Mode'
+                            break
                 
                 # Log to SQLite for non-validation epochs or if not early stopped on a validation epoch
                 if not early_stopping:

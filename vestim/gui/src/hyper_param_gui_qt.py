@@ -595,16 +595,16 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["EXPLOIT_PATIENCE"] = self.exploit_patience_entry
 
         # Add Exploit Factor QLineEdit
-        exploit_factor_label = QLabel("Exploit Factor:")
-        exploit_factor_label.setStyleSheet("font-size: 9pt;")
-        exploit_factor_label.setToolTip("Factor for ReduceLROnPlateau during exploit mode.")
-        self.exploit_factor_entry = QLineEdit(self.params.get("EXPLOIT_FACTOR", "0.5"))
-        self.exploit_factor_entry.setToolTip("Enter a float value (e.g., 0.5).")
-        self.param_entries["EXPLOIT_FACTOR"] = self.exploit_factor_entry
+        exploit_repetitions_label = QLabel("Exploit Repetitions:")
+        exploit_repetitions_label.setStyleSheet("font-size: 9pt;")
+        exploit_repetitions_label.setToolTip("Number of times to repeat the exploit phase.")
+        self.exploit_repetitions_entry = QLineEdit(self.params.get("EXPLOIT_REPETITIONS", "1"))
+        self.exploit_repetitions_entry.setToolTip("Enter an integer (e.g., 1).")
+        self.param_entries["EXPLOIT_REPETITIONS"] = self.exploit_repetitions_entry
 
         layout.addRow(exploit_lr_label, self.exploit_lr_entry)
         layout.addRow(exploit_patience_label, self.exploit_patience_entry)
-        layout.addRow(exploit_factor_label, self.exploit_factor_entry)
+        layout.addRow(exploit_repetitions_label, self.exploit_repetitions_entry)
 
     def add_scheduler_selection(self, layout):
         """Adds learning rate scheduler selection UI components with dynamic label updates and Initial LR."""
