@@ -582,6 +582,12 @@ class VEstimTrainingSetupManager:
             final_hyperparams['PLATEAU_PATIENCE'] = hyperparams.get('PLATEAU_PATIENCE')
             final_hyperparams['PLATEAU_FACTOR'] = hyperparams.get('PLATEAU_FACTOR')
 
+        # Add exploit-phase parameters
+        final_hyperparams['EXPLOIT_LR'] = hyperparams.get('EXPLOIT_LR')
+        final_hyperparams['EXPLOIT_EPOCHS'] = hyperparams.get('EXPLOIT_EPOCHS')
+        final_hyperparams['EXPLOIT_REPETITIONS'] = hyperparams.get('EXPLOIT_REPETITIONS')
+        final_hyperparams['FINAL_LR'] = hyperparams.get('FINAL_LR')
+
         # Add model-specific and method-specific parameters
         if model_type in ['LSTM', 'GRU']:
             final_hyperparams['HIDDEN_UNITS'] = hidden_units
