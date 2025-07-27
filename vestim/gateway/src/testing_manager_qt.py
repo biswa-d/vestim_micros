@@ -211,29 +211,26 @@ class VEstimTestingManager:
                             raw_df = pd.read_csv(raw_file_path)
                             
                             # Handle different possible timestamp column names
-                            timestamp_columns = ['Timestamp', 'TimeStamp', 'Time', 'timestamp', 'time']
-                            for ts_col in timestamp_columns:
-                                if ts_col in raw_df.columns:
-                                    timestamps = raw_df[ts_col].values
-                                    print(f"Found timestamp column '{ts_col}' in raw file")
+                            for col in raw_df.columns:
+                                if 'time' in col.lower().replace(" ", ""):
+                                    timestamps = raw_df[col].values
+                                    print(f"Found timestamp column '{col}' in raw file")
                                     break
                         else:
                             print(f"Raw file not found or not CSV, falling back to processed file timestamps")
                             # Fallback to processed file timestamps
-                            timestamp_columns = ['Timestamp', 'TimeStamp', 'Time', 'timestamp', 'time']
-                            for ts_col in timestamp_columns:
-                                if ts_col in test_df.columns:
-                                    timestamps = test_df[ts_col].values
-                                    print(f"Found timestamp column '{ts_col}' in processed file")
+                            for col in test_df.columns:
+                                if 'time' in col.lower().replace(" ", ""):
+                                    timestamps = test_df[col].values
+                                    print(f"Found timestamp column '{col}' in processed file")
                                     break
                                     
                     except Exception as e:
                         print(f"Error loading timestamps from raw file: {e}")
                         # Final fallback to processed file
-                        timestamp_columns = ['Timestamp', 'TimeStamp', 'Time', 'timestamp', 'time']
-                        for ts_col in timestamp_columns:
-                            if ts_col in test_df.columns:
-                                timestamps = test_df[ts_col].values
+                        for col in test_df.columns:
+                            if 'time' in col.lower().replace(" ", ""):
+                                timestamps = test_df[col].values
                                 break
                     
                     if timestamps is None:
