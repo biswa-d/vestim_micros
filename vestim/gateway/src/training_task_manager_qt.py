@@ -794,20 +794,39 @@ class TrainingTaskManager:
                     self.logger.info(f"GUI updated for validation epoch {epoch} (ValidFreq={valid_freq})")
 
                     if patience_counter > valid_patience:
-                        early_stopping = True
-                        print(f"Early stopping at epoch {epoch} due to no improvement.")
-                        self.logger.info(f"Early stopping at epoch {epoch} due to no improvement.")
+                        self.logger.info(f"Validation patience reached at epoch {epoch}. Loading best model and entering exploit phase.")
                         
-                        model_memory_usage = torch.cuda.memory_allocated() if torch.cuda.is_available() else sys.getsizeof(model)
-                        model_memory_usage_mb = model_memory_usage / (1024 * 1024)
+                        # Load the best model and optimizer state
+                        best_model_path = task.get('training_params', {}).get('best_model_path')
+                        if best_model_path and os.path.exists(best_model_path):
+                            checkpoint = torch.load(best_model_path)
+                            model.load_state_dict(checkpoint['model_state_dict'])
+                            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                            self.logger.info(f"Reloaded best model and optimizer state from {best_model_path}")
+
+                            # Immediate validation to confirm correct model loading
+                            val_loss_after_load, _, _ = self.training_service.validate_epoch(
+                                model, model_type, val_loader, None, None, epoch, device, self.stop_requested, task, verbose=verbose
+                            )
+                            self.logger.info(f"Validation loss after loading best model: {val_loss_after_load:.6f} (Best was: {best_validation_loss:.6f})")
+
+                        # Switch to exploit learning rate
+                        exploit_lr = hyperparams.get('EXPLOIT_LR', 1e-5)
+                        for param_group in optimizer.param_groups:
+                            param_group['lr'] = exploit_lr
+                        self.logger.info(f"Switched to exploit learning rate: {exploit_lr}")
                         
-                        # self.log_to_sqlite(
-                        #     task=task, epoch=epoch, train_loss=train_loss_norm,
-                        #     val_loss=val_loss_norm, best_val_loss=best_validation_loss,
-                        #     elapsed_time=elapsed_time, avg_batch_time=avg_batch_time,
-                        #     early_stopping=early_stopping, model_memory_usage=round(model_memory_usage_mb, 3),
-                        #     current_lr=current_lr
-                        # )
+                        # Reset patience and continue for a few more epochs
+                        patience_counter = 0
+                        exploit_patience = hyperparams.get('EXPLOIT_PATIENCE', 5)
+                        for exploit_epoch in range(exploit_patience):
+                            # Run a training epoch
+                            _, train_loss_norm, _, _ = self.training_service.train_epoch(
+                                model, model_type, train_loader, optimizer, h_s, h_c, epoch + exploit_epoch + 1, device, self.stop_requested, task, verbose=verbose
+                            )
+                        
+                        early_stopping = True # Mark as early stopped after exploit phase
+                        self.logger.info("Exploit phase completed. Stopping training.")
                         break
                 
                 # Log to SQLite for non-validation epochs or if not early stopped on a validation epoch
@@ -1320,9 +1339,12 @@ class TrainingTaskManager:
                 self.logger.error("No model instance found in task.")
                 raise ValueError("No model instance found in task.")
 
-            # Save full model for internal use (current workflow)
-            torch.save(model, path_to_save) # Use path_to_save
-            self.logger.info(f"Model saved to {path_to_save}") # Log actual save path
+            # Save model and optimizer state
+            torch.save({
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+            }, path_to_save)
+            self.logger.info(f"Model and optimizer state saved to {path_to_save}")
 
             # Save portable version (if this is the best model)
             is_best_model_save = save_path and os.path.basename(save_path) == 'best_model.pth'
