@@ -251,12 +251,7 @@ def build_executable():
     print(f"✓ Output: dist/{exe_name}.exe")
     print(f"✓ Installer assets included from: {assets_dir}")
 
-    # Rename the executable to the standard name for the installer
-    try:
-        shutil.move(f"dist/{exe_name}.exe", "dist/Vestim.exe")
-        print("✓ Renamed executable to Vestim.exe for installer")
-    except Exception as e:
-        print(f"Error renaming executable: {e}")
+    # The uniquely named executable is now kept in the dist folder
 
 def create_version_file():
     """Create version file for Windows executable"""

@@ -88,6 +88,14 @@ class VEstimTrainSetupGUI(QWidget):
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
 
+        # Add a global stylesheet for disabled buttons
+        self.setStyleSheet("""
+            QPushButton:disabled {
+                background-color: #d3d3d3;
+                color: #a9a9a9;
+            }
+        """)
+
         # --- Top Section ---
         top_widget = QWidget()
         top_layout = QVBoxLayout(top_widget)

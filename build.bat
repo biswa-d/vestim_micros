@@ -20,7 +20,9 @@ if errorlevel 1 (
 
 echo.
 echo Step 1: Installing build dependencies...
-python -m pip install --upgrade pip pyinstaller
+python -m ensurepip
+python -m pip install --upgrade pip
+python -m pip install -r build_requirements.txt
 
 echo.
 echo Step 2: Preparing installer assets...

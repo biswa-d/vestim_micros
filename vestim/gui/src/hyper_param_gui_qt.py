@@ -57,7 +57,13 @@ class VEstimHyperParamGUI(QWidget):
         else:
             self.logger.warning("Icon file not found. Make sure 'icon.ico' is in the correct directory.")
         
-        self.setStyleSheet("QToolTip { font-weight: normal; font-size: 10pt; }")
+        self.setStyleSheet("""
+            QToolTip { font-weight: normal; font-size: 10pt; }
+            QPushButton:disabled {
+                background-color: #d3d3d3;
+                color: #a9a9a9;
+            }
+        """)
 
     def load_default_hyperparameters(self):
         """Auto-load default hyperparameters and populate the GUI with column validation"""

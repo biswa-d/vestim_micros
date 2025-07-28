@@ -34,7 +34,7 @@ StringFileInfo(
     StringStruct(u'FileVersion', u'2.0.0'),
     StringStruct(u'InternalName', u'Vestim'),
     StringStruct(u'LegalCopyright', u'Copyright (c) 2025 Biswanath Dehury'),
-    StringStruct(u'OriginalFilename', 'Vestim.exe'),
+    StringStruct(u'OriginalFilename', u'Vestim.exe'),
     StringStruct(u'ProductName', u'Vestim'),
     StringStruct(u'ProductVersion', u'2.0.0')])
   ]), 

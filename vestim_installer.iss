@@ -5,7 +5,7 @@
 #define MyAppVersion "2.0.0"
 #define MyAppPublisher "Biswanath Dehury"
 #define MyAppURL "https://github.com/yourusername/vestim"
-#define MyAppExeName "Vestim.exe"
+#define MyAppExeName "Vestim_2.0.0_2025_July_27_main_train_valid_optuna.exe"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application.

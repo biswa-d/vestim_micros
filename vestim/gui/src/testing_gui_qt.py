@@ -108,6 +108,14 @@ class VEstimTestingGUI(QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
 
+        # Add a global stylesheet for disabled buttons
+        self.setStyleSheet("""
+            QPushButton:disabled {
+                background-color: #d3d3d3;
+                color: #a9a9a9;
+            }
+        """)
+
         title_label = QLabel("Testing Models")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")

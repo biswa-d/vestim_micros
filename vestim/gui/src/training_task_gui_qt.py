@@ -113,6 +113,14 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.setWindowTitle(f"VEstim - Training Task {self.current_task_index + 1}")
         self.setGeometry(100, 100, 1200, 800)
 
+        # Add a global stylesheet for disabled buttons
+        self.setStyleSheet("""
+            QPushButton:disabled {
+                background-color: #d3d3d3;
+                color: #a9a9a9;
+            }
+        """)
+
     def build_gui(self, task):
         # Create a main widget to set as central widget in QMainWindow
         container = QWidget()

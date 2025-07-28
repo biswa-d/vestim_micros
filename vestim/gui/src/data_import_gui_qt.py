@@ -103,6 +103,14 @@ class DataImportGUI(QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
 
+        # Add a global stylesheet for disabled buttons
+        self.setStyleSheet("""
+            QPushButton:disabled {
+                background-color: #d3d3d3;
+                color: #a9a9a9;
+            }
+        """)
+
         # Header
         self.header_label = QLabel("VEstim Modelling Tool\nData Import and Preparation", self)
         self.header_label.setAlignment(Qt.AlignCenter)
