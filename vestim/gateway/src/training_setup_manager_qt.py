@@ -8,6 +8,12 @@ from vestim.services.model_training.src.FNN_model_service import FNNModelService
 from vestim.gateway.src.job_manager_qt import JobManager
 import logging
 import torch
+try:
+    import fireducks.pandas as pd
+    print("Using fireducks.pandas for faster data processing.")
+except ImportError:
+    import pandas as pd
+    print("fireducks.pandas not found, falling back to standard pandas.")
 
 class VEstimTrainingSetupManager:
     _instance = None

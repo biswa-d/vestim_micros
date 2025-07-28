@@ -2,7 +2,12 @@ import time, os, sys, math, json # Added json
 import csv
 import sqlite3
 import torch
-import pandas as pd
+try:
+    import fireducks.pandas as pd
+    print("Using fireducks.pandas for faster data processing.")
+except ImportError:
+    import pandas as pd
+    print("fireducks.pandas not found, falling back to standard pandas.")
 import numpy as np
 from PyQt5.QtCore import QThread, pyqtSignal
 from vestim.gateway.src.job_manager_qt import JobManager
