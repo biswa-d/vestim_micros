@@ -24,30 +24,88 @@ class VEstimHyperParamManager:
     def validate_for_optuna(self, params):
         """
         Performs strict validation for Optuna search.
-        - Allows [min,max] boundary format for tunable parameters.
-        - Allows single values.
-        - Rejects comma-separated lists for tunable parameters.
+        - Enforces [min,max] boundary format for core tunable parameters.
+        - Allows single values for non-core or specified flexible parameters.
+        - Rejects comma-separated lists for any tunable parameter.
         Returns (bool, str): (is_valid, error_message)
         """
         self.logger.info("Performing strict validation for Optuna mode.")
-        tunable_keys = [
-            'LAYERS', 'HIDDEN_UNITS', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS',
-            'BATCH_SIZE', 'MAX_EPOCHS', 'INITIAL_LR', 'LR_PARAM', 'LR_PERIOD',
-            'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'VALID_PATIENCE', 'LOOKBACK',
-            'FNN_DROPOUT_PROB'
-        ]
+        
         model_type = params.get('MODEL_TYPE')
-        for key, value in params.items():
-            if key in tunable_keys and isinstance(value, str):
-                if model_type == 'FNN' and key == 'LOOKBACK':
+        scheduler_type = params.get('SCHEDULER_TYPE')
+        invalid_params = []
+
+        # Define keys that are always required
+        always_required = ['BATCH_SIZE', 'MAX_EPOCHS', 'INITIAL_LR']
+
+        # Define model-specific requirements
+        model_specific_requirements = {
+            'LSTM': ['LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'],
+            'GRU': ['GRU_LAYERS', 'GRU_HIDDEN_UNITS', 'LOOKBACK'],
+            'FNN': ['FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB']
+        }
+
+        # Define scheduler-specific requirements
+        scheduler_specific_requirements = {
+            'StepLR': ['LR_PARAM', 'LR_PERIOD'],
+            'ReduceLROnPlateau': ['PLATEAU_FACTOR', 'PLATEAU_PATIENCE']
+        }
+
+        # Combine all keys that need to be validated for boundary format
+        strictly_bounded_keys = (
+            always_required +
+            model_specific_requirements.get(model_type, []) +
+            scheduler_specific_requirements.get(scheduler_type, [])
+        )
+        
+        flexible_keys = ['VALID_PATIENCE', 'VALID_FREQUENCY']
+        
+        keys_to_validate = strictly_bounded_keys + flexible_keys
+
+        for key in keys_to_validate:
+            value_str = str(params.get(key) or "").strip()
+
+            # Rule 1: Strictly bounded keys must not be empty and must be in boundary format
+            if key in strictly_bounded_keys:
+                if not value_str:
+                    invalid_params.append(f"'{key}' cannot be empty.")
                     continue
-                is_boundary = value.strip().startswith('[') and value.strip().endswith(']')
-                # A comma outside of brackets indicates a grid-search list
-                is_list = ',' in value and not is_boundary
-                if is_list:
-                    msg = f"Invalid format for '{key}' in Auto Search mode. Use [min,max] for ranges or a single value, not a comma-separated list."
+                if not (value_str.startswith('[') and value_str.endswith(']')):
+                    invalid_params.append(f"'{key}' must be in [min,max] format for Auto Search.")
+                    continue
+            
+            # Rule 2: FNN_HIDDEN_LAYERS has its own special validation handled by validate_hyperparameters_for_gui
+            # We just ensure it's not empty here.
+            if key == 'FNN_HIDDEN_LAYERS' and not value_str:
+                invalid_params.append(f"'{key}' cannot be empty.")
+                continue
+
+            # Rule 3: For all tunable keys, comma-separated lists are invalid
+            if ',' in value_str and not (value_str.startswith('[') and value_str.endswith(']')):
+                # This check is now more specific. FNN_HIDDEN_LAYERS for grid search can have commas, but not for Optuna.
+                # The GUI validation should handle the distinction.
+                # For Optuna, we enforce boundaries.
+                msg = f"Invalid format for '{key}' in Auto Search mode. Use [min,max] for ranges or a single value, not a comma-separated list."
+                self.logger.error(msg)
+                return False, msg
+
+            # Rule 3: Flexible keys, if not a boundary, must be a single number
+            if key in flexible_keys and value_str and not (value_str.startswith('[') and value_str.endswith(']')):
+                try:
+                    float(value_str)
+                except ValueError:
+                    msg = f"Invalid format for '{key}': '{value_str}'. It must be a single number or a range like [min,max]."
                     self.logger.error(msg)
                     return False, msg
+
+        if invalid_params:
+            error_message = "The following parameters have errors for Auto Search:\n\n" + "\n".join(invalid_params) + "\n\nPlease correct them to proceed."
+            self.logger.error(error_message)
+            return False, error_message
+
+        if 'OPTIMIZER_TYPE' in params and isinstance(params['OPTIMIZER_TYPE'], str) and ',' in params['OPTIMIZER_TYPE']:
+            return False, "Auto Search (Optuna) does not support multiple optimizers. Please select only one."
+
         return True, ""
 
     def validate_for_grid_search(self, params):
@@ -59,71 +117,90 @@ class VEstimHyperParamManager:
         Returns (bool, str): (is_valid, error_message)
         """
         self.logger.info("Performing strict validation for Grid Search mode.")
-        tunable_keys = [
-            'LAYERS', 'HIDDEN_UNITS', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS',
-            'BATCH_SIZE', 'MAX_EPOCHS', 'INITIAL_LR', 'LR_PARAM', 'LR_PERIOD',
-            'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'VALID_PATIENCE', 'LOOKBACK',
-            'FNN_DROPOUT_PROB'
-        ]
         model_type = params.get('MODEL_TYPE')
-        for key, value in params.items():
-            if key in tunable_keys and isinstance(value, str):
-                if model_type == 'FNN' and key == 'LOOKBACK':
-                    continue
+        scheduler_type = params.get('SCHEDULER_TYPE')
+
+        # Define common tunable keys
+        common_tunable_keys = ['BATCH_SIZE', 'MAX_EPOCHS', 'INITIAL_LR', 'VALID_PATIENCE']
+
+        # Define model-specific tunable keys
+        model_specific_tunable_keys = {
+            'LSTM': ['LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'],
+            'GRU': ['GRU_LAYERS', 'GRU_HIDDEN_UNITS', 'LOOKBACK'],
+            'FNN': ['FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB']
+        }
+
+        # Define scheduler-specific tunable keys
+        scheduler_specific_tunable_keys = {
+            'StepLR': ['LR_PARAM', 'LR_PERIOD'],
+            'ReduceLROnPlateau': ['PLATEAU_PATIENCE', 'PLATEAU_FACTOR']
+        }
+
+        # Combine keys based on model and scheduler type
+        tunable_keys = (
+            common_tunable_keys +
+            model_specific_tunable_keys.get(model_type, []) +
+            scheduler_specific_tunable_keys.get(scheduler_type, [])
+        )
+
+        for key in tunable_keys:
+            value = params.get(key)
+            if isinstance(value, str):
                 is_boundary = value.strip().startswith('[') and value.strip().endswith(']')
                 if is_boundary:
-                    msg = f"Invalid format for '{key}' in Exhaustive Search mode. Use comma-separated values for lists, not [min,max]."
-                    self.logger.error(msg)
-                    return False, msg
+                    # FNN_HIDDEN_LAYERS in Optuna format is an exception, but this is for Grid Search
+                    if key == 'FNN_HIDDEN_LAYERS' and value.count('[') == 2 and value.count(']') == 2:
+                         msg = f"Invalid format for '{key}' in Exhaustive Search. For FNN layer ranges, use semicolon-separated lists of units, not Optuna's double-bracket format."
+                         self.logger.error(msg)
+                         return False, msg
+                    elif key != 'FNN_HIDDEN_LAYERS':
+                        msg = f"Invalid format for '{key}' in Exhaustive Search mode. Use comma-separated values for lists, not [min,max]."
+                        self.logger.error(msg)
+                        return False, msg
         return True, ""
-    def validate_hyperparameters_for_gui(self, params):
+    def validate_hyperparameters_for_gui(self, params, search_mode):
         """
         Performs validation specific to the GUI inputs before proceeding.
+        This is particularly for complex fields like FNN_HIDDEN_LAYERS.
         Returns (bool, str): (is_valid, error_message)
         """
         model_type = params.get('MODEL_TYPE')
 
         if model_type == 'FNN':
             fnn_hidden_layers_str = params.get('FNN_HIDDEN_LAYERS', '').strip()
-            
-            # Check if the value is intended for Optuna search with the new format
-            if fnn_hidden_layers_str.count('[') == 2 and fnn_hidden_layers_str.count(']') == 2:
+            is_optuna_format = fnn_hidden_layers_str.count('[') == 2 and fnn_hidden_layers_str.count(']') == 2
+            is_grid_format = ';' in fnn_hidden_layers_str or ',' in fnn_hidden_layers_str and not is_optuna_format
+
+            if search_mode == 'optuna':
+                if not is_optuna_format:
+                    return False, "For Auto Search, 'FNN_HIDDEN_LAYERS' must be in the format [min1,min2],[max1,max2]."
                 try:
-                    # Use regex to find all content within brackets
                     import re
                     matches = re.findall(r'\[(.*?)\]', fnn_hidden_layers_str)
-                    
                     if len(matches) != 2:
-                        return False, "Invalid FNN_HIDDEN_LAYERS format. Expected two lists for min and max bounds, e.g., [min1, min2], [max1, max2]."
-
+                        return False, "Invalid FNN_HIDDEN_LAYERS format. Expected two lists for min and max bounds."
                     min_bounds_str, max_bounds_str = matches
-                    
                     min_bounds = [int(x.strip()) for x in min_bounds_str.split(',') if x.strip()]
                     max_bounds = [int(x.strip()) for x in max_bounds_str.split(',') if x.strip()]
-
                     if len(min_bounds) != len(max_bounds):
-                        return False, (f"FNN_HIDDEN_LAYERS dimension mismatch. The number of minimum bounds ({len(min_bounds)}) "
-                                       f"does not match the number of maximum bounds ({len(max_bounds)}).")
-                    
+                        return False, "FNN_HIDDEN_LAYERS dimension mismatch between min and max bounds."
                     if not min_bounds:
                         return False, "FNN_HIDDEN_LAYERS bounds cannot be empty."
+                except (ValueError, IndexError):
+                    return False, "Invalid number format in 'FNN_HIDDEN_LAYERS'. Ensure all bounds are integers."
 
-                except ValueError:
-                    return False, "Invalid number format in FNN_HIDDEN_LAYERS. Ensure all bounds are integers."
-                except Exception as e:
-                    return False, f"Error parsing FNN_HIDDEN_LAYERS: {e}"
-            
-            # Fallback for grid search (comma-separated lists of units)
-            elif fnn_hidden_layers_str:
-                try:
-                    # This handles single or semicolon-separated architectures
-                    architectures = [arch.strip() for arch in fnn_hidden_layers_str.split(';')]
-                    for arch in architectures:
-                        if not arch: continue
-                        # Validate that each part of the architecture is an integer
-                        [int(unit.strip()) for unit in arch.split(',')]
-                except ValueError:
-                    return False, f"Invalid architecture in FNN_HIDDEN_LAYERS for Grid Search: '{arch}'. Each layer size must be an integer."
+            elif search_mode == 'grid':
+                if is_optuna_format:
+                    return False, "For Grid Search, 'FNN_HIDDEN_LAYERS' should be a semicolon-separated list (e.g., '128,64;64,32'), not the [min,max] format."
+                if fnn_hidden_layers_str:
+                    try:
+                        architectures = [arch.strip() for arch in fnn_hidden_layers_str.split(';')]
+                        for arch in architectures:
+                            if not arch: continue
+                            # Validate that each part of the architecture is an integer
+                            [int(unit.strip()) for unit in arch.split(',')]
+                    except ValueError:
+                        return False, f"Invalid architecture in 'FNN_HIDDEN_LAYERS' for Grid Search: '{arch}'. Each layer size must be an integer."
 
         return True, ""
 

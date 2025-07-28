@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QLineEdit, QFileDialog, QMessageBox, QDialog, QGroupBox, QComboBox, QListWidget, QAbstractItemView,QFormLayout, QCheckBox
 )
 from PyQt5.QtCore import Qt, QPropertyAnimation
-from PyQt5.QtGui import QIcon
+from PyQt5.QtGui import QIcon, QColor, QPalette
 
 import pandas as pd
 import torch
@@ -36,6 +36,7 @@ class VEstimHyperParamGUI(QWidget):
         self.job_manager = job_manager if job_manager else JobManager()
         self.hyper_param_manager = VEstimHyperParamManager(job_manager=self.job_manager)
         self.param_entries = {}  # To store the entry widgets for parameters
+        self.error_fields = set() # To track fields with validation errors
 
         self.setup_window()
         self.build_gui()
@@ -340,6 +341,7 @@ class VEstimHyperParamGUI(QWidget):
         self.lookback_label.setStyleSheet("font-size: 9pt;")
         self.lookback_label.setToolTip("Defines how many previous time steps are used for each prediction.")
         self.lookback_entry = QLineEdit(self.params.get("LOOKBACK", "400"))
+        self.lookback_entry.textChanged.connect(self.on_param_text_changed)
 
         # **Batch Training Option (Checkbox)**
         self.batch_training_checkbox = QCheckBox("Enable Batch Training")
@@ -352,6 +354,7 @@ class VEstimHyperParamGUI(QWidget):
         self.batch_size_label.setStyleSheet("font-size: 9pt;")
         self.batch_size_label.setToolTip("Number of samples per batch.")
         self.batch_size_entry = QLineEdit(self.params.get("BATCH_SIZE", "100")) # Default value 100
+        self.batch_size_entry.textChanged.connect(self.on_param_text_changed)
         self.batch_size_entry.setEnabled(True)  # Initially enabled
 
         # ✅ Store references in self.param_entries for easy parameter collection
@@ -454,7 +457,6 @@ class VEstimHyperParamGUI(QWidget):
         # Connect Dropdown to Update Parameters
         self.model_combo.currentIndexChanged.connect(self.update_model_params)
         self.model_combo.currentIndexChanged.connect(self.update_training_method) # Also trigger training method updates
-        self.model_combo.currentIndexChanged.connect(self.on_param_changed)
 
         # **Add Widgets in Order**
         model_layout.addWidget(model_label)
@@ -506,7 +508,7 @@ class VEstimHyperParamGUI(QWidget):
 
             self.lstm_layers_entry = QLineEdit(self.params.get("LAYERS", "1"))
             self.lstm_layers_entry.setToolTip("Enter the number of stacked LSTM layers.\nGrid Search: 1,2,3 | Optuna: [1,5]")
-            self.lstm_layers_entry.textChanged.connect(self.on_param_changed)
+            self.lstm_layers_entry.textChanged.connect(self.on_param_text_changed)
 
             hidden_units_label = QLabel("Hidden Units:")
             hidden_units_label.setStyleSheet("font-size: 9pt;")
@@ -514,7 +516,7 @@ class VEstimHyperParamGUI(QWidget):
 
             self.hidden_units_entry = QLineEdit(self.params.get("HIDDEN_UNITS", "10"))
             self.hidden_units_entry.setToolTip("Enter the number of hidden units per LSTM layer.\nGrid Search: 10,20,50 | Optuna: [10,100]")
-            self.hidden_units_entry.textChanged.connect(self.on_param_changed)
+            self.hidden_units_entry.textChanged.connect(self.on_param_text_changed)
 
             self.model_param_container.addWidget(lstm_layers_label)
             self.model_param_container.addWidget(self.lstm_layers_entry)
@@ -533,7 +535,7 @@ class VEstimHyperParamGUI(QWidget):
 
             self.gru_layers_entry = QLineEdit(self.params.get("GRU_LAYERS", "1"))
             self.gru_layers_entry.setToolTip("Enter the number of stacked GRU layers.")
-            self.gru_layers_entry.textChanged.connect(self.on_param_changed)
+            self.gru_layers_entry.textChanged.connect(self.on_param_text_changed)
 
             gru_hidden_units_label = QLabel("GRU Hidden Units:")
             gru_hidden_units_label.setStyleSheet("font-size: 9pt;")
@@ -541,7 +543,7 @@ class VEstimHyperParamGUI(QWidget):
 
             self.gru_hidden_units_entry = QLineEdit(self.params.get("GRU_HIDDEN_UNITS", "10"))
             self.gru_hidden_units_entry.setToolTip("Enter the number of hidden units per GRU layer.")
-            self.gru_hidden_units_entry.textChanged.connect(self.on_param_changed)
+            self.gru_hidden_units_entry.textChanged.connect(self.on_param_text_changed)
 
             self.model_param_container.addWidget(gru_layers_label)
             self.model_param_container.addWidget(self.gru_layers_entry)
@@ -558,14 +560,14 @@ class VEstimHyperParamGUI(QWidget):
             fnn_hidden_layers_label.setToolTip("Define FNN hidden layer sizes. Single config: 128,64,32. Multiple configs: use semicolons (128,64;100,50,25) or brackets ([128,64,32], [100,50,25]).")
             self.fnn_hidden_layers_entry = QLineEdit(self.params.get("FNN_HIDDEN_LAYERS", "128,64"))
             self.fnn_hidden_layers_entry.setToolTip("Single: '128,64,32' | Multiple with semicolons: '128,64;100,50,25' | Multiple with brackets: '[128,64,32], [100,50,25]'")
-            self.fnn_hidden_layers_entry.textChanged.connect(self.on_param_changed)
+            self.fnn_hidden_layers_entry.textChanged.connect(self.on_param_text_changed)
             
             fnn_dropout_label = QLabel("FNN Dropout Prob:")
             fnn_dropout_label.setStyleSheet("font-size: 9pt;")
             fnn_dropout_label.setToolTip("Dropout probability for FNN layers (0.0 to 1.0).")
             self.fnn_dropout_entry = QLineEdit(self.params.get("FNN_DROPOUT_PROB", "0.1"))
             self.fnn_dropout_entry.setToolTip("e.g., 0.1 for 10% dropout")
-            self.fnn_dropout_entry.textChanged.connect(self.on_param_changed)
+            self.fnn_dropout_entry.textChanged.connect(self.on_param_text_changed)
 
             self.model_param_container.addWidget(fnn_hidden_layers_label)
             self.model_param_container.addWidget(self.fnn_hidden_layers_entry)
@@ -590,6 +592,7 @@ class VEstimHyperParamGUI(QWidget):
         exploit_lr_label.setToolTip("Learning rate to use after patience is reached and the best model is reloaded.")
         self.exploit_lr_entry = QLineEdit(self.params.get("EXPLOIT_LR", "1e-5"))
         self.exploit_lr_entry.setToolTip("After patience is exhausted, the best model is reloaded and trained with this learning rate.")
+        self.exploit_lr_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["EXPLOIT_LR"] = self.exploit_lr_entry
 
         # Add Exploit Patience QLineEdit
@@ -598,6 +601,7 @@ class VEstimHyperParamGUI(QWidget):
         exploit_epochs_label.setToolTip("Number of epochs for the Cosine Annealing exploit phase.")
         self.exploit_epochs_entry = QLineEdit(self.params.get("EXPLOIT_EPOCHS", "5"))
         self.exploit_epochs_entry.setToolTip("Number of epochs to train from the best state using a Cosine Annealing schedule.")
+        self.exploit_epochs_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["EXPLOIT_EPOCHS"] = self.exploit_epochs_entry
 
         # Add Exploit Factor QLineEdit
@@ -606,6 +610,7 @@ class VEstimHyperParamGUI(QWidget):
         exploit_repetitions_label.setToolTip("Number of times to repeat the exploit phase.")
         self.exploit_repetitions_entry = QLineEdit(self.params.get("EXPLOIT_REPETITIONS", "1"))
         self.exploit_repetitions_entry.setToolTip("Number of times to repeat the exploit phase if no new best model is found.")
+        self.exploit_repetitions_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["EXPLOIT_REPETITIONS"] = self.exploit_repetitions_entry
 
         final_lr_label = QLabel("Final LR:")
@@ -613,6 +618,7 @@ class VEstimHyperParamGUI(QWidget):
         final_lr_label.setToolTip("The final learning rate for the Cosine Annealing scheduler.")
         self.final_lr_entry = QLineEdit(self.params.get("FINAL_LR", "1e-7"))
         self.final_lr_entry.setToolTip("The minimum learning rate at the end of the Cosine Annealing cycle.")
+        self.final_lr_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["FINAL_LR"] = self.final_lr_entry
 
         layout.addRow(exploit_lr_label, self.exploit_lr_entry)
@@ -643,7 +649,7 @@ class VEstimHyperParamGUI(QWidget):
         initial_lr_label.setToolTip("The starting learning rate for the optimizer.")
         self.initial_lr_entry = QLineEdit(self.params.get("INITIAL_LR", "0.0001"))
         self.initial_lr_entry.setToolTip("Lower values may stabilize training but slow convergence.")
-        self.initial_lr_entry.textChanged.connect(self.on_param_changed)
+        self.initial_lr_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["INITIAL_LR"] = self.initial_lr_entry
 
         # **StepLR Parameters**
@@ -652,7 +658,7 @@ class VEstimHyperParamGUI(QWidget):
         self.lr_param_label.setToolTip("Factor by which LR is reduced (e.g., 0.1 means LR reduces by 10%).")
         self.lr_param_entry = QLineEdit(self.params.get("LR_DROP_FACTOR", "0.1"))
         self.lr_param_entry.setToolTip("Lower values reduce LR more aggressively.")
-        self.lr_param_entry.textChanged.connect(self.on_param_changed)
+        self.lr_param_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["LR_PARAM"] = self.lr_param_entry
 
         self.lr_period_label = QLabel("LR Drop Period:")
@@ -660,7 +666,7 @@ class VEstimHyperParamGUI(QWidget):
         self.lr_period_label.setToolTip("Number of epochs after which LR is reduced.")
         self.lr_period_entry = QLineEdit(self.params.get("LR_DROP_PERIOD", "10"))
         self.lr_period_entry.setToolTip("Set higher values if you want the LR to stay stable for longer periods.")
-        self.lr_period_entry.textChanged.connect(self.on_param_changed)
+        self.lr_period_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["LR_PERIOD"] = self.lr_period_entry
 
         # **ReduceLROnPlateau Parameters**
@@ -669,7 +675,7 @@ class VEstimHyperParamGUI(QWidget):
         self.plateau_patience_label.setToolTip("Number of epochs to wait before reducing LR if no improvement in validation.")
         self.plateau_patience_entry = QLineEdit(self.params.get("PLATEAU_PATIENCE", "10"))
         self.plateau_patience_entry.setToolTip("Larger values allow longer training before LR adjustment.")
-        self.plateau_patience_entry.textChanged.connect(self.on_param_changed)
+        self.plateau_patience_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["PLATEAU_PATIENCE"] = self.plateau_patience_entry
 
         self.plateau_factor_label = QLabel("Plateau Factor:")
@@ -677,7 +683,7 @@ class VEstimHyperParamGUI(QWidget):
         self.plateau_factor_label.setToolTip("Factor by which LR is reduced when ReduceLROnPlateau is triggered.")
         self.plateau_factor_entry = QLineEdit(self.params.get("PLATEAU_FACTOR", "0.1"))
         self.plateau_factor_entry.setToolTip("Lower values make the LR decrease more significantly.")
-        self.plateau_factor_entry.textChanged.connect(self.on_param_changed)
+        self.plateau_factor_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["PLATEAU_FACTOR"] = self.plateau_factor_entry
 
         # Initially hide all scheduler-specific parameters
@@ -747,7 +753,7 @@ class VEstimHyperParamGUI(QWidget):
         max_epochs_label.setToolTip("Enter maximum training epochs. Use commas for multiple values (e.g., 100,200,500)")
         self.max_epochs_entry = QLineEdit(self.params.get("MAX_EPOCHS", "500"))
         self.max_epochs_entry.setToolTip("Enter maximum training epochs.\nGrid Search: 100,200,500 | Optuna: [100,1000]")
-        self.max_epochs_entry.textChanged.connect(self.on_param_changed)
+        self.max_epochs_entry.textChanged.connect(self.on_param_text_changed)
         validation_form_layout.addRow(max_epochs_label, self.max_epochs_entry)
 
         # **Validation Patience**
@@ -756,6 +762,7 @@ class VEstimHyperParamGUI(QWidget):
         patience_label.setToolTip("Enter validation patience. Use commas for multiple values (e.g., 5,10,15)")
         self.patience_entry = QLineEdit(self.params.get("VALID_PATIENCE", "10"))
         self.patience_entry.setToolTip("Enter validation patience. Use commas for multiple values (e.g., 5,10,15)")
+        self.patience_entry.textChanged.connect(self.on_param_text_changed)
         validation_form_layout.addRow(patience_label, self.patience_entry)
 
         # **Validation Frequency**
@@ -764,6 +771,7 @@ class VEstimHyperParamGUI(QWidget):
         freq_label.setToolTip("Enter validation frequency. Use commas for multiple values (e.g., 1,3,5)")
         self.freq_entry = QLineEdit(self.params.get("ValidFrequency", "1"))
         self.freq_entry.setToolTip("Enter validation frequency. Use commas for multiple values (e.g., 1,3,5)")
+        self.freq_entry.textChanged.connect(self.on_param_text_changed)
         validation_form_layout.addRow(freq_label, self.freq_entry)
 
         # Add Repetitions QLineEdit
@@ -772,6 +780,7 @@ class VEstimHyperParamGUI(QWidget):
         repetitions_label.setToolTip("Number of times to repeat each training task with the same hyperparameters.")
         self.repetitions_entry = QLineEdit(str(self.params.get("REPETITIONS", "1"))) # Default to "1"
         self.repetitions_entry.setToolTip("Enter an integer (e.g., 1, 2, 3).")
+        self.repetitions_entry.textChanged.connect(self.on_param_text_changed)
         validation_form_layout.addRow(repetitions_label, self.repetitions_entry)
 
         # ✅ Store references in self.param_entries for parameter collection
@@ -788,16 +797,19 @@ class VEstimHyperParamGUI(QWidget):
         time_layout = QHBoxLayout()
         self.max_time_hours_entry = QLineEdit(self.params.get("MAX_TRAIN_HOURS", "0"))
         self.max_time_hours_entry.setPlaceholderText("HH")
+        self.max_time_hours_entry.textChanged.connect(self.on_param_text_changed)
         time_layout.addWidget(self.max_time_hours_entry)
         time_layout.addWidget(QLabel("H :"))
         
         self.max_time_minutes_entry = QLineEdit(self.params.get("MAX_TRAIN_MINUTES", "0"))
         self.max_time_minutes_entry.setPlaceholderText("MM")
+        self.max_time_minutes_entry.textChanged.connect(self.on_param_text_changed)
         time_layout.addWidget(self.max_time_minutes_entry)
         time_layout.addWidget(QLabel("M :"))
 
         self.max_time_seconds_entry = QLineEdit(self.params.get("MAX_TRAIN_SECONDS", "0"))
         self.max_time_seconds_entry.setPlaceholderText("SS")
+        self.max_time_seconds_entry.textChanged.connect(self.on_param_text_changed)
         time_layout.addWidget(self.max_time_seconds_entry)
         time_layout.addWidget(QLabel("S"))
         time_layout.addStretch()
@@ -854,6 +866,7 @@ class VEstimHyperParamGUI(QWidget):
         weight_decay_label.setToolTip("L2 penalty (regularization term). Helps prevent overfitting.")
         self.weight_decay_entry = QLineEdit(self.params.get("WEIGHT_DECAY", "0.0"))
         self.weight_decay_entry.setToolTip("Enter a float value (e.g., 0.01).")
+        self.weight_decay_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["WEIGHT_DECAY"] = self.weight_decay_entry
         form_layout.addRow(weight_decay_label, self.weight_decay_entry)
 
@@ -1022,7 +1035,7 @@ class VEstimHyperParamGUI(QWidget):
         # If MAX_TRAINING_TIME_SECONDS is not in params, the QLineEdit defaults (set during creation) will be used.
 
         self.logger.info("GUI successfully updated with loaded parameters.")
-        self.update_auto_search_button_state()
+        # self.update_auto_search_button_state()
 
     def open_guide(self):
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
@@ -1036,15 +1049,29 @@ class VEstimHyperParamGUI(QWidget):
             self.logger.warning("PDF guide not found. Make sure 'hyper_param_guide.pdf' is in the correct directory.")
 
     def proceed_to_auto_search(self):
-        """Handle auto search (Optuna) button click"""
+        """Handle auto search (Optuna) button click with validation."""
+        self.reset_field_styles()
+        
         try:
             new_params = self._collect_basic_params()
             if new_params is None:
                 return
 
-            is_valid, error_message = self._validate_for_optuna()
-            if not is_valid:
-                QMessageBox.warning(self, "Validation Error", error_message)
+            # Perform all validations
+            is_valid_optuna, error_optuna = self.hyper_param_manager.validate_for_optuna(new_params)
+            is_valid_gui, error_gui = self.hyper_param_manager.validate_hyperparameters_for_gui(new_params, search_mode='optuna')
+
+            # Combine error messages
+            all_errors = []
+            if not is_valid_optuna:
+                all_errors.append(error_optuna)
+            if not is_valid_gui:
+                all_errors.append(error_gui)
+            
+            if all_errors:
+                combined_error_message = "\n\n".join(all_errors)
+                self.highlight_error_fields(combined_error_message)
+                QMessageBox.warning(self, "Validation Error", combined_error_message)
                 return
             
             self.hyper_param_manager.update_params(new_params)
@@ -1061,16 +1088,29 @@ class VEstimHyperParamGUI(QWidget):
             QMessageBox.critical(self, "Error", f"Error proceeding to auto search: {str(e)}")
 
     def proceed_to_grid_search(self):
-        """Handle grid search button click (traditional exhaustive search)"""
+        """Handle grid search button click with validation."""
+        self.reset_field_styles()
+        
         try:
-            # Collect and validate parameters for grid search (comma-separated format)
             new_params = self._collect_basic_params()
             if new_params is None:
                 return
 
-            is_valid, error_message = self._validate_for_grid_search()
-            if not is_valid:
-                QMessageBox.warning(self, "Validation Error", error_message)
+            # Perform all validations
+            is_valid_grid, error_grid = self.hyper_param_manager.validate_for_grid_search(new_params)
+            is_valid_gui, error_gui = self.hyper_param_manager.validate_hyperparameters_for_gui(new_params, search_mode='grid')
+
+            # Combine error messages
+            all_errors = []
+            if not is_valid_grid:
+                all_errors.append(error_grid)
+            if not is_valid_gui:
+                all_errors.append(error_gui)
+
+            if all_errors:
+                combined_error_message = "\n\n".join(all_errors)
+                self.highlight_error_fields(combined_error_message)
+                QMessageBox.warning(self, "Validation Error", combined_error_message)
                 return
             
             self.hyper_param_manager.update_params(new_params)
@@ -1241,38 +1281,28 @@ class VEstimHyperParamGUI(QWidget):
             params["MAX_TRAINING_TIME_SECONDS"] = 0
 
 
-    def _validate_for_optuna(self):
-        """Performs strict validation for Optuna search within the GUI."""
-        params = self._collect_basic_params()
-        if not params:
-            return False, "Could not collect parameters from the GUI."
+    def on_param_text_changed(self, text=None):
+        """Resets the style of a QLineEdit when its text is changed."""
+        sender = self.sender()
+        if sender in self.error_fields:
+            sender.setStyleSheet("")
+            self.error_fields.remove(sender)
+
+    def reset_field_styles(self):
+        """Resets the stylesheet for all QLineEdit widgets to default."""
+        for entry in self.param_entries.values():
+            if isinstance(entry, QLineEdit):
+                entry.setStyleSheet("")
+        self.error_fields.clear()
+
+    def highlight_error_fields(self, error_message):
+        """Highlights QLineEdit fields that are mentioned in the error message."""
+        import re
+        # Regex to find capitalized keys like 'LAYERS', 'FNN_HIDDEN_LAYERS', etc.
+        # It looks for single-quoted uppercase words with underscores.
+        error_keys = re.findall(r"'([A-Z_]+)'", error_message)
         
-        # Custom validation for OPTIMIZER_TYPE in Optuna mode
-        if 'OPTIMIZER_TYPE' in params and isinstance(params['OPTIMIZER_TYPE'], str) and ',' in params['OPTIMIZER_TYPE']:
-            return False, "Auto Search (Optuna) does not support multiple optimizers. Please select only one."
-
-        return self.hyper_param_manager.validate_for_optuna(params)
-
-    def _validate_for_grid_search(self):
-        """Performs strict validation for Grid Search within the GUI."""
-        params = self._collect_basic_params()
-        if not params:
-            return False, "Could not collect parameters from the GUI."
-        return self.hyper_param_manager.validate_for_grid_search(params)
-
-    def update_auto_search_button_state(self):
-        """Enable or disable the 'Auto Search' button based on Optuna readiness."""
-        is_ready, _ = self._validate_for_optuna()
-        self.auto_search_button.setEnabled(is_ready)
-        if is_ready:
-            self.auto_search_button.setToolTip("Ready for Optuna search.")
-        else:
-            self.auto_search_button.setToolTip(
-                "Auto Search is disabled.\n"
-                "Please ensure that core hyperparameters for the selected model\n"
-                "(e.g., Layers, Hidden Units, Initial LR) are in the boundary format [min,max]."
-            )
-
-    def on_param_changed(self, text=None): # Add dummy arg to accept signal
-        """Slot to be connected to the textChanged signal of QLineEdit widgets."""
-        pass
+        for key in error_keys:
+            if key in self.param_entries and isinstance(self.param_entries[key], QLineEdit):
+                self.param_entries[key].setStyleSheet("border: 1px solid red;")
+                self.error_fields.add(self.param_entries[key])

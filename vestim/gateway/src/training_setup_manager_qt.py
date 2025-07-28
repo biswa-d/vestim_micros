@@ -318,7 +318,7 @@ class VEstimTrainingSetupManager:
                 repetition=1,  # Each Optuna config is a single task
                 job_normalization_metadata=job_normalization_metadata,
                 max_training_time_seconds_arg=hyperparams.get('MAX_TRAINING_TIME_SECONDS', 0),
-                use_model_dir_as_task_dir=True,  # Prevent nested task folders for Optuna runs
+                is_optuna_task=True,
                 rank=rank,
                 n_best=n_best
             )
@@ -382,7 +382,8 @@ class VEstimTrainingSetupManager:
         input_size = len(hyperparams.get("FEATURE_COLUMNS", []))
         output_size = 1
 
-        model_dir_name = self._generate_descriptive_folder_name(hyperparams, rank, n_best)
+        # For Optuna, the model directory name includes the rank and model architecture
+        model_dir_name = self._generate_descriptive_folder_name(hyperparams, rank=rank, n_best=n_best, is_model_dir=True)
         model_dir = os.path.join(
             self.job_manager.get_job_folder(),
             'models',
@@ -414,7 +415,7 @@ class VEstimTrainingSetupManager:
             'model': model,
             'model_type': model_type,
             'model_dir': model_dir,
-            'task_dir': model_dir,  # Add this line
+            'task_dir': None,  # Task directory will be created later
             "FEATURE_COLUMNS": hyperparams.get("FEATURE_COLUMNS", []),
             "TARGET_COLUMN": hyperparams.get("TARGET_COLUMN", ""),
             'hyperparams': {**model_params, 'model_path': model_path}
@@ -446,80 +447,86 @@ class VEstimTrainingSetupManager:
         with open(tasks_summary_file, 'w') as f:
             json.dump(serializable_tasks, f, indent=4)
 
-    def _generate_descriptive_folder_name(self, hyperparams, grid_keys=None, rank=None, n_best=None, is_model_dir=False):
-        """Generates a descriptive folder name for models and tasks."""
+    def _generate_descriptive_folder_name(self, hyperparams, is_model_dir=False, grid_keys=None, rank=None, n_best=None):
+        """Generates a descriptive folder name for models or tasks."""
         try:
             model_type = hyperparams.get('MODEL_TYPE', 'MDL')
-            
             name_parts = []
 
-            # Model-specific parameters for model_dir
+            # Part 1: Model Architecture Description
             if is_model_dir:
                 if model_type in ['LSTM', 'GRU']:
-                    layers = int(hyperparams.get('LAYERS', 0))
-                    hidden_units = int(hyperparams.get('HIDDEN_UNITS', 0))
-                    name_parts.extend([f"L{layers}", f"HU{hidden_units}"])
+                    layers = int(hyperparams.get('LAYERS', hyperparams.get('GRU_LAYERS', 0)))
+                    hidden_units = int(hyperparams.get('HIDDEN_UNITS', hyperparams.get('GRU_HIDDEN_UNITS', 0)))
+                    name_parts.extend([model_type, f"L{layers}", f"HU{hidden_units}"])
                 elif model_type == 'FNN':
                     fnn_units = hyperparams.get('FNN_UNITS', hyperparams.get('HIDDEN_LAYER_SIZES', []))
                     hidden_layers_str = '_'.join(map(str, fnn_units)) if isinstance(fnn_units, list) else str(fnn_units).replace(',', '_')
                     name_parts.append(f"FNN_{hidden_layers_str}")
-            # Task-specific parameters for task_dir
+            
+            # Part 2: Task-Specific Training Parameter Description
             else:
+                # For grid search, name by the parameters that are changing
                 if grid_keys and len(grid_keys) > 1:
-                    for key in sorted(grid_keys): # Sort for consistency
+                    for key in sorted(grid_keys):
                         if key in hyperparams:
                             value = hyperparams[key]
                             prefix = ''.join([c for c in key if c.isupper()]) or key[:2]
                             name_parts.append(f"{prefix}{value}")
+                # For Optuna or single grid search tasks, use a standard descriptive name
                 else:
-                    lr = float(hyperparams.get('INITIAL_LR', 0))
                     bs = int(hyperparams.get('BATCH_SIZE', 0))
                     scheduler_type = hyperparams.get('SCHEDULER_TYPE', 'StepLR')
-                    scheduler_map = {'StepLR': 'SLR', 'ReduceLROnPlateau': 'RLROP', 'CosineAnnealingLR': 'CosAnLR'}
+                    scheduler_map = {'StepLR': 'SLR', 'ReduceLROnPlateau': 'RLROP'}
                     scheduler_name = scheduler_map.get(scheduler_type, scheduler_type)
                     name_parts.extend([f"B{bs}", f"LR_{scheduler_name}"])
-                    if 'VALID_PATIENCE' not in (grid_keys or []):
-                        vp = hyperparams.get('VALID_PATIENCE', 'N/A')
-                        name_parts.append(f"VP{vp}")
-                    if 'MAX_EPOCHS' not in (grid_keys or []):
-                        me = hyperparams.get('MAX_EPOCHS', 'N/A')
-                        name_parts.append(f"MaxEp{me}")
-
+                    vp = hyperparams.get('VALID_PATIENCE', 'N/A')
+                    name_parts.append(f"VP{vp}")
 
             folder_name = '_'.join(name_parts)
             sanitized_name = folder_name.replace('.', 'p').replace('-', 'n').replace('+', '')
             
-            if rank is not None and n_best is not None:
+            # Prepend rank for Optuna model folders
+            if rank is not None and n_best is not None and is_model_dir:
                 return f"rank_{rank}_of_{n_best}_{sanitized_name}"
+            
             return sanitized_name
             
         except Exception as e:
             self.logger.error(f"Could not generate descriptive folder name: {e}. Falling back to UUID.")
+            if rank is not None:
+                return f"rank_{rank}_of_{n_best}_task_{uuid.uuid4().hex[:8]}"
             return f"task_{uuid.uuid4().hex[:8]}"
 
-    def _create_task_info(self, model_task, hyperparams, repetition, job_normalization_metadata=None, max_training_time_seconds_arg=0, use_model_dir_as_task_dir=False, rank=None, n_best=None, grid_keys=None):
+    def _create_task_info(self, model_task, hyperparams, repetition, job_normalization_metadata=None, max_training_time_seconds_arg=0, is_optuna_task=False, rank=None, n_best=None, grid_keys=None):
         """Helper method to create a task info dictionary."""
         if job_normalization_metadata is None:
-            job_normalization_metadata = {} # Default to empty dict if not provided
+            job_normalization_metadata = {}
+
+        model_dir = model_task['model_dir']
+
+        # Determine the task directory
+        if is_optuna_task:
+            # For Optuna, the task folder is a subfolder of the ranked model folder
+            task_dir_name = self._generate_descriptive_folder_name(hyperparams, is_model_dir=False)
+            task_dir = os.path.join(model_dir, task_dir_name)
+        else:
+            # For Grid Search, the task folder is also a subfolder of the model folder
+            task_dir_name = self._generate_descriptive_folder_name(hyperparams, grid_keys=grid_keys, is_model_dir=False)
+            if repetition > 1:
+                task_dir_name += f"_rep_{repetition}"
+            task_dir = os.path.join(model_dir, task_dir_name)
         
-        # Generate descriptive names if it's an Optuna task
-        is_optuna_task = use_model_dir_as_task_dir
-        if is_optuna_task and rank is not None and n_best is not None:
-            task_id = f"best_{rank}_of_{n_best}"
-            model_name = self._generate_descriptive_folder_name(hyperparams, grid_keys=grid_keys).replace(f"rank_{rank}_of_{n_best}_", "")
+        os.makedirs(task_dir, exist_ok=True)
+
+        # Determine Task ID
+        if is_optuna_task:
+            task_id = f"rank_{rank}_of_{n_best}"
         else:
             timestamp = time.strftime("%Y%m%d%H%M%S")
             task_counter = getattr(self, '_task_counter', 0) + 1
             self._task_counter = task_counter
             task_id = f"task_{timestamp}_{task_counter}_rep_{repetition}"
-            model_name = None # Not used for grid search in the same way
-
-        model_dir = model_task['model_dir']
-        task_dir_name = self._generate_descriptive_folder_name(hyperparams, grid_keys=grid_keys)
-        if repetition > 1:
-            task_dir_name += f"_rep_{repetition}"
-        task_dir = os.path.join(model_dir, task_dir_name)
-        os.makedirs(task_dir, exist_ok=True)
 
         # Create logs directory within task directory
         logs_dir = os.path.join(task_dir, 'logs')
