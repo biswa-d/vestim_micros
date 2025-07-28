@@ -18,7 +18,7 @@
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QFileDialog, QProgressBar, QWidget, QMessageBox, QComboBox, QSizePolicy
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 
-import os, sys
+import os, sys, multiprocessing
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI  # Import the new data augmentation GUI
 from vestim.services.data_processor.src.data_processor_qt_csv import DataProcessorCSV
@@ -569,6 +569,7 @@ class FileOrganizer(QObject):
         self.progress.emit(progress_value)
 
 def main():
+    multiprocessing.freeze_support()
     app = QApplication(sys.argv)
     
     # Initialize configuration manager early

@@ -19,6 +19,17 @@ if errorlevel 1 (
 )
 
 echo.
+echo Cleaning up previous build artifacts...
+if exist build (
+    echo Removing build directory...
+    rmdir /s /q build
+)
+if exist dist (
+    echo Removing dist directory...
+    rmdir /s /q dist
+)
+echo Cleanup complete.
+echo.
 echo Step 1: Installing build dependencies...
 python -m ensurepip
 python -m pip install --upgrade pip
@@ -35,13 +46,13 @@ echo.
 echo Step 3: Building standalone executable...
 python build_exe.py
 
-if not exist "dist\Vestim.exe" (
+if not exist "dist\*.exe" (
     echo Error: Failed to create executable
     REM pause
     exit /b 1
 )
 
-echo ✓ Executable created: dist\Vestim.exe
+echo ✓ Executable created successfully in the 'dist' directory.
 echo ✓ Installer assets embedded in executable
 
 echo.

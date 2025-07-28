@@ -3,14 +3,14 @@
 
 #define MyAppName "Vestim"
 #define MyAppVersion "2.0.0"
-#define MyAppPublisher "Biswanath Dehury"
-#define MyAppURL "https://github.com/yourusername/vestim"
-#define MyAppExeName "Vestim_2.0.0_2025_July_27_main_train_valid_optuna.exe"
+#define MyAppPublisher "B Dehury (battery.mcmaster.ca)"
+#define MyAppURL "https://github.com/biswa-d/vestim_micros"
+#define MyAppExeName "Vestim_2.0.0_2025_July_28_optuna_tested.exe"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application.
 ; Do not use the same AppId value in installers for other applications.
-AppId={{8A8F6C8B-7B5C-4D8E-9F2A-1E3B4C5D6E7F}
+AppId={{8A8F6C8B-7B5C-4D8E-9F2A-1E3B4C5D6E7F}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -24,7 +24,8 @@ AllowNoIcons=yes
 LicenseFile=LICENSE
 InfoBeforeFile=INSTALL_INFO.txt
 OutputDir=installer_output
-OutputBaseFilename=vestim-installer-{#MyAppVersion}
+#define BuildDate GetDateTimeString('yyyy-mm-dd', '-', ':')
+OutputBaseFilename=vestim-installer-{#MyAppVersion}-{#BuildDate}
 SetupIconFile=vestim\gui\resources\icon.ico
 Compression=lzma
 SolidCompression=yes
@@ -37,15 +38,17 @@ ArchitecturesInstallIn64BitMode=x64
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
+Name: "vc2019redist"; Description: "Install Microsoft Visual C++ 2015-2022 Redistributable"; GroupDescription: "Required System Components"; Flags: checkedonce
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1
 
 [Files]
-Source: "dist\Vestim.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "vestim\gui\resources\*"; DestDir: "{app}\resources"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "hyperparams.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Demo data files will be copied to projects folder by installer script
 
 [Icons]
@@ -55,6 +58,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
 
 [Run]
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Microsoft Visual C++ 2015-2022 Redistributable..."; Tasks: vc2019redist; Check: VCRedistNeedsInstallAndDownload
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
@@ -68,6 +72,88 @@ ProjectsFolderPage_SubCaption=Vestim will create a "vestim_projects" folder in t
 [Code]
 var
   ProjectsFolderPage: TInputDirWizardPage;
+
+function VCRedistNeedsInstall: Boolean;
+var
+    Version: String;
+begin
+    Result := not RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Version', Version);
+end;
+
+function DownloadVCRedist(): Boolean;
+var
+  WinHttp: Variant;
+  Stream: Variant;
+  URL, FileName: String;
+begin
+  Result := False;
+  URL := 'https://aka.ms/vs/17/release/vc_redist.x64.exe';
+  FileName := ExpandConstant('{tmp}\vc_redist.x64.exe');
+  
+  try
+    WinHttp := CreateOleObject('WinHttp.WinHttpRequest.5.1');
+    WinHttp.Open('GET', URL, False);
+    WinHttp.Send;
+
+    if WinHttp.Status = 200 then
+    begin
+      Stream := CreateOleObject('Adodb.Stream');
+      Stream.Open;
+      Stream.Write(WinHttp.ResponseBody);
+      Stream.SaveToFile(FileName, 2);
+      Stream.Close;
+      Result := True;
+    end else
+    begin
+      MsgBox('Failed to download a required component (Visual C++ Redistributable). Please check your internet connection and try again.', mbError, MB_OK);
+    end;
+  except
+    MsgBox('An error occurred while downloading a required component (Visual C++ Redistributable). Please check your internet connection and try again.', mbError, MB_OK);
+  end;
+end;
+
+function VCRedistNeedsInstallAndDownload: Boolean;
+begin
+  if VCRedistNeedsInstall() then
+  begin
+    Result := DownloadVCRedist();
+  end
+  else
+  begin
+    Result := False;
+  end;
+end;
+
+procedure CopyFolder(Source, Dest: String);
+var
+  FindRec: TFindRec;
+  SourcePath, DestPath: String;
+begin
+  if FindFirst(Source + '\*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          SourcePath := Source + '\' + FindRec.Name;
+          DestPath := Dest + '\' + FindRec.Name;
+          if FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY = 0 then
+          begin
+            if not DirExists(Dest) then
+              ForceDirectories(Dest);
+            FileCopy(SourcePath, DestPath, False);
+          end
+          else
+          begin
+            CopyFolder(SourcePath, DestPath);
+          end;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
 
 function GetUninstallString(): String;
 var
@@ -147,8 +233,14 @@ begin
     if not DirExists(DataPath + '\test_data') then
       ForceDirectories(DataPath + '\test_data');
     
-    // Copy demo data files from embedded assets (if they exist in the executable)
-    // Note: The demo files are embedded in the executable and will be extracted by the app
+    // Copy demo data files from the installed data folder to the user's project folder
+    // Recursively copy demo data from the installed data folder to the user's project folder
+    if DirExists(AppDir + '\data\train_data') then
+      CopyFolder(AppDir + '\data\train_data', DataPath + '\train_data');
+    if DirExists(AppDir + '\data\val_data') then
+      CopyFolder(AppDir + '\data\val_data', DataPath + '\val_data');
+    if DirExists(AppDir + '\data\test_data') then
+      CopyFolder(AppDir + '\data\test_data', DataPath + '\test_data');
     
     // Escape backslashes for JSON - manual replacement for projects path
     EscapedPath := '';
@@ -229,7 +321,7 @@ begin
   // Create the projects folder selection page (after installation directory)
   ProjectsFolderPage := CreateInputDirPage(wpSelectDir,
     CustomMessage('ProjectsFolderPage_Caption'),
-    CustomMessage('ProjectsFolderPage_Description'), 
+    CustomMessage('ProjectsFolderPage_Description'),
     CustomMessage('ProjectsFolderPage_SubCaption'),
     False, '');
   

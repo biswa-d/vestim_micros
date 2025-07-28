@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 import datetime
 import subprocess
+import torch
 
 def prepare_demo_data():
     """Prepare demo data files and documentation for inclusion in the executable"""
@@ -45,7 +46,7 @@ def prepare_demo_data():
         if train_source.exists():
             train_target = train_dir / "demo_train_data.csv"
             shutil.copy2(train_source, train_target)
-            print(f"✓ Copied training data: {train_target.name}")
+            print(f"Copied training data: {train_target.name}")
         
         # Copy validation data - try to get a file from val_data/raw_data
         val_raw_dir = source_data_dir / "val_data" / "raw_data"
@@ -55,7 +56,7 @@ def prepare_demo_data():
                 val_source = val_files[0]  # Take the first CSV file
                 val_target = val_dir / "demo_validation_data.csv"
                 shutil.copy2(val_source, val_target)
-                print(f"✓ Copied validation data: {val_target.name}")
+                print(f"Copied validation data: {val_target.name}")
         
         # Copy test data - try to get a file from test_data/raw_data
         test_raw_dir = source_data_dir / "test_data" / "raw_data"
@@ -65,16 +66,16 @@ def prepare_demo_data():
                 test_source = test_files[0]  # Take the first CSV file
                 test_target = test_dir / "demo_test_data.csv"
                 shutil.copy2(test_source, test_target)
-                print(f"✓ Copied test data: {test_target.name}")
+                print(f"Copied test data: {test_target.name}")
         
         # Also copy the combined testing file as an alternative
         combined_test_source = source_data_dir / "Combined_Testing31-Aug-2023.csv"
         if combined_test_source.exists():
             combined_test_target = test_dir / "demo_combined_test_data.csv"
             shutil.copy2(combined_test_source, combined_test_target)
-            print(f"✓ Copied combined test data: {combined_test_target.name}")
+            print(f"Copied combined test data: {combined_test_target.name}")
         
-        print(f"✓ Demo data prepared in: {demo_data_dir}")
+        print(f"Demo data prepared in: {demo_data_dir}")
         
     except Exception as e:
         print(f"Warning: Could not prepare some demo files: {e}")
@@ -138,7 +139,7 @@ def create_default_settings_template(assets_dir):
     settings_template = assets_dir / "default_settings_template.json"
     with open(settings_template, 'w') as f:
         json.dump(default_settings, f, indent=4)
-    print(f"✓ Created default settings template: {settings_template}")
+    print(f"Created default settings template: {settings_template}")
 
 def create_user_readme(assets_dir):
     """Copy comprehensive user README to installer assets"""
@@ -148,7 +149,7 @@ def create_user_readme(assets_dir):
         if source_readme.exists():
             target_readme = assets_dir / "USER_README.md"
             shutil.copy2(source_readme, target_readme)
-            print(f"✓ Copied comprehensive user README: {target_readme}")
+            print(f"Copied comprehensive user README: {target_readme}")
             return str(target_readme)
         else:
             print("Warning: USER_README.md not found, creating basic README")
@@ -176,7 +177,7 @@ For detailed instructions, see the full documentation.
             readme_path = assets_dir / "USER_README.md"
             with open(readme_path, 'w') as f:
                 f.write(readme_content)
-            print(f"✓ Created basic user README: {readme_path}")
+            print(f"Created basic user README: {readme_path}")
             return str(readme_path)
             
     except Exception as e:
@@ -206,6 +207,9 @@ def build_executable():
         branch_name = "unknown"
     exe_name = f"Vestim_{version}_{build_date}_{branch_name}"
 
+    # Find torch libs path and add it to binaries
+    torch_lib_path = os.path.join(os.path.dirname(torch.__file__), "lib")
+
     # PyInstaller arguments
     args = [
         main_script,
@@ -231,6 +235,12 @@ def build_executable():
         '--specpath=.',
     ]
     
+    if os.path.exists(torch_lib_path):
+        args.append(f'--add-binary={torch_lib_path}{os.pathsep}torch/lib')
+    
+    # Add the runtime hook
+    args.append('--runtime-hook=runtime_hook.py')
+    
     # Add icon if available
     if icon_path:
         args.append(f'--icon={icon_path}')
@@ -247,9 +257,9 @@ def build_executable():
     # Run PyInstaller
     PyInstaller.__main__.run(args)
     
-    print("✓ Executable built successfully!")
-    print(f"✓ Output: dist/{exe_name}.exe")
-    print(f"✓ Installer assets included from: {assets_dir}")
+    print("Executable built successfully!")
+    print(f"Output: dist/{exe_name}.exe")
+    print(f"Installer assets included from: {assets_dir}")
 
     # The uniquely named executable is now kept in the dist folder
 

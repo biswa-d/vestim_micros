@@ -373,7 +373,7 @@ class TrainingTaskManager:
         """Create data loaders for the current task using separate train, val, test folders."""
         feature_cols = task['data_loader_params']['feature_columns']
         target_col = task['data_loader_params']['target_column']
-        num_workers = int(task['hyperparams'].get('NUM_WORKERS', 4))
+        num_workers = int(task['hyperparams'].get('NUM_WORKERS', 0))
         seed = int(task['hyperparams'].get('SEED', 2000))
         
         training_method = task['hyperparams'].get('TRAINING_METHOD', 'Sequence-to-Sequence') # Default if not present
