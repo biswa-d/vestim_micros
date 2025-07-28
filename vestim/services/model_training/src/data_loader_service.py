@@ -121,52 +121,33 @@ class DataLoaderService:
         valid_sampler = SubsetRandomSampler(valid_indices)
 
         # Create DataLoaders with memory optimization
-        # PYINSTALLER FIX: Disable multiprocessing entirely when running as exe to prevent worker crashes
-        # WINDOWS MULTIPROCESSING FIX: Disable multiprocessing on Windows when PyQt5 is imported to prevent spawn issues
-        import platform
-        
-        if getattr(sys, 'frozen', False):
-            # Running as PyInstaller executable
-            optimized_num_workers = 0
-            self.logger.info("Running as PyInstaller executable - disabled multiprocessing to prevent worker crashes")
-        elif platform.system() == "Windows":
-            # Running on Windows - always disable multiprocessing to prevent spawn issues with GUI applications
-            optimized_num_workers = 0
-            self.logger.info(f"Running on Windows - disabled multiprocessing (original num_workers: {num_workers}) to prevent spawn issues")
-        else:
-            # MEMORY FIX: Adaptive num_workers based on dataset size for optimal memory usage
-            # Large datasets benefit more from reduced workers than parallel loading
-            optimized_num_workers = min(num_workers, 2) if len(dataset) > 100000 else num_workers
-            
-            # CRITICAL: For large datasets, disable multiprocessing entirely to prevent memory duplication
-            if len(dataset) > 1000000:  # > 1M sequences
-                optimized_num_workers = 0
-                self.logger.info(f"Disabled multiprocessing for large dataset ({len(dataset)} sequences) to prevent memory duplication")
-            elif optimized_num_workers != num_workers:
-                self.logger.info(f"Reduced num_workers from {num_workers} to {optimized_num_workers} for dataset memory optimization")
-        
-        # CRITICAL FIX: Set prefetch_factor based on num_workers (must be None when num_workers=0)
-        prefetch_factor_value = 1 if optimized_num_workers > 0 else None
-        
+        # The freeze_support() call in the main script should prevent multiprocessing issues.
+        # We can now safely use num_workers and enable pin_memory for performance.
+        optimized_num_workers = num_workers
+        pin_memory_flag = torch.cuda.is_available()
+        prefetch_factor_value = 2 if optimized_num_workers > 0 else None
+
+        self.logger.info(f"DataLoader settings: num_workers={optimized_num_workers}, pin_memory={pin_memory_flag}")
+
         train_loader = DataLoader(
-            dataset, 
-            batch_size=batch_size, 
-            sampler=train_sampler, 
-            drop_last=True, 
+            dataset,
+            batch_size=batch_size,
+            sampler=train_sampler,
+            drop_last=True,
             num_workers=optimized_num_workers,
-            pin_memory=False,  # Disable pin_memory to reduce GPU memory duplication
-            prefetch_factor=prefetch_factor_value,  # None when num_workers=0, 1 otherwise
-            persistent_workers=False  # Don't keep workers alive between epochs
+            pin_memory=pin_memory_flag,
+            prefetch_factor=prefetch_factor_value,
+            persistent_workers=False if optimized_num_workers == 0 else True
         )
         val_loader = DataLoader(
-            dataset, 
-            batch_size=batch_size, 
-            sampler=valid_sampler, 
-            drop_last=True, 
+            dataset,
+            batch_size=batch_size,
+            sampler=valid_sampler,
+            drop_last=True,
             num_workers=optimized_num_workers,
-            pin_memory=False,
-            prefetch_factor=prefetch_factor_value,  # None when num_workers=0, 1 otherwise
-            persistent_workers=False
+            pin_memory=pin_memory_flag,
+            prefetch_factor=prefetch_factor_value,
+            persistent_workers=False if optimized_num_workers == 0 else True
         )
 
         # Clean up cache variables after DataLoaders are created
@@ -365,33 +346,20 @@ class DataLoaderService:
         # So we shuffle=True for training and False for validation
         shuffle_batches = is_training
         
-        # Optimize num_workers for memory efficiency
-        # PYINSTALLER FIX: Disable multiprocessing entirely when running as exe
-        # WINDOWS MULTIPROCESSING FIX: Disable multiprocessing on Windows when PyQt5 is imported
-        import platform
-        
-        if getattr(sys, 'frozen', False):
-            optimized_num_workers = 0
-            self.logger.info("Running as PyInstaller executable - disabled multiprocessing for FNN DataLoader")
-        elif platform.system() == "Windows":
-            optimized_num_workers = 0
-            self.logger.info(f"Running on Windows - disabled multiprocessing for FNN DataLoader (original num_workers: {num_workers})")
-        else:
-            optimized_num_workers = min(num_workers, 2) if len(dataset) > 100000 else num_workers
-            if len(dataset) > 1000000:
-                optimized_num_workers = 0
-            
-        prefetch_factor_value = 1 if optimized_num_workers > 0 else None
+        # The freeze_support() call in the main script should prevent multiprocessing issues.
+        optimized_num_workers = num_workers
+        pin_memory_flag = torch.cuda.is_available()
+        prefetch_factor_value = 2 if optimized_num_workers > 0 else None
         
         loader = DataLoader(
             dataset,
             batch_size=batch_size,
-            shuffle=shuffle_batches,  # Shuffle batches for training
-            drop_last=True,  # Always drop last incomplete batch for FNN
+            shuffle=shuffle_batches,
+            drop_last=True,
             num_workers=optimized_num_workers,
-            pin_memory=False,
+            pin_memory=pin_memory_flag,
             prefetch_factor=prefetch_factor_value,
-            persistent_workers=False
+            persistent_workers=False if optimized_num_workers == 0 else True
         )
         
         return loader
@@ -548,44 +516,34 @@ class DataLoaderService:
         train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
         val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
         
-        # Optimize num_workers for PyInstaller and memory usage
-        import platform
-        
-        if getattr(sys, 'frozen', False):
-            optimized_num_workers = 0
-            self.logger.info("Running as PyInstaller executable - disabled multiprocessing")
-        elif platform.system() == "Windows":
-            optimized_num_workers = 0
-            self.logger.info("Running on Windows - disabled multiprocessing to avoid GUI import issues")
-        else:
-            optimized_num_workers = min(num_workers, 2) if len(train_dataset) > 100000 else num_workers
-            if len(train_dataset) > 1000000:
-                optimized_num_workers = 0
-                self.logger.info(f"Disabled multiprocessing for large dataset ({len(train_dataset)} sequences)")
-        
-        prefetch_factor_value = 1 if optimized_num_workers > 0 else None
-        
+        # The freeze_support() call in the main script should prevent multiprocessing issues.
+        optimized_num_workers = num_workers
+        pin_memory_flag = torch.cuda.is_available()
+        prefetch_factor_value = 2 if optimized_num_workers > 0 else None
+
+        self.logger.info(f"Temporal DataLoader settings: num_workers={optimized_num_workers}, pin_memory={pin_memory_flag}")
+
         # Create DataLoaders
         train_loader = DataLoader(
             train_dataset,
             batch_size=batch_size,
-            shuffle=True,  # Safe to shuffle within temporal splits
+            shuffle=True,
             drop_last=True,
             num_workers=optimized_num_workers,
-            pin_memory=False,
+            pin_memory=pin_memory_flag,
             prefetch_factor=prefetch_factor_value,
-            persistent_workers=False
+            persistent_workers=False if optimized_num_workers == 0 else True
         )
         
         val_loader = DataLoader(
             val_dataset,
             batch_size=batch_size,
-            shuffle=False,  # No need to shuffle validation data
+            shuffle=False,
             drop_last=True,
             num_workers=optimized_num_workers,
-            pin_memory=False,
+            pin_memory=pin_memory_flag,
             prefetch_factor=prefetch_factor_value,
-            persistent_workers=False
+            persistent_workers=False if optimized_num_workers == 0 else True
         )
         
         # Clean up
@@ -760,7 +718,7 @@ class DataLoaderService:
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
-            pin_memory=True,
+            pin_memory=torch.cuda.is_available(),
             drop_last=True if data_type in ["train", "validation"] else False,  # Drop last for train/val to ensure consistent batch sizes
             prefetch_factor=prefetch_factor_value,
             persistent_workers=False
