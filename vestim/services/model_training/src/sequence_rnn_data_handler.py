@@ -67,166 +67,70 @@ class SequenceRNNDataHandler(BaseDataHandler):
 
     def load_and_process_data(self, folder_path: str, **kwargs) -> tuple[np.ndarray, np.ndarray]:
         """
-        Loads data from CSV files, creates lookback sequences.
-        Memory-optimized approach with pre-allocation and aggressive cleanup.
+        Loads data from CSV files and creates lookback sequences in a memory-efficient manner.
+        This approach pre-calculates the total size needed to avoid large intermediate lists.
         """
         csv_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith('.csv')]
         if not csv_files:
-            if self.logger:
-                self.logger.warning(f"No CSV files found in {folder_path}.")
-            num_features = len(self.feature_cols) if self.feature_cols else 0
-            return np.empty((0, self.lookback, num_features)), np.empty((0,))
+            self.logger.warning(f"No CSV files found in {folder_path}.")
+            return np.empty((0, self.lookback, len(self.feature_cols))), np.empty((0,))
 
-        return self._load_and_process_data_legacy(csv_files)
-
-
-    def _load_and_process_data_legacy(self, csv_files):
-        """
-        Memory-optimized legacy approach - preserves temporal continuity.
-        Supports two modes of operation based on `self.concatenate_raw_data`:
-        1. False (default): Creates sequences from each file, then concatenates these sequence arrays.
-        2. True: Concatenates raw data from all files, then creates sequences from the single large array.
-        
-        Memory optimizations applied:
-        - Pre-allocated numpy arrays (no list-to-array conversion spike)
-        - Immediate cleanup of intermediate variables
-        - Aggressive garbage collection
-        - Dtype optimization
-        - Memory usage logging
-        """
-
-        all_X_data_raw_list = []
-        all_Y_data_raw_list = []
-        
-        all_X_sequences_list = []
-        all_y_sequences_list = []
-        
-        # Track memory usage if logger available
-        initial_memory = None
-        if self.logger:
+        # --- First pass: Calculate total number of sequences to pre-allocate memory ---
+        self.logger.info("Calculating total number of sequences to pre-allocate memory...")
+        total_sequences = 0
+        file_row_counts = {}
+        for file_path in csv_files:
             try:
-                import psutil
-                process = psutil.Process()
-                initial_memory = process.memory_info().rss / 1024 / 1024  # MB
-                self.logger.info(f"Starting memory usage: {initial_memory:.1f} MB")
-            except ImportError:
-                pass
+                # Fast way to get row count without loading the whole file into a DataFrame
+                with open(file_path, 'r') as f:
+                    # Subtract 1 for the header
+                    row_count = sum(1 for row in f) - 1
+                
+                if row_count > self.lookback:
+                    total_sequences += row_count - self.lookback
+                    file_row_counts[file_path] = row_count
+            except Exception as e:
+                self.logger.error(f"Could not read or count rows in {file_path}: {e}")
+                continue
+        
+        if total_sequences == 0:
+            self.logger.warning("No sequences could be created from the provided files.")
+            return np.empty((0, self.lookback, len(self.feature_cols))), np.empty((0,))
 
+        # --- Pre-allocate final arrays ---
+        self.logger.info(f"Pre-allocating memory for a total of {total_sequences} sequences.")
+        X_processed = np.empty((total_sequences, self.lookback, len(self.feature_cols)), dtype=np.float32)
+        y_processed = np.empty((total_sequences,), dtype=np.float32)
+        
+        # --- Second pass: Load data, create sequences, and fill arrays ---
+        current_sequence_idx = 0
         for file_idx, file_path in enumerate(csv_files):
-            if self.logger:
-                self.logger.info(f"Processing file {file_idx+1}/{len(csv_files)}: {file_path}")
-            
+            if file_path not in file_row_counts:
+                continue # Skip files that were invalid in the first pass
+
+            self.logger.info(f"Processing file {file_idx+1}/{len(csv_files)}: {os.path.basename(file_path)}")
             df_selected = self._read_and_select_columns(file_path)
-            if df_selected is None or df_selected.empty:
+            if df_selected is None or df_selected.empty or len(df_selected) <= self.lookback:
                 continue
 
-            # Memory optimization: Use optimal dtypes
-            X_data_file = df_selected[self.feature_cols].values.astype(np.float32)  # Use float32 instead of float64
-            Y_data_file = df_selected[self.target_col].values.astype(np.float32).reshape(-1, 1)
+            X_data_file = df_selected[self.feature_cols].values.astype(np.float32)
+            Y_data_file = df_selected[self.target_col].values.astype(np.float32)
 
-            if self.concatenate_raw_data:
-                all_X_data_raw_list.append(X_data_file)
-                all_Y_data_raw_list.append(Y_data_file)
-            else: # Create sequences per file
-                if X_data_file.shape[0] > self.lookback:
-                    X_file_seq, y_file_seq = self._create_sequences_from_array(X_data_file, Y_data_file.flatten())
-                    if X_file_seq.size > 0:
-                        all_X_sequences_list.append(X_file_seq)
-                        all_y_sequences_list.append(y_file_seq)
-                else:
-                    if self.logger:
-                        self.logger.warning(f"File {file_path} has insufficient data (length {X_data_file.shape[0]}) for lookback {self.lookback}. Skipping sequence creation for this file.")
+            num_file_sequences = len(X_data_file) - self.lookback
             
-            # Aggressive cleanup after each file
-            del df_selected, X_data_file, Y_data_file
+            # Create sequences for this file
+            X_file_seq, y_file_seq = self._create_sequences_from_array(X_data_file, Y_data_file)
+            
+            if X_file_seq.size > 0:
+                # Place the generated sequences directly into the pre-allocated array
+                end_idx = current_sequence_idx + num_file_sequences
+                X_processed[current_sequence_idx:end_idx] = X_file_seq
+                y_processed[current_sequence_idx:end_idx] = y_file_seq
+                current_sequence_idx = end_idx
+
+            # Aggressive cleanup
+            del df_selected, X_data_file, Y_data_file, X_file_seq, y_file_seq
             gc.collect()
-            
-            # Log memory usage periodically
-            if self.logger and initial_memory and file_idx % 5 == 0:
-                try:
-                    current_memory = psutil.Process().memory_info().rss / 1024 / 1024
-                    self.logger.info(f"Memory after file {file_idx+1}: {current_memory:.1f} MB (+{current_memory-initial_memory:.1f} MB)")
-                except:
-                    pass
 
-        if self.concatenate_raw_data:
-            if not all_X_data_raw_list: # No valid data read from any file
-                num_features = len(self.feature_cols) if self.feature_cols else 0
-                return np.empty((0, self.lookback, num_features)), np.empty((0,))
-            
-            if self.logger:
-                total_rows = sum(arr.shape[0] for arr in all_X_data_raw_list)
-                self.logger.info(f"Concatenating {len(all_X_data_raw_list)} arrays with {total_rows} total rows")
-            
-            # Memory optimization: Pre-calculate total size and allocate once
-            total_rows = sum(arr.shape[0] for arr in all_X_data_raw_list)
-            n_features = all_X_data_raw_list[0].shape[1]
-            
-            # Pre-allocate concatenated arrays
-            X_super_sequence = np.empty((total_rows, n_features), dtype=np.float32)
-            Y_super_sequence = np.empty((total_rows, 1), dtype=np.float32)
-            
-            # Fill pre-allocated arrays
-            current_row = 0
-            for X_arr, Y_arr in zip(all_X_data_raw_list, all_Y_data_raw_list):
-                end_row = current_row + X_arr.shape[0]
-                X_super_sequence[current_row:end_row] = X_arr
-                Y_super_sequence[current_row:end_row] = Y_arr
-                current_row = end_row
-            
-            # Clear raw lists immediately to free memory
-            del all_X_data_raw_list, all_Y_data_raw_list
-            gc.collect()
-            
-            if self.logger:
-                self.logger.info(f"Created super sequences: X shape: {X_super_sequence.shape}, Y shape: {Y_super_sequence.shape}")
-
-            X_processed, y_processed = self._create_sequences_from_array(X_super_sequence, Y_super_sequence.flatten())
-            
-            # Clean up super sequences immediately after use
-            del X_super_sequence, Y_super_sequence
-            gc.collect()
-        else: # Concatenate lists of sequence arrays
-            if not all_X_sequences_list: # No sequences created from any file
-                num_features = len(self.feature_cols) if self.feature_cols else 0
-                return np.empty((0, self.lookback, num_features)), np.empty((0,))
-
-            if self.logger:
-                total_sequences = sum(arr.shape[0] for arr in all_X_sequences_list)
-                self.logger.info(f"Concatenating {len(all_X_sequences_list)} sequence arrays with {total_sequences} total sequences")
-
-            # Memory optimization: Pre-calculate total size for concatenation
-            total_sequences = sum(arr.shape[0] for arr in all_X_sequences_list)
-            lookback_size = all_X_sequences_list[0].shape[1]
-            n_features = all_X_sequences_list[0].shape[2]
-            
-            # Pre-allocate final arrays
-            X_processed = np.empty((total_sequences, lookback_size, n_features), dtype=np.float32)
-            y_processed = np.empty((total_sequences,), dtype=np.float32)
-            
-            # Fill pre-allocated arrays
-            current_seq = 0
-            for X_seq_arr, y_seq_arr in zip(all_X_sequences_list, all_y_sequences_list):
-                end_seq = current_seq + X_seq_arr.shape[0]
-                X_processed[current_seq:end_seq] = X_seq_arr
-                y_processed[current_seq:end_seq] = y_seq_arr
-                current_seq = end_seq
-            
-            # Clear sequence lists immediately
-            del all_X_sequences_list, all_y_sequences_list
-        
-        gc.collect()
-        
-        # Final memory usage log
-        if self.logger and initial_memory:
-            try:
-                final_memory = psutil.Process().memory_info().rss / 1024 / 1024
-                self.logger.info(f"Final memory usage: {final_memory:.1f} MB (+{final_memory-initial_memory:.1f} MB)")
-                self.logger.info(f"SequenceRNNDataHandler: Processed X shape: {X_processed.shape}, y shape: {y_processed.shape}")
-            except:
-                if self.logger:
-                    self.logger.info(f"SequenceRNNDataHandler: Processed X shape: {X_processed.shape}, y shape: {y_processed.shape}")
-        elif self.logger:
-            self.logger.info(f"SequenceRNNDataHandler: Processed X shape: {X_processed.shape}, y shape: {y_processed.shape}")
-        
+        self.logger.info(f"Finished processing all files. Final shapes: X={X_processed.shape}, y={y_processed.shape}")
         return X_processed, y_processed
