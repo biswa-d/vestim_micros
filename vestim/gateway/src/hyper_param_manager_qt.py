@@ -183,9 +183,13 @@ class VEstimHyperParamManager:
                     min_bounds = [int(x.strip()) for x in min_bounds_str.split(',') if x.strip()]
                     max_bounds = [int(x.strip()) for x in max_bounds_str.split(',') if x.strip()]
                     if len(min_bounds) != len(max_bounds):
-                        return False, "FNN_HIDDEN_LAYERS dimension mismatch between min and max bounds."
+                        return False, "'FNN_HIDDEN_LAYERS' dimension mismatch between min and max bounds."
                     if not min_bounds:
-                        return False, "FNN_HIDDEN_LAYERS bounds cannot be empty."
+                        return False, "'FNN_HIDDEN_LAYERS' bounds cannot be empty."
+                    # Check if min_bounds[i] <= max_bounds[i] for all i
+                    for i in range(len(min_bounds)):
+                        if min_bounds[i] > max_bounds[i]:
+                            return False, f"Invalid range in 'FNN_HIDDEN_LAYERS': min value {min_bounds[i]} is greater than max value {max_bounds[i]} for layer {i+1}."
                 except (ValueError, IndexError):
                     return False, "Invalid number format in 'FNN_HIDDEN_LAYERS'. Ensure all bounds are integers."
 
