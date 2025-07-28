@@ -193,7 +193,7 @@ class VEstimTrainingSetupManager:
                     
                     # Create model directory
                     layer_config = str(hidden_units).replace(',', '_')
-                    model_dir_name = self._generate_descriptive_folder_name({'MODEL_TYPE': model_type, 'FNN_UNITS': hidden_units}, is_model_dir=True)
+                    model_dir_name = self._generate_model_dir_name({'MODEL_TYPE': model_type, 'FNN_UNITS': hidden_units})
                     model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', model_dir_name)
                     os.makedirs(model_dir, exist_ok=True)
 
@@ -240,7 +240,7 @@ class VEstimTrainingSetupManager:
                         self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
 
                         # Create model directory for RNN models
-                        model_dir_name = self._generate_descriptive_folder_name({'MODEL_TYPE': model_type, 'LAYERS': layers, 'HIDDEN_UNITS': hidden_units}, is_model_dir=True)
+                        model_dir_name = self._generate_model_dir_name({'MODEL_TYPE': model_type, 'LAYERS': layers, 'HIDDEN_UNITS': hidden_units})
                         model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', model_dir_name)
                         os.makedirs(model_dir, exist_ok=True)
 
