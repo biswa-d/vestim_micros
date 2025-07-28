@@ -405,6 +405,8 @@ class VEstimTrainingSetupManager:
             fnn_units = hyperparams.get("FNN_UNITS", hyperparams.get("FNN_HIDDEN_LAYERS"))
             if isinstance(fnn_units, str):
                 model_params["HIDDEN_LAYER_SIZES"] = [int(s.strip()) for s in fnn_units.split(',')]
+            elif isinstance(fnn_units, int):
+                model_params["HIDDEN_LAYER_SIZES"] = [fnn_units]
             else:
                 model_params["HIDDEN_LAYER_SIZES"] = fnn_units # Should already be a list of ints
             model_params["DROPOUT_PROB"] = float(hyperparams.get("FNN_DROPOUT_PROB", 0.1))
