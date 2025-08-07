@@ -163,9 +163,10 @@ class FilterInputDialog(QDialog):
         form_layout.addRow("Sampling Rate (Hz):", self.sampling_rate_spinbox)
 
         self.corner_frequency_spinbox = QDoubleSpinBox()
-        self.corner_frequency_spinbox.setRange(0.01, 100.0)
+        self.corner_frequency_spinbox.setRange(0.0001, 10000.0)  # Allow very low frequencies like 0.0002 Hz
         self.corner_frequency_spinbox.setValue(1.0)
-        self.corner_frequency_spinbox.setSingleStep(0.1)
+        self.corner_frequency_spinbox.setSingleStep(0.0001)  # Smaller step for precision with low frequencies
+        self.corner_frequency_spinbox.setDecimals(6)  # More decimal places for precision
         form_layout.addRow("Corner Frequency (Hz):", self.corner_frequency_spinbox)
         
         layout.addLayout(form_layout)
