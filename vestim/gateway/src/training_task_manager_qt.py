@@ -424,12 +424,54 @@ class TrainingTaskManager:
         else:
             self.logger.info(f"job_metadata.json not found at {metadata_file_path}. Assuming no normalization or scaler to load.")
 
+    def get_optimal_num_workers(self):
+        """Automatically determine optimal number of workers based on system specs."""
+        import os
+        try:
+            import psutil
+            cpu_cores = os.cpu_count()
+            available_ram_gb = psutil.virtual_memory().available / (1024**3)  # GB
+            
+            # Conservative recommendation based on available resources
+            if available_ram_gb < 8:
+                recommended_workers = 2
+            elif available_ram_gb < 16:
+                recommended_workers = 4
+            else:
+                recommended_workers = min(6, cpu_cores) if cpu_cores else 4
+            
+            self.logger.info(f"Auto-configured NUM_WORKERS: {recommended_workers} (CPU cores: {cpu_cores}, Available RAM: {available_ram_gb:.1f}GB)")
+            return recommended_workers
+            
+        except ImportError:
+            # Fallback if psutil not available
+            cpu_cores = os.cpu_count()
+            recommended_workers = min(4, cpu_cores) if cpu_cores else 4
+            self.logger.info(f"Auto-configured NUM_WORKERS: {recommended_workers} (CPU cores: {cpu_cores})")
+            return recommended_workers
+        except Exception as e:
+            self.logger.warning(f"Error determining optimal workers, using default: {e}")
+            return 4
+
 
     def create_data_loaders(self, task):
         """Create data loaders for the current task using separate train, val, test folders."""
         feature_cols = task['data_loader_params']['feature_columns']
         target_col = task['data_loader_params']['target_column']
-        num_workers = int(task['hyperparams'].get('NUM_WORKERS', 4))
+        
+        # Enhanced data loading configuration
+        num_workers = int(task['hyperparams'].get('NUM_WORKERS', self.get_optimal_num_workers()))
+        pin_memory = task['hyperparams'].get('PIN_MEMORY', True)
+        prefetch_factor = int(task['hyperparams'].get('PREFETCH_FACTOR', 2))
+        persistent_workers = task['hyperparams'].get('PERSISTENT_WORKERS', True) if num_workers > 0 else False
+        
+        # Log data loading optimization settings
+        self.logger.info(f"Data loading optimization settings:")
+        self.logger.info(f"  - CPU Threads (NUM_WORKERS): {num_workers}")
+        self.logger.info(f"  - Fast CPU-GPU Transfer (PIN_MEMORY): {pin_memory}")
+        self.logger.info(f"  - Batch Pre-loading (PREFETCH_FACTOR): {prefetch_factor}")
+        self.logger.info(f"  - Persistent Workers: {persistent_workers}")
+        
         seed = int(task['hyperparams'].get('SEED', 2000))
         
         training_method = task['hyperparams'].get('TRAINING_METHOD', 'Sequence-to-Sequence') # Default if not present
@@ -458,7 +500,10 @@ class TrainingTaskManager:
                 concatenate_raw_data=True,  # Use concatenated for whole sequence
                 seed=seed,
                 model_type=model_type,
-                create_test_loader=False  # Skip test loader during training to save memory
+                create_test_loader=False,  # Skip test loader during training to save memory
+                pin_memory=pin_memory,
+                prefetch_factor=prefetch_factor,
+                persistent_workers=persistent_workers
             )
         else: # Default to lookback-based sequence loading
             if training_method == 'Whole Sequence' and model_type not in ['LSTM', 'GRU']:
@@ -480,7 +525,10 @@ class TrainingTaskManager:
                 concatenate_raw_data=False,
                 seed=seed,
                 model_type=model_type,
-                create_test_loader=False  # Skip test loader during training to save memory
+                create_test_loader=False,  # Skip test loader during training to save memory
+                pin_memory=pin_memory,
+                prefetch_factor=prefetch_factor,
+                persistent_workers=persistent_workers
             )
 
         # Return only train and val loaders for training (no test loader needed)

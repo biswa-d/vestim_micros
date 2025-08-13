@@ -870,6 +870,51 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["WEIGHT_DECAY"] = self.weight_decay_entry
         form_layout.addRow(weight_decay_label, self.weight_decay_entry)
 
+        # Data Loading Optimization Section
+        data_loading_label = QLabel("Data Loading:")
+        data_loading_label.setStyleSheet("font-size: 9pt; font-weight: bold; color: #2E86AB; margin-top: 10px;")
+        form_layout.addRow(data_loading_label)
+
+        # NUM_WORKERS with user-friendly label
+        cpu_threads_label = QLabel("# CPU Threads:")
+        cpu_threads_label.setStyleSheet("font-size: 9pt;")
+        cpu_threads_label.setToolTip(
+            "Number of CPU processes for data loading (improves GPU utilization).\n"
+            "Recommended: 4-8 for most systems.\n"
+            "Higher values = faster data loading but more CPU RAM usage.\n"
+            "Your system (32GB RAM): Can safely use 6-8 threads."
+        )
+        import os
+        cpu_cores = os.cpu_count()
+        default_workers = min(6, cpu_cores) if cpu_cores else 4
+        self.num_workers_entry = QLineEdit(self.params.get("NUM_WORKERS", str(default_workers)))
+        self.num_workers_entry.setToolTip(
+            f"Recommended for your system: {default_workers} threads\n"
+            f"Your CPU cores: {cpu_cores}\n"
+            "Higher values improve GPU utilization but use more CPU RAM.\n"
+            "Set to 0 for single-threaded loading (uses less RAM)."
+        )
+        self.num_workers_entry.textChanged.connect(self.on_param_text_changed)
+        self.param_entries["NUM_WORKERS"] = self.num_workers_entry
+        form_layout.addRow(cpu_threads_label, self.num_workers_entry)
+
+        # PIN_MEMORY checkbox
+        self.pin_memory_checkbox = QCheckBox("Fast CPU-GPU Transfer")
+        self.pin_memory_checkbox.setChecked(self.params.get("PIN_MEMORY", True))
+        self.pin_memory_checkbox.setToolTip("Enable pinned memory for faster CPU-GPU data transfers (recommended)")
+        self.param_entries["PIN_MEMORY"] = self.pin_memory_checkbox
+        form_layout.addRow(self.pin_memory_checkbox)
+
+        # PREFETCH_FACTOR
+        prefetch_label = QLabel("Batch Pre-loading:")
+        prefetch_label.setStyleSheet("font-size: 9pt;")
+        prefetch_label.setToolTip("Number of batches to pre-load in memory for smoother training.")
+        self.prefetch_factor_entry = QLineEdit(self.params.get("PREFETCH_FACTOR", "2"))
+        self.prefetch_factor_entry.setToolTip("2-4 recommended. Higher values use more RAM but reduce GPU waiting time.")
+        self.prefetch_factor_entry.textChanged.connect(self.on_param_text_changed)
+        self.param_entries["PREFETCH_FACTOR"] = self.prefetch_factor_entry
+        form_layout.addRow(prefetch_label, self.prefetch_factor_entry)
+
         layout.addLayout(form_layout)
 
     def get_selected_features(self):

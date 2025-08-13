@@ -103,6 +103,10 @@ class VEstimTrainingTaskGUI(QMainWindow):
             "TRAINING_METHOD": "Training Method",
             "DEVICE_SELECTION": "Device", # Added
             "MAX_TRAINING_TIME_SECONDS": "Max Train Time (Task)", # Added
+            "NUM_WORKERS": "# CPU Threads",        # Data loading optimization
+            "PIN_MEMORY": "Fast CPU-GPU Transfer", # Data loading optimization
+            "PREFETCH_FACTOR": "Batch Pre-loading", # Data loading optimization
+            "USE_CUDA_GRAPHS": "CUDA Graphs",      # GPU optimization
             # Add other specific keys from hyperparams if they need special display names
             # e.g. BATCH_TRAINING, MODEL_TYPE are already strings from QComboBox
         }

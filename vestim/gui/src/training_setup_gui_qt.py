@@ -68,7 +68,9 @@ class VEstimTrainSetupGUI(QWidget):
             "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
             "LR_DROP_FACTOR": "LR Drop Factor", "LR_DROP_PERIOD": "LR Drop Period",
             "VALID_PATIENCE": "Validation Patience", "VALID_FREQUENCY": "Validation Freq",
-            "LOOKBACK": "Lookback Sequence Length", "REPETITIONS": "Repetitions"
+            "LOOKBACK": "Lookback Sequence Length", "REPETITIONS": "Repetitions",
+            "NUM_WORKERS": "# CPU Threads", "PIN_MEMORY": "Fast CPU-GPU Transfer",
+            "PREFETCH_FACTOR": "Batch Pre-loading", "USE_CUDA_GRAPHS": "CUDA Graphs"
         }
 
         self.logger.info("Initializing VEstimTrainSetupGUI")

@@ -564,7 +564,10 @@ class DataLoaderService:
                                                  lookback: int = None, # Optional, only for SequenceRNN
                                                  concatenate_raw_data: bool = False, # Optional, for SequenceRNN
                                                  seed: int = None, model_type: str = "LSTM", 
-                                                 create_test_loader: bool = True):
+                                                 create_test_loader: bool = True,
+                                                 pin_memory: bool = None,  # New parameter
+                                                 prefetch_factor: int = 2,  # New parameter
+                                                 persistent_workers: bool = None):  # New parameter:
         """
         Creates DataLoaders for training, validation, and optionally test data from separate folders.
         This method replaces the train_split approach and expects the job folder to contain
@@ -641,9 +644,11 @@ class DataLoaderService:
         train_X, train_y = handler.load_and_process_data(train_folder, **handler_kwargs)
         val_X, val_y = handler.load_and_process_data(val_folder, **handler_kwargs)
         
-        # Create data loaders
-        train_loader = self._create_loader_from_tensors(train_X, train_y, batch_size, num_workers, True, "train")
-        val_loader = self._create_loader_from_tensors(val_X, val_y, batch_size, num_workers, False, "validation")
+        # Create data loaders with optimization parameters
+        train_loader = self._create_loader_from_tensors(train_X, train_y, batch_size, num_workers, True, "train", 
+                                                       pin_memory, prefetch_factor, persistent_workers)
+        val_loader = self._create_loader_from_tensors(val_X, val_y, batch_size, num_workers, False, "validation",
+                                                     pin_memory, prefetch_factor, persistent_workers)
         
         # Conditionally create test loader
         if create_test_loader:
@@ -653,7 +658,8 @@ class DataLoaderService:
             test_handler = WholeSequenceFNNDataHandler(feature_cols, target_col)
             test_handler.logger = self.logger
             test_X, test_y, test_timestamps = test_handler.load_and_process_data(test_folder, return_timestamp=True)
-            test_loader = self._create_loader_from_tensors(test_X, test_y, batch_size, num_workers, False, "test")
+            test_loader = self._create_loader_from_tensors(test_X, test_y, batch_size, num_workers, False, "test",
+                                                         pin_memory, prefetch_factor, persistent_workers)
             return train_loader, val_loader, test_loader, test_timestamps
         else:
             self.logger.info("Skipping test loader creation (create_test_loader=False)")
@@ -703,7 +709,8 @@ class DataLoaderService:
         
         return self._create_loader_from_tensors(combined_X, combined_y, batch_size, num_workers, data_type == "train", data_type)
 
-    def _create_loader_from_tensors(self, X, y, batch_size: int, num_workers: int, shuffle: bool, data_type: str):
+    def _create_loader_from_tensors(self, X, y, batch_size: int, num_workers: int, shuffle: bool, data_type: str,
+                                   pin_memory: bool = None, prefetch_factor: int = 2, persistent_workers: bool = None):
         """Helper method to create a DataLoader from tensors."""
         if X.size == 0 or y.size == 0:
             self.logger.warning(f"Empty {data_type} data. Creating empty DataLoader.")
@@ -716,17 +723,27 @@ class DataLoaderService:
         
         dataset = TensorDataset(X_tensor, y_tensor)
         
-        prefetch_factor_value = 2 if num_workers > 0 else None
+        # Set optimized defaults if not specified
+        if pin_memory is None:
+            pin_memory = torch.cuda.is_available()
+        if persistent_workers is None:
+            persistent_workers = num_workers > 0
+        
+        prefetch_factor_value = prefetch_factor if num_workers > 0 else None
+        
+        self.logger.info(f"Creating {data_type} DataLoader with optimizations: "
+                        f"num_workers={num_workers}, pin_memory={pin_memory}, "
+                        f"prefetch_factor={prefetch_factor_value}, persistent_workers={persistent_workers}")
         
         loader = DataLoader(
             dataset=dataset,
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
-            pin_memory=torch.cuda.is_available(),
+            pin_memory=pin_memory,
             drop_last=True if data_type in ["train", "validation"] else False,  # Drop last for train/val to ensure consistent batch sizes
             prefetch_factor=prefetch_factor_value,
-            persistent_workers=False
+            persistent_workers=persistent_workers
         )
         
         self.logger.info(f"Created {data_type} DataLoader: {len(dataset)} samples, {len(loader)} batches")

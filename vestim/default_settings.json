@@ -39,7 +39,11 @@
             "FINAL_LR": "1e-7",
             "FNN_HIDDEN_LAYERS": "64,32",
             "FNN_DROPOUT_PROB": "0.2",
-            "MAX_TRAINING_TIME_SECONDS": 0
+            "MAX_TRAINING_TIME_SECONDS": 0,
+            "NUM_WORKERS": "6",
+            "PIN_MEMORY": true,
+            "PREFETCH_FACTOR": "2",
+            "USE_CUDA_GRAPHS": true
         }
     },
     "default_folders": {
