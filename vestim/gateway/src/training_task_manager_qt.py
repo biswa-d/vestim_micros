@@ -167,6 +167,28 @@ class TrainingTaskManager:
             self.logger.info(f"DataLoaders configured for task_id: {task.get('task_id', 'N/A')}")
             print(f" dataloader size, Train: {len(train_loader)} | Validation: {len(val_loader)}")
 
+            # Send device information to the GUI log
+            device_str = str(self.device)
+            if device_str == 'cpu':
+                device_display = 'CPU'
+            elif 'cuda' in device_str:
+                try:
+                    if torch.cuda.is_available() and 'cuda' in device_str:
+                        gpu_idx = int(device_str.split(':')[1]) if ':' in device_str else 0
+                        gpu_name = torch.cuda.get_device_name(gpu_idx)
+                        device_display = f"{device_str.upper()} ({gpu_name})"
+                    else:
+                        device_display = device_str.upper()
+                except Exception:
+                    device_display = device_str.upper()
+            else:
+                device_display = device_str
+
+            # Send initial device log message to GUI
+            update_progress_callback.emit({
+                'initial_log_message': f"<b>Starting training on device:</b> {device_display}"
+            })
+
             # ROUTER: Check if this is an Optuna task and call the appropriate loop
             if 'optuna_trial' in task and task['optuna_trial'] is not None:
                 self.logger.info(f"Task {task['task_id']} is an Optuna trial. Using Optuna-specific training loop.")
@@ -448,6 +470,32 @@ class TrainingTaskManager:
             
             self.logger.info(f"--- Starting run_training for task: {task['task_id']} ---") # Added detailed log
             self.logger.info("Starting training loop")
+            
+            # Log the device being used for training
+            device_str = str(device)
+            if device_str == 'cpu':
+                device_display = 'CPU'
+            elif 'cuda' in device_str:
+                try:
+                    if torch.cuda.is_available() and 'cuda' in device_str:
+                        gpu_idx = int(device_str.split(':')[1]) if ':' in device_str else 0
+                        gpu_name = torch.cuda.get_device_name(gpu_idx)
+                        device_display = f"{device_str.upper()} ({gpu_name})"
+                    else:
+                        device_display = device_str.upper()
+                except Exception:
+                    device_display = device_str.upper()
+            else:
+                device_display = device_str
+            
+            self.logger.info(f"Training will be executed on device: {device_display}")
+            print(f"Training starting on device: {device_display}")
+            
+            # Send training start device log message to GUI
+            update_progress_callback.emit({
+                'training_start_log_message': f"<span style='color: #0b6337;'><b>Training started on device:</b> {device_display}</span>"
+            })
+            
             # Initialize/reset task-specific best original scale validation RMSE tracker
             # Using a unique attribute name per task to avoid conflicts if manager instance is reused for different tasks sequentially
             # though typically a new manager or thread might be used. This is safer.

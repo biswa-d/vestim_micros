@@ -627,6 +627,20 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.status_label.setText(f"{task_info} - {progress_data['status']}")
             self.status_label.setStyleSheet("font-size: 11pt; font-weight: bold; color: #004d99;")
 
+        # Handle initial log message (e.g., device information)
+        if 'initial_log_message' in progress_data:
+            initial_message = progress_data['initial_log_message']
+            self.log_text.append(f"{initial_message}<br>")
+            # Ensure the log scrolls to the bottom
+            self.log_text.moveCursor(self.log_text.textCursor().End)
+
+        # Handle training start log message (e.g., device information when training actually begins)
+        if 'training_start_log_message' in progress_data:
+            training_start_message = progress_data['training_start_log_message']
+            self.log_text.append(f"{training_start_message}<br>")
+            # Ensure the log scrolls to the bottom
+            self.log_text.moveCursor(self.log_text.textCursor().End)
+
         # Handle log updates
         if 'epoch' in progress_data:
             epoch = progress_data['epoch']
