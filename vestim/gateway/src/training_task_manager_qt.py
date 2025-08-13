@@ -14,6 +14,13 @@ from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from vestim.services.model_training.src.data_loader_service import DataLoaderService
 from vestim.services.model_training.src.training_task_service import TrainingTaskService
+try:
+    from vestim.services.model_training.src.cuda_graphs_training_service import CUDAGraphsTrainingService
+    CUDA_GRAPHS_AVAILABLE = True
+    print("🚀 CUDA Graphs optimization available!")
+except ImportError as e:
+    print(f"⚠️  CUDA Graphs optimization not available: {e}")
+    CUDA_GRAPHS_AVAILABLE = False
 import logging
 
 def format_time(seconds):
@@ -34,7 +41,29 @@ class TrainingTaskManager:
         self.logger = logging.getLogger(__name__)
         self.job_manager = job_manager if job_manager else JobManager()
         self.data_loader_service = DataLoaderService()
-        self.training_service = TrainingTaskService()
+        
+        # Initialize training service with CUDA Graphs if available and enabled
+        use_cuda_graphs = global_params.get('USE_CUDA_GRAPHS', False) if global_params else False
+        
+        # Auto-enable CUDA Graphs for FNN models on CUDA devices (smart default)
+        if not use_cuda_graphs and global_params:
+            model_type = global_params.get('MODEL_TYPE', 'LSTM')
+            device_selection = global_params.get('DEVICE_SELECTION', 'cpu')
+            if model_type == 'FNN' and 'cuda' in device_selection.lower() and CUDA_GRAPHS_AVAILABLE:
+                use_cuda_graphs = True
+                self.logger.info("🎯 Auto-enabling CUDA Graphs for FNN model on CUDA device")
+        
+        if use_cuda_graphs and CUDA_GRAPHS_AVAILABLE:
+            self.training_service = CUDAGraphsTrainingService()
+            self.logger.info("🚀 CUDA Graphs training service initialized for RTX 5070 optimization")
+            print("🚀 CUDA Graphs enabled - expect 1.2x-3x speedup for FNN models!")
+        else:
+            self.training_service = TrainingTaskService()
+            if use_cuda_graphs and not CUDA_GRAPHS_AVAILABLE:
+                self.logger.warning("CUDA Graphs requested but not available, using standard training")
+            else:
+                self.logger.info("Using standard training service")
+        
         self.training_setup_manager = VEstimTrainingSetupManager(job_manager=self.job_manager)
         self.current_task = None
         self.stop_requested = False
@@ -598,9 +627,29 @@ class TrainingTaskManager:
                 model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM')) # Get model_type
                 # train_epoch now returns: avg_batch_time, avg_loss (normalized), all_train_y_pred_normalized, all_train_y_true_normalized
                 verbose = task.get('verbose', True)
-                avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch(
-                    model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task, verbose=verbose
-                )
+                
+                # Use CUDA Graphs if available and enabled (only for FNN models on CUDA)
+                if (hasattr(self.training_service, 'train_epoch_with_graphs') and 
+                    device.type == 'cuda' and model_type == 'FNN'):
+                    
+                    # Enable CUDA graphs on first epoch
+                    if epoch == 1:
+                        use_mixed_precision = task['hyperparams'].get('USE_MIXED_PRECISION', False)
+                        graphs_enabled = self.training_service.enable_cuda_graphs(device, use_mixed_precision)
+                        if graphs_enabled:
+                            # Send log message about CUDA Graphs
+                            update_progress_callback.emit({
+                                'training_start_log_message': f"<span style='color: #ff6600;'><b>🚀 CUDA Graphs enabled!</b> Expect 1.2x-3x speedup for small FNN models</span>"
+                            })
+                    
+                    avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch_with_graphs(
+                        model, train_loader, optimizer, epoch, device, self.stop_requested, task, verbose=verbose
+                    )
+                else:
+                    # Standard training
+                    avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch(
+                        model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task, verbose=verbose
+                    )
                 
                 if train_loss_norm < best_train_loss_norm:
                     best_train_loss_norm = train_loss_norm
@@ -638,9 +687,18 @@ class TrainingTaskManager:
                     model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM')) # Get model_type
                     # validate_epoch now returns: avg_loss (normalized), all_val_y_pred_normalized, all_val_y_true_normalized
                     verbose = task.get('verbose', True)
-                    val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
-                        model, model_type, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task, verbose=verbose
-                    )
+                    
+                    # Use CUDA Graphs validation if available
+                    if (hasattr(self.training_service, 'validate_epoch_with_graphs') and 
+                        device.type == 'cuda' and model_type == 'FNN'):
+                        val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch_with_graphs(
+                            model, val_loader, epoch, device, self.stop_requested, task
+                        )
+                    else:
+                        # Standard validation
+                        val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
+                            model, model_type, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task, verbose=verbose
+                        )
 
                     current_time = time.time()
                     elapsed_time = current_time - loop_start_time # Use loop_start_time for per-epoch/validation cycle timing
