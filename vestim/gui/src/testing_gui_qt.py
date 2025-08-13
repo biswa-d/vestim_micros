@@ -1,16 +1,9 @@
-# ---------------------------------------------------------------------------------        self.param_labels = {
-            "LAYERS": "Layers", "HIDDEN_UNITS": "Hidden Units", "BATCH_SIZE": "Batch Size",
-            "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
-            "LR_DROP_FACTOR": "LR Drop Factor", "LR_DROP_PERIOD": "LR Drop Period",
-            "VALID_PATIENCE": "Validation Patience", "VALID_FREQUENCY": "Validation Freq",
-            "LOOKBACK": "Lookback Sequence Length", "REPETITIONS": "Repetitions",
-            "NUM_WORKERS": "# CPU Threads", "PIN_MEMORY": "Fast CPU-GPU Transfer",
-            "PREFETCH_FACTOR": "Batch Pre-loading", "USE_CUDA_GRAPHS": "CUDA Graphs"
-        }hor: Biswanath Dehury
-# Date: `{{date:2023-03-02}}`
+# ---------------------------------------------------------------------------------
+# Author: Biswanath Dehury
+# Date: 2023-03-02
 # Version: 1.0.0
 # Description: Description of the script
-# Descrition: 
+# Description: 
 # This is the batchtesting without padding implementation for the unscaled data where the batch-size is used for testloader preparation but the model is tested
 # one sequence at a time like a running window. The first part of the test file is padded with data to avoid the size mismatch and get the final prediction the same
 # shape as the test file.
@@ -93,7 +86,9 @@ class VEstimTestingGUI(QMainWindow):
             "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
             "LR_DROP_FACTOR": "LR Drop Factor", "LR_DROP_PERIOD": "LR Drop Period",
             "VALID_PATIENCE": "Validation Patience", "VALID_FREQUENCY": "Validation Freq",
-            "LOOKBACK": "Lookback Sequence Length", "REPETITIONS": "Repetitions"
+            "LOOKBACK": "Lookback Sequence Length", "REPETITIONS": "Repetitions",
+            "NUM_WORKERS": "# CPU Threads", "PIN_MEMORY": "Fast CPU-GPU Transfer",
+            "PREFETCH_FACTOR": "Batch Pre-loading", "USE_CUDA_GRAPHS": "CUDA Graphs"
         }
 
         self.queue = Queue()
