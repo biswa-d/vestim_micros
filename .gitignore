@@ -167,4 +167,4 @@ installer_output/
 
 # Keep build scripts but ignore their outputs
 !build_exe.py
-!vestim_installer.iss
+!vestim_installer.iss 
