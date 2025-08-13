@@ -98,6 +98,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
             "INPUT_SIZE": "Input Size",
             "OUTPUT_SIZE": "Output Size",
             "SCHEDULER_TYPE": "LR Scheduler",
+            "DEVICE_SELECTION": "Device Selection",
+            "CURRENT_DEVICE": "Current Device",
             "TRAINING_METHOD": "Training Method",
             "DEVICE_SELECTION": "Device", # Added
             "MAX_TRAINING_TIME_SECONDS": "Max Train Time (Task)", # Added
@@ -254,7 +256,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Section 3: Training Control
         train_control_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS']
         # Section 4: Execution Environment
-        exec_env_keys = ['DEVICE_SELECTION', 'MAX_TRAINING_TIME_SECONDS']
+        exec_env_keys = ['DEVICE_SELECTION', 'CURRENT_DEVICE', 'MAX_TRAINING_TIME_SECONDS']
         # Section 5: Data Columns
         data_keys = ['FEATURE_COLUMNS', 'TARGET_COLUMN']
         
@@ -287,11 +289,33 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
         # Add items in preferred order
         for key in preferred_order:
-            if key in task_params or (key == 'DEVICE_SELECTION' and key in self.params):
+            if key in task_params or (key == 'DEVICE_SELECTION' and key in self.params) or key == 'CURRENT_DEVICE':
                 label_text = self.param_labels.get(key, key.replace("_", " ").title())
                 
                 if key == 'DEVICE_SELECTION':
                     value = self.params.get(key, 'N/A')
+                elif key == 'CURRENT_DEVICE':
+                    # Get the actual device being used by the training manager
+                    if hasattr(self.training_task_manager, 'device'):
+                        current_device = str(self.training_task_manager.device)
+                        # Make it more readable
+                        if current_device == 'cpu':
+                            value = 'CPU'
+                        elif 'cuda' in current_device:
+                            # Extract GPU info if available
+                            try:
+                                if torch.cuda.is_available() and 'cuda' in current_device:
+                                    gpu_idx = int(current_device.split(':')[1]) if ':' in current_device else 0
+                                    gpu_name = torch.cuda.get_device_name(gpu_idx)
+                                    value = f"{current_device.upper()} ({gpu_name})"
+                                else:
+                                    value = current_device.upper()
+                            except:
+                                value = current_device.upper()
+                        else:
+                            value = current_device
+                    else:
+                        value = 'N/A'
                 elif key == 'MAX_TRAINING_TIME_SECONDS':
                     max_time_sec = task_params.get(key, 0)
                     if isinstance(max_time_sec, str):
