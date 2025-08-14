@@ -712,7 +712,7 @@ class TrainingTaskManager:
                         if graphs_enabled:
                             # Send log message about CUDA Graphs
                             update_progress_callback.emit({
-                                'training_start_log_message': f"<span style='color: #ff6600;'><b>CUDA Graphs enabled!</b> Expect 1.2x-3x speedup for small FNN models</span>"
+                                'training_start_log_message': f"<span style='color: #ff6600;'><b>CUDA Graphs enabled!</b></span>"
                             })
                     
                     avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch_with_graphs(
