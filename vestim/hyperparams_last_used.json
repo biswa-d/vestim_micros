@@ -1,0 +1,34 @@
+{
+    "FEATURE_COLUMNS": ["Power", "Battery_Temp_degC", "SOC"],
+    "TARGET_COLUMN": "Voltage",
+    "MODEL_TYPE": "FNN",
+    "TRAINING_METHOD": "Sequence-to-Sequence",
+    
+    "_comment_grid_search": "=== GRID SEARCH FORMAT (comma-separated values) ===",
+    "BATCH_SIZE": "128,256",
+    "MAX_EPOCHS": "50,100",
+    "INITIAL_LR": "0.001,0.0001",
+    "FNN_HIDDEN_LAYERS": "64,128,64;128,256,128",
+    "FNN_DROPOUT_PROB": "0.2,0.3",
+    
+    "_comment_fixed": "=== FIXED PARAMETERS ===",
+    "DEVICE_SELECTION": "cuda:0",
+    "OPTIMIZER_TYPE": "Adam",
+    "SCHEDULER_TYPE": "ReduceLROnPlateau",
+    "PLATEAU_FACTOR": "0.1",
+    "PLATEAU_PATIENCE": "10",
+    "VALID_PATIENCE": "15",
+    "VALID_FREQUENCY": "1",
+    "REPETITIONS": 1,
+    
+    "_comment_performance": "=== PERFORMANCE SETTINGS ===",
+    "USE_MIXED_PRECISION": true,
+    "NUM_WORKERS": "8",
+    "PIN_MEMORY": true,
+    "PREFETCH_FACTOR": "4",
+    
+    "_comment_time_limits": "=== TIME LIMITS ===",
+    "MAX_TRAIN_HOURS": "0",
+    "MAX_TRAIN_MINUTES": "30",
+    "MAX_TRAIN_SECONDS": "0"
+}

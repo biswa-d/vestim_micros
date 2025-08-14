@@ -3,10 +3,8 @@ import sys
 import numpy as np
 try:
     import fireducks.pandas as pd
-    print("Using fireducks.pandas for faster data processing.")
 except ImportError:
     import pandas as pd
-    print("fireducks.pandas not found, falling back to standard pandas.")
 import torch
 from torch.utils.data import DataLoader, TensorDataset, SubsetRandomSampler
 from datetime import datetime

@@ -13,6 +13,7 @@ class ConfigManager:
     def __init__(self):
         self._projects_dir = None
         self._data_dir = None
+        self._defaults_dir = None
         self._default_settings = {}
         self._load_config()
         self._load_default_settings()
@@ -52,11 +53,13 @@ class ConfigManager:
         # Fallback to default locations
         self._projects_dir = self._get_default_projects_dir()
         self._data_dir = self._get_default_data_dir()
+        self._defaults_dir = self._get_default_defaults_dir()
         
         # Only show message for compiled executable, be quiet during development
         if getattr(sys, 'frozen', False):
             print(f"Using default projects directory: {self._projects_dir}")
             print(f"Using default data directory: {self._data_dir}")
+            print(f"Using default hyperparams templates directory: {self._defaults_dir}")
         # For development, just use default silently
     
     def _get_default_projects_dir(self):
@@ -82,6 +85,18 @@ class ConfigManager:
             script_dir = Path(__file__).parent  # vestim/
             repo_root = script_dir.parent  # repo root
             return str(repo_root / "data")
+    
+    def _get_default_defaults_dir(self):
+        """Get default hyperparams templates directory"""
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable - use projects folder/default_hyperparams
+            projects_dir = self._get_default_projects_dir()
+            return os.path.join(projects_dir, "default_hyperparams")
+        else:
+            # Running as Python script - use repository's defaults_templates directory
+            script_dir = Path(__file__).parent  # vestim/
+            repo_root = script_dir.parent  # repo root
+            return str(repo_root / "defaults_templates")
     
     def get_projects_directory(self):
         """Get the projects directory path"""
@@ -112,6 +127,19 @@ class ConfigManager:
                     os.makedirs(subdir_path, exist_ok=True)
         
         return self._data_dir
+    
+    def get_defaults_directory(self):
+        """Get the default hyperparams templates directory path"""
+        # Ensure directory exists
+        if not os.path.exists(self._defaults_dir):
+            os.makedirs(self._defaults_dir, exist_ok=True)
+            # Create initial defaults structure with template files
+            self.create_initial_defaults_structure()
+            # Only show message for compiled executable
+            if getattr(sys, 'frozen', False):
+                print(f"Created default hyperparams directory with template files: {self._defaults_dir}")
+        
+        return self._defaults_dir
     
     def get_output_directory(self):
         """Get the output directory for jobs (same as projects directory)"""
@@ -305,6 +333,19 @@ class ConfigManager:
         
         return data_dir
     
+    def create_initial_defaults_structure(self):
+        """Create initial defaults directory structure with template files for first-time setup"""
+        defaults_dir = self.get_defaults_directory()
+        
+        # For compiled executable, copy template files from installer assets
+        if getattr(sys, 'frozen', False):
+            self._copy_defaults_from_assets(defaults_dir)
+        else:
+            # During development, copy from existing defaults_templates folder if available
+            self._copy_defaults_from_dev_templates(defaults_dir)
+        
+        return defaults_dir
+    
     def _copy_demo_files_from_assets(self, data_dir):
         """Copy demo files from installer assets to data directory"""
         try:
@@ -379,6 +420,47 @@ class ConfigManager:
                     
         except Exception as e:
             print(f"Could not copy demo files from development data: {e}")
+    
+    def _copy_defaults_from_assets(self, defaults_dir):
+        """Copy default template files from installer assets to defaults directory"""
+        try:
+            # Get the application directory where assets should be bundled
+            app_dir = Path(sys.executable).parent
+            assets_dir = app_dir / "installer_assets" / "default_hyperparams"
+            
+            if assets_dir.exists():
+                import shutil
+                
+                # Copy all template files
+                for file_path in assets_dir.glob("*.json"):
+                    if file_path.is_file():
+                        target_path = Path(defaults_dir) / file_path.name
+                        shutil.copy2(file_path, target_path)
+                        print(f"Copied hyperparams template file: {file_path.name}")
+                        
+        except Exception as e:
+            print(f"Could not copy hyperparams template files from assets: {e}")
+    
+    def _copy_defaults_from_dev_templates(self, defaults_dir):
+        """Copy template files from development defaults_templates folder (for development mode)"""
+        try:
+            # Get the repository root defaults_templates directory
+            script_dir = Path(__file__).parent  # vestim/
+            repo_root = script_dir.parent  # repo root
+            source_templates_dir = repo_root / "defaults_templates"
+            
+            if source_templates_dir.exists():
+                import shutil
+                
+                # Copy all JSON template files
+                for file_path in source_templates_dir.glob("*.json"):
+                    if file_path.is_file():
+                        target_path = Path(defaults_dir) / file_path.name
+                        shutil.copy2(file_path, target_path)
+                        print(f"Copied hyperparams template file: {file_path.name}")
+                        
+        except Exception as e:
+            print(f"Could not copy hyperparams template files from development templates: {e}")
 
 # Global instance
 _config_manager = None
@@ -397,6 +479,10 @@ def get_projects_directory():
 def get_data_directory():
     """Convenience function to get default data directory"""
     return get_config_manager().get_data_directory()
+
+def get_defaults_directory():
+    """Convenience function to get default hyperparams templates directory"""
+    return get_config_manager().get_defaults_directory()
 
 def get_output_directory():
     """Convenience function to get output directory"""

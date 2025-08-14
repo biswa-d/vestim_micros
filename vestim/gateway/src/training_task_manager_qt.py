@@ -4,10 +4,8 @@ import sqlite3
 import torch
 try:
     import fireducks.pandas as pd
-    print("Using fireducks.pandas for faster data processing.")
 except ImportError:
     import pandas as pd
-    print("fireducks.pandas not found, falling back to standard pandas.")
 import numpy as np
 from PyQt5.QtCore import QThread, pyqtSignal
 from vestim.gateway.src.job_manager_qt import JobManager
@@ -1573,11 +1571,21 @@ class TrainingTaskManager:
         elif hyperparams['SCHEDULER_TYPE'] == 'ReduceLROnPlateau':
             hyperparams['PLATEAU_PATIENCE'] = int(hyperparams['PLATEAU_PATIENCE'])
             hyperparams['PLATEAU_FACTOR'] = float(hyperparams['PLATEAU_FACTOR'])
+            # Provide legacy parameters for backward compatibility
+            hyperparams['LR_DROP_PERIOD'] = 10  # Default for non-StepLR schedulers
+            hyperparams['LR_DROP_FACTOR'] = 0.5  # Default for non-StepLR schedulers
         elif hyperparams['SCHEDULER_TYPE'] == 'CosineAnnealingWarmRestarts':
             # Safely handle CosineAnnealingWarmRestarts parameters with defaults
             hyperparams['COSINE_T0'] = int(hyperparams.get('COSINE_T0', '10'))
             hyperparams['COSINE_T_MULT'] = int(hyperparams.get('COSINE_T_MULT', '2'))
             hyperparams['COSINE_ETA_MIN'] = float(hyperparams.get('COSINE_ETA_MIN', '1e-6'))
+            # Provide legacy parameters for backward compatibility
+            hyperparams['LR_DROP_PERIOD'] = 10  # Default for non-StepLR schedulers
+            hyperparams['LR_DROP_FACTOR'] = 0.5  # Default for non-StepLR schedulers
+        else:
+            # For any other scheduler, provide defaults for legacy parameters
+            hyperparams['LR_DROP_PERIOD'] = 10
+            hyperparams['LR_DROP_FACTOR'] = 0.5
         hyperparams['VALID_PATIENCE'] = int(hyperparams['VALID_PATIENCE'])
         hyperparams['VALID_FREQUENCY'] = int(hyperparams.get('VALID_FREQUENCY', 1))
         

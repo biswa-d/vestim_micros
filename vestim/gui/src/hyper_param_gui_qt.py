@@ -1122,7 +1122,10 @@ class VEstimHyperParamGUI(QWidget):
     
     def load_params_from_json(self):
         """Load hyperparameters from a JSON file and update the UI."""
-        filepath, _ = QFileDialog.getOpenFileName(self, "Load Params", "", "JSON Files (*.json);;All Files (*)")
+        # Open defaults templates directory
+        from vestim.config_manager import get_defaults_directory
+        default_dir = get_defaults_directory()
+        filepath, _ = QFileDialog.getOpenFileName(self, "Load Params", default_dir, "JSON Files (*.json);;All Files (*)")
         if filepath:
             try:
                 # FIXED:Load parameters from file

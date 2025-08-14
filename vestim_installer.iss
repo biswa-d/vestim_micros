@@ -49,7 +49,8 @@ Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "hyperparams.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Demo data files will be copied to projects folder by installer script
+Source: "defaults_templates\*"; DestDir: "{app}\defaults_templates"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Demo data files and hyperparams templates will be copied to projects folder by installer script
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -194,6 +195,7 @@ var
   ProjectsBasePath: String;
   ProjectsFullPath: String;
   DataPath: String;
+  HyperparamsPath: String;
   ConfigFile: String;
   SettingsFile: String;
   ConfigContent: String;
@@ -220,6 +222,7 @@ begin
     ProjectsBasePath := ProjectsFolderPage.Values[0];
     ProjectsFullPath := ProjectsBasePath + '\vestim_projects';
     DataPath := ProjectsFullPath + '\data';
+    HyperparamsPath := ProjectsFullPath + '\default_hyperparams';
     
     // Create the directory structure
     if not DirExists(ProjectsFullPath) then
@@ -232,6 +235,8 @@ begin
       ForceDirectories(DataPath + '\val_data');
     if not DirExists(DataPath + '\test_data') then
       ForceDirectories(DataPath + '\test_data');
+    if not DirExists(HyperparamsPath) then
+      ForceDirectories(HyperparamsPath);
     
     // Copy demo data files from the installed data folder to the user's project folder
     // Recursively copy demo data from the installed data folder to the user's project folder
@@ -241,6 +246,10 @@ begin
       CopyFolder(AppDir + '\data\val_data', DataPath + '\val_data');
     if DirExists(AppDir + '\data\test_data') then
       CopyFolder(AppDir + '\data\test_data', DataPath + '\test_data');
+    
+    // Copy hyperparams template files from the installed defaults_templates folder to the user's project folder
+    if DirExists(AppDir + '\defaults_templates') then
+      CopyFolder(AppDir + '\defaults_templates', HyperparamsPath);
     
     // Escape backslashes for JSON - manual replacement for projects path
     EscapedPath := '';

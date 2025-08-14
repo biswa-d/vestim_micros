@@ -1,0 +1,33 @@
+{
+    "FEATURE_COLUMNS": ["Power", "Battery_Temp_degC", "SOC"],
+    "TARGET_COLUMN": "Voltage",
+    "MODEL_TYPE": "GRU",
+    "TRAINING_METHOD": "Sequence-to-Sequence",
+    
+    "_comment_grid_search": "=== GRID SEARCH PARAMETERS (comma-separated values) ===",
+    "BATCH_SIZE": "128,256",
+    "MAX_EPOCHS": "50,100",
+    "INITIAL_LR": "0.001,0.0001",
+    "GRU_LAYERS": "1,2",
+    "GRU_HIDDEN_UNITS": "32,64",
+    "LOOKBACK": "300,400",
+    
+    "_comment_scheduler": "=== SCHEDULER SETTINGS ===",
+    "SCHEDULER_TYPE": "CosineAnnealingWarmRestarts",
+    "COSINE_T0": "10",
+    "COSINE_T_MULT": "2",
+    "COSINE_ETA_MIN": "1e-6",
+    
+    "_comment_fixed": "=== FIXED PARAMETERS ===",
+    "DEVICE_SELECTION": "cuda:0",
+    "OPTIMIZER_TYPE": "Adam",
+    "VALID_PATIENCE": "15",
+    "VALID_FREQUENCY": "1",
+    "REPETITIONS": 1,
+    
+    "_comment_performance": "=== PERFORMANCE SETTINGS ===",
+    "USE_MIXED_PRECISION": true,
+    "NUM_WORKERS": "8",
+    "PIN_MEMORY": true,
+    "PREFETCH_FACTOR": "8"
+}
