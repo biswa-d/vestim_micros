@@ -12,7 +12,17 @@ class ContinuousTestingService:
     """
     
     def __init__(self, device='cpu'):
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        # Use the passed device parameter instead of auto-detecting
+        if device is None:
+            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        else:
+            self.device = device
+        
+        # Ensure device is a torch.device object
+        if not isinstance(self.device, torch.device):
+            self.device = torch.device(self.device)
+            
+        print(f"ContinuousTestingService initialized with device: {self.device} (type: {type(self.device)})")
         self.hidden_states = None
         self.model_instance = None
         self.scaler = None
@@ -44,6 +54,7 @@ class ContinuousTestingService:
         try:
             # Load model only once (on first file)
             if self.model_instance is None or is_first_file:
+                print(f"DEBUG: Loading model with device: {self.device}")
                 checkpoint = torch.load(model_path, map_location=self.device)
                 
                 # Handle different model save formats
@@ -62,6 +73,8 @@ class ContinuousTestingService:
                 self.model_instance.to(self.device)
                 self.model_instance.eval()
                 print(f"Model loaded: {model_path}")
+                print(f"DEBUG: Model moved to device: {self.device}")
+                print(f"DEBUG: First model parameter device: {next(self.model_instance.parameters()).device}")
             
             # Initialize hidden states only once for the first file (only for RNN models)
             if is_first_file or self.hidden_states is None:
@@ -81,6 +94,8 @@ class ContinuousTestingService:
                         'model_type': 'GRU'
                     }
                     print(f"Hidden states initialized for continuous testing ({model_type})")
+                    print(f"DEBUG: Hidden state device: {self.hidden_states['h_s'].device}")
+                    print(f"DEBUG: Service device: {self.device}")
                 else:
                     # LSTM has both hidden state (h_s) and cell state (h_c)
                     self.hidden_states = {
@@ -159,9 +174,11 @@ class ContinuousTestingService:
                 df_test_full = df_scaled.copy()
             
             # Convert to tensor - each sample as a single timestep
+            print(f"DEBUG: Creating X_all tensor on device: {self.device}")
             X_all = torch.tensor(
                 df_test_full[feature_cols].values.astype(np.float32)
             ).view(-1, 1, len(feature_cols)).to(self.device)  # Shape: (samples, 1, features)
+            print(f"DEBUG: X_all device: {X_all.device}")
             
             # Allocate prediction buffer for actual test length
             y_preds = torch.zeros(original_len, dtype=torch.float32).to(self.device)
@@ -178,6 +195,12 @@ class ContinuousTestingService:
                         y_pred = self.model_instance(x_flat)
                     elif self.hidden_states['model_type'] == 'GRU':
                         # GRU forward pass with persistent hidden states
+                        # Debug: Check tensor devices before forward pass
+                        if t == 0:  # Only print for first iteration to avoid spam
+                            print(f"DEBUG GRU Forward Pass:")
+                            print(f"  x_t device: {x_t.device}")
+                            print(f"  hidden_states['h_s'] device: {self.hidden_states['h_s'].device}")
+                            print(f"  Model parameters device: {next(self.model_instance.parameters()).device}")
                         y_pred, h_s = self.model_instance(x_t, self.hidden_states['h_s'])
                         # Update hidden state for next sample
                         self.hidden_states['h_s'] = h_s.detach()
@@ -420,7 +443,7 @@ class ContinuousTestingService:
                 dropout = hyperparams.get('DROPOUT_PROB', 0.0)
                 
                 if model_type == 'GRU':
-                    model = GRUModel(input_size, hidden_units, num_layers, output_size, dropout, apply_clipped_relu=apply_clipped_relu)
+                    model = GRUModel(input_size, hidden_units, num_layers, output_size, dropout, device=self.device, apply_clipped_relu=apply_clipped_relu)
                 else:  # Default LSTM
                     model = LSTMModel(input_size, hidden_units, num_layers, self.device, dropout, apply_clipped_relu=apply_clipped_relu)
             elif model_type == 'FNN':
@@ -433,9 +456,10 @@ class ContinuousTestingService:
                 hidden_units = model_metadata.get('hidden_units', 64)
                 num_layers = model_metadata.get('num_layers', 2)
                 dropout = model_metadata.get('dropout', 0.2)
-                model = LSTMModel(input_size, hidden_units, num_layers, output_size, dropout)
+                model = LSTMModel(input_size, hidden_units, num_layers, self.device, dropout)
             
             print(f"Created {model_type} model instance")
+            print(f"DEBUG: Model device after creation: {next(model.parameters()).device}")
             return model
             
         except Exception as e:

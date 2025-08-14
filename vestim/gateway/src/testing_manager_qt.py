@@ -38,11 +38,27 @@ class VEstimTestingManager:
         self.testing_service = VEstimTestingService()  # Keep old service for fallback
         # self.continuous_testing_service = ContinuousTestingService()  # Removed to prevent race conditions
         self.test_data_service = VEstimTestDataService()
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        
+        # Get device selection from hyperparameters if available, fallback to CUDA detection
+        self.params = params if params is not None else {}
+        device_selection = self.params.get('DEVICE_SELECTION', 'cuda' if torch.cuda.is_available() else 'cpu')
+        if isinstance(device_selection, str) and device_selection.lower().startswith('cuda'):
+            if torch.cuda.is_available():
+                self.device = device_selection
+                self.logger.info(f"TestingManager: Using device from hyperparameters: {device_selection}")
+            else:
+                self.device = 'cpu'
+                self.logger.warning(f"TestingManager: CUDA device {device_selection} requested but CUDA not available, using CPU")
+        else:
+            self.device = device_selection if device_selection == 'cpu' else ('cuda' if torch.cuda.is_available() else 'cpu')
+            self.logger.info(f"TestingManager: Using device: {self.device}")
+        
+        # Ensure device is a string for consistency
+        self.device = str(self.device) if hasattr(self.device, '__str__') else self.device
+        
         self.max_workers = 4  # Number of concurrent threads
         self.queue = None  # Initialize the queue attribute
         self.stop_flag = False  # Initialize the stop flag attribute
-        self.params = params if params is not None else {}
         self.task_list = task_list if task_list is not None else []
         self.training_results = training_results if training_results is not None else {}
         self.results_summary = []
@@ -110,7 +126,7 @@ class VEstimTestingManager:
             print(f"Preparing test data for Task {idx + 1}...")
             
             # Create a new instance of the testing service for each thread to ensure isolation
-            continuous_testing_service = ContinuousTestingService()
+            continuous_testing_service = ContinuousTestingService(device=str(self.device))
             
             # Get required paths and parameters
             lookback = task['hyperparams']['LOOKBACK']

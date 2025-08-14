@@ -106,6 +106,7 @@ class VEstimTrainSetupGUI(QWidget):
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
         top_layout.addWidget(title_label)
+        
         time_layout = QHBoxLayout()
         time_layout.setContentsMargins(0, 10, 0, 10)
         self.static_text_label = QLabel("Time Since Setup Started:")
@@ -117,6 +118,11 @@ class VEstimTrainSetupGUI(QWidget):
         time_layout.addWidget(self.time_value_label)
         time_layout.addStretch(1)
         top_layout.addLayout(time_layout)
+        
+        # Hide the time elements as requested
+        self.static_text_label.setVisible(False)
+        self.time_value_label.setVisible(False)
+        
         self.main_layout.addWidget(top_widget)
 
         # --- Hyperparameter Section ---
@@ -212,6 +218,18 @@ class VEstimTrainSetupGUI(QWidget):
         self.worker.quit()
         self.worker.wait()
 
+        task_list = self.worker.training_setup_manager.get_task_list() 
+        task_count = len(task_list)
+        job_folder = self.job_manager.get_job_folder()
+
+        formatted_message = f"""
+        Setup Complete!<br><br>
+        <font color='#FF5733' size='+0'><b>{task_count}</b></font> training tasks created and saved to:<br>
+        <font color='#1a73e8' size='-1'><i>{job_folder}</i></font>
+        """
+        self.status_label.setText(formatted_message)
+        self.worker.wait()
+
         elapsed_time = time.time() - self.start_time
         hours, remainder = divmod(elapsed_time, 3600)
         minutes, seconds = divmod(remainder, 60)
@@ -224,8 +242,7 @@ class VEstimTrainSetupGUI(QWidget):
         formatted_message = f"""
         Setup Complete!<br><br>
         <font color='#FF5733' size='+0'><b>{task_count}</b></font> training tasks created and saved to:<br>
-        <font color='#1a73e8' size='-1'><i>{job_folder}</i></font><br><br>
-        Time taken for task setup: <b>{total_time_taken}</b>
+        <font color='#1a73e8' size='-1'><i>{job_folder}</i></font>
         """
         self.status_label.setText(formatted_message)
 

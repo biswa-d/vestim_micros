@@ -22,7 +22,7 @@
             "TRAINING_METHOD": "Sequence-to-Sequence",
             "LOOKBACK": "300",
             "BATCH_TRAINING": true,
-            "BATCH_SIZE": "200",
+            "BATCH_SIZE": "512",
             "VALID_PATIENCE": "15",
             "VALID_FREQUENCY": "1",
             "MAX_EPOCHS": "150",
@@ -44,7 +44,7 @@
             "EXPLOIT_REPETITIONS": "2",
             "FINAL_LR": "1e-7",
             "GRU_LAYERS": "1",
-            "GRU_HIDDEN_UNITS": "16",
+            "GRU_HIDDEN_UNITS": "10",
             "MAX_TRAINING_TIME_SECONDS": 0
         }
     },
