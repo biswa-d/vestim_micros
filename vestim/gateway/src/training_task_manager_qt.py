@@ -1020,17 +1020,43 @@ class TrainingTaskManager:
                                     )
                                     
                                     if use_cuda_graphs:
-                                        # CUDA Graphs: Only reload model state, keep current optimizer state
-                                        self.logger.info(f"Loaded best model state_dict from {best_model_path}. Skipping optimizer reload for CUDA Graphs compatibility.")
-                                        # Reset CUDA graphs state after model reload
+                                        # CUDA Graphs: Load optimizer state first, then reset graphs
+                                        if 'optimizer_state_dict' in checkpoint:
+                                            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                                            self.logger.info(f"Loaded best model and optimizer state_dict from {best_model_path}")
+                                            
+                                            # Set the learning rate to the exploit_lr value  
+                                            current_lr = hyperparams["EXPLOIT_LR"]
+                                            for param_group in optimizer.param_groups:
+                                                param_group['lr'] = current_lr
+                                            self.logger.info(f"Optimizer LR updated to {current_lr} for exploit mode.")
+                                        else:
+                                            self.logger.info(f"Optimizer state not found in checkpoint. Using current optimizer state.")
+                                            current_lr = hyperparams["EXPLOIT_LR"]
+                                            for param_group in optimizer.param_groups:
+                                                param_group['lr'] = current_lr
+                                            self.logger.info(f"Optimizer LR set to {current_lr} for exploit mode.")
+                                        
+                                        # Reset CUDA graphs AFTER loading states - graphs will be re-captured with loaded optimizer
                                         if hasattr(self.training_service, 'reset_cuda_graphs'):
                                             self.training_service.reset_cuda_graphs()
+                                            self.logger.info("CUDA graphs reset - will be re-captured for exploit phase with loaded optimizer state")
                                     elif 'optimizer_state_dict' in checkpoint:
                                         # Standard training: Safe to reload optimizer state
                                         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                                         self.logger.info(f"Loaded best model and optimizer state_dict from {best_model_path}")
+                                        # Set the learning rate to the exploit_lr value
+                                        current_lr = hyperparams["EXPLOIT_LR"]
+                                        for param_group in optimizer.param_groups:
+                                            param_group['lr'] = current_lr
+                                        self.logger.info(f"Optimizer LR updated to {current_lr} for exploit mode.")
                                     else:
                                         self.logger.info(f"Loaded best model state_dict from {best_model_path}. Optimizer state not found.")
+                                        # Set the learning rate to the exploit_lr value
+                                        current_lr = hyperparams["EXPLOIT_LR"]
+                                        for param_group in optimizer.param_groups:
+                                            param_group['lr'] = current_lr
+                                        self.logger.info(f"Optimizer LR set to {current_lr} for exploit mode.")
                                 else: # Fallback for older model saves
                                     model.load_state_dict(checkpoint)
                                     self.logger.info(f"Loaded best model state_dict directly from {best_model_path} (older format).")
