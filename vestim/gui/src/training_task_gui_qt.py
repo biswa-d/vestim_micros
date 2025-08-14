@@ -90,6 +90,9 @@ class VEstimTrainingTaskGUI(QMainWindow):
             "LR_DROP_PERIOD": "LR Drop Period", # Keep for StepLR specific
             "PLATEAU_PATIENCE": "Plateau Patience", # For ReduceLROnPlateau
             "PLATEAU_FACTOR": "Plateau Factor",   # For ReduceLROnPlateau
+            "COSINE_T0": "Initial Period (T0)", # For CosineAnnealingWarmRestarts
+            "COSINE_T_MULT": "Period Multiplier (T_mult)", # For CosineAnnealingWarmRestarts
+            "COSINE_ETA_MIN": "Min LR (eta_min)", # For CosineAnnealingWarmRestarts
             "VALID_PATIENCE": "Validation Patience",
             "VALID_FREQUENCY": "Validation Freq", # Shorter
             "LOOKBACK": "Lookback", # Shorter
@@ -289,6 +292,11 @@ class VEstimTrainingTaskGUI(QMainWindow):
                 except (ValueError, TypeError):
                     factor_str = str(factor_val)
                 display_val = f"ReduceLROnPlateau (Patience: {patience}, Factor: {factor_str})"
+            elif scheduler_type == 'CosineAnnealingWarmRestarts':
+                t0 = params.get('COSINE_T0', 'N/A')
+                t_mult = params.get('COSINE_T_MULT', 'N/A')
+                eta_min = params.get('COSINE_ETA_MIN', 'N/A')
+                display_val = f"CosineWarmRestart (T0: {t0}, Tmult: {t_mult}, EtaMin: {eta_min})"
             return display_val
 
         # Add items in preferred order

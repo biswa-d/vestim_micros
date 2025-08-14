@@ -255,13 +255,14 @@ class VEstimTrainingSetupManager:
 
                         # Model parameters - handle different model types
                         if model_type == "GRU":
-                            # GRU model service expects NUM_LAYERS instead of LAYERS
+                            # GRU model service expects LAYERS (same as LSTM)
                             model_params = {
                                 "INPUT_SIZE": input_size,
                                 "OUTPUT_SIZE": output_size,
                                 "HIDDEN_UNITS": hidden_units,
-                                "NUM_LAYERS": layers  # GRU uses NUM_LAYERS
+                                "LAYERS": layers  # GRU uses LAYERS, not NUM_LAYERS
                             }
+                            self.logger.info(f"GRU model params: {model_params}")
                         else:
                             # LSTM and other models use LAYERS
                             model_params = {
@@ -587,9 +588,13 @@ class VEstimTrainingSetupManager:
         if final_hyperparams['SCHEDULER_TYPE'] == 'StepLR':
             final_hyperparams['LR_PERIOD'] = hyperparams.get('LR_PERIOD')
             final_hyperparams['LR_PARAM'] = hyperparams.get('LR_PARAM')
-        else: # Plateau
+        elif final_hyperparams['SCHEDULER_TYPE'] == 'ReduceLROnPlateau':
             final_hyperparams['PLATEAU_PATIENCE'] = hyperparams.get('PLATEAU_PATIENCE')
             final_hyperparams['PLATEAU_FACTOR'] = hyperparams.get('PLATEAU_FACTOR')
+        elif final_hyperparams['SCHEDULER_TYPE'] == 'CosineAnnealingWarmRestarts':
+            final_hyperparams['COSINE_T0'] = hyperparams.get('COSINE_T0')
+            final_hyperparams['COSINE_T_MULT'] = hyperparams.get('COSINE_T_MULT')
+            final_hyperparams['COSINE_ETA_MIN'] = hyperparams.get('COSINE_ETA_MIN')
 
         # Add exploit-phase parameters
         final_hyperparams['EXPLOIT_LR'] = hyperparams.get('EXPLOIT_LR')

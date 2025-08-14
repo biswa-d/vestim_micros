@@ -601,8 +601,16 @@ class TrainingTaskManager:
             current_patience = valid_patience # Initialize current patience
             #patience_threshold = int(valid_patience * 0.5)
             current_lr = hyperparams['INITIAL_LR']
-            lr_drop_period = hyperparams['LR_DROP_PERIOD']
-            lr_drop_factor = hyperparams['LR_DROP_FACTOR']
+            
+            # Only access StepLR parameters if StepLR scheduler is being used
+            scheduler_type = hyperparams.get('SCHEDULER_TYPE', 'None')
+            if scheduler_type == 'StepLR':
+                lr_drop_period = hyperparams.get('LR_DROP_PERIOD', 10)
+                lr_drop_factor = hyperparams.get('LR_DROP_FACTOR', 0.5)
+            else:
+                lr_drop_period = 10  # Default values for backward compatibility
+                lr_drop_factor = 0.5
+                
             # Define a buffer period after which LR drops can happen again, e.g., 100 epochs.
             lr_drop_buffer = 50
             last_lr_drop_epoch = 0  # Initialize the epoch of the last LR drop
@@ -637,13 +645,44 @@ class TrainingTaskManager:
                 self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
                 self.logger.info(f"Created standard optimizer for {model_type} model")
 
-            # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
-            #self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
-            main_scheduler = torch.optim.lr_scheduler.StepLR(
-                self.optimizer,
-                step_size=lr_drop_period,  # Number of epochs between drops
-                gamma=lr_drop_factor       # Multiplicative factor for the drop
-            )
+            # Create scheduler based on type
+            scheduler_type = hyperparams.get("SCHEDULER_TYPE", "StepLR")
+            
+            if scheduler_type == "StepLR":
+                main_scheduler = torch.optim.lr_scheduler.StepLR(
+                    self.optimizer,
+                    step_size=lr_drop_period,  # Number of epochs between drops
+                    gamma=lr_drop_factor       # Multiplicative factor for the drop
+                )
+            elif scheduler_type == "ReduceLROnPlateau":
+                plateau_patience = int(hyperparams.get("PLATEAU_PATIENCE", 10))
+                plateau_factor = float(hyperparams.get("PLATEAU_FACTOR", 0.1))
+                main_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    self.optimizer,
+                    mode='min',           # Reduce when metric stops decreasing
+                    factor=plateau_factor,
+                    patience=plateau_patience,
+                    verbose=True
+                )
+            elif scheduler_type == "CosineAnnealingWarmRestarts":
+                cosine_t0 = int(hyperparams.get("COSINE_T0", 10))
+                cosine_t_mult = int(hyperparams.get("COSINE_T_MULT", 2))
+                cosine_eta_min = float(hyperparams.get("COSINE_ETA_MIN", 1e-6))
+                main_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                    self.optimizer,
+                    T_0=cosine_t0,
+                    T_mult=cosine_t_mult,
+                    eta_min=cosine_eta_min
+                )
+                self.logger.info(f"Created CosineAnnealingWarmRestarts scheduler: T_0={cosine_t0}, T_mult={cosine_t_mult}, eta_min={cosine_eta_min}")
+            else:
+                # Default fallback to StepLR
+                main_scheduler = torch.optim.lr_scheduler.StepLR(
+                    self.optimizer,
+                    step_size=lr_drop_period,
+                    gamma=lr_drop_factor
+                )
+                self.logger.warning(f"Unknown scheduler type '{scheduler_type}', defaulting to StepLR")
             scheduler = main_scheduler  # Start with the main scheduler
             optimizer = self.optimizer
 
@@ -1223,7 +1262,15 @@ class TrainingTaskManager:
                         #     model_memory_usage=round(model_memory_usage_mb, 3), current_lr=current_lr
                         # )
                 
-                scheduler.step()
+                # Scheduler step - different logic for different schedulers
+                scheduler_type = hyperparams.get("SCHEDULER_TYPE", "StepLR")
+                
+                if scheduler_type == "ReduceLROnPlateau":
+                    # For ReduceLROnPlateau, pass the validation loss
+                    scheduler.step(val_loss_norm)
+                elif scheduler_type in ["StepLR", "CosineAnnealingWarmRestarts"]:
+                    # For StepLR and CosineAnnealingWarmRestarts, just step
+                    scheduler.step()
 
                 # Log data to CSV and SQLite after each epoch (whether validated or not)
                 #print(f"Checking log files for the task: {task['task_id']}: task['csv_log_file'], task['db_log_file']")
@@ -1523,9 +1570,14 @@ class TrainingTaskManager:
         if hyperparams['SCHEDULER_TYPE'] == 'StepLR':
             hyperparams['LR_DROP_PERIOD'] = int(hyperparams['LR_PERIOD'])  # Map LR_PERIOD to LR_DROP_PERIOD
             hyperparams['LR_DROP_FACTOR'] = float(hyperparams['LR_PARAM'])  # Map LR_PARAM to LR_DROP_FACTOR
-        else:
+        elif hyperparams['SCHEDULER_TYPE'] == 'ReduceLROnPlateau':
             hyperparams['PLATEAU_PATIENCE'] = int(hyperparams['PLATEAU_PATIENCE'])
             hyperparams['PLATEAU_FACTOR'] = float(hyperparams['PLATEAU_FACTOR'])
+        elif hyperparams['SCHEDULER_TYPE'] == 'CosineAnnealingWarmRestarts':
+            # Safely handle CosineAnnealingWarmRestarts parameters with defaults
+            hyperparams['COSINE_T0'] = int(hyperparams.get('COSINE_T0', '10'))
+            hyperparams['COSINE_T_MULT'] = int(hyperparams.get('COSINE_T_MULT', '2'))
+            hyperparams['COSINE_ETA_MIN'] = float(hyperparams.get('COSINE_ETA_MIN', '1e-6'))
         hyperparams['VALID_PATIENCE'] = int(hyperparams['VALID_PATIENCE'])
         hyperparams['VALID_FREQUENCY'] = int(hyperparams.get('VALID_FREQUENCY', 1))
         
@@ -1556,7 +1608,8 @@ class TrainingTaskManager:
         integer_params = {
             "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS", 
             "MAX_EPOCHS", "VALID_PATIENCE", "VALID_FREQUENCY", "LOOKBACK",
-            "BATCH_SIZE", "LR_PERIOD", "PLATEAU_PATIENCE", "REPETITIONS"
+            "BATCH_SIZE", "LR_PERIOD", "PLATEAU_PATIENCE", "REPETITIONS",
+            "COSINE_T0", "COSINE_T_MULT"
         }
         
         for param_name, param_value in hyperparams.items():

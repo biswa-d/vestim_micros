@@ -133,7 +133,8 @@ class VEstimHyperParamManager:
         # Define scheduler-specific tunable keys
         scheduler_specific_tunable_keys = {
             'StepLR': ['LR_PARAM', 'LR_PERIOD'],
-            'ReduceLROnPlateau': ['PLATEAU_PATIENCE', 'PLATEAU_FACTOR']
+            'ReduceLROnPlateau': ['PLATEAU_PATIENCE', 'PLATEAU_FACTOR'],
+            'CosineAnnealingWarmRestarts': ['COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN']
         }
 
         # Combine keys based on model and scheduler type

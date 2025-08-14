@@ -704,11 +704,12 @@ class VEstimHyperParamGUI(QWidget):
         scheduler_label.setToolTip("Select a scheduler to adjust the learning rate during training.")
 
         self.scheduler_combo = QComboBox()
-        scheduler_options = ["StepLR", "ReduceLROnPlateau"]
+        scheduler_options = ["StepLR", "ReduceLROnPlateau", "CosineAnnealingWarmRestarts"]
         self.scheduler_combo.addItems(scheduler_options)
         self.scheduler_combo.setToolTip(
             "StepLR: Reduces LR at fixed intervals.\n"
-            "ReduceLROnPlateau: Reduces LR when training stagnates."
+            "ReduceLROnPlateau: Reduces LR when training stagnates.\n"
+            "CosineAnnealingWarmRestarts: Cosine annealing with warm restarts for better convergence."
         )
         self.param_entries["SCHEDULER_TYPE"] = self.scheduler_combo
 
@@ -755,11 +756,43 @@ class VEstimHyperParamGUI(QWidget):
         self.plateau_factor_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["PLATEAU_FACTOR"] = self.plateau_factor_entry
 
+        # **CosineAnnealingWarmRestarts Parameters**
+        self.cosine_t0_label = QLabel("T_0 (Initial restart):")
+        self.cosine_t0_label.setStyleSheet("font-size: 9pt;")
+        self.cosine_t0_label.setToolTip("Number of epochs for the first restart cycle.")
+        self.cosine_t0_entry = QLineEdit(self.params.get("COSINE_T0", "10"))
+        self.cosine_t0_entry.setToolTip("Smaller values = more frequent restarts. Good starting point: 10-20 epochs.")
+        self.cosine_t0_entry.textChanged.connect(self.on_param_text_changed)
+        self.param_entries["COSINE_T0"] = self.cosine_t0_entry
+
+        self.cosine_tmult_label = QLabel("T_mult (Restart multiplier):")
+        self.cosine_tmult_label.setStyleSheet("font-size: 9pt;")
+        self.cosine_tmult_label.setToolTip("Factor by which T_0 is multiplied after each restart.")
+        self.cosine_tmult_entry = QLineEdit(self.params.get("COSINE_T_MULT", "2"))
+        self.cosine_tmult_entry.setToolTip("T_mult=1: fixed cycle length, T_mult=2: doubling cycles (recommended)")
+        self.cosine_tmult_entry.textChanged.connect(self.on_param_text_changed)
+        self.param_entries["COSINE_T_MULT"] = self.cosine_tmult_entry
+
+        self.cosine_eta_min_label = QLabel("Eta Min (Min LR):")
+        self.cosine_eta_min_label.setStyleSheet("font-size: 9pt;")
+        self.cosine_eta_min_label.setToolTip("Minimum learning rate for cosine annealing.")
+        self.cosine_eta_min_entry = QLineEdit(self.params.get("COSINE_ETA_MIN", "1e-6"))
+        self.cosine_eta_min_entry.setToolTip("Very small LR at cycle bottom, prevents LR from reaching zero.")
+        self.cosine_eta_min_entry.textChanged.connect(self.on_param_text_changed)
+        self.param_entries["COSINE_ETA_MIN"] = self.cosine_eta_min_entry
+
         # FIXED:Initially hide all scheduler-specific parameters
         self.plateau_patience_label.setVisible(False)
         self.plateau_patience_entry.setVisible(False)
         self.plateau_factor_label.setVisible(False)
         self.plateau_factor_entry.setVisible(False)
+        
+        self.cosine_t0_label.setVisible(False)
+        self.cosine_t0_entry.setVisible(False)
+        self.cosine_tmult_label.setVisible(False)
+        self.cosine_tmult_entry.setVisible(False)
+        self.cosine_eta_min_label.setVisible(False)
+        self.cosine_eta_min_entry.setVisible(False)
 
         # FIXED:Connect selection change event
         self.scheduler_combo.currentIndexChanged.connect(self.update_scheduler_settings)
@@ -772,6 +805,9 @@ class VEstimHyperParamGUI(QWidget):
         form_layout.addRow(self.lr_param_label, self.lr_param_entry)
         form_layout.addRow(self.plateau_patience_label, self.plateau_patience_entry)
         form_layout.addRow(self.plateau_factor_label, self.plateau_factor_entry)
+        form_layout.addRow(self.cosine_t0_label, self.cosine_t0_entry)
+        form_layout.addRow(self.cosine_tmult_label, self.cosine_tmult_entry)
+        form_layout.addRow(self.cosine_eta_min_label, self.cosine_eta_min_entry)
         
         layout.addLayout(form_layout)
 
@@ -793,6 +829,13 @@ class VEstimHyperParamGUI(QWidget):
             self.plateau_patience_entry.setVisible(False)
             self.plateau_factor_label.setVisible(False)
             self.plateau_factor_entry.setVisible(False)
+            
+            self.cosine_t0_label.setVisible(False)
+            self.cosine_t0_entry.setVisible(False)
+            self.cosine_tmult_label.setVisible(False)
+            self.cosine_tmult_entry.setVisible(False)
+            self.cosine_eta_min_label.setVisible(False)
+            self.cosine_eta_min_entry.setVisible(False)
 
         elif selected_scheduler == "ReduceLROnPlateau":
             self.lr_param_label.setText("Plateau Factor:")
@@ -805,6 +848,31 @@ class VEstimHyperParamGUI(QWidget):
             self.plateau_patience_entry.setVisible(True)
             self.plateau_factor_label.setVisible(True)
             self.plateau_factor_entry.setVisible(True)
+            
+            self.cosine_t0_label.setVisible(False)
+            self.cosine_t0_entry.setVisible(False)
+            self.cosine_tmult_label.setVisible(False)
+            self.cosine_tmult_entry.setVisible(False)
+            self.cosine_eta_min_label.setVisible(False)
+            self.cosine_eta_min_entry.setVisible(False)
+
+        elif selected_scheduler == "CosineAnnealingWarmRestarts":
+            self.lr_param_label.setVisible(False)
+            self.lr_param_entry.setVisible(False)
+            self.lr_period_label.setVisible(False)
+            self.lr_period_entry.setVisible(False)
+
+            self.plateau_patience_label.setVisible(False)
+            self.plateau_patience_entry.setVisible(False)
+            self.plateau_factor_label.setVisible(False)
+            self.plateau_factor_entry.setVisible(False)
+            
+            self.cosine_t0_label.setVisible(True)
+            self.cosine_t0_entry.setVisible(True)
+            self.cosine_tmult_label.setVisible(True)
+            self.cosine_tmult_entry.setVisible(True)
+            self.cosine_eta_min_label.setVisible(True)
+            self.cosine_eta_min_entry.setVisible(True)
 
 
     def add_validation_criteria(self, layout):
@@ -1310,6 +1378,25 @@ class VEstimHyperParamGUI(QWidget):
                     self.logger.info(f"LR Param GUI field direct read: '{lr_param_gui_value}'")
                     self.logger.info(f"LR Param field visible: {self.lr_param_entry.isVisible()}")
                     self.logger.info(f"LR Param field enabled: {self.lr_param_entry.isEnabled()}")
+            
+            elif selected_scheduler == "CosineAnnealingWarmRestarts":
+                if hasattr(self, 'cosine_t0_entry'):
+                    t0_gui_value = self.cosine_t0_entry.text().strip()
+                    self.logger.info(f"COSINE_T0 GUI field direct read: '{t0_gui_value}'")
+                    self.logger.info(f"COSINE_T0 field visible: {self.cosine_t0_entry.isVisible()}")
+                    self.logger.info(f"COSINE_T0 field enabled: {self.cosine_t0_entry.isEnabled()}")
+                
+                if hasattr(self, 'cosine_t_mult_entry'):
+                    t_mult_gui_value = self.cosine_t_mult_entry.text().strip()
+                    self.logger.info(f"COSINE_T_MULT GUI field direct read: '{t_mult_gui_value}'")
+                    self.logger.info(f"COSINE_T_MULT field visible: {self.cosine_t_mult_entry.isVisible()}")
+                    self.logger.info(f"COSINE_T_MULT field enabled: {self.cosine_t_mult_entry.isEnabled()}")
+                
+                if hasattr(self, 'cosine_eta_min_entry'):
+                    eta_min_gui_value = self.cosine_eta_min_entry.text().strip()
+                    self.logger.info(f"COSINE_ETA_MIN GUI field direct read: '{eta_min_gui_value}'")
+                    self.logger.info(f"COSINE_ETA_MIN field visible: {self.cosine_eta_min_entry.isVisible()}")
+                    self.logger.info(f"COSINE_ETA_MIN field enabled: {self.cosine_eta_min_entry.isEnabled()}")
 
         # FIXED:Ensure critical fields are selected
         if not new_params.get("FEATURE_COLUMNS"):
