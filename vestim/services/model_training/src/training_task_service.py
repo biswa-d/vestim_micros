@@ -70,9 +70,9 @@ class TrainingTaskService:
         h_s, h_c = None, None
         if model_type in ["LSTM", "GRU"]: # Or any other RNN type needing hidden states
             if h_s_initial is not None:
-                h_s = h_s_initial.detach().clone() # Detach and clone for each epoch start
+                h_s = h_s_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
             if model_type == "LSTM" and h_c_initial is not None:
-                h_c = h_c_initial.detach().clone()
+                h_c = h_c_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
 
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
             if stop_requested:
@@ -93,10 +93,17 @@ class TrainingTaskService:
                         if h_s is None or h_c is None: # Ensure hidden states are initialized
                             h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                             h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                        else:
+                            # Ensure existing hidden states are on the correct device
+                            h_s = h_s.to(device)
+                            h_c = h_c.to(device)
                         y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                     elif model_type == "GRU":
                         if h_s is None: # Ensure hidden state is initialized
                             h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                        else:
+                            # Ensure existing hidden state is on the correct device
+                            h_s = h_s.to(device)
                         y_pred, h_s = model(X_batch, h_s)
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
@@ -127,13 +134,20 @@ class TrainingTaskService:
             else:
                 # Standard precision training
                 if model_type == "LSTM":
-                    if h_s is None:
+                    if h_s is None or h_c is None:
                         h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                         h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                    else:
+                        # Ensure existing hidden states are on the correct device
+                        h_s = h_s.to(device)
+                        h_c = h_c.to(device)
                     y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                 elif model_type == "GRU":
                     if h_s is None:
                         h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                    else:
+                        # Ensure existing hidden state is on the correct device
+                        h_s = h_s.to(device)
                     y_pred, h_s = model(X_batch, h_s)
                 elif model_type == "FNN":
                     y_pred = model(X_batch)
@@ -177,10 +191,10 @@ class TrainingTaskService:
 
             del X_batch, y_batch, y_pred, loss
             if model_type == "LSTM":
-                h_s = h_s.detach()
-                h_c = h_c.detach()
+                h_s = h_s.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
+                h_c = h_c.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
             elif model_type == "GRU":
-                h_s = h_s.detach()
+                h_s = h_s.detach().to(device)  # FIXED: Keep hidden state on the correct device after detach
             torch.cuda.empty_cache() if device.type == 'cuda' else None
 
         avg_epoch_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0
@@ -211,9 +225,9 @@ class TrainingTaskService:
         h_s, h_c = None, None
         if model_type in ["LSTM", "GRU"]:
             if h_s_initial is not None:
-                h_s = h_s_initial.detach().clone()
+                h_s = h_s_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
             if model_type == "LSTM" and h_c_initial is not None:
-                h_c = h_c_initial.detach().clone()
+                h_c = h_c_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
 
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
@@ -230,10 +244,17 @@ class TrainingTaskService:
                             if h_s is None or h_c is None:
                                 h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                                 h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                            else:
+                                # Ensure existing hidden states are on the correct device
+                                h_s = h_s.to(device)
+                                h_c = h_c.to(device)
                             y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                         elif model_type == "GRU":
                             if h_s is None:
                                 h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                            else:
+                                # Ensure existing hidden state is on the correct device
+                                h_s = h_s.to(device)
                             y_pred, h_s = model(X_batch, h_s)
                         elif model_type == "FNN":
                             y_pred = model(X_batch)
@@ -251,13 +272,20 @@ class TrainingTaskService:
                         loss = self.criterion(y_pred, y_batch)
                 else:
                     if model_type == "LSTM":
-                        if h_s is None:
+                        if h_s is None or h_c is None:
                             h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                             h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                        else:
+                            # Ensure existing hidden states are on the correct device
+                            h_s = h_s.to(device)
+                            h_c = h_c.to(device)
                         y_pred, (_, _) = model(X_batch, h_s, h_c)
                     elif model_type == "GRU":
                         if h_s is None:
                             h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                        else:
+                            # Ensure existing hidden state is on the correct device
+                            h_s = h_s.to(device)
                         y_pred, _ = model(X_batch, h_s)
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
@@ -289,10 +317,10 @@ class TrainingTaskService:
 
                 del X_batch, y_batch, y_pred, loss
                 if model_type == "LSTM":
-                    h_s = h_s.detach()
-                    h_c = h_c.detach()
+                    h_s = h_s.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
+                    h_c = h_c.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
                 elif model_type == "GRU":
-                    h_s = h_s.detach()
+                    h_s = h_s.detach().to(device)  # FIXED: Keep hidden state on the correct device after detach
                 torch.cuda.empty_cache() if device.type == 'cuda' else None
         
         avg_loss = sum(total_val_loss) / len(total_val_loss) if total_val_loss else float('nan')

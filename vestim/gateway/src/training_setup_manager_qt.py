@@ -574,10 +574,14 @@ class VEstimTrainingSetupManager:
             'SCHEDULER_TYPE': hyperparams['SCHEDULER_TYPE'],
             'REPETITIONS': hyperparams['REPETITIONS'],
             'NUM_LEARNABLE_PARAMS': num_learnable_params,
+            'DEVICE_SELECTION': hyperparams.get('DEVICE_SELECTION', 'cuda:0'),  # Include device selection from GUI
         }
         final_hyperparams['normalization_applied'] = job_normalization_metadata.get('normalization_applied', False)
         final_hyperparams['FEATURE_COLUMNS'] = model_task['FEATURE_COLUMNS']
         final_hyperparams['TARGET_COLUMN'] = model_task['TARGET_COLUMN']
+
+        # Debug log to confirm device selection is included
+        self.logger.info(f"TrainingSetupManager._create_task_info: final_hyperparams DEVICE_SELECTION = {final_hyperparams.get('DEVICE_SELECTION')}")
 
         # Add scheduler-specific params
         if final_hyperparams['SCHEDULER_TYPE'] == 'StepLR':
@@ -633,7 +637,7 @@ class VEstimTrainingSetupManager:
                 'batch_size': hyperparams['BATCH_SIZE'],
                 'feature_columns': model_task['FEATURE_COLUMNS'],
                 'target_column': model_task['TARGET_COLUMN'],
-                'num_workers': 4
+                'num_workers': hyperparams.get('NUM_WORKERS', 4)  # Use GUI value or default to 4
             },
             'training_params': {
                 'early_stopping': True,

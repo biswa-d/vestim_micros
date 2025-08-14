@@ -44,6 +44,7 @@ class TrainingTaskManager:
         
         # Store global_params first before using it
         self.global_params = global_params if global_params else {}
+        self.logger.info(f"TrainingTaskManager: Received global_params with DEVICE_SELECTION: {self.global_params.get('DEVICE_SELECTION', 'NOT_FOUND')}")
         
         # Initialize training service with CUDA Graphs if available and enabled
         use_cuda_graphs = self.global_params.get('USE_CUDA_GRAPHS', False)
@@ -59,13 +60,19 @@ class TrainingTaskManager:
         # Determine device based on global_params or fallback
         selected_device_str = self.global_params.get('DEVICE_SELECTION', 'cpu')  # FIXED: Default to 'cpu' instead of 'cuda:0'
         self.logger.info(f"TrainingTaskManager: Device selection from params: '{selected_device_str}' (type: {type(selected_device_str)})")
+        self.logger.info(f"TrainingTaskManager: CUDA available: {torch.cuda.is_available()}, CUDA device count: {torch.cuda.device_count() if torch.cuda.is_available() else 0}")
         try:
             if selected_device_str.lower().startswith("cuda") and not torch.cuda.is_available():
                 self.logger.warning(f"CUDA device {selected_device_str} selected, but CUDA is not available. Falling back to CPU.")
                 self.device = torch.device("cpu")
-            elif selected_device_str.lower().startswith("cuda"):
-                # Attempt to use the specific CUDA device. torch.device will raise an error if invalid.
-                self.device = torch.device(selected_device_str)
+            elif selected_device_str.lower().startswith("cuda") or selected_device_str.upper() == "CUDA":
+                # Handle both "cuda:0", "cuda", and "CUDA" formats
+                if selected_device_str.upper() == "CUDA":
+                    # Convert generic "CUDA" to "cuda:0"
+                    device_str = "cuda:0"
+                else:
+                    device_str = selected_device_str
+                self.device = torch.device(device_str)
                 self.logger.info(f"TrainingTaskManager: Successfully set device to CUDA: {self.device}")
             elif selected_device_str.upper() == "CPU":  # FIXED: Use case-insensitive comparison
                 self.device = torch.device("cpu")
