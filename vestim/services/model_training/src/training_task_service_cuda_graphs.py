@@ -22,9 +22,28 @@ class CUDAGraphsTrainingService:
     - Reduced CPU-GPU launch overhead (especially on Windows)
     """
     
-    def __init__(self):
+    def __init__(self, device=None):
         self.criterion = nn.MSELoss()
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+<<<<<<< HEAD
+        # FIXED: Respect the passed device parameter instead of hardcoding CUDA selection
+        if device is not None:
+            self.device = device
+            print(f"🎯 CUDAGraphsTrainingService: Using specified device: {device}")
+        else:
+            # Fallback to auto-detection only if no device specified
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            print(f"⚡ CUDAGraphsTrainingService: Auto-detected device: {self.device}")
+=======
+        # FIXED: Respect the passed device parameter instead of hardcoding CUDA auto-detection
+        if device is not None:
+            self.device = device
+            print(f"CUDAGraphsTrainingService: Using specified device: {device}")
+        else:
+            # Fallback to auto-detection only if no device specified
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.device = device
+            print(f"CUDAGraphsTrainingService: Auto-detected device: {device}")
+>>>>>>> 6b0f4c69718bcad7e6a7c89a0f004bb202c4ca39
         
         # CUDA Graphs related attributes
         self.cuda_graph = None

@@ -7,10 +7,15 @@ import time
 
 
 class TrainingTaskService:
-    def __init__(self):
+    def __init__(self, device=None):
         self.criterion = nn.MSELoss()  # Assuming you're using Mean Squared Error Loss for regression tasks
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.device = device
+        if device is not None:
+            self.device = device
+            print(f"TrainingTaskService: Using specified device: {device} (type: {type(device)})")
+        else:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.device = device
+            print(f"TrainingTaskService: Auto-detected device: {device}")
     
     def log_to_csv(self, task, epoch, batch_idx, batch_time, phase):
         """Log batch timing data to a CSV file."""

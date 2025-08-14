@@ -11,10 +11,13 @@
                 "SOC"
             ],
             "TARGET_COLUMN": "Voltage",
-            "DEVICE_SELECTION": "cuda:0",
+            "DEVICE_SELECTION": "CPU",
             "USE_MIXED_PRECISION": true,
             "OPTIMIZER_TYPE": "Adam",
             "WEIGHT_DECAY": "0.00004",
+            "NUM_WORKERS": "16",
+            "PIN_MEMORY": true,
+            "PREFETCH_FACTOR": "16",
             "MODEL_TYPE": "FNN",
             "TRAINING_METHOD": "WholeSequenceFNN",
             "LOOKBACK": "400",
@@ -39,11 +42,7 @@
             "FINAL_LR": "1e-7",
             "FNN_HIDDEN_LAYERS": "64,32",
             "FNN_DROPOUT_PROB": "0.2",
-            "MAX_TRAINING_TIME_SECONDS": 0,
-            "NUM_WORKERS": "6",
-            "PIN_MEMORY": true,
-            "PREFETCH_FACTOR": "2",
-            "USE_CUDA_GRAPHS": true
+            "MAX_TRAINING_TIME_SECONDS": 0
         }
     },
     "default_folders": {

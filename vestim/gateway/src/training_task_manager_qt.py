@@ -42,23 +42,49 @@ class TrainingTaskManager:
         self.job_manager = job_manager if job_manager else JobManager()
         self.data_loader_service = DataLoaderService()
         
+        # Store global_params first before using it
+        self.global_params = global_params if global_params else {}
+        
         # Initialize training service with CUDA Graphs if available and enabled
-        use_cuda_graphs = global_params.get('USE_CUDA_GRAPHS', False) if global_params else False
+        use_cuda_graphs = self.global_params.get('USE_CUDA_GRAPHS', False)
         
         # Auto-enable CUDA Graphs for FNN models on CUDA devices (smart default)
-        if not use_cuda_graphs and global_params:
-            model_type = global_params.get('MODEL_TYPE', 'LSTM')
-            device_selection = global_params.get('DEVICE_SELECTION', 'cpu')
+        if not use_cuda_graphs and self.global_params:
+            model_type = self.global_params.get('MODEL_TYPE', 'LSTM')
+            device_selection = self.global_params.get('DEVICE_SELECTION', 'cpu')
             if model_type == 'FNN' and 'cuda' in device_selection.lower() and CUDA_GRAPHS_AVAILABLE:
                 use_cuda_graphs = True
                 self.logger.info("🎯 Auto-enabling CUDA Graphs for FNN model on CUDA device")
         
+        # Determine device based on global_params or fallback
+        selected_device_str = self.global_params.get('DEVICE_SELECTION', 'cpu')  # FIXED: Default to 'cpu' instead of 'cuda:0'
+        self.logger.info(f"TrainingTaskManager: Device selection from params: '{selected_device_str}' (type: {type(selected_device_str)})")
+        try:
+            if selected_device_str.lower().startswith("cuda") and not torch.cuda.is_available():
+                self.logger.warning(f"CUDA device {selected_device_str} selected, but CUDA is not available. Falling back to CPU.")
+                self.device = torch.device("cpu")
+            elif selected_device_str.lower().startswith("cuda"):
+                # Attempt to use the specific CUDA device. torch.device will raise an error if invalid.
+                self.device = torch.device(selected_device_str)
+                self.logger.info(f"TrainingTaskManager: Successfully set device to CUDA: {self.device}")
+            elif selected_device_str.upper() == "CPU":  # FIXED: Use case-insensitive comparison
+                self.device = torch.device("cpu")
+                self.logger.info(f"TrainingTaskManager: Successfully set device to CPU: {self.device}")
+            else: # Default fallback if string is unrecognized
+                self.logger.warning(f"Unrecognized device selection '{selected_device_str}'. Falling back to CPU.")
+                self.device = torch.device("cpu")  # FIXED: Always fallback to CPU
+        except Exception as e:
+            self.logger.error(f"Error setting device to '{selected_device_str}': {e}. Falling back to CPU.")
+            self.device = torch.device("cpu")
+
         if use_cuda_graphs and CUDA_GRAPHS_AVAILABLE:
-            self.training_service = CUDAGraphsTrainingService()
+            # FIXED: Pass the device to CUDA Graphs service so it respects GUI selection
+            self.training_service = CUDAGraphsTrainingService(device=self.device)
             self.logger.info("🚀 CUDA Graphs training service initialized for RTX 5070 optimization")
             print("🚀 CUDA Graphs enabled - expect 1.2x-3x speedup for FNN models!")
         else:
-            self.training_service = TrainingTaskService()
+            # FIXED: Pass the device to TrainingTaskService so it respects GUI selection
+            self.training_service = TrainingTaskService(device=self.device)
             if use_cuda_graphs and not CUDA_GRAPHS_AVAILABLE:
                 self.logger.warning("CUDA Graphs requested but not available, using standard training")
             else:
@@ -67,37 +93,12 @@ class TrainingTaskManager:
         self.training_setup_manager = VEstimTrainingSetupManager(job_manager=self.job_manager)
         self.current_task = None
         self.stop_requested = False
-        self.global_params = global_params if global_params else {}
         self.loaded_scaler = None # For storing the loaded scaler
         self.scaler_metadata = {} # For storing normalization metadata (path, columns, target)
         self.training_results = {}
         
         # Initialize job-level timer (will be set when first task starts)
         self.job_start_time = None
-        
-        # Determine device based on global_params or fallback
-        selected_device_str = self.global_params.get('DEVICE_SELECTION', 'cuda:0')
-        try:
-            if selected_device_str.startswith("cuda") and not torch.cuda.is_available():
-                self.logger.warning(f"CUDA device {selected_device_str} selected, but CUDA is not available. Falling back to CPU.")
-                self.device = torch.device("cpu")
-            elif selected_device_str.startswith("cuda"):
-                # Attempt to use the specific CUDA device. torch.device will raise an error if invalid.
-                self.device = torch.device(selected_device_str)
-                if not torch.cuda.is_available() or torch.cuda.current_device() != self.device.index:
-                    # This check is a bit redundant if torch.device(selected_device_str) worked,
-                    # but good for an explicit log if a specific CUDA device isn't the one torch ends up using.
-                    # More robust check would be to try a small tensor operation on that device.
-                    # For now, we assume torch.device handles the validation.
-                    pass # self.logger.info(f"Successfully set device to {selected_device_str}")
-            elif selected_device_str == "CPU":
-                self.device = torch.device("cpu")
-            else: # Default fallback if string is unrecognized
-                self.logger.warning(f"Unrecognized device selection '{selected_device_str}'. Falling back to cuda:0 if available, else CPU.")
-                self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        except Exception as e:
-            self.logger.error(f"Error setting device to '{selected_device_str}': {e}. Falling back to CPU.")
-            self.device = torch.device("cpu")
         
         self.logger.info(f"TrainingTaskManager initialized with device: {self.device}")
 

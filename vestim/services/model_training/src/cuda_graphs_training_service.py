@@ -8,7 +8,7 @@ from typing import Tuple, Optional
 class CUDAGraphsTrainingService:
     """Enhanced training service with CUDA Graphs optimization for faster training."""
     
-    def __init__(self):
+    def __init__(self, device=None):
         self.logger = logging.getLogger(__name__)
         self.criterion = nn.MSELoss()
         self.graphs_enabled = False
@@ -19,6 +19,14 @@ class CUDAGraphsTrainingService:
         self.static_val_input = None
         self.static_val_target = None
         self.scaler = None
+        
+        # Store the device - either passed in or auto-detected
+        if device is not None:
+            self.device = device
+            self.logger.info(f"CUDAGraphsTrainingService: Using specified device: {device}")
+        else:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.logger.info(f"CUDAGraphsTrainingService: Auto-detected device: {self.device}")
         
     def enable_cuda_graphs(self, device, use_mixed_precision=True):
         """Enable CUDA Graphs if supported."""

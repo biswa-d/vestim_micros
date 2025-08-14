@@ -363,10 +363,12 @@ class VEstimTrainingSetupManager:
                 
                 repetitions = int(self.params.get('REPETITIONS', 1))
                 for i in range(1, repetitions + 1):
-                    # Combine global, model-specific, and grid-combination hyperparameters
-                    task_hyperparams = self.params.copy()
-                    task_hyperparams.update(model_task['hyperparams'])
-                    task_hyperparams.update(param_combination)
+                    # Combine hyperparameters: start with model-specific, then override with global GUI params, then grid
+                    # This ensures GUI params (like DEVICE_SELECTION, NUM_WORKERS) take precedence over model defaults
+                    task_hyperparams = {}
+                    task_hyperparams.update(model_task['hyperparams'])  # Model-specific params (INPUT_SIZE, etc.)
+                    task_hyperparams.update(self.params)  # GUI params override model defaults
+                    task_hyperparams.update(param_combination)  # Grid combination overrides everything
 
                     task_info = self._create_task_info(
                         model_task=model_task,

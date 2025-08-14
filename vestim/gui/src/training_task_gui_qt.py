@@ -60,7 +60,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.job_manager = job_manager if job_manager else JobManager()
         self.training_task_manager = TrainingTaskManager(job_manager=self.job_manager, global_params=self.params) # Now use self.params
         self.training_setup_manager = VEstimTrainingSetupManager(job_manager=self.job_manager)
-        self.training_service = TrainingTaskService()
+        # Note: self.training_service removed - we use training_task_manager.training_service instead
 
         # Initialize variables
         self.train_loss_values = []
