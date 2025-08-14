@@ -365,10 +365,33 @@ class VEstimTestingManager:
                     display_model_name = task.get('model_name', self.generate_shorthand_name(task))
                     display_task_name = task.get('task_id')
 
-                # Best losses are now passed from the training GUI
-                best_train_loss = self.training_results.get(task['task_id'], {}).get('best_train_loss', 'N/A')
-                best_valid_loss = self.training_results.get(task['task_id'], {}).get('best_validation_loss', 'N/A')
-                completed_epochs = self.training_results.get(task['task_id'], {}).get('completed_epochs', 'N/A')
+                # Best losses are now read from training summary files or passed from training GUI
+                best_train_loss = 'N/A'
+                best_valid_loss = 'N/A'
+                completed_epochs = 'N/A'
+                
+                # Try to read from training_results first (in-memory from training GUI)
+                training_result = self.training_results.get(task['task_id'], {})
+                if training_result:
+                    best_train_loss = training_result.get('best_train_loss', 'N/A')
+                    best_valid_loss = training_result.get('best_validation_loss', 'N/A')
+                    completed_epochs = training_result.get('completed_epochs', 'N/A')
+                
+                # If not available in memory, try to read from training summary JSON file on disk
+                if best_train_loss == 'N/A' or best_valid_loss == 'N/A':
+                    try:
+                        task_dir = task.get('task_dir') or task.get('model_dir')
+                        if task_dir:
+                            summary_file = os.path.join(task_dir, 'training_summary.json')
+                            if os.path.exists(summary_file):
+                                with open(summary_file, 'r') as f:
+                                    summary_data = json.load(f)
+                                    best_train_loss = summary_data.get('best_train_loss_denormalized', 'N/A')
+                                    best_valid_loss = summary_data.get('best_validation_loss_denormalized', 'N/A')
+                                    completed_epochs = summary_data.get('completed_epochs', 'N/A')
+                                    self.logger.info(f"Loaded training results from disk for task {task['task_id']}: train={best_train_loss}, val={best_valid_loss}, epochs={completed_epochs}")
+                    except Exception as e:
+                        self.logger.warning(f"Could not read training summary from disk for task {task['task_id']}: {e}")
 
                 summary_row = {
                     "Sl.No": f"{idx + 1}.{test_file_index + 1}",

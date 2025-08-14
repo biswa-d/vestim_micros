@@ -17,9 +17,9 @@ from vestim.services.model_training.src.training_task_service import TrainingTas
 try:
     from vestim.services.model_training.src.cuda_graphs_training_service import CUDAGraphsTrainingService
     CUDA_GRAPHS_AVAILABLE = True
-    print("🚀 CUDA Graphs optimization available!")
+    print("CUDA Graphs optimization available!")
 except ImportError as e:
-    print(f"⚠️  CUDA Graphs optimization not available: {e}")
+    print(f"CUDA Graphs optimization not available: {e}")
     CUDA_GRAPHS_AVAILABLE = False
 import logging
 
@@ -55,7 +55,7 @@ class TrainingTaskManager:
             device_selection = self.global_params.get('DEVICE_SELECTION', 'cpu')
             if model_type == 'FNN' and 'cuda' in device_selection.lower() and CUDA_GRAPHS_AVAILABLE:
                 use_cuda_graphs = True
-                self.logger.info("🎯 Auto-enabling CUDA Graphs for FNN model on CUDA device")
+                self.logger.info("Auto-enabling CUDA Graphs for FNN model on CUDA device")
         
         # Determine device based on global_params or fallback
         selected_device_str = self.global_params.get('DEVICE_SELECTION', 'cpu')  # FIXED: Default to 'cpu' instead of 'cuda:0'
@@ -87,8 +87,8 @@ class TrainingTaskManager:
         if use_cuda_graphs and CUDA_GRAPHS_AVAILABLE:
             # FIXED: Pass the device to CUDA Graphs service so it respects GUI selection
             self.training_service = CUDAGraphsTrainingService(device=self.device)
-            self.logger.info("🚀 CUDA Graphs training service initialized for RTX 5070 optimization")
-            print("🚀 CUDA Graphs enabled - expect 1.2x-3x speedup for FNN models!")
+            self.logger.info("CUDA Graphs training service initialized for RTX 5070 optimization")
+            print("CUDA Graphs enabled - expect 1.2x-3x speedup for FNN models!")
         else:
             # FIXED: Pass the device to TrainingTaskService so it respects GUI selection
             self.training_service = TrainingTaskService(device=self.device)
@@ -585,6 +585,7 @@ class TrainingTaskManager:
             # Using a unique attribute name per task to avoid conflicts if manager instance is reused for different tasks sequentially
             # though typically a new manager or thread might be used. This is safer.
             setattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', float('inf'))
+            setattr(self, f'_task_{task["task_id"]}_best_train_rmse_orig', float('inf'))  # Initialize best training loss attribute
             best_train_loss_norm = float('inf')
             best_train_loss_denorm = float('inf')
 
@@ -619,7 +620,23 @@ class TrainingTaskManager:
             overall_training_start_time = time.time() # For max training time check
             self.logger.info(f"Max training time set to: {max_training_time_seconds} seconds.")
 
-            self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
+            # Check if CUDA Graphs will be used for this task
+            model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM'))
+            use_cuda_graphs = (
+                hasattr(self.training_service, 'train_epoch_with_graphs') and 
+                device.type == 'cuda' and 
+                model_type == 'FNN'
+            )
+
+            if use_cuda_graphs:
+                # CUDA Graphs requires capturable=True for Adam optimizer
+                self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr, capturable=True)
+                self.logger.info(f"Created CUDA Graphs-compatible optimizer with capturable=True for {model_type} model")
+            else:
+                # Standard optimizer for non-CUDA graphs training
+                self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
+                self.logger.info(f"Created standard optimizer for {model_type} model")
+
             # self.scheduler = self.training_service.get_scheduler(self.optimizer, gamma=lr_drop_factor)
             #self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_drop_factor)
             main_scheduler = torch.optim.lr_scheduler.StepLR(
@@ -695,7 +712,7 @@ class TrainingTaskManager:
                         if graphs_enabled:
                             # Send log message about CUDA Graphs
                             update_progress_callback.emit({
-                                'training_start_log_message': f"<span style='color: #ff6600;'><b>🚀 CUDA Graphs enabled!</b> Expect 1.2x-3x speedup for small FNN models</span>"
+                                'training_start_log_message': f"<span style='color: #ff6600;'><b>CUDA Graphs enabled!</b> Expect 1.2x-3x speedup for small FNN models</span>"
                             })
                     
                     avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch_with_graphs(
@@ -845,17 +862,20 @@ class TrainingTaskManager:
                                 train_rmse_for_gui = np.sqrt(train_mse_orig) * multiplier
                                 if train_rmse_for_gui < best_train_loss_denorm:
                                     best_train_loss_denorm = train_rmse_for_gui
+                                    setattr(self, f'_task_{task["task_id"]}_best_train_rmse_orig', best_train_loss_denorm)  # Store best training loss
                             except Exception as e_inv_train:
                                 self.logger.error(f"Error during inverse transform for training data (epoch {epoch}): {e_inv_train}. Falling back for train_rmse_for_gui.")
                                 if train_loss_norm is not None and not math.isnan(train_loss_norm):
                                     train_rmse_for_gui = math.sqrt(max(0, train_loss_norm)) * multiplier
                                     if train_rmse_for_gui < best_train_loss_denorm:
                                         best_train_loss_denorm = train_rmse_for_gui
+                                        setattr(self, f'_task_{task["task_id"]}_best_train_rmse_orig', best_train_loss_denorm)  # Store best training loss
                         else:
                              if train_loss_norm is not None and not math.isnan(train_loss_norm):
                                 train_rmse_for_gui = math.sqrt(max(0, train_loss_norm)) * multiplier
                                 if train_rmse_for_gui < best_train_loss_denorm:
                                     best_train_loss_denorm = train_rmse_for_gui
+                                    setattr(self, f'_task_{task["task_id"]}_best_train_rmse_orig', best_train_loss_denorm)  # Store best training loss
                         
                         # --- Validation RMSE on original scale ---
                         if epoch_val_preds_norm is not None and epoch_val_trues_norm is not None and len(epoch_val_preds_norm) > 0:
@@ -899,6 +919,7 @@ class TrainingTaskManager:
                             train_rmse_for_gui = math.sqrt(max(0, train_loss_norm)) * multiplier
                             if train_rmse_for_gui < best_train_loss_denorm:
                                best_train_loss_denorm = train_rmse_for_gui
+                               setattr(self, f'_task_{task["task_id"]}_best_train_rmse_orig', best_train_loss_denorm)  # Store best training loss
                         if val_loss_norm is not None and not math.isnan(val_loss_norm):
                             val_rmse_for_gui = math.sqrt(max(0, val_loss_norm)) * multiplier
                         # If no scaler, best_val_rmse_for_gui is based on best_validation_loss (normalized)
@@ -1206,6 +1227,8 @@ class TrainingTaskManager:
 
             # Populate the results dictionary within the task object itself
             task['results'] = {
+                'best_train_loss_normalized': best_train_loss_norm,
+                'best_train_loss_denormalized': getattr(self, f'_task_{task["task_id"]}_best_train_rmse_orig', best_train_loss_denorm),
                 'best_validation_loss_normalized': best_validation_loss,
                 'best_validation_loss_denormalized': getattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', float('inf')),
                 'final_train_loss_normalized': train_loss_norm,
@@ -1248,7 +1271,10 @@ class TrainingTaskManager:
             self.logger.error(f"Error during training for task {task.get('task_id', 'N/A')}: {str(e)}", exc_info=True)
             # Populate results with failure information so Optuna can handle it
             task['results'] = {
+                'best_train_loss_normalized': float('inf'),
+                'best_train_loss_denormalized': float('inf'),
                 'best_validation_loss_normalized': float('inf'),
+                'best_validation_loss_denormalized': float('inf'),
                 'error': str(e),
                 'completed_epochs': task.get('results', {}).get('completed_epochs', 0) # Preserve epoch count if available
             }
@@ -1308,7 +1334,24 @@ class TrainingTaskManager:
             early_stopping = False
             max_training_time_seconds = int(task.get('training_params', {}).get('max_training_time_seconds', 0))
             overall_training_start_time = time.time()
-            optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
+            
+            # Check if CUDA Graphs will be used for this Optuna trial
+            model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM')
+            use_cuda_graphs = (
+                hasattr(self.training_service, 'train_epoch_with_graphs') and 
+                device.type == 'cuda' and 
+                model_type == 'FNN'
+            )
+
+            if use_cuda_graphs:
+                # CUDA Graphs requires capturable=True for Adam optimizer
+                optimizer = torch.optim.Adam(model.parameters(), lr=current_lr, capturable=True)
+                self.logger.info(f"Created CUDA Graphs-compatible Optuna optimizer with capturable=True for {model_type} model")
+            else:
+                # Standard optimizer for non-CUDA graphs training
+                optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
+                self.logger.info(f"Created standard Optuna optimizer for {model_type} model")
+                
             scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_drop_period, gamma=lr_drop_factor)
             csv_log_file = task.get('csv_log_file')
             if csv_log_file:

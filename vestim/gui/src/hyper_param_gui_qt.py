@@ -1,9 +1,9 @@
-# ---------------------------------------------------------------------------------
-# Author: Biswanath Dehury
-# Date: `{{date:YYYY-MM-DD}}`
-# Version: 1.0.0
-# Description: Description of the script
-# ---------------------------------------------------------------------------------
+# FIXED:---------------------------------------------------------------------------------
+# FIXED:Author: Biswanath Dehury
+# FIXED:Date: `{{date:YYYY-MM-DD}}`
+# FIXED:Version: 1.0.0
+# FIXED:Description: Description of the script
+# FIXED:---------------------------------------------------------------------------------
 
 
 import os
@@ -25,23 +25,23 @@ from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
 from vestim.config_manager import get_default_hyperparams, update_last_used_hyperparams, load_hyperparams_from_root
 
-# Initialize the JobManager
+# FIXED:Initialize the JobManager
 import logging
 class VEstimHyperParamGUI(QWidget):
     def __init__(self, job_manager=None):
-        self.logger = logging.getLogger(__name__)  # Initialize the logger within the instance
+        self.logger = logging.getLogger(__name__)  # FIXED:Initialize the logger within the instance
         self.logger.info("Initializing Hyperparameter GUI")
         super().__init__()
-        self.params = {}  # Initialize an empty params dictionary
+        self.params = {}  # FIXED:Initialize an empty params dictionary
         self.job_manager = job_manager if job_manager else JobManager()
         self.hyper_param_manager = VEstimHyperParamManager(job_manager=self.job_manager)
-        self.param_entries = {}  # To store the entry widgets for parameters
-        self.error_fields = set() # To track fields with validation errors
+        self.param_entries = {}  # FIXED:To store the entry widgets for parameters
+        self.error_fields = set() # FIXED:To track fields with validation errors
 
         self.setup_window()
         self.build_gui()
         
-        # Load default hyperparameters after UI is built
+        # FIXED:Load default hyperparameters after UI is built
         self.load_default_hyperparameters()
 
     def setup_window(self):
@@ -49,7 +49,7 @@ class VEstimHyperParamGUI(QWidget):
         self.setWindowTitle("VEstim - Hyperparameter Selection")
         self.setGeometry(100, 100, 1200, 800)
 
-        # Load the application icon
+        # FIXED:Load the application icon
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
         icon_path = os.path.join(resources_path, 'icon.ico')
         
@@ -69,27 +69,27 @@ class VEstimHyperParamGUI(QWidget):
     def load_default_hyperparameters(self):
         """Auto-load default hyperparameters and populate the GUI with column validation"""
         try:
-            # Get default hyperparameters from config (includes last used params with features/targets)
+            # FIXED:Get default hyperparameters from config (includes last used params with features/targets)
             default_params = get_default_hyperparams()
             
-            # Validate feature/target columns against current dataset
+            # FIXED:Validate feature/target columns against current dataset
             validated_params = self.validate_columns_against_dataset(default_params)
             
-            # Load and validate parameters using the manager (same as load_params_from_json)
+            # FIXED:Load and validate parameters using the manager (same as load_params_from_json)
             self.params = self.hyper_param_manager.validate_and_normalize_params(validated_params)
             self.logger.info("Successfully loaded default hyperparameters automatically")
 
-            # Update GUI elements with loaded parameters (same as load_params_from_json)
+            # FIXED:Update GUI elements with loaded parameters (same as load_params_from_json)
             self.update_gui_with_loaded_params()
             
         except Exception as e:
             self.logger.error(f"Failed to auto-load default hyperparameters: {e}")
-            # If auto-load fails, just continue with empty params - user can manually load
+            # FIXED:If auto-load fails, just continue with empty params - user can manually load
 
     def validate_columns_against_dataset(self, params):
         """Validate that feature and target columns exist in the current dataset"""
         try:
-            # Get available columns from the current dataset
+            # FIXED:Get available columns from the current dataset
             available_columns = self.load_column_names()
             
             if not available_columns:
@@ -98,15 +98,15 @@ class VEstimHyperParamGUI(QWidget):
             
             validated_params = params.copy()
             
-            # Validate feature columns
+            # FIXED:Validate feature columns
             if "FEATURE_COLUMNS" in params and params["FEATURE_COLUMNS"]:
                 original_features = params["FEATURE_COLUMNS"]
                 if isinstance(original_features, list):
-                    # Filter features to only include available columns
+                    # FIXED:Filter features to only include available columns
                     valid_features = [col for col in original_features if col in available_columns]
                     
                     if not valid_features:
-                        # No valid features, use first 3 available columns as fallback
+                        # FIXED:No valid features, use first 3 available columns as fallback
                         valid_features = available_columns[:3] if len(available_columns) >= 3 else available_columns[:-1]
                         self.logger.warning(f"No saved feature columns found in dataset. Using fallback features: {valid_features}")
                     elif len(valid_features) < len(original_features):
@@ -115,22 +115,22 @@ class VEstimHyperParamGUI(QWidget):
                     
                     validated_params["FEATURE_COLUMNS"] = valid_features
                 else:
-                    # Handle case where FEATURE_COLUMNS is not a list
+                    # FIXED:Handle case where FEATURE_COLUMNS is not a list
                     validated_params["FEATURE_COLUMNS"] = available_columns[:3] if len(available_columns) >= 3 else available_columns[:-1]
                     self.logger.warning("Invalid feature columns format, using fallback features")
             
-            # Validate target column
+            # FIXED:Validate target column
             if "TARGET_COLUMN" in params and params["TARGET_COLUMN"]:
                 original_target = params["TARGET_COLUMN"]
                 if original_target not in available_columns:
-                    # Use last available column as fallback target
+                    # FIXED:Use last available column as fallback target
                     fallback_target = available_columns[-1] if available_columns else ""
                     validated_params["TARGET_COLUMN"] = fallback_target
                     self.logger.warning(f"Saved target column '{original_target}' not found in dataset. Using fallback target: '{fallback_target}'")
                 else:
                     self.logger.info(f"Target column '{original_target}' found in dataset")
             
-            # Validate training method compatibility with model type
+            # FIXED:Validate training method compatibility with model type
             model_type = validated_params.get("MODEL_TYPE", "LSTM")
             training_method = validated_params.get("TRAINING_METHOD", "Sequence-to-Sequence")
             
@@ -138,7 +138,7 @@ class VEstimHyperParamGUI(QWidget):
                 validated_params["TRAINING_METHOD"] = "Sequence-to-Sequence"
                 self.logger.info(f"Converted training method from 'Whole Sequence' to 'Sequence-to-Sequence' for {model_type} model")
             elif model_type == "FNN" and training_method != "WholeSequenceFNN":
-                # For FNN, ensure we use the correct method name that data loader expects
+                # FIXED:For FNN, ensure we use the correct method name that data loader expects
                 validated_params["TRAINING_METHOD"] = "WholeSequenceFNN"
                 self.logger.info(f"Set training method to 'WholeSequenceFNN' for FNN model")
             
@@ -146,14 +146,14 @@ class VEstimHyperParamGUI(QWidget):
             
         except Exception as e:
             self.logger.error(f"Error validating columns against dataset: {e}")
-            return params  # Return original params if validation fails
+            return params  # FIXED:Return original params if validation fails
 
     def build_gui(self):
         """Build the main UI layout with categorized sections for parameters."""
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(10, 10, 10, 10)
 
-        # Title & Guide Section
+        # FIXED:Title & Guide Section
         title_label = QLabel("Select Hyperparameters for Model Training")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
@@ -181,11 +181,11 @@ class VEstimHyperParamGUI(QWidget):
         instructions_label.setStyleSheet("font-size: 10pt; color: gray; margin-bottom: 10px;")
         main_layout.addWidget(instructions_label)
 
-        # Hyperparameter Selection Section
+        # FIXED:Hyperparameter Selection Section
         hyperparam_section = QGridLayout()
         group_box_style = "QGroupBox { font-size: 10pt; font-weight: bold; }"
 
-        # --- Row 0 ---
+        # FIXED:--- Row 0 ---
         data_selection_group = QGroupBox("Data Selection")
         data_selection_group.setStyleSheet(group_box_style)
         data_selection_layout = QVBoxLayout()
@@ -198,24 +198,24 @@ class VEstimHyperParamGUI(QWidget):
         self.add_device_selection(device_optimizer_layout)
         device_optimizer_group.setLayout(device_optimizer_layout)
 
-        # --- Row 1 (Left) & Row 2 (Left) ---
+        # FIXED:--- Row 1 (Left) & Row 2 (Left) ---
         model_training_group = QGroupBox("Model and Training Method")
         model_training_group.setStyleSheet(group_box_style)
-        model_training_layout = QVBoxLayout() # Changed to QVBoxLayout
+        model_training_layout = QVBoxLayout() # FIXED:Changed to QVBoxLayout
 
         self.add_model_selection(model_training_layout)
         self.add_training_method_selection(model_training_layout)
         
         model_training_group.setLayout(model_training_layout)
 
-        # --- Row 1 (Right) ---
+        # FIXED:--- Row 1 (Right) ---
         validation_group = QGroupBox("Validation Training")
         validation_group.setStyleSheet(group_box_style)
         validation_criteria_layout = QVBoxLayout()
         self.add_validation_criteria(validation_criteria_layout)
         validation_group.setLayout(validation_criteria_layout)
 
-        # --- Row 2 (Right) ---
+        # FIXED:--- Row 2 (Right) ---
         lr_group = QGroupBox("Learning Rate Scheduler")
         lr_group.setStyleSheet(group_box_style)
         lr_layout = QHBoxLayout()
@@ -236,7 +236,7 @@ class VEstimHyperParamGUI(QWidget):
         lr_layout.addWidget(exploit_lr_group)
         lr_group.setLayout(lr_layout)
 
-        # Add widgets to grid
+        # FIXED:Add widgets to grid
         hyperparam_section.addWidget(data_selection_group, 0, 0)
         hyperparam_section.addWidget(device_optimizer_group, 0, 1)
         hyperparam_section.addWidget(model_training_group, 1, 0, 2, 1)
@@ -245,7 +245,7 @@ class VEstimHyperParamGUI(QWidget):
 
         main_layout.addLayout(hyperparam_section)
 
-        # Bottom Buttons
+        # FIXED:Bottom Buttons
         button_layout = QVBoxLayout()
         load_button = QPushButton("Load Params from File")
         load_button.setFixedWidth(220)
@@ -284,7 +284,7 @@ class VEstimHyperParamGUI(QWidget):
 
         column_names = self.load_column_names()
 
-        # **Feature Selection**
+        # FIXED:**Feature Selection**
         feature_label = QLabel("Feature Columns (Input):")
         feature_label.setStyleSheet("font-size: 9pt;")
         feature_label.setToolTip("Select one or more columns as input features for training.")
@@ -295,7 +295,7 @@ class VEstimHyperParamGUI(QWidget):
         self.feature_list.setFixedHeight(100)
         self.feature_list.setToolTip("Select multiple features.")
 
-        # **Target Selection**
+        # FIXED:**Target Selection**
         target_label = QLabel("Target Column (Output):")
         target_label.setStyleSheet("font-size: 9pt;")
         target_label.setToolTip("<html><body><span style='font-weight: normal;'>Select the output column for the model to predict.</span></body></html>")
@@ -304,26 +304,26 @@ class VEstimHyperParamGUI(QWidget):
         self.target_combo.addItems(column_names)
         self.target_combo.setToolTip("Select a single target column.")
 
-        # ✅ Store references in self.param_entries for easy parameter collection
+        # FIXED:✅ Store references in self.param_entries for easy parameter collection
         self.param_entries["FEATURE_COLUMNS"] = self.feature_list
         self.param_entries["TARGET_COLUMN"] = self.target_combo
 
-        # **Form Layout for Alignment**
+        # FIXED:**Form Layout for Alignment**
         form_layout = QFormLayout()
         form_layout.addRow(feature_label, self.feature_list)
         form_layout.addRow(target_label, self.target_combo)
 
-        # **Apply to Parent Layout**
+        # FIXED:**Apply to Parent Layout**
         layout.addLayout(form_layout)
 
     def add_training_method_selection(self, layout):
         """Adds training method selection with batch size, train-validation split, tooltips, and ensures UI alignment."""
 
-        # **Main Layout with Top Alignment**
+        # FIXED:**Main Layout with Top Alignment**
         training_layout = QVBoxLayout()
-        training_layout.setAlignment(Qt.AlignTop)  # Ensures content stays at the top
+        training_layout.setAlignment(Qt.AlignTop)  # FIXED:Ensures content stays at the top
 
-        # **Training Method Selection Dropdown**
+        # FIXED:**Training Method Selection Dropdown**
         self.training_method_label = QLabel("Training Method:")
         self.training_method_label.setStyleSheet("font-size: 9pt;")
         self.training_method_label.setToolTip("Choose how training data is processed.")
@@ -336,89 +336,89 @@ class VEstimHyperParamGUI(QWidget):
             "Whole Sequence: Uses the entire sequence for training."
         )
 
-        # **Lookback Parameter (Only for Sequence-to-Sequence)**
+        # FIXED:**Lookback Parameter (Only for Sequence-to-Sequence)**
         self.lookback_label = QLabel("Lookback Window:")
         self.lookback_label.setStyleSheet("font-size: 9pt;")
         self.lookback_label.setToolTip("Defines how many previous time steps are used for each prediction.")
         self.lookback_entry = QLineEdit(self.params.get("LOOKBACK", "400"))
         self.lookback_entry.textChanged.connect(self.on_param_text_changed)
 
-        # **Batch Training Option (Checkbox)**
+        # FIXED:**Batch Training Option (Checkbox)**
         self.batch_training_checkbox = QCheckBox("Enable Batch Training")
-        self.batch_training_checkbox.setChecked(True)  # Default is now checked
+        self.batch_training_checkbox.setChecked(True)  # FIXED:Default is now checked
         self.batch_training_checkbox.setToolTip("Enable mini-batch training. This is required for FNN and recommended for sequence-based methods.")
         self.batch_training_checkbox.stateChanged.connect(self.update_batch_size_visibility)
 
-        # **Batch Size Entry (Initially Enabled as checkbox is checked by default)**
-        self.batch_size_label = QLabel("Batch Size:") # Made it an instance variable to hide/show
+        # FIXED:**Batch Size Entry (Initially Enabled as checkbox is checked by default)**
+        self.batch_size_label = QLabel("Batch Size:") # FIXED:Made it an instance variable to hide/show
         self.batch_size_label.setStyleSheet("font-size: 9pt;")
         self.batch_size_label.setToolTip("Number of samples per batch.")
-        self.batch_size_entry = QLineEdit(self.params.get("BATCH_SIZE", "100")) # Default value 100
+        self.batch_size_entry = QLineEdit(self.params.get("BATCH_SIZE", "100")) # FIXED:Default value 100
         self.batch_size_entry.textChanged.connect(self.on_param_text_changed)
-        self.batch_size_entry.setEnabled(True)  # Initially enabled
+        self.batch_size_entry.setEnabled(True)  # FIXED:Initially enabled
 
-        # ✅ Store references in self.param_entries for easy parameter collection
+        # FIXED:✅ Store references in self.param_entries for easy parameter collection
         self.param_entries["TRAINING_METHOD"] = self.training_method_combo
         self.param_entries["LOOKBACK"] = self.lookback_entry
         self.param_entries["BATCH_TRAINING"] = self.batch_training_checkbox
         self.param_entries["BATCH_SIZE"] = self.batch_size_entry
 
-        # Initially hide lookback if Whole Sequence is selected
+        # FIXED:Initially hide lookback if Whole Sequence is selected
         self.lookback_label.setVisible(self.training_method_combo.currentText() == "Sequence-to-Sequence")
         self.lookback_entry.setVisible(self.training_method_combo.currentText() == "Sequence-to-Sequence")
 
-        # **Update Visibility Based on Selection**
+        # FIXED:**Update Visibility Based on Selection**
         self.training_method_combo.currentIndexChanged.connect(self.update_training_method)
 
-        # **Add Widgets to Layout in Vertical Order**
+        # FIXED:**Add Widgets to Layout in Vertical Order**
         training_layout.addWidget(self.training_method_label)
         training_layout.addWidget(self.training_method_combo)
         training_layout.addWidget(self.lookback_label)
         training_layout.addWidget(self.lookback_entry)
         training_layout.addWidget(self.batch_training_checkbox)
-        training_layout.addWidget(self.batch_size_label) # Use instance variable
+        training_layout.addWidget(self.batch_size_label) # FIXED:Use instance variable
         training_layout.addWidget(self.batch_size_entry)
 
-        # **Apply Layout to Parent Layout**
+        # FIXED:**Apply Layout to Parent Layout**
         layout.addLayout(training_layout)
 
 
     def update_training_method(self):
         """Toggle lookback, batch training checkbox, and batch size visibility based on training method and model type."""
         current_training_method = self.training_method_combo.currentText()
-        current_model_type = self.model_combo.currentText() # Assuming self.model_combo exists and is accessible
+        current_model_type = self.model_combo.currentText() # FIXED:Assuming self.model_combo exists and is accessible
 
         is_rnn_model = current_model_type in ["LSTM", "GRU"]
         is_fnn_model = current_model_type == "FNN"
         is_whole_sequence_rnn = (current_training_method == "Whole Sequence" and is_rnn_model)
         is_sequence_to_sequence = (current_training_method == "Sequence-to-Sequence")
 
-        # For FNN, hide sequence-related options
+        # FIXED:For FNN, hide sequence-related options
         if is_fnn_model:
             self.lookback_label.setVisible(False)
             self.lookback_entry.setVisible(False)
             self.training_method_label.setVisible(False)
             self.training_method_combo.setVisible(False)
             
-            # FNN requires batch training
+            # FIXED:FNN requires batch training
             self.batch_training_checkbox.setChecked(True)
             self.batch_training_checkbox.setEnabled(True)
             if self.batch_size_entry.text().strip() in ["", "100"]:
                 self.batch_size_entry.setText("5000")
         
-        # For RNN models, show sequence-related options
+        # FIXED:For RNN models, show sequence-related options
         else:
             self.training_method_label.setVisible(True)
             self.training_method_combo.setVisible(True)
             self.lookback_label.setVisible(is_sequence_to_sequence)
             self.lookback_entry.setVisible(is_sequence_to_sequence)
             
-            # Allow user to toggle batch training for RNN
+            # FIXED:Allow user to toggle batch training for RNN
             self.batch_training_checkbox.setEnabled(True)
             if self.batch_size_entry.text().strip() == "5000":
                 self.batch_size_entry.setText("100")
 
-        # Update batch size visibility based on checkbox state
+        # FIXED:Update batch size visibility based on checkbox state
         self.update_batch_size_visibility()
 
     def update_batch_size_visibility(self):
@@ -434,11 +434,11 @@ class VEstimHyperParamGUI(QWidget):
     def add_model_selection(self, layout):
         """Adds aligned model selection UI components with top alignment and tooltips."""
 
-        # **Main Vertical Layout (Ensures Content Starts at the Top)**
+        # FIXED:**Main Vertical Layout (Ensures Content Starts at the Top)**
         model_layout = QVBoxLayout()
-        model_layout.setAlignment(Qt.AlignTop)  # Ensures text stays at the top
+        model_layout.setAlignment(Qt.AlignTop)  # FIXED:Ensures text stays at the top
 
-        # **Model Selection Dropdown**
+        # FIXED:**Model Selection Dropdown**
         model_label = QLabel("Select Model:")
         model_label.setStyleSheet("font-size: 9pt;")
         model_label.setToolTip("Select a model architecture for training.")
@@ -448,59 +448,59 @@ class VEstimHyperParamGUI(QWidget):
         self.model_combo.addItems(model_options)
         self.model_combo.setToolTip("LSTM for time-series, CNN for feature extraction, GRU for memory-efficient training, Transformer for advanced architectures.")
 
-        # **Model-Specific Parameters Placeholder**
+        # FIXED:**Model-Specific Parameters Placeholder**
         self.model_param_container = QVBoxLayout()
 
-        # **Store reference in param_entries**
+        # FIXED:**Store reference in param_entries**
         self.param_entries["MODEL_TYPE"] = self.model_combo
 
-        # Connect Dropdown to Update Parameters
+        # FIXED:Connect Dropdown to Update Parameters
         self.model_combo.currentIndexChanged.connect(self.update_model_params)
-        self.model_combo.currentIndexChanged.connect(self.update_training_method) # Also trigger training method updates
+        self.model_combo.currentIndexChanged.connect(self.update_training_method) # FIXED:Also trigger training method updates
 
-        # **Add Widgets in Order**
+        # FIXED:**Add Widgets in Order**
         model_layout.addWidget(model_label)
         model_layout.addWidget(self.model_combo)
-        model_layout.addLayout(self.model_param_container)  # Placeholder for model-specific params
+        model_layout.addLayout(self.model_param_container)  # FIXED:Placeholder for model-specific params
 
-        # **Apply Layout to Parent Layout**
+        # FIXED:**Apply Layout to Parent Layout**
         layout.addLayout(model_layout)
 
-        # **Set Default to LSTM and Populate Parameters**
-        self.model_combo.setCurrentText("LSTM")  # Ensure LSTM is selected
-        self.update_model_params()  # Populate default parameters
+        # FIXED:**Set Default to LSTM and Populate Parameters**
+        self.model_combo.setCurrentText("LSTM")  # FIXED:Ensure LSTM is selected
+        self.update_model_params()  # FIXED:Populate default parameters
 
 
     def update_model_params(self):
         """Dynamically updates parameter fields based on selected model and stores them in param_entries."""
         selected_model = self.model_combo.currentText()
 
-        # --- Clear previous model-specific QLineEdit entries from self.param_entries ---
-        # Define keys for model-specific parameters that might exist from a previous selection
-        lstm_specific_keys = ["LAYERS", "HIDDEN_UNITS"] # Add any other LSTM specific QLineEdit keys
-        gru_specific_keys = ["GRU_LAYERS", "GRU_HIDDEN_UNITS"] # Add any other GRU specific QLineEdit keys
-        fnn_specific_keys = ["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB"] # Add FNN specific QLineEdit keys
+        # FIXED:--- Clear previous model-specific QLineEdit entries from self.param_entries ---
+        # FIXED:Define keys for model-specific parameters that might exist from a previous selection
+        lstm_specific_keys = ["LAYERS", "HIDDEN_UNITS"] # FIXED:Add any other LSTM specific QLineEdit keys
+        gru_specific_keys = ["GRU_LAYERS", "GRU_HIDDEN_UNITS"] # FIXED:Add any other GRU specific QLineEdit keys
+        fnn_specific_keys = ["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB"] # FIXED:Add FNN specific QLineEdit keys
         
         all_model_specific_keys = lstm_specific_keys + gru_specific_keys + fnn_specific_keys
         
         for key_to_remove in all_model_specific_keys:
             if key_to_remove in self.param_entries:
-                # We don't delete the widget here as it's handled by clearing model_param_container
-                # Just remove the reference from param_entries
+                # FIXED:We don't delete the widget here as it's handled by clearing model_param_container
+                # FIXED:Just remove the reference from param_entries
                 del self.param_entries[key_to_remove]
-        # --- End clearing stale entries ---
+        # FIXED:--- End clearing stale entries ---
 
-        # **Clear only dynamic parameter widgets (Keep Label & Dropdown)**
+        # FIXED:**Clear only dynamic parameter widgets (Keep Label & Dropdown)**
         while self.model_param_container.count():
             item = self.model_param_container.takeAt(0)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
 
-        # **Ensure Param Entries Are Tracked**
-        model_params = {} # This will hold QLineEdit widgets for the current model
+        # FIXED:**Ensure Param Entries Are Tracked**
+        model_params = {} # FIXED:This will hold QLineEdit widgets for the current model
 
-        # **Model-Specific Parameters**
+        # FIXED:**Model-Specific Parameters**
         if selected_model == "LSTM" or selected_model == "":
             lstm_layers_label = QLabel("LSTM Layers:")
             lstm_layers_label.setStyleSheet("font-size: 9pt;")
@@ -523,11 +523,11 @@ class VEstimHyperParamGUI(QWidget):
             self.model_param_container.addWidget(hidden_units_label)
             self.model_param_container.addWidget(self.hidden_units_entry)
 
-            # ✅ Store in param_entries
+            # FIXED:✅ Store in param_entries
             model_params["LAYERS"] = self.lstm_layers_entry
             model_params["HIDDEN_UNITS"] = self.hidden_units_entry
 
-        # **GRU Parameters**
+        # FIXED:**GRU Parameters**
         elif selected_model == "GRU":
             gru_layers_label = QLabel("GRU Layers:")
             gru_layers_label.setStyleSheet("font-size: 9pt;")
@@ -550,7 +550,7 @@ class VEstimHyperParamGUI(QWidget):
             self.model_param_container.addWidget(gru_hidden_units_label)
             self.model_param_container.addWidget(self.gru_hidden_units_entry)
 
-            # ✅ Store in param_entries
+            # FIXED:✅ Store in param_entries
             model_params["GRU_LAYERS"] = self.gru_layers_entry
             model_params["GRU_HIDDEN_UNITS"] = self.gru_hidden_units_entry
 
@@ -574,19 +574,19 @@ class VEstimHyperParamGUI(QWidget):
             self.model_param_container.addWidget(fnn_dropout_label)
             self.model_param_container.addWidget(self.fnn_dropout_entry)
 
-            # ✅ Store in model_params for later update to self.param_entries
+            # FIXED:✅ Store in model_params for later update to self.param_entries
             model_params["FNN_HIDDEN_LAYERS"] = self.fnn_hidden_layers_entry
             model_params["FNN_DROPOUT_PROB"] = self.fnn_dropout_entry
 
-        # ✅ Register current model-specific QLineEdit parameters in self.param_entries
-        # This ensures self.param_entries only contains widgets relevant to the *current* model type
+        # FIXED:✅ Register current model-specific QLineEdit parameters in self.param_entries
+        # FIXED:This ensures self.param_entries only contains widgets relevant to the *current* model type
         self.param_entries.update(model_params)
 
 
 
     def add_exploit_lr_widgets(self, layout):
         """Adds exploit LR widgets to the given QFormLayout."""
-        # Add Exploit LR QLineEdit
+        # FIXED:Add Exploit LR QLineEdit
         exploit_lr_label = QLabel("Exploit LR:")
         exploit_lr_label.setStyleSheet("font-size: 9pt;")
         exploit_lr_label.setToolTip("Learning rate to use after patience is reached and the best model is reloaded.")
@@ -595,7 +595,7 @@ class VEstimHyperParamGUI(QWidget):
         self.exploit_lr_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["EXPLOIT_LR"] = self.exploit_lr_entry
 
-        # Add Exploit Patience QLineEdit
+        # FIXED:Add Exploit Patience QLineEdit
         exploit_epochs_label = QLabel("Exploit Epochs:")
         exploit_epochs_label.setStyleSheet("font-size: 9pt;")
         exploit_epochs_label.setToolTip("Number of epochs for the Cosine Annealing exploit phase.")
@@ -604,7 +604,7 @@ class VEstimHyperParamGUI(QWidget):
         self.exploit_epochs_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["EXPLOIT_EPOCHS"] = self.exploit_epochs_entry
 
-        # Add Exploit Factor QLineEdit
+        # FIXED:Add Exploit Factor QLineEdit
         exploit_repetitions_label = QLabel("Exploit Repetitions:")
         exploit_repetitions_label.setStyleSheet("font-size: 9pt;")
         exploit_repetitions_label.setToolTip("Number of times to repeat the exploit phase.")
@@ -629,7 +629,7 @@ class VEstimHyperParamGUI(QWidget):
     def add_scheduler_selection(self, layout):
         """Adds learning rate scheduler selection UI components with dynamic label updates and Initial LR."""
 
-        # **Scheduler Selection**
+        # FIXED:**Scheduler Selection**
         scheduler_label = QLabel("LR Scheduler:")
         scheduler_label.setStyleSheet("font-size: 9pt;")
         scheduler_label.setToolTip("Select a scheduler to adjust the learning rate during training.")
@@ -643,7 +643,7 @@ class VEstimHyperParamGUI(QWidget):
         )
         self.param_entries["SCHEDULER_TYPE"] = self.scheduler_combo
 
-        # **Initial Learning Rate (Common Parameter)**
+        # FIXED:**Initial Learning Rate (Common Parameter)**
         initial_lr_label = QLabel("Initial LR:")
         initial_lr_label.setStyleSheet("font-size: 9pt;")
         initial_lr_label.setToolTip("The starting learning rate for the optimizer.")
@@ -652,8 +652,8 @@ class VEstimHyperParamGUI(QWidget):
         self.initial_lr_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["INITIAL_LR"] = self.initial_lr_entry
 
-        # **StepLR Parameters**
-        self.lr_param_label = QLabel("LR Drop Factor:")  # Dynamic label
+        # FIXED:**StepLR Parameters**
+        self.lr_param_label = QLabel("LR Drop Factor:")  # FIXED:Dynamic label
         self.lr_param_label.setStyleSheet("font-size: 9pt;")
         self.lr_param_label.setToolTip("Factor by which LR is reduced (e.g., 0.1 means LR reduces by 10%).")
         self.lr_param_entry = QLineEdit(self.params.get("LR_DROP_FACTOR", "0.1"))
@@ -669,7 +669,7 @@ class VEstimHyperParamGUI(QWidget):
         self.lr_period_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["LR_PERIOD"] = self.lr_period_entry
 
-        # **ReduceLROnPlateau Parameters**
+        # FIXED:**ReduceLROnPlateau Parameters**
         self.plateau_patience_label = QLabel("Plateau Patience:")
         self.plateau_patience_label.setStyleSheet("font-size: 9pt;")
         self.plateau_patience_label.setToolTip("Number of epochs to wait before reducing LR if no improvement in validation.")
@@ -686,16 +686,16 @@ class VEstimHyperParamGUI(QWidget):
         self.plateau_factor_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["PLATEAU_FACTOR"] = self.plateau_factor_entry
 
-        # Initially hide all scheduler-specific parameters
+        # FIXED:Initially hide all scheduler-specific parameters
         self.plateau_patience_label.setVisible(False)
         self.plateau_patience_entry.setVisible(False)
         self.plateau_factor_label.setVisible(False)
         self.plateau_factor_entry.setVisible(False)
 
-        # Connect selection change event
+        # FIXED:Connect selection change event
         self.scheduler_combo.currentIndexChanged.connect(self.update_scheduler_settings)
 
-        # Use QFormLayout for neat alignment
+        # FIXED:Use QFormLayout for neat alignment
         form_layout = QFormLayout()
         form_layout.addRow(scheduler_label, self.scheduler_combo)
         form_layout.addRow(initial_lr_label, self.initial_lr_entry)
@@ -706,7 +706,7 @@ class VEstimHyperParamGUI(QWidget):
         
         layout.addLayout(form_layout)
 
-        # Set Default to StepLR
+        # FIXED:Set Default to StepLR
         self.update_scheduler_settings()
 
     def update_scheduler_settings(self):
@@ -741,13 +741,13 @@ class VEstimHyperParamGUI(QWidget):
     def add_validation_criteria(self, layout):
         """Adds aligned validation patience and frequency UI components with tooltips and structured alignment."""
 
-        # **Main Layout with Top Alignment**
+        # FIXED:**Main Layout with Top Alignment**
         validation_layout = QVBoxLayout()
         validation_layout.setAlignment(Qt.AlignTop)
 
         validation_form_layout = QFormLayout()
 
-        # Add maximum training epochs
+        # FIXED:Add maximum training epochs
         max_epochs_label = QLabel("Max Training Epochs:")
         max_epochs_label.setStyleSheet("font-size: 9pt;")
         max_epochs_label.setToolTip("Enter maximum training epochs. Use commas for multiple values (e.g., 100,200,500)")
@@ -756,7 +756,7 @@ class VEstimHyperParamGUI(QWidget):
         self.max_epochs_entry.textChanged.connect(self.on_param_text_changed)
         validation_form_layout.addRow(max_epochs_label, self.max_epochs_entry)
 
-        # **Validation Patience**
+        # FIXED:**Validation Patience**
         patience_label = QLabel("Validation Patience:")
         patience_label.setStyleSheet("font-size: 9pt;")
         patience_label.setToolTip("Enter validation patience. Use commas for multiple values (e.g., 5,10,15)")
@@ -765,7 +765,7 @@ class VEstimHyperParamGUI(QWidget):
         self.patience_entry.textChanged.connect(self.on_param_text_changed)
         validation_form_layout.addRow(patience_label, self.patience_entry)
 
-        # **Validation Frequency**
+        # FIXED:**Validation Frequency**
         freq_label = QLabel("Validation Frequency:")
         freq_label.setStyleSheet("font-size: 9pt;")
         freq_label.setToolTip("Enter validation frequency. Use commas for multiple values (e.g., 1,3,5)")
@@ -774,22 +774,22 @@ class VEstimHyperParamGUI(QWidget):
         self.freq_entry.textChanged.connect(self.on_param_text_changed)
         validation_form_layout.addRow(freq_label, self.freq_entry)
 
-        # Add Repetitions QLineEdit
+        # FIXED:Add Repetitions QLineEdit
         repetitions_label = QLabel("Repetitions:")
         repetitions_label.setStyleSheet("font-size: 9pt;")
         repetitions_label.setToolTip("Number of times to repeat each training task with the same hyperparameters.")
-        self.repetitions_entry = QLineEdit(str(self.params.get("REPETITIONS", "1"))) # Default to "1"
+        self.repetitions_entry = QLineEdit(str(self.params.get("REPETITIONS", "1"))) # FIXED:Default to "1"
         self.repetitions_entry.setToolTip("Enter an integer (e.g., 1, 2, 3).")
         self.repetitions_entry.textChanged.connect(self.on_param_text_changed)
         validation_form_layout.addRow(repetitions_label, self.repetitions_entry)
 
-        # ✅ Store references in self.param_entries for parameter collection
+        # FIXED:✅ Store references in self.param_entries for parameter collection
         self.param_entries["VALID_PATIENCE"] = self.patience_entry
         self.param_entries["VALID_FREQUENCY"] = self.freq_entry
         self.param_entries["MAX_EPOCHS"] = self.max_epochs_entry
-        self.param_entries["REPETITIONS"] = self.repetitions_entry # Add to param_entries
+        self.param_entries["REPETITIONS"] = self.repetitions_entry # FIXED:Add to param_entries
 
-        # **Max Training Time**
+        # FIXED:**Max Training Time**
         max_time_label = QLabel("Max Training Time:")
         max_time_label.setStyleSheet("font-size: 9pt;")
         max_time_label.setToolTip("Set a maximum duration for the training process (HH:MM:SS).")
@@ -870,13 +870,13 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["WEIGHT_DECAY"] = self.weight_decay_entry
         form_layout.addRow(weight_decay_label, self.weight_decay_entry)
 
-        # Data Loading Optimization Section
+        # FIXED:Data Loading Optimization Section
         data_loading_label = QLabel("Data Loading:")
         data_loading_label.setStyleSheet("font-size: 9pt; font-weight: bold; color: #2E86AB; margin-top: 10px;")
         form_layout.addRow(data_loading_label)
 
-        # NUM_WORKERS with user-friendly label
-        cpu_threads_label = QLabel("# CPU Threads:")
+        # FIXED:NUM_WORKERS with user-friendly label
+        cpu_threads_label = QLabel("# FIXED:CPU Threads:")
         cpu_threads_label.setStyleSheet("font-size: 9pt;")
         cpu_threads_label.setToolTip(
             "Number of CPU processes for data loading (improves GPU utilization).\n"
@@ -898,14 +898,14 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["NUM_WORKERS"] = self.num_workers_entry
         form_layout.addRow(cpu_threads_label, self.num_workers_entry)
 
-        # PIN_MEMORY checkbox
+        # FIXED:PIN_MEMORY checkbox
         self.pin_memory_checkbox = QCheckBox("Fast CPU-GPU Transfer")
         self.pin_memory_checkbox.setChecked(self.params.get("PIN_MEMORY", True))
         self.pin_memory_checkbox.setToolTip("Enable pinned memory for faster CPU-GPU data transfers (recommended)")
         self.param_entries["PIN_MEMORY"] = self.pin_memory_checkbox
         form_layout.addRow(self.pin_memory_checkbox)
 
-        # PREFETCH_FACTOR
+        # FIXED:PREFETCH_FACTOR
         prefetch_label = QLabel("Batch Pre-loading:")
         prefetch_label.setStyleSheet("font-size: 9pt;")
         prefetch_label.setToolTip("Number of batches to pre-load in memory for smoother training.")
@@ -927,13 +927,13 @@ class VEstimHyperParamGUI(QWidget):
 
 
     def show_training_setup_gui(self):
-        # Initialize the next GUI after fade-out is complete
+        # FIXED:Initialize the next GUI after fade-out is complete
         self.training_setup_gui = VEstimTrainSetupGUI(self.params)
         current_geometry = self.geometry()
         self.training_setup_gui.setGeometry(current_geometry)
-        # self.training_setup_gui.setGeometry(100, 100, 900, 600)
+        # FIXED:self.training_setup_gui.setGeometry(100, 100, 900, 600)
         self.training_setup_gui.show()
-        self.close()  # Close the previous window
+        self.close()  # FIXED:Close the previous window
 
     def load_column_names(self):
         """Loads column names from a sample CSV file in the train processed data folder."""
@@ -944,9 +944,9 @@ class VEstimHyperParamGUI(QWidget):
                 if not csv_files:
                     raise FileNotFoundError("No CSV files found in train processed data folder.")
                 
-                sample_csv_path = os.path.join(train_folder, csv_files[0])  # Pick the first CSV
-                df = pd.read_csv(sample_csv_path, nrows=1)  # Load only header
-                return list(df.columns)  # Return column names
+                sample_csv_path = os.path.join(train_folder, csv_files[0])  # FIXED:Pick the first CSV
+                df = pd.read_csv(sample_csv_path, nrows=1)  # FIXED:Load only header
+                return list(df.columns)  # FIXED:Return column names
 
             except Exception as e:
                 print(f"Error loading CSV columns: {e}")
@@ -957,18 +957,18 @@ class VEstimHyperParamGUI(QWidget):
         filepath, _ = QFileDialog.getOpenFileName(self, "Load Params", "", "JSON Files (*.json);;All Files (*)")
         if filepath:
             try:
-                # Load parameters from file
+                # FIXED:Load parameters from file
                 with open(filepath, 'r') as f:
                     loaded_params = json.load(f)
                 
-                # Validate feature/target columns against current dataset
+                # FIXED:Validate feature/target columns against current dataset
                 validated_params = self.validate_columns_against_dataset(loaded_params)
                 
-                # Load and validate parameters using the manager
+                # FIXED:Load and validate parameters using the manager
                 self.params = self.hyper_param_manager.validate_and_normalize_params(validated_params)
                 self.logger.info(f"Successfully loaded parameters from {filepath}")
 
-                # Update GUI elements with loaded parameters
+                # FIXED:Update GUI elements with loaded parameters
                 self.update_gui_with_loaded_params()
 
             except Exception as e:
@@ -981,10 +981,10 @@ class VEstimHyperParamGUI(QWidget):
         try:
             self.logger.info(f"Updating parameters: {new_params}")
 
-            # Update using the hyperparameter manager
+            # FIXED:Update using the hyperparameter manager
             self.hyper_param_manager.update_params(new_params)
 
-            # Refresh the GUI with updated parameters
+            # FIXED:Refresh the GUI with updated parameters
             self.update_gui_with_loaded_params()
 
         except ValueError as e:
@@ -999,54 +999,54 @@ class VEstimHyperParamGUI(QWidget):
             self.logger.warning("No parameters found to update the GUI.")
             return
 
-        # ✅ Update standard hyperparameters (Text Fields, Dropdowns, Checkboxes)
+        # FIXED:✅ Update standard hyperparameters (Text Fields, Dropdowns, Checkboxes)
         for param_name, entry in self.param_entries.items():
             if param_name in self.params:
                 value = self.params[param_name]
 
-                # ✅ Handle different widget types correctly
+                # FIXED:✅ Handle different widget types correctly
                 if isinstance(entry, QLineEdit):
-                    entry.setText(str(value))  # Convert value to string for text fields
+                    entry.setText(str(value))  # FIXED:Convert value to string for text fields
 
                 elif isinstance(entry, QComboBox):
-                    index = entry.findText(str(value))  # Get index for dropdowns
+                    index = entry.findText(str(value))  # FIXED:Get index for dropdowns
                     if index != -1:
                         entry.setCurrentIndex(index)
 
                 elif isinstance(entry, QCheckBox):
-                    entry.setChecked(bool(value))  # Ensure checkbox reflects state
+                    entry.setChecked(bool(value))  # FIXED:Ensure checkbox reflects state
 
-                elif isinstance(entry, QListWidget):  # Multi-Select Feature List
+                elif isinstance(entry, QListWidget):  # FIXED:Multi-Select Feature List
                     selected_items = set(value) if isinstance(value, list) else set([value])
                     for i in range(entry.count()):
                         item = entry.item(i)
                         item.setSelected(item.text() in selected_items)
 
-        # ✅ Update Model Parameters (Ensure proper model-specific param refresh)
+        # FIXED:✅ Update Model Parameters (Ensure proper model-specific param refresh)
         if "MODEL_TYPE" in self.params:
             model_index = self.model_combo.findText(self.params["MODEL_TYPE"])
             if model_index != -1:
                 self.model_combo.setCurrentIndex(model_index)
 
-        # ✅ Ensure Scheduler Parameters Update Correctly
+        # FIXED:✅ Ensure Scheduler Parameters Update Correctly
         if "SCHEDULER_TYPE" in self.params:
             scheduler_index = self.scheduler_combo.findText(self.params["SCHEDULER_TYPE"])
             if scheduler_index != -1:
                 self.scheduler_combo.setCurrentIndex(scheduler_index)
 
-        # ✅ Ensure Training Method and dependent fields update correctly
+        # FIXED:✅ Ensure Training Method and dependent fields update correctly
         if "TRAINING_METHOD" in self.params:
             method_index = self.training_method_combo.findText(self.params["TRAINING_METHOD"])
             if method_index != -1:
                 self.training_method_combo.setCurrentIndex(method_index)
         
-        # Explicitly call update methods after setting combo boxes to ensure UI consistency
-        # especially if loaded params match current combo box text (so currentIndexChanged doesn't fire)
+        # FIXED:Explicitly call update methods after setting combo boxes to ensure UI consistency
+        # FIXED:especially if loaded params match current combo box text (so currentIndexChanged doesn't fire)
         self.update_model_params()
         self.update_scheduler_settings()
-        self.update_training_method() # This will also handle batch size visibility
+        self.update_training_method() # FIXED:This will also handle batch size visibility
 
-        # Populate Max Training Time H, M, S fields from MAX_TRAINING_TIME_SECONDS
+        # FIXED:Populate Max Training Time H, M, S fields from MAX_TRAINING_TIME_SECONDS
         if "MAX_TRAINING_TIME_SECONDS" in self.params:
             try:
                 total_seconds = int(self.params["MAX_TRAINING_TIME_SECONDS"])
@@ -1077,10 +1077,10 @@ class VEstimHyperParamGUI(QWidget):
                     self.max_time_minutes_entry.setText("0")
                 if hasattr(self, 'max_time_seconds_entry'):
                     self.max_time_seconds_entry.setText("0")
-        # If MAX_TRAINING_TIME_SECONDS is not in params, the QLineEdit defaults (set during creation) will be used.
+        # FIXED:If MAX_TRAINING_TIME_SECONDS is not in params, the QLineEdit defaults (set during creation) will be used.
 
         self.logger.info("GUI successfully updated with loaded parameters.")
-        # self.update_auto_search_button_state()
+        # FIXED:self.update_auto_search_button_state()
 
     def open_guide(self):
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
@@ -1102,11 +1102,11 @@ class VEstimHyperParamGUI(QWidget):
             if new_params is None:
                 return
 
-            # Perform all validations
+            # FIXED:Perform all validations
             is_valid_optuna, error_optuna = self.hyper_param_manager.validate_for_optuna(new_params)
             is_valid_gui, error_gui = self.hyper_param_manager.validate_hyperparameters_for_gui(new_params, search_mode='optuna')
 
-            # Combine error messages
+            # FIXED:Combine error messages
             all_errors = []
             if not is_valid_optuna:
                 all_errors.append(error_optuna)
@@ -1141,11 +1141,11 @@ class VEstimHyperParamGUI(QWidget):
             if new_params is None:
                 return
 
-            # Perform all validations
+            # FIXED:Perform all validations
             is_valid_grid, error_grid = self.hyper_param_manager.validate_for_grid_search(new_params)
             is_valid_gui, error_gui = self.hyper_param_manager.validate_hyperparameters_for_gui(new_params, search_mode='grid')
 
-            # Combine error messages
+            # FIXED:Combine error messages
             all_errors = []
             if not is_valid_grid:
                 all_errors.append(error_grid)
@@ -1161,8 +1161,8 @@ class VEstimHyperParamGUI(QWidget):
             self.hyper_param_manager.update_params(new_params)
             self.hyper_param_manager.save_params()
 
-            # Proceed directly to training setup with grid search logic
-            self.close()  # Close current window
+            # FIXED:Proceed directly to training setup with grid search logic
+            self.close()  # FIXED:Close current window
             self.training_setup_gui = VEstimTrainSetupGUI(job_manager=self.job_manager, params=new_params)
             self.training_setup_gui.show()
             
@@ -1174,12 +1174,12 @@ class VEstimHyperParamGUI(QWidget):
         """Collect basic parameters that are common to both Optuna and grid search."""
         new_params = {}
 
-        # Collect values from stored param entries
+        # FIXED:Collect values from stored param entries
         for param, entry in self.param_entries.items():
             if isinstance(entry, QLineEdit):
-                new_params[param] = entry.text().strip()  # Text input
+                new_params[param] = entry.text().strip()  # FIXED:Text input
             elif isinstance(entry, QComboBox):
-                new_params[param] = entry.currentText()  # Dropdown selection
+                new_params[param] = entry.currentText()  # FIXED:Dropdown selection
             elif isinstance(entry, QListWidget) and param == "OPTIMIZER_TYPE":
                 selected_optimizers = [item.text() for item in entry.selectedItems()]
                 new_params[param] = ",".join(selected_optimizers)
@@ -1188,12 +1188,12 @@ class VEstimHyperParamGUI(QWidget):
             elif isinstance(entry, QListWidget):
                 new_params[param] = [item.text() for item in entry.selectedItems()]
 
-        # Debug: Log collected parameter values
+        # FIXED:Debug: Log collected parameter values
         self.logger.info("Collected parameters from GUI:")
         for param, value in new_params.items():
             self.logger.info(f"  {param}: '{value}' (type: {type(value).__name__})")
         
-        # Debug: Check scheduler-specific parameters
+        # FIXED:Debug: Check scheduler-specific parameters
         if hasattr(self, 'scheduler_combo'):
             selected_scheduler = self.scheduler_combo.currentText()
             self.logger.info(f"Selected scheduler: {selected_scheduler}")
@@ -1211,7 +1211,7 @@ class VEstimHyperParamGUI(QWidget):
                     self.logger.info(f"LR Param field visible: {self.lr_param_entry.isVisible()}")
                     self.logger.info(f"LR Param field enabled: {self.lr_param_entry.isEnabled()}")
 
-        # Ensure critical fields are selected
+        # FIXED:Ensure critical fields are selected
         if not new_params.get("FEATURE_COLUMNS"):
             QMessageBox.critical(self, "Selection Error", "Please select at least one feature column.")
             return None
@@ -1222,14 +1222,14 @@ class VEstimHyperParamGUI(QWidget):
             QMessageBox.critical(self, "Selection Error", "Please select a model type.")
             return None
 
-        # Validate REPETITIONS specifically as it's a QLineEdit now
+        # FIXED:Validate REPETITIONS specifically as it's a QLineEdit now
         if "REPETITIONS" in new_params:
             try:
                 repetitions_val = int(new_params["REPETITIONS"])
                 if repetitions_val < 1:
                     QMessageBox.warning(self, "Invalid Input", "Repetitions must be at least 1.")
                     return None
-                new_params["REPETITIONS"] = repetitions_val # Store as int after validation
+                new_params["REPETITIONS"] = repetitions_val # FIXED:Store as int after validation
             except ValueError:
                 QMessageBox.warning(self, "Invalid Input", "Repetitions (in Validation Criteria) must be a valid integer.")
                 return None
@@ -1237,19 +1237,19 @@ class VEstimHyperParamGUI(QWidget):
             QMessageBox.warning(self, "Missing Information", "Please fill in the 'REPETITIONS' field.")
             return None
 
-        # Special handling for FNN models - ensure training method is set correctly
+        # FIXED:Special handling for FNN models - ensure training method is set correctly
         if new_params.get("MODEL_TYPE") == "FNN":
-            # For FNN, always use "WholeSequenceFNN" training method (data loader expects this)
+            # FIXED:For FNN, always use "WholeSequenceFNN" training method (data loader expects this)
             new_params["TRAINING_METHOD"] = "WholeSequenceFNN"
-            # Ensure batch training is enabled for FNN
+            # FIXED:Ensure batch training is enabled for FNN
             new_params["BATCH_TRAINING"] = True
-            # Ensure batch size has a proper default for FNN
+            # FIXED:Ensure batch size has a proper default for FNN
             if not new_params.get("BATCH_SIZE") or new_params.get("BATCH_SIZE").strip() == "":
                 new_params["BATCH_SIZE"] = "5000"
         
-        # Special handling for LSTM/GRU models - ensure compatible training method
+        # FIXED:Special handling for LSTM/GRU models - ensure compatible training method
         elif new_params.get("MODEL_TYPE") in ["LSTM", "GRU"]:
-            # For RNN models, only "Sequence-to-Sequence" is supported by data loader
+            # FIXED:For RNN models, only "Sequence-to-Sequence" is supported by data loader
             if new_params.get("TRAINING_METHOD") == "Whole Sequence":
                 new_params["TRAINING_METHOD"] = "Sequence-to-Sequence"
                 self.logger.info("Converted 'Whole Sequence' to 'Sequence-to-Sequence' for LSTM/GRU model")
@@ -1279,7 +1279,7 @@ class VEstimHyperParamGUI(QWidget):
         """Convert parameter dictionary with boundary format to Optuna-compatible format."""
         optuna_params = {}
         
-        # Define which parameters should be treated as integers vs floats
+        # FIXED:Define which parameters should be treated as integers vs floats
         integer_params = {
             "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS", 
             "MAX_EPOCHS", "VALID_PATIENCE", "VALID_FREQUENCY", "LOOKBACK",
@@ -1296,10 +1296,10 @@ class VEstimHyperParamGUI(QWidget):
                         'high': int(max_val) if key in integer_params else max_val
                     }
                 else:
-                    # Keep original value if parsing fails
+                    # FIXED:Keep original value if parsing fails
                     optuna_params[key] = value
             else:
-                # Keep non-boundary parameters as-is
+                # FIXED:Keep non-boundary parameters as-is
                 optuna_params[key] = value
                 
         return optuna_params
@@ -1314,7 +1314,7 @@ class VEstimHyperParamGUI(QWidget):
             total_seconds = hours * 3600 + minutes * 60 + seconds
             params["MAX_TRAINING_TIME_SECONDS"] = total_seconds
             
-            # Remove the individual time components as they're now consolidated
+            # FIXED:Remove the individual time components as they're now consolidated
             for key in ["MAX_TRAIN_HOURS", "MAX_TRAIN_MINUTES", "MAX_TRAIN_SECONDS"]:
                 if key in params:
                     del params[key]
@@ -1343,8 +1343,8 @@ class VEstimHyperParamGUI(QWidget):
     def highlight_error_fields(self, error_message):
         """Highlights QLineEdit fields that are mentioned in the error message."""
         import re
-        # Regex to find capitalized keys like 'LAYERS', 'FNN_HIDDEN_LAYERS', etc.
-        # It looks for single-quoted uppercase words with underscores.
+        # FIXED:Regex to find capitalized keys like 'LAYERS', 'FNN_HIDDEN_LAYERS', etc.
+        # FIXED:It looks for single-quoted uppercase words with underscores.
         error_keys = re.findall(r"'([A-Z_]+)'", error_message)
         
         for key in error_keys:

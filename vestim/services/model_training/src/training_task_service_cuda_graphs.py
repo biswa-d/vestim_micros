@@ -154,7 +154,7 @@ class CUDAGraphsTrainingService:
         self.current_batch_size = batch_size
         self.cuda_graph_enabled = True
         
-        print(f"✅ CUDA Graph captured successfully!")
+        print(f"CUDA Graph captured successfully!")
         print(f"   Expected speedup: 1.2x-3x for small kernels on Windows")
         print(f"   Batch size: {batch_size}, Input size: {input_size}")
 
@@ -197,7 +197,7 @@ class CUDAGraphsTrainingService:
             torch.set_float32_matmul_precision('high')  # Enables TensorFloat-32 on Ampere+
         
         if use_mixed_precision:
-            print(f"🚀 Using mixed precision (AMP) + TF32 for epoch {epoch}")
+            print(f"Using mixed precision (AMP) + TF32 for epoch {epoch}")
         
         # Get a sample batch to determine if we can use CUDA Graphs
         sample_batch = next(iter(train_loader))
@@ -220,10 +220,10 @@ class CUDAGraphsTrainingService:
                 
                 self._capture_cuda_graph(model, model_type, batch_size, input_size,
                                        optimizer, use_mixed_precision, scaler)
-                print(f"✅ CUDA Graphs enabled for FNN training (RTX 5070 optimized)")
+                print(f"CUDA Graphs enabled for FNN training (RTX 5070 optimized)")
                 
             except Exception as e:
-                print(f"⚠️  CUDA Graph capture failed, falling back to standard training: {e}")
+                print(f"CUDA Graph capture failed, falling back to standard training: {e}")
                 should_use_graphs = False
                 self.cuda_graph_enabled = False
         
@@ -351,7 +351,7 @@ class CUDAGraphsTrainingService:
             
             # Logging
             if verbose and batch_idx % log_freq == 0 and batch_times:
-                graph_status = "🚀 CUDA Graph" if (self.cuda_graph_enabled and X_batch.size(0) == self.current_batch_size) else "Standard"
+                graph_status = "CUDA Graph" if (self.cuda_graph_enabled and X_batch.size(0) == self.current_batch_size) else "Standard"
                 log_callback = task.get('log_callback')
                 if log_callback:
                     log_callback(f"  Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f} [{graph_status}]")
@@ -373,7 +373,7 @@ class CUDAGraphsTrainingService:
             total_batches = len(batch_times)
             total_time = sum(batch_times)
             avg_time_ms = avg_epoch_batch_time * 1000
-            print(f"🚀 CUDA Graph Performance: {total_batches} batches in {total_time:.3f}s ({avg_time_ms:.2f}ms/batch)")
+            print(f"CUDA Graph Performance: {total_batches} batches in {total_time:.3f}s ({avg_time_ms:.2f}ms/batch)")
         
         # Concatenate results
         if all_train_y_pred_normalized:

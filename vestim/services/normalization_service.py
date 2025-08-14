@@ -303,9 +303,9 @@ def transform_data(data_df, scaler, feature_columns, all_numeric_columns=None):
         # Debug: Check if timestamp columns are preserved
         timestamp_cols = [col for col in non_transformed_cols if 'time' in col.lower().replace(" ", "")]
         if timestamp_cols:
-            print(f"✓ Timestamp columns preserved: {timestamp_cols}")
+            print(f"Timestamp columns preserved: {timestamp_cols}")
         else:
-            print("⚠️  No timestamp columns found in preserved columns")
+            print("No timestamp columns found in preserved columns")
             
         return data_copy
     except Exception as e:

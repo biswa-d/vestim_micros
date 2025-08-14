@@ -52,7 +52,7 @@ def setup_default_configuration(data_directory=None):
             if not os.path.exists(data_dir_path):
                 try:
                     os.makedirs(data_dir_path, exist_ok=True)
-                    print(f"✓ Created data directory: {data_dir_path}")
+                    print(f"Created data directory: {data_dir_path}")
                 except OSError as e:
                     print(f"✗ Could not create directory: {e}")
                     continue
@@ -60,10 +60,10 @@ def setup_default_configuration(data_directory=None):
             # Set the data directory
             success = config_manager.set_data_directory(data_dir_path)
             if success:
-                print(f"✓ Default data directory set to: {data_dir_path}")
+                print(f"Default data directory set to: {data_dir_path}")
                 break
             else:
-                print("✗ Failed to set data directory. Please try again.")
+                print("Failed to set data directory. Please try again.")
     else:
         # Data directory provided as argument
         data_dir_path = os.path.abspath(os.path.expanduser(data_directory))
@@ -72,15 +72,15 @@ def setup_default_configuration(data_directory=None):
         if not os.path.exists(data_dir_path):
             try:
                 os.makedirs(data_dir_path, exist_ok=True)
-                print(f"✓ Created data directory: {data_dir_path}")
+                print(f"Created data directory: {data_dir_path}")
             except OSError as e:
-                print(f"✗ Could not create directory: {e}")
+                print(f"Could not create directory: {e}")
                 return False
         
         # Set the data directory
         success = config_manager.set_data_directory(data_dir_path)
         if success:
-            print(f"✓ Default data directory set to: {data_dir_path}")
+            print(f"Default data directory set to: {data_dir_path}")
         else:
             print("✗ Failed to set data directory.")
             return False
