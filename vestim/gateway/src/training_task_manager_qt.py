@@ -1040,9 +1040,19 @@ class TrainingTaskManager:
                             # Re-validate immediately to confirm the model has been restored
                             self.logger.info("Re-validating the restored model to confirm best state.")
                             model.eval() # Ensure model is in evaluation mode for re-validation
-                            val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
-                                model, model_type, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task, verbose=False
-                            )
+                            
+                            # Use CUDA Graphs validation if available, same as main training loop
+                            if (hasattr(self.training_service, 'validate_epoch_with_graphs') and 
+                                device.type == 'cuda' and model_type == 'FNN'):
+                                val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch_with_graphs(
+                                    model, val_loader, epoch, device, self.stop_requested, task
+                                )
+                            else:
+                                # Standard validation
+                                val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
+                                    model, model_type, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task, verbose=False
+                                )
+                            
                             model.train() # Set model back to training mode
                             self.logger.info(f"Re-validation complete. Loss: {val_loss_norm:.6f}. This should match the best validation loss.")
                             
@@ -1386,10 +1396,17 @@ class TrainingTaskManager:
 
                 # Validation and Pruning Phase
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
-                    # For validation, hidden states are managed within validate_epoch, so we pass None
-                    val_loss_norm, _, _ = self.training_service.validate_epoch(
-                        model, model_type, val_loader, None, None, epoch, device, self.stop_requested, task, verbose=verbose
-                    )
+                    # Use CUDA Graphs validation if available, consistent with main training loop
+                    if (hasattr(self.training_service, 'validate_epoch_with_graphs') and 
+                        device.type == 'cuda' and model_type == 'FNN'):
+                        val_loss_norm, _, _ = self.training_service.validate_epoch_with_graphs(
+                            model, val_loader, epoch, device, self.stop_requested, task
+                        )
+                    else:
+                        # Standard validation - for validation, hidden states are managed within validate_epoch, so we pass None
+                        val_loss_norm, _, _ = self.training_service.validate_epoch(
+                            model, model_type, val_loader, None, None, epoch, device, self.stop_requested, task, verbose=verbose
+                        )
                     
                     # --- OPTUNA PRUNING LOGIC ---
                     log_callback = task.get('log_callback')
@@ -1547,6 +1564,8 @@ class TrainingTaskManager:
             final_train_loss_denorm = getattr(self, f'_task_{task_id}_last_train_rmse_orig', float('nan'))
             final_val_loss_denorm = getattr(self, f'_task_{task_id}_last_val_rmse_orig', float('nan'))
             best_validation_loss_denorm = getattr(self, f'_task_{task_id}_best_val_rmse_orig', float('inf'))
+            # Use the stored best training loss from attributes instead of passed parameter
+            best_train_loss_denorm = getattr(self, f'_task_{task_id}_best_train_rmse_orig', float('inf'))
 
             summary_data = {
                 'task_id': task_id,

@@ -236,3 +236,8 @@ class CUDAGraphsTrainingService:
         all_val_y_true = torch.cat(all_val_y_true, dim=0) if all_val_y_true else None
         
         return avg_loss, all_val_y_pred, all_val_y_true
+    
+    def validate_epoch(self, model, model_type, val_loader, h_s_val, h_c_val, epoch, device, stop_requested, task, verbose=True):
+        """Fallback validate_epoch method for compatibility with standard training code."""
+        # Just delegate to validate_epoch_with_graphs since they're essentially the same for validation
+        return self.validate_epoch_with_graphs(model, val_loader, epoch, device, stop_requested, task)
