@@ -10,7 +10,7 @@ import os
 import json
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, 
-    QLineEdit, QFileDialog, QMessageBox, QDialog, QGroupBox, QComboBox, QListWidget, QAbstractItemView,QFormLayout, QCheckBox
+    QLineEdit, QFileDialog, QMessageBox, QDialog, QGroupBox, QComboBox, QListWidget, QAbstractItemView,QFormLayout, QCheckBox, QScrollArea, QDesktopWidget
 )
 from PyQt5.QtCore import Qt, QPropertyAnimation
 from PyQt5.QtGui import QIcon, QColor, QPalette
@@ -45,10 +45,30 @@ class VEstimHyperParamGUI(QWidget):
         self.load_default_hyperparameters()
 
     def setup_window(self):
-        """Initial setup for the main window appearance."""
+        """Initial setup for the main window appearance with responsive sizing."""
         self.setWindowTitle("VEstim - Hyperparameter Selection")
-        self.setGeometry(100, 100, 1200, 800)
-
+        
+        # Get screen geometry for responsive sizing
+        screen = QApplication.desktop().screenGeometry()
+        screen_width = screen.width()
+        screen_height = screen.height()
+        
+        # Calculate responsive window size (80% of screen, but with min/max limits)
+        window_width = max(1000, min(1400, int(screen_width * 0.8)))
+        window_height = max(700, min(900, int(screen_height * 0.8)))
+        
+        # Center the window on screen
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        
+        self.setGeometry(x, y, window_width, window_height)
+        
+        # Set minimum size to prevent too much shrinking
+        self.setMinimumSize(900, 600)
+        
+        # Enable DPI scaling
+        self.setAttribute(Qt.WA_AcceptTouchEvents)
+        
         # FIXED:Load the application icon
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
         icon_path = os.path.join(resources_path, 'icon.ico')
@@ -63,6 +83,9 @@ class VEstimHyperParamGUI(QWidget):
             QPushButton:disabled {
                 background-color: #d3d3d3;
                 color: #a9a9a9;
+            }
+            QScrollArea {
+                border: none;
             }
         """)
 
@@ -128,7 +151,19 @@ class VEstimHyperParamGUI(QWidget):
                     validated_params["TARGET_COLUMN"] = fallback_target
                     self.logger.warning(f"Saved target column '{original_target}' not found in dataset. Using fallback target: '{fallback_target}'")
                 else:
-                    self.logger.info(f"Target column '{original_target}' found in dataset")
+                    # Check if target is a timestamp column
+                    valid_targets = self.filter_valid_target_columns([original_target])
+                    if not valid_targets:
+                        # Target is a timestamp column - find a safe alternative
+                        safe_targets = self.filter_valid_target_columns(available_columns)
+                        if safe_targets:
+                            fallback_target = safe_targets[0]
+                            validated_params["TARGET_COLUMN"] = fallback_target
+                            self.logger.warning(f"Target column '{original_target}' appears to be a timestamp column. Using safe fallback target: '{fallback_target}'")
+                        else:
+                            self.logger.warning(f"Target column '{original_target}' appears to be a timestamp column, but no safe alternatives found.")
+                    else:
+                        self.logger.info(f"Target column '{original_target}' found in dataset and is valid")
             
             # FIXED:Validate training method compatibility with model type
             model_type = validated_params.get("MODEL_TYPE", "LSTM")
@@ -150,14 +185,26 @@ class VEstimHyperParamGUI(QWidget):
 
     def build_gui(self):
         """Build the main UI layout with categorized sections for parameters."""
+        # Create main layout
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # Create scroll area for the main content
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Create content widget that will go inside the scroll area
+        content_widget = QWidget()
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(10, 10, 10, 10)
 
         # FIXED:Title & Guide Section
         title_label = QLabel("Select Hyperparameters for Model Training")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
-        main_layout.addWidget(title_label)
+        content_layout.addWidget(title_label)
 
         guide_button = QPushButton("Open Hyperparameter Guide")
         guide_button.setFixedWidth(220)
@@ -168,7 +215,7 @@ class VEstimHyperParamGUI(QWidget):
         guide_button_layout.addStretch(1)
         guide_button_layout.addWidget(guide_button)
         guide_button_layout.addStretch(1)
-        main_layout.addLayout(guide_button_layout)
+        content_layout.addLayout(guide_button_layout)
 
         instructions_label = QLabel(
             "Please enter values for model parameters:\n"
@@ -179,10 +226,12 @@ class VEstimHyperParamGUI(QWidget):
         )
         instructions_label.setAlignment(Qt.AlignCenter)
         instructions_label.setStyleSheet("font-size: 10pt; color: gray; margin-bottom: 10px;")
-        main_layout.addWidget(instructions_label)
+        instructions_label.setWordWrap(True)  # Allow text wrapping
+        content_layout.addWidget(instructions_label)
 
         # FIXED:Hyperparameter Selection Section
         hyperparam_section = QGridLayout()
+        hyperparam_section.setSpacing(10)  # Add spacing between grid items
         group_box_style = "QGroupBox { font-size: 10pt; font-weight: bold; }"
 
         # FIXED:--- Row 0 ---
@@ -243,7 +292,7 @@ class VEstimHyperParamGUI(QWidget):
         hyperparam_section.addWidget(validation_group, 1, 1)
         hyperparam_section.addWidget(lr_group, 2, 1)
 
-        main_layout.addLayout(hyperparam_section)
+        content_layout.addLayout(hyperparam_section)
 
         # FIXED:Bottom Buttons
         button_layout = QVBoxLayout()
@@ -276,13 +325,23 @@ class VEstimHyperParamGUI(QWidget):
         search_method_layout.addWidget(grid_search_button)
         button_layout.addLayout(search_method_layout)
 
-        main_layout.addLayout(button_layout)
+        content_layout.addLayout(button_layout)
+        
+        # Set up the scroll area
+        content_widget.setLayout(content_layout)
+        scroll_area.setWidget(content_widget)
+        
+        # Add scroll area to main layout
+        main_layout.addWidget(scroll_area)
         self.setLayout(main_layout)
 
     def add_feature_target_selection(self, layout):
         """Adds a vertically stacked feature and target selection UI components with tooltips."""
 
         column_names = self.load_column_names()
+        
+        # Filter out timestamp/time-related columns for target selection
+        valid_target_columns = self.filter_valid_target_columns(column_names)
 
         # FIXED:**Feature Selection**
         feature_label = QLabel("Feature Columns (Input):")
@@ -290,7 +349,7 @@ class VEstimHyperParamGUI(QWidget):
         feature_label.setToolTip("Select one or more columns as input features for training.")
 
         self.feature_list = QListWidget()
-        self.feature_list.addItems(column_names)
+        self.feature_list.addItems(column_names)  # Features can include all columns
         self.feature_list.setSelectionMode(QAbstractItemView.MultiSelection)
         self.feature_list.setFixedHeight(100)
         self.feature_list.setToolTip("Select multiple features.")
@@ -298,11 +357,11 @@ class VEstimHyperParamGUI(QWidget):
         # FIXED:**Target Selection**
         target_label = QLabel("Target Column (Output):")
         target_label.setStyleSheet("font-size: 9pt;")
-        target_label.setToolTip("<html><body><span style='font-weight: normal;'>Select the output column for the model to predict.</span></body></html>")
+        target_label.setToolTip("<html><body><span style='font-weight: normal;'>Select the output column for the model to predict.<br><b>Note:</b> Timestamp/time columns are filtered out.</span></body></html>")
 
         self.target_combo = QComboBox()
-        self.target_combo.addItems(column_names)
-        self.target_combo.setToolTip("Select a single target column.")
+        self.target_combo.addItems(valid_target_columns)  # Only valid targets
+        self.target_combo.setToolTip("Select a single target column (timestamp columns excluded).")
 
         # FIXED:✅ Store references in self.param_entries for easy parameter collection
         self.param_entries["FEATURE_COLUMNS"] = self.feature_list
@@ -952,6 +1011,41 @@ class VEstimHyperParamGUI(QWidget):
                 print(f"Error loading CSV columns: {e}")
         return []
     
+    def filter_valid_target_columns(self, column_names):
+        """Filter out timestamp/time-related columns that shouldn't be used as targets."""
+        # Define patterns for timestamp/time-related columns
+        # Note: 'status' columns are NOT filtered out as they can be valid targets
+        timestamp_patterns = [
+            'time', 'timestamp', 'date', 'datetime', 'epoch', 'unix',
+            'year', 'month', 'day', 'hour', 'minute', 'second',
+            '_time', '_timestamp', '_date', '_datetime',
+            'time_', 'timestamp_', 'date_', 'datetime_'
+        ]
+        
+        valid_targets = []
+        filtered_out = []
+        
+        for col in column_names:
+            col_lower = col.lower()
+            # Check if column name contains any timestamp pattern (case-insensitive)
+            is_timestamp = any(pattern in col_lower for pattern in timestamp_patterns)
+            
+            if is_timestamp:
+                filtered_out.append(col)
+            else:
+                valid_targets.append(col)
+        
+        # Log what was filtered out
+        if filtered_out:
+            self.logger.info(f"Filtered out timestamp columns from target selection: {filtered_out}")
+        
+        # Safety check - ensure we have at least one valid target
+        if not valid_targets:
+            self.logger.warning("No valid target columns found after filtering. Including all columns as fallback.")
+            return column_names
+            
+        return valid_targets
+    
     def load_params_from_json(self):
         """Load hyperparameters from a JSON file and update the UI."""
         filepath, _ = QFileDialog.getOpenFileName(self, "Load Params", "", "JSON Files (*.json);;All Files (*)")
@@ -1218,6 +1312,18 @@ class VEstimHyperParamGUI(QWidget):
         if not new_params.get("TARGET_COLUMN"):
             QMessageBox.critical(self, "Selection Error", "Please select a target column.")
             return None
+            
+        # Validate that target column is not a timestamp column
+        target_column = new_params.get("TARGET_COLUMN")
+        if target_column:
+            valid_targets = self.filter_valid_target_columns([target_column])
+            if not valid_targets:
+                QMessageBox.critical(self, "Invalid Target Column", 
+                    f"The selected target column '{target_column}' appears to be a timestamp/time column.\n\n"
+                    "Timestamp columns cannot be used as regression targets as they would cause NaN losses.\n\n"
+                    "Please select a different target column (like 'Voltage', 'Current', etc.).")
+                return None
+                
         if not new_params.get("MODEL_TYPE"):
             QMessageBox.critical(self, "Selection Error", "Please select a model type.")
             return None

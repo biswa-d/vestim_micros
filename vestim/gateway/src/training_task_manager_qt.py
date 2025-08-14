@@ -1011,7 +1011,22 @@ class TrainingTaskManager:
                                 checkpoint = torch.load(best_model_path, map_location=device)
                                 if 'model_state_dict' in checkpoint:
                                     model.load_state_dict(checkpoint['model_state_dict'])
-                                    if 'optimizer_state_dict' in checkpoint:
+                                    
+                                    # Check if we're using CUDA Graphs - if so, DON'T reload optimizer state
+                                    use_cuda_graphs = (
+                                        hasattr(self.training_service, 'train_epoch_with_graphs') and 
+                                        device.type == 'cuda' and 
+                                        model_type == 'FNN'
+                                    )
+                                    
+                                    if use_cuda_graphs:
+                                        # CUDA Graphs: Only reload model state, keep current optimizer state
+                                        self.logger.info(f"Loaded best model state_dict from {best_model_path}. Skipping optimizer reload for CUDA Graphs compatibility.")
+                                        # Reset CUDA graphs state after model reload
+                                        if hasattr(self.training_service, 'reset_cuda_graphs'):
+                                            self.training_service.reset_cuda_graphs()
+                                    elif 'optimizer_state_dict' in checkpoint:
+                                        # Standard training: Safe to reload optimizer state
                                         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                                         self.logger.info(f"Loaded best model and optimizer state_dict from {best_model_path}")
                                     else:

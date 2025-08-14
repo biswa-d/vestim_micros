@@ -16,6 +16,8 @@ class CUDAGraphsTrainingService:
         self.val_graph = None
         self.static_input = None
         self.static_target = None
+        self.static_output = None
+        self.static_loss = None
         self.static_val_input = None
         self.static_val_target = None
         self.scaler = None
@@ -42,6 +44,19 @@ class CUDAGraphsTrainingService:
         self.scaler = torch.cuda.amp.GradScaler() if use_mixed_precision else None
         self.logger.info(f"CUDA Graphs enabled on {device}")
         return True
+    
+    def reset_cuda_graphs(self):
+        """Reset CUDA graphs state - call this after model reloading."""
+        if self.graphs_enabled:
+            self.train_graph = None
+            self.val_graph = None
+            self.static_input = None
+            self.static_target = None
+            self.static_output = None
+            self.static_loss = None
+            self.static_val_input = None
+            self.static_val_target = None
+            self.logger.info("CUDA graphs state reset - graphs will be re-captured on next training epoch")
     
     def _warmup_model(self, model, sample_input, sample_target, optimizer, device):
         """Warmup to allocate all memory before capturing graph."""
@@ -129,8 +144,8 @@ class CUDAGraphsTrainingService:
         first_batch = next(iter(train_loader))
         sample_input, sample_target = first_batch[0].to(device), first_batch[1].to(device)
         
-        # Warmup and capture graph on first epoch
-        if epoch == 1 and self.train_graph is None:
+        # Warmup and capture graph on first epoch or after reset
+        if self.train_graph is None:
             self._warmup_model(model, sample_input, sample_target, optimizer, device)
             self._capture_training_graph(model, optimizer, device, 
                                        sample_input.shape, sample_target.shape)
@@ -144,11 +159,19 @@ class CUDAGraphsTrainingService:
             start_time = time.time()
             X_batch, y_batch = X_batch.to(device, non_blocking=True), y_batch.to(device, non_blocking=True)
             
-            # Check if batch shape matches captured graph
-            if (X_batch.shape != self.static_input.shape or 
+            # Check if batch shape matches captured graph (or if graphs need to be re-captured)
+            if (self.static_input is None or self.static_target is None or
+                X_batch.shape != self.static_input.shape or 
                 y_batch.shape != self.static_target.shape):
-                self.logger.warning(f"Batch shape mismatch at batch {batch_idx}. "
-                                  f"Falling back to standard training for this batch.")
+                if self.static_input is None or self.static_target is None:
+                    # Only log once per epoch when graphs need re-capturing
+                    if batch_idx == 0:
+                        self.logger.info("CUDA graphs not captured yet - will capture before training loop")
+                else:
+                    self.logger.warning(f"Batch shape mismatch at batch {batch_idx}. "
+                                      f"Expected input: {self.static_input.shape}, got: {X_batch.shape}. "
+                                      f"Expected target: {self.static_target.shape}, got: {y_batch.shape}. "
+                                      f"Falling back to standard training for this batch.")
                 # Fall back to standard training for this batch
                 optimizer.zero_grad()
                 if self.scaler:
