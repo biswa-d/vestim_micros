@@ -1,6 +1,6 @@
 {
     "last_used": {
-        "train_folder": "C:/Users/dehuryb/code/vestim_micros/data/E66_All_Temp/cell_train_small",
+        "train_folder": "C:/Users/dehuryb/code/vestim_micros/data/train_data",
         "val_folder": "C:/Users/dehuryb/code/vestim_micros/data/val_data",
         "test_folder": "C:/Users/dehuryb/code/vestim_micros/data/test_data",
         "file_format": "csv",

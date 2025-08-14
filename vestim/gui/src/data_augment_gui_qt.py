@@ -319,7 +319,7 @@ class DataAugmentGUI(QMainWindow):
         self.filter_list_label = QLabel("Applied Filters:")
         filtering_layout.addWidget(self.filter_list_label)
         self.filter_list = QListWidget()
-        self.filter_list.setMinimumHeight(100)
+        self.filter_list.setMinimumHeight(80)
         filtering_layout.addWidget(self.filter_list)
         self.remove_filter_button = QPushButton("Remove Selected Filter")
         self.remove_filter_button.clicked.connect(self.remove_filter)
@@ -343,7 +343,7 @@ class DataAugmentGUI(QMainWindow):
         self.formula_list_label = QLabel("Created Columns:")
         augmentation_layout.addWidget(self.formula_list_label)
         self.formula_list = QListWidget()
-        self.formula_list.setMinimumHeight(100) # Adjusted height
+        self.formula_list.setMinimumHeight(80) # Reduced height
         augmentation_layout.addWidget(self.formula_list)
         self.remove_formula_button = QPushButton("Remove Selected Column")
         self.remove_formula_button.clicked.connect(self.remove_formula)
@@ -360,6 +360,7 @@ class DataAugmentGUI(QMainWindow):
         # Resampling Group
         resampling_group = QGroupBox("Data Resampling")
         resampling_group.setStyleSheet(group_box_style)
+        resampling_group.setMinimumHeight(120)  # 20% increase from typical height
         resampling_layout = QVBoxLayout()
         self.resampling_checkbox = QCheckBox("Enable data resampling")
         self.resampling_checkbox.setToolTip("Resamples time series data to a different frequency. Useful for standardizing data collection rates or reducing data size.")
@@ -379,6 +380,7 @@ class DataAugmentGUI(QMainWindow):
         # Padding Group
         padding_group = QGroupBox("Data Padding (Prepend)")
         padding_group.setStyleSheet(group_box_style)
+        padding_group.setMinimumHeight(120)  # 20% increase from typical height
         padding_layout = QVBoxLayout()
         self.padding_checkbox = QCheckBox("Enable data padding")
         self.padding_checkbox.setToolTip("Prepends rows with zeros to the beginning of the dataset. Useful for creating lead-in data for time series models.")
@@ -401,6 +403,7 @@ class DataAugmentGUI(QMainWindow):
         # Normalization Group (Full Width)
         normalization_group = QGroupBox("Data Normalization")
         normalization_group.setStyleSheet(group_box_style)
+        normalization_group.setMinimumHeight(120)  # 20% increase from typical height
         normalization_layout = QVBoxLayout()
         self.normalization_checkbox = QCheckBox("Enable data normalization (Min-Max scaling)")
         self.normalization_checkbox.setChecked(True)  # Set as checked by default
@@ -423,11 +426,14 @@ class DataAugmentGUI(QMainWindow):
         
         buttons_layout = QHBoxLayout()
         self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.setMinimumHeight(35)
+        self.cancel_button.setStyleSheet("font-size: 10pt;")
         self.cancel_button.clicked.connect(self.close)
         buttons_layout.addWidget(self.cancel_button)
         self.apply_button = QPushButton("Apply Changes and Continue")
+        self.apply_button.setMinimumHeight(35)
         self.apply_button.clicked.connect(self.apply_changes)
-        self.apply_button.setStyleSheet("background-color: #0b6337; color: white;")
+        self.apply_button.setStyleSheet("background-color: #0b6337; color: white; font-size: 10pt;")
         self.apply_button.setEnabled(self.train_df is not None)
         buttons_layout.addWidget(self.apply_button)
         self.main_layout.addLayout(buttons_layout)

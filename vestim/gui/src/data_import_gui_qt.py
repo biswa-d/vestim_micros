@@ -123,6 +123,7 @@ class DataImportGUI(QMainWindow):
         self.train_select_button.setStyleSheet("""
             background-color: #add8e6;  /* Light blue background */
             font-weight: bold;
+            font-size: 10pt;
             padding: 8px 15px;  /* Adds padding inside the button */
             color: black;  /* Set the text color to black for contrast */
         """)
@@ -153,6 +154,7 @@ class DataImportGUI(QMainWindow):
         self.val_select_button.setStyleSheet("""
             background-color: #ffcccb;  /* Light red background */
             font-weight: bold;
+            font-size: 10pt;
             padding: 8px 15px;  /* Adds padding inside the button */
             color: black;  /* Set the text color to black for contrast */
         """)
@@ -183,6 +185,7 @@ class DataImportGUI(QMainWindow):
         self.test_select_button.setStyleSheet("""
             background-color: #98fb98;  /* Light green background */
             font-weight: bold;
+            font-size: 10pt;
             padding: 8px 15px;  /* Adds padding inside the button */
             color: black;  /* Set the text color to black for contrast */
         """)
@@ -220,7 +223,7 @@ class DataImportGUI(QMainWindow):
         self.data_source_combo.addItems(["csv", "mat", "xlsx"])  # CSV as default/top option
         self.data_source_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
         self.data_source_combo.setFixedWidth(120)  # Set a specific width for the ComboBox
-        self.data_source_combo.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
+        self.data_source_combo.setStyleSheet("font-size: 10pt; padding: 5px;")
         combined_layout.addWidget(self.data_source_combo)
         self.data_source_combo.currentIndexChanged.connect(self.on_data_source_selection_changed)
 
@@ -230,11 +233,10 @@ class DataImportGUI(QMainWindow):
         # Organize button with consistent height and padding
         self.organize_button = QPushButton("Load and Prepare Files", self)
         self.organize_button.setStyleSheet("""
-            background-color: #0b6337; 
-            font-weight: bold; 
+            background-color: #d3d3d3;  /* Grey background when disabled */
+            font-size: 10pt;
             padding: 10px 20px;  /* Adjust padding for visual appeal */
-            color: white;  
-            font-size: 14px;  /* Increase font size */
+            color: #666666;  /* Darker grey text when disabled */
         """)
         self.organize_button.setFixedHeight(35)  # Ensure consistent height
         self.organize_button.setMinimumWidth(150)  # Set minimum width
@@ -358,8 +360,22 @@ class DataImportGUI(QMainWindow):
     def check_folders_selected(self):
         if self.train_folder_path and self.val_folder_path and self.test_folder_path:
             self.organize_button.setEnabled(True)
+            # Change to green when enabled
+            self.organize_button.setStyleSheet("""
+                background-color: #0b6337; 
+                font-size: 10pt;
+                padding: 10px 20px;
+                color: white;
+            """)
         else:
             self.organize_button.setEnabled(False)
+            # Keep grey when disabled
+            self.organize_button.setStyleSheet("""
+                background-color: #d3d3d3;
+                font-size: 10pt;
+                padding: 10px 20px;
+                color: #666666;
+            """)
 
     def organize_files(self):
         
@@ -391,7 +407,7 @@ class DataImportGUI(QMainWindow):
         self.organize_button.setText("Importing and Preprocessing Files")
         self.organize_button.setStyleSheet("""
             background-color: #3ecf86;  /* Light green color */
-            font-weight: bold; 
+            font-size: 10pt;
             padding: 10px 20px;  /* Same padding to maintain size */
             color: white;
         """)
@@ -440,10 +456,9 @@ class DataImportGUI(QMainWindow):
         self.organize_button.setText("Continue to Data Augmentation")
         self.organize_button.setStyleSheet("""
             background-color: #1f8b4c; 
-            font-weight: bold;
+            font-size: 10pt;
             padding: 10px 20px;
             color: white;
-            font-size: 14px;
         """)
         self.organize_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.organize_button.setEnabled(True)

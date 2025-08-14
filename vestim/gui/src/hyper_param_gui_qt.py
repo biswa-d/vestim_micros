@@ -267,7 +267,7 @@ class VEstimHyperParamGUI(QWidget):
         # FIXED:--- Row 2 (Right) ---
         lr_group = QGroupBox("Learning Rate Scheduler")
         lr_group.setStyleSheet(group_box_style)
-        lr_layout = QHBoxLayout()
+        lr_layout = QVBoxLayout()  # Changed from QHBoxLayout to QVBoxLayout for vertical stacking
 
         scheduler_group = QGroupBox("LR Scheduler")
         scheduler_group.setStyleSheet("QGroupBox { font-size: 9pt; font-weight: bold; }")
@@ -285,12 +285,22 @@ class VEstimHyperParamGUI(QWidget):
         lr_layout.addWidget(exploit_lr_group)
         lr_group.setLayout(lr_layout)
 
-        # FIXED:Add widgets to grid
+        # FIXED:Add widgets to 3-column grid layout
+        # Column 1: Data Selection (row 0), Model and Training Method (rows 1-2)
         hyperparam_section.addWidget(data_selection_group, 0, 0)
-        hyperparam_section.addWidget(device_optimizer_group, 0, 1)
         hyperparam_section.addWidget(model_training_group, 1, 0, 2, 1)
+        
+        # Column 2: Device and Optimizer (row 0), Validation Training (row 1)
+        hyperparam_section.addWidget(device_optimizer_group, 0, 1)
         hyperparam_section.addWidget(validation_group, 1, 1)
-        hyperparam_section.addWidget(lr_group, 2, 1)
+        
+        # Column 3: Learning Rate Scheduler (spans rows 0-2)
+        hyperparam_section.addWidget(lr_group, 0, 2, 3, 1)
+        
+        # Set equal column stretch for balanced layout
+        hyperparam_section.setColumnStretch(0, 1)
+        hyperparam_section.setColumnStretch(1, 1)
+        hyperparam_section.setColumnStretch(2, 1)
 
         content_layout.addLayout(hyperparam_section)
 
@@ -929,11 +939,7 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["WEIGHT_DECAY"] = self.weight_decay_entry
         form_layout.addRow(weight_decay_label, self.weight_decay_entry)
 
-        # FIXED:Data Loading Optimization Section
-        data_loading_label = QLabel("Data Loading:")
-        data_loading_label.setStyleSheet("font-size: 9pt; font-weight: bold; color: #2E86AB; margin-top: 10px;")
-        form_layout.addRow(data_loading_label)
-
+        # CPU Threads and optimization settings (integrated into Device and Optimizer section)
         # FIXED:NUM_WORKERS with user-friendly label
         cpu_threads_label = QLabel("# FIXED:CPU Threads:")
         cpu_threads_label.setStyleSheet("font-size: 9pt;")

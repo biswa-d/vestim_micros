@@ -230,9 +230,11 @@ class VEstimTrainSetupGUI(QWidget):
         self.status_label.setText(formatted_message)
 
         proceed_button = QPushButton("Proceed to Training")
+        proceed_button.setMinimumHeight(35)
         proceed_button.setStyleSheet("""
             background-color: #0b6337; 
             font-weight: bold; 
+            font-size: 10pt;
             padding: 10px 20px; 
             color: white;
         """)
