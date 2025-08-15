@@ -105,6 +105,9 @@ class TrainingTaskManager:
         # Initialize job-level timer (will be set when first task starts)
         self.job_start_time = None
         
+        # CUDA Graphs batch size tracking for dynamic reset
+        self.previous_batch_size = None
+        
         self.logger.info(f"TrainingTaskManager initialized with device: {self.device}")
 
         self.training_thread = None  # Initialize the training thread here for PyQt
@@ -659,8 +662,7 @@ class TrainingTaskManager:
                     self.optimizer,
                     mode='min',           # Reduce when metric stops decreasing
                     factor=plateau_factor,
-                    patience=plateau_patience,
-                    verbose=True
+                    patience=plateau_patience
                 )
             elif scheduler_type == "CosineAnnealingWarmRestarts":
                 cosine_t0 = int(hyperparams.get("COSINE_T0", 10))
@@ -742,8 +744,18 @@ class TrainingTaskManager:
                 if (hasattr(self.training_service, 'train_epoch_with_graphs') and 
                     device.type == 'cuda' and model_type == 'FNN'):
                     
-                    # Enable CUDA graphs on first epoch
-                    if epoch == 1:
+                    # Check if batch size has changed and reset CUDA graphs if necessary
+                    current_batch_size = train_loader.batch_size
+                    if (self.previous_batch_size is not None and 
+                        current_batch_size != self.previous_batch_size):
+                        self.logger.info(f"Batch size changed from {self.previous_batch_size} to {current_batch_size}. Resetting CUDA Graphs.")
+                        self.training_service.reset_cuda_graphs()
+                        update_progress_callback.emit({
+                            'training_start_log_message': f"<span style='color: #ff6600;'><b>CUDA Graphs reset for new batch size: {current_batch_size}</b></span>"
+                        })
+                    
+                    # Enable CUDA graphs on first epoch or after reset
+                    if epoch == 1 or (self.previous_batch_size is not None and current_batch_size != self.previous_batch_size):
                         use_mixed_precision = task['hyperparams'].get('USE_MIXED_PRECISION', False)
                         graphs_enabled = self.training_service.enable_cuda_graphs(device, use_mixed_precision)
                         if graphs_enabled:
@@ -751,6 +763,9 @@ class TrainingTaskManager:
                             update_progress_callback.emit({
                                 'training_start_log_message': f"<span style='color: #ff6600;'><b>CUDA Graphs enabled!</b></span>"
                             })
+                    
+                    # Update the previous batch size for future tasks
+                    self.previous_batch_size = current_batch_size
                     
                     avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch_with_graphs(
                         model, train_loader, optimizer, epoch, device, self.stop_requested, task, verbose=verbose
@@ -1462,7 +1477,7 @@ class TrainingTaskManager:
                     self.logger.info("Training stopped by user request.")
                     break
                 
-                # Identical training phase as run_training
+                # Identical training phase as run_training with CUDA Graphs support
                 model.train()
                 actual_train_batch_size = train_loader.batch_size or int(hyperparams.get('BATCH_SIZE', 32))
                 h_s, h_c = None, None
@@ -1473,9 +1488,36 @@ class TrainingTaskManager:
                         h_c = torch.zeros(model.num_layers, actual_train_batch_size, model.hidden_units).to(device)
                 
                 verbose = task.get('verbose', True)
-                avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch(
-                    model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task, verbose=verbose
-                )
+                
+                # Use CUDA Graphs if available and enabled (only for FNN models on CUDA)
+                if (hasattr(self.training_service, 'train_epoch_with_graphs') and 
+                    device.type == 'cuda' and model_type == 'FNN'):
+                    
+                    # Check if batch size has changed and reset CUDA graphs if necessary
+                    current_batch_size = train_loader.batch_size
+                    if (self.previous_batch_size is not None and 
+                        current_batch_size != self.previous_batch_size):
+                        self.logger.info(f"Optuna batch size changed from {self.previous_batch_size} to {current_batch_size}. Resetting CUDA Graphs.")
+                        self.training_service.reset_cuda_graphs()
+                    
+                    # Enable CUDA graphs on first epoch or after reset
+                    if epoch == 1 or (self.previous_batch_size is not None and current_batch_size != self.previous_batch_size):
+                        use_mixed_precision = task['hyperparams'].get('USE_MIXED_PRECISION', False)
+                        graphs_enabled = self.training_service.enable_cuda_graphs(device, use_mixed_precision)
+                        if graphs_enabled:
+                            self.logger.info("CUDA Graphs enabled for Optuna training!")
+                    
+                    # Update the previous batch size for future trials
+                    self.previous_batch_size = current_batch_size
+                    
+                    avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch_with_graphs(
+                        model, train_loader, optimizer, epoch, device, self.stop_requested, task, verbose=verbose
+                    )
+                else:
+                    # Standard training
+                    avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch(
+                        model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task, verbose=verbose
+                    )
 
                 if self.stop_requested:
                     break

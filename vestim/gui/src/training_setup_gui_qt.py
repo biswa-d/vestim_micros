@@ -86,6 +86,7 @@ class VEstimTrainSetupGUI(QWidget):
             title_text = "Building Models and Training Tasks\nwith Exhaustive Grid Search"
             
         self.setGeometry(100, 100, 1200, 800)
+        self.setMouseTracking(True)  # Enable mouse tracking for hover effects
         
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
@@ -93,8 +94,8 @@ class VEstimTrainSetupGUI(QWidget):
         # Add a global stylesheet for disabled buttons
         self.setStyleSheet("""
             QPushButton:disabled {
-                background-color: #d3d3d3;
-                color: #a9a9a9;
+                background-color: #d3d3d3 !important;
+                color: #a9a9a9 !important;
             }
         """)
 
@@ -161,7 +162,66 @@ class VEstimTrainSetupGUI(QWidget):
         self.main_layout.addWidget(self.bottom_widget)
 
     def display_hyperparameters(self, layout):
-        items = list(self.params.items())
+        # Get model type and scheduler type to determine which parameters to display
+        model_type = self.params.get('MODEL_TYPE', 'LSTM')
+        scheduler_type = self.params.get('SCHEDULER_TYPE', 'StepLR')
+
+        # Define smart parameter filtering based on model and scheduler types
+        def is_parameter_relevant(param_key, model_type, scheduler_type):
+            """Determine if a parameter should be displayed based on model and scheduler type"""
+            
+            # Always relevant parameters
+            always_relevant = {
+                'MODEL_TYPE', 'INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_LEARNABLE_PARAMS',
+                'TRAINING_METHOD', 'BATCH_TRAINING', 'BATCH_SIZE',
+                'MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE', 
+                'VALID_FREQUENCY', 'REPETITIONS', 'DEVICE_SELECTION',
+                'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN'
+            }
+            
+            if param_key in always_relevant:
+                return True
+            
+            # Model-specific parameters
+            if model_type in ['LSTM', 'GRU']:
+                lstm_gru_params = {'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'}
+                if param_key in lstm_gru_params:
+                    return True
+            elif model_type == 'FNN':
+                fnn_params = {'FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB', 'HIDDEN_LAYER_SIZES', 'DROPOUT_PROB'}
+                if param_key in fnn_params:
+                    return True
+                # FNN doesn't use LOOKBACK, LAYERS, HIDDEN_UNITS
+                if param_key in {'LOOKBACK', 'LAYERS', 'HIDDEN_UNITS'}:
+                    return False
+            
+            # Scheduler-specific parameters
+            if scheduler_type == 'StepLR':
+                if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'}:
+                    return True
+                # Hide other scheduler params
+                if param_key in {'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
+                    return False
+            elif scheduler_type == 'ReduceLROnPlateau':
+                if param_key in {'PLATEAU_PATIENCE', 'PLATEAU_FACTOR'}:
+                    return True
+                # Hide other scheduler params
+                if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
+                    return False
+            elif scheduler_type == 'CosineAnnealingWarmRestarts':
+                if param_key in {'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
+                    return True
+                # Hide other scheduler params
+                if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR'}:
+                    return False
+            
+            # Default: show parameter if it has a value
+            return True
+
+        # Filter parameters to only show relevant ones
+        filtered_params = {k: v for k, v in self.params.items() if is_parameter_relevant(k, model_type, scheduler_type)}
+        
+        items = list(filtered_params.items())
         num_cols = 4
         num_rows = (len(items) + num_cols - 1) // num_cols
 
@@ -249,12 +309,25 @@ class VEstimTrainSetupGUI(QWidget):
         proceed_button = QPushButton("Proceed to Training")
         proceed_button.setMinimumHeight(35)
         proceed_button.setStyleSheet("""
-            background-color: #0b6337; 
-            font-weight: bold; 
-            font-size: 10pt;
-            padding: 10px 20px; 
-            color: white;
+            QPushButton {
+                background-color: #0b6337 !important; 
+                font-weight: bold !important; 
+                font-size: 10pt !important;
+                padding: 10px 20px !important; 
+                color: white !important;
+                border: none !important;
+                border-radius: 6px !important;
+            }
+            QPushButton:hover {
+                background-color: #094D2A !important;
+                transform: scale(1.02);
+            }
+            QPushButton:pressed {
+                background-color: #073A20 !important;
+                transform: scale(0.98);
+            }
         """)
+        proceed_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
         proceed_button.clicked.connect(self.transition_to_training_gui)
         self.auto_proceed_timer.start(60000)
 

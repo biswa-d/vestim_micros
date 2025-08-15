@@ -221,7 +221,112 @@ class VEstimTestingGUI(QMainWindow):
         grid_layout.setHorizontalSpacing(15)
         grid_layout.setVerticalSpacing(10)
 
-        items = list(params.items())
+        # Get model type and scheduler type to determine which parameters to display
+        model_type = params.get('MODEL_TYPE', 'LSTM')
+        scheduler_type = params.get('SCHEDULER_TYPE', 'StepLR')
+
+        # Define smart parameter filtering based on model and scheduler types
+        def is_parameter_relevant(param_key, model_type, scheduler_type):
+            """Determine if a parameter should be displayed based on model and scheduler type"""
+            
+            # Always relevant parameters
+            always_relevant = {
+                'MODEL_TYPE', 'INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_LEARNABLE_PARAMS',
+                'TRAINING_METHOD', 'BATCH_TRAINING', 'BATCH_SIZE',
+                'MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE', 
+                'VALID_FREQUENCY', 'REPETITIONS', 'DEVICE_SELECTION',
+                'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN'
+            }
+            
+            if param_key in always_relevant:
+                return True
+            
+            # Model-specific parameters
+            if model_type in ['LSTM', 'GRU']:
+                lstm_gru_params = {'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'}
+                if param_key in lstm_gru_params:
+                    return True
+            elif model_type == 'FNN':
+                fnn_params = {'FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB', 'HIDDEN_LAYER_SIZES', 'DROPOUT_PROB'}
+                if param_key in fnn_params:
+                    return True
+                # FNN doesn't use LOOKBACK, LAYERS, HIDDEN_UNITS
+                if param_key in {'LOOKBACK', 'LAYERS', 'HIDDEN_UNITS'}:
+                    return False
+            
+            # Scheduler-specific parameters
+            if scheduler_type == 'StepLR':
+                if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'}:
+                    return True
+                # Hide other scheduler params
+                if param_key in {'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
+                    return False
+            elif scheduler_type == 'ReduceLROnPlateau':
+                if param_key in {'PLATEAU_PATIENCE', 'PLATEAU_FACTOR'}:
+                    return True
+                # Hide other scheduler params
+                if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
+                    return False
+            elif scheduler_type == 'CosineAnnealingWarmRestarts':
+                if param_key in {'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
+                    return True
+                # Hide other scheduler params
+                if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR'}:
+                    return False
+            
+            # Default: show parameter if it has a value
+            return True
+
+        # Filter parameters to only show relevant ones
+        filtered_params = {k: v for k, v in params.items() if is_parameter_relevant(k, model_type, scheduler_type)}
+        
+        # Define preferred order for better organization
+        preferred_order = []
+        
+        # Model architecture section
+        model_arch_keys = ['MODEL_TYPE', 'INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_LEARNABLE_PARAMS']
+        if model_type in ['LSTM', 'GRU']:
+            model_arch_keys.extend(['LAYERS', 'HIDDEN_UNITS'])
+        elif model_type == 'FNN':
+            model_arch_keys.extend(['FNN_HIDDEN_LAYERS', 'HIDDEN_LAYER_SIZES', 'FNN_DROPOUT_PROB', 'DROPOUT_PROB'])
+        
+        # Training method section
+        train_method_keys = ['TRAINING_METHOD', 'BATCH_TRAINING', 'BATCH_SIZE']
+        if model_type in ['LSTM', 'GRU']:
+            train_method_keys.insert(1, 'LOOKBACK')
+        
+        # Training control section
+        train_control_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE']
+        if scheduler_type == 'StepLR':
+            train_control_keys.extend(['LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'])
+        elif scheduler_type == 'ReduceLROnPlateau':
+            train_control_keys.extend(['PLATEAU_PATIENCE', 'PLATEAU_FACTOR'])
+        elif scheduler_type == 'CosineAnnealingWarmRestarts':
+            train_control_keys.extend(['COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'])
+        train_control_keys.extend(['VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS'])
+        
+        # Other sections
+        exec_env_keys = ['DEVICE_SELECTION', 'MAX_TRAINING_TIME_SECONDS']
+        data_keys = ['FEATURE_COLUMNS', 'TARGET_COLUMN']
+        
+        # Combine all ordered keys
+        all_ordered_keys = model_arch_keys + train_method_keys + train_control_keys + exec_env_keys + data_keys
+        
+        # Create final ordered list, starting with preferred order, then remaining keys
+        ordered_items = []
+        used_keys = set()
+        
+        for key in all_ordered_keys:
+            if key in filtered_params:
+                ordered_items.append((key, filtered_params[key]))
+                used_keys.add(key)
+        
+        # Add any remaining parameters not in the preferred order
+        for key, value in filtered_params.items():
+            if key not in used_keys:
+                ordered_items.append((key, value))
+
+        items = ordered_items
         num_cols = 4
         num_rows = (len(items) + num_cols - 1) // num_cols
 

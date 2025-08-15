@@ -247,8 +247,61 @@ class VEstimTrainingTaskGUI(QMainWindow):
         display_items_ordered = []
         processed_keys = set()
         
-        # Get model type to determine which parameters to display
+        # Get model type and scheduler type to determine which parameters to display
         model_type = task_params.get('MODEL_TYPE', 'LSTM')
+        scheduler_type = task_params.get('SCHEDULER_TYPE', 'StepLR')
+
+        # Define smart parameter filtering based on model and scheduler types
+        def is_parameter_relevant(param_key, model_type, scheduler_type):
+            """Determine if a parameter should be displayed based on model and scheduler type"""
+            
+            # Always relevant parameters
+            always_relevant = {
+                'MODEL_TYPE', 'INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_LEARNABLE_PARAMS',
+                'TRAINING_METHOD', 'BATCH_TRAINING', 'BATCH_SIZE',
+                'MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE', 
+                'VALID_FREQUENCY', 'REPETITIONS', 'CURRENT_DEVICE',
+                'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN'
+            }
+            
+            if param_key in always_relevant:
+                return True
+            
+            # Model-specific parameters
+            if model_type in ['LSTM', 'GRU']:
+                lstm_gru_params = {'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'}
+                if param_key in lstm_gru_params:
+                    return True
+            elif model_type == 'FNN':
+                fnn_params = {'FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB', 'HIDDEN_LAYER_SIZES', 'DROPOUT_PROB'}
+                if param_key in fnn_params:
+                    return True
+                # FNN doesn't use LOOKBACK, LAYERS, HIDDEN_UNITS
+                if param_key in {'LOOKBACK', 'LAYERS', 'HIDDEN_UNITS'}:
+                    return False
+            
+            # Scheduler-specific parameters
+            if scheduler_type == 'StepLR':
+                if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'}:
+                    return True
+                # Hide other scheduler params
+                if param_key in {'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
+                    return False
+            elif scheduler_type == 'ReduceLROnPlateau':
+                if param_key in {'PLATEAU_PATIENCE', 'PLATEAU_FACTOR'}:
+                    return True
+                # Hide other scheduler params
+                if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
+                    return False
+            elif scheduler_type == 'CosineAnnealingWarmRestarts':
+                if param_key in {'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
+                    return True
+                # Hide other scheduler params
+                if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR'}:
+                    return False
+            
+            # Default: show parameter if it has a value
+            return param_key in task_params
 
         # Define preferred order and sections - model-type aware
         # Section 1: Model Architecture
@@ -256,12 +309,26 @@ class VEstimTrainingTaskGUI(QMainWindow):
         if model_type in ['LSTM', 'GRU']:
             model_arch_keys.extend(['LAYERS', 'HIDDEN_UNITS'])
         elif model_type == 'FNN':
-            model_arch_keys.extend(['HIDDEN_LAYER_SIZES', 'DROPOUT_PROB'])
+            model_arch_keys.extend(['FNN_HIDDEN_LAYERS', 'HIDDEN_LAYER_SIZES', 'FNN_DROPOUT_PROB', 'DROPOUT_PROB'])
             
-        # Section 2: Training Method
-        train_method_keys = ['TRAINING_METHOD', 'LOOKBACK', 'BATCH_TRAINING', 'BATCH_SIZE']
-        # Section 3: Training Control
-        train_control_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS']
+        # Section 2: Training Method (conditionally include LOOKBACK)
+        train_method_keys = ['TRAINING_METHOD', 'BATCH_TRAINING', 'BATCH_SIZE']
+        if model_type in ['LSTM', 'GRU']:  # Only show LOOKBACK for RNN models
+            train_method_keys.insert(1, 'LOOKBACK')
+            
+        # Section 3: Training Control (scheduler-aware)
+        train_control_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE']
+        
+        # Add scheduler-specific parameters
+        if scheduler_type == 'StepLR':
+            train_control_keys.extend(['LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'])
+        elif scheduler_type == 'ReduceLROnPlateau':
+            train_control_keys.extend(['PLATEAU_PATIENCE', 'PLATEAU_FACTOR'])
+        elif scheduler_type == 'CosineAnnealingWarmRestarts':
+            train_control_keys.extend(['COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'])
+            
+        train_control_keys.extend(['VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS'])
+        
         # Section 4: Execution Environment
         exec_env_keys = ['DEVICE_SELECTION', 'CURRENT_DEVICE', 'MAX_TRAINING_TIME_SECONDS']
         # Section 5: Data Columns
@@ -270,7 +337,9 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.param_labels['FEATURE_COLUMNS'] = "Feature Columns"
         self.param_labels['TARGET_COLUMN'] = "Target Column"
 
-        preferred_order = model_arch_keys + train_method_keys + train_control_keys + exec_env_keys + data_keys
+        # Filter the preferred order to only include relevant parameters
+        all_keys = model_arch_keys + train_method_keys + train_control_keys + exec_env_keys + data_keys
+        preferred_order = [key for key in all_keys if is_parameter_relevant(key, model_type, scheduler_type)]
 
         # Helper to format scheduler string
         def get_scheduler_display_val(params):

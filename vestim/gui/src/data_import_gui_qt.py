@@ -97,6 +97,7 @@ class DataImportGUI(QMainWindow):
     def initUI(self):
         self.setWindowTitle("VEstim Modelling Tool")
         self.setGeometry(100, 100, 1200, 800)
+        self.setMouseTracking(True)  # Enable mouse tracking for hover effects
 
         # Main layout
         self.central_widget = QWidget(self)
@@ -106,8 +107,8 @@ class DataImportGUI(QMainWindow):
         # Add a global stylesheet for disabled buttons
         self.setStyleSheet("""
             QPushButton:disabled {
-                background-color: #d3d3d3;
-                color: #a9a9a9;
+                background-color: #d3d3d3 !important;
+                color: #a9a9a9 !important;
             }
         """)
 
@@ -121,16 +122,29 @@ class DataImportGUI(QMainWindow):
         train_layout = QVBoxLayout()
         self.train_select_button = QPushButton("Select Train Data Folder", self)
         self.train_select_button.setStyleSheet("""
-            background-color: #add8e6;  /* Light blue background */
-            font-weight: bold;
-            font-size: 10pt;
-            padding: 8px 15px;  /* Adds padding inside the button */
-            color: black;  /* Set the text color to black for contrast */
+            QPushButton {
+                background-color: #add8e6 !important;  /* Light blue background */
+                font-weight: bold !important;
+                font-size: 10pt !important;
+                padding: 8px 15px !important;  /* Adds padding inside the button */
+                color: black !important;  /* Set the text color to black for contrast */
+                border: 2px solid #87ceeb !important;
+                border-radius: 6px !important;
+            }
+            QPushButton:hover {
+                background-color: #87ceeb !important;
+                border: 2px solid #6fa8dc !important;
+            }
+            QPushButton:pressed {
+                background-color: #6fa8dc !important;
+                border: 2px solid #5a94c7 !important;
+            }
         """)
         self.train_select_button.setFixedHeight(30)  # Set a consistent height for the button
         self.train_select_button.setMinimumWidth(150)  # Set a reasonable minimum width
         self.train_select_button.setMaximumWidth(300)  # Set a reasonable maximum width
         self.train_select_button.clicked.connect(self.select_train_folder)
+        self.train_select_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
 
         # Center the train button
         train_button_layout = QHBoxLayout()
@@ -152,16 +166,29 @@ class DataImportGUI(QMainWindow):
         val_layout = QVBoxLayout()
         self.val_select_button = QPushButton("Select Validation Data Folder", self)
         self.val_select_button.setStyleSheet("""
-            background-color: #ffcccb;  /* Light red background */
-            font-weight: bold;
-            font-size: 10pt;
-            padding: 8px 15px;  /* Adds padding inside the button */
-            color: black;  /* Set the text color to black for contrast */
+            QPushButton {
+                background-color: #ffcccb !important;  /* Light red background */
+                font-weight: bold !important;
+                font-size: 10pt !important;
+                padding: 8px 15px !important;  /* Adds padding inside the button */
+                color: black !important;  /* Set the text color to black for contrast */
+                border: 2px solid #ffaaaa !important;
+                border-radius: 6px !important;
+            }
+            QPushButton:hover {
+                background-color: #ffaaaa !important;
+                border: 2px solid #ff8888 !important;
+            }
+            QPushButton:pressed {
+                background-color: #ff8888 !important;
+                border: 2px solid #ff6666 !important;
+            }
         """)
         self.val_select_button.setFixedHeight(30)  # Set a consistent height for the button
         self.val_select_button.setMinimumWidth(150)  # Set a reasonable minimum width
         self.val_select_button.setMaximumWidth(300)  # Set a reasonable maximum width
         self.val_select_button.clicked.connect(self.select_val_folder)
+        self.val_select_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
 
         # Center the validation button
         val_button_layout = QHBoxLayout()
@@ -183,16 +210,29 @@ class DataImportGUI(QMainWindow):
         test_layout = QVBoxLayout()
         self.test_select_button = QPushButton("Select Test Data Folder", self)
         self.test_select_button.setStyleSheet("""
-            background-color: #98fb98;  /* Light green background */
-            font-weight: bold;
-            font-size: 10pt;
-            padding: 8px 15px;  /* Adds padding inside the button */
-            color: black;  /* Set the text color to black for contrast */
+            QPushButton {
+                background-color: #98fb98 !important;  /* Light green background */
+                font-weight: bold !important;
+                font-size: 10pt !important;
+                padding: 8px 15px !important;  /* Adds padding inside the button */
+                color: black !important;  /* Set the text color to black for contrast */
+                border: 2px solid #7ee87e !important;
+                border-radius: 6px !important;
+            }
+            QPushButton:hover {
+                background-color: #7ee87e !important;
+                border: 2px solid #66d466 !important;
+            }
+            QPushButton:pressed {
+                background-color: #66d466 !important;
+                border: 2px solid #4cc04c !important;
+            }
         """)
         self.test_select_button.setFixedHeight(30)  # Set a consistent height for the button
         self.test_select_button.setMinimumWidth(150)  # Set a reasonable minimum width
         self.test_select_button.setMaximumWidth(300)  # Set a reasonable maximum width
         self.test_select_button.clicked.connect(self.select_test_folder)
+        self.test_select_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
 
         # Center the test button
         test_button_layout = QHBoxLayout()
@@ -233,15 +273,43 @@ class DataImportGUI(QMainWindow):
         # Organize button with consistent height and padding
         self.organize_button = QPushButton("Load and Prepare Files", self)
         self.organize_button.setStyleSheet("""
-            background-color: #d3d3d3;  /* Grey background when disabled */
-            font-size: 10pt;
-            padding: 10px 20px;  /* Adjust padding for visual appeal */
-            color: #666666;  /* Darker grey text when disabled */
+            QPushButton {
+                background-color: #d3d3d3 !important;  /* Grey background when disabled */
+                font-size: 10pt !important;
+                padding: 10px 20px !important;  /* Adjust padding for visual appeal */
+                color: #666666 !important;  /* Darker grey text when disabled */
+                border: 2px solid #bbbbbb !important;
+                border-radius: 6px !important;
+            }
+            QPushButton:hover {
+                background-color: #c0c0c0 !important;
+                border: 2px solid #aaaaaa !important;
+                color: #444444 !important;
+            }
+            QPushButton:pressed {
+                background-color: #b0b0b0 !important;
+                border: 2px solid #999999 !important;
+                color: #333333 !important;
+            }
+            QPushButton:enabled {
+                background-color: #0b6337 !important;
+                color: white !important;
+                border: 2px solid #0b6337 !important;
+            }
+            QPushButton:enabled:hover {
+                background-color: #094D2A !important;
+                border: 2px solid #094D2A !important;
+            }
+            QPushButton:enabled:pressed {
+                background-color: #073A20 !important;
+                border: 2px solid #073A20 !important;
+            }
         """)
         self.organize_button.setFixedHeight(35)  # Ensure consistent height
         self.organize_button.setMinimumWidth(150)  # Set minimum width
         self.organize_button.setMaximumWidth(300)  # Set maximum width
         self.organize_button.clicked.connect(self.organize_files)
+        self.organize_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
 
         # Add stretchable space to center the button and provide border spacing
         combined_layout.addStretch(2)  # Adds extra space for centering
@@ -360,21 +428,42 @@ class DataImportGUI(QMainWindow):
     def check_folders_selected(self):
         if self.train_folder_path and self.val_folder_path and self.test_folder_path:
             self.organize_button.setEnabled(True)
-            # Change to green when enabled
+            # Change to green when enabled with hover effects
             self.organize_button.setStyleSheet("""
-                background-color: #0b6337; 
-                font-size: 10pt;
-                padding: 10px 20px;
-                color: white;
+                QPushButton {
+                    background-color: #0b6337 !important; 
+                    font-size: 10pt !important;
+                    padding: 10px 20px !important;
+                    color: white !important;
+                    border: 2px solid #0b6337 !important;
+                    border-radius: 6px !important;
+                    font-weight: bold !important;
+                }
+                QPushButton:hover {
+                    background-color: #094D2A !important;
+                    border: 2px solid #094D2A !important;
+                }
+                QPushButton:pressed {
+                    background-color: #073A20 !important;
+                    border: 2px solid #073A20 !important;
+                }
             """)
         else:
             self.organize_button.setEnabled(False)
-            # Keep grey when disabled
+            # Keep grey when disabled with subtle hover effects
             self.organize_button.setStyleSheet("""
-                background-color: #d3d3d3;
-                font-size: 10pt;
-                padding: 10px 20px;
-                color: #666666;
+                QPushButton {
+                    background-color: #d3d3d3 !important;
+                    font-size: 10pt !important;
+                    padding: 10px 20px !important;
+                    color: #666666 !important;
+                    border: 2px solid #bbbbbb !important;
+                    border-radius: 6px !important;
+                }
+                QPushButton:hover {
+                    background-color: #c0c0c0 !important;
+                    border: 2px solid #aaaaaa !important;
+                }
             """)
 
     def organize_files(self):
@@ -455,10 +544,23 @@ class DataImportGUI(QMainWindow):
         # Change the button label to indicate next step and enable it
         self.organize_button.setText("Continue to Data Augmentation")
         self.organize_button.setStyleSheet("""
-            background-color: #1f8b4c; 
-            font-size: 10pt;
-            padding: 10px 20px;
-            color: white;
+            QPushButton {
+                background-color: #1f8b4c !important; 
+                font-size: 10pt !important;
+                padding: 10px 20px !important;
+                color: white !important;
+                border: 2px solid #1f8b4c !important;
+                border-radius: 6px !important;
+                font-weight: bold !important;
+            }
+            QPushButton:hover {
+                background-color: #1a7a41 !important;
+                border: 2px solid #1a7a41 !important;
+            }
+            QPushButton:pressed {
+                background-color: #156936 !important;
+                border: 2px solid #156936 !important;
+            }
         """)
         self.organize_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.organize_button.setEnabled(True)

@@ -68,6 +68,7 @@ class VEstimHyperParamGUI(QWidget):
         
         # Enable DPI scaling
         self.setAttribute(Qt.WA_AcceptTouchEvents)
+        self.setMouseTracking(True)  # Enable mouse tracking for hover effects
         
         # FIXED:Load the application icon
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
@@ -81,8 +82,8 @@ class VEstimHyperParamGUI(QWidget):
         self.setStyleSheet("""
             QToolTip { font-weight: normal; font-size: 10pt; }
             QPushButton:disabled {
-                background-color: #d3d3d3;
-                color: #a9a9a9;
+                background-color: #d3d3d3 !important;
+                color: #a9a9a9 !important;
             }
             QScrollArea {
                 border: none;
@@ -209,7 +210,25 @@ class VEstimHyperParamGUI(QWidget):
         guide_button = QPushButton("Open Hyperparameter Guide")
         guide_button.setFixedWidth(220)
         guide_button.setFixedHeight(30)
-        guide_button.setStyleSheet("font-size: 10pt;")
+        guide_button.setStyleSheet("""
+            QPushButton {
+                font-size: 10pt !important;
+                background-color: #f0f0f0 !important;
+                border: 2px solid #cccccc !important;
+                border-radius: 6px !important;
+                padding: 5px !important;
+                color: #333333 !important;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0 !important;
+                border: 2px solid #999999 !important;
+            }
+            QPushButton:pressed {
+                background-color: #d0d0d0 !important;
+                border: 2px solid #777777 !important;
+            }
+        """)
+        guide_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
         guide_button.clicked.connect(self.open_guide)
         guide_button_layout = QHBoxLayout()
         guide_button_layout.addStretch(1)
@@ -309,7 +328,25 @@ class VEstimHyperParamGUI(QWidget):
         load_button = QPushButton("Load Params from File")
         load_button.setFixedWidth(220)
         load_button.setFixedHeight(30)
-        load_button.setStyleSheet("font-size: 10pt;")
+        load_button.setStyleSheet("""
+            QPushButton {
+                font-size: 10pt !important;
+                background-color: #f0f0f0 !important;
+                border: 2px solid #cccccc !important;
+                border-radius: 6px !important;
+                padding: 5px !important;
+                color: #333333 !important;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0 !important;
+                border: 2px solid #999999 !important;
+            }
+            QPushButton:pressed {
+                background-color: #d0d0d0 !important;
+                border: 2px solid #777777 !important;
+            }
+        """)
+        load_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
         load_button.clicked.connect(self.load_params_from_json)
         button_layout.addWidget(load_button, alignment=Qt.AlignCenter)
 
@@ -319,7 +356,26 @@ class VEstimHyperParamGUI(QWidget):
         auto_search_button = QPushButton("Auto Search (Optuna)")
         auto_search_button.setFixedWidth(180)
         auto_search_button.setFixedHeight(35)
-        auto_search_button.setStyleSheet("background-color: #2E86AB; color: white; font-size: 10pt;")
+        auto_search_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2E86AB !important;
+                color: white !important;
+                font-size: 10pt !important;
+                border: none !important;
+                border-radius: 6px !important;
+                font-weight: bold !important;
+                padding: 8px !important;
+            }
+            QPushButton:hover {
+                background-color: #246B8A !important;
+                transform: scale(1.02);
+            }
+            QPushButton:pressed {
+                background-color: #1E5670 !important;
+                transform: scale(0.98);
+            }
+        """)
+        auto_search_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
         auto_search_button.setToolTip("Use Optuna for automatic hyperparameter optimization.\nRequires boundary format [min,max] for core hyperparameters (layers, hidden units, learning rate, epochs).\nTime and validation parameters can use single values.\nExample: [1,5] for layers, [0.001,0.1] for learning rate")
         auto_search_button.clicked.connect(self.proceed_to_auto_search)
         self.auto_search_button = auto_search_button
@@ -327,7 +383,26 @@ class VEstimHyperParamGUI(QWidget):
         grid_search_button = QPushButton("Exhaustive Grid Search")
         grid_search_button.setFixedWidth(180)
         grid_search_button.setFixedHeight(35)
-        grid_search_button.setStyleSheet("background-color: #0b6337; color: white; font-size: 10pt;")
+        grid_search_button.setStyleSheet("""
+            QPushButton {
+                background-color: #0b6337 !important;
+                color: white !important;
+                font-size: 10pt !important;
+                border: none !important;
+                border-radius: 6px !important;
+                font-weight: bold !important;
+                padding: 8px !important;
+            }
+            QPushButton:hover {
+                background-color: #094D2A !important;
+                transform: scale(1.02);
+            }
+            QPushButton:pressed {
+                background-color: #073A20 !important;
+                transform: scale(0.98);
+            }
+        """)
+        grid_search_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
         grid_search_button.setToolTip("Use traditional exhaustive grid search.\nRequires comma-separated values: 1,2,5 or semicolon for multiple configs: [64,128];[32,64]")
         grid_search_button.clicked.connect(self.proceed_to_grid_search)
         

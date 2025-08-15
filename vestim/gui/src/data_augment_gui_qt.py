@@ -270,6 +270,7 @@ class DataAugmentGUI(QMainWindow):
     def initUI(self):
         self.setWindowTitle("VEstim Data Augmentation")
         self.setGeometry(100, 100, 1200, 800) # Adjusted for wider layout
+        self.setMouseTracking(True)  # Enable mouse tracking for hover effects
 
         self.central_widget = QWidget(self)
         self.setCentralWidget(self.central_widget)
@@ -278,8 +279,8 @@ class DataAugmentGUI(QMainWindow):
         # Add a global stylesheet for disabled buttons
         self.setStyleSheet("""
             QPushButton:disabled {
-                background-color: #d3d3d3;
-                color: #a9a9a9;
+                background-color: #d3d3d3 !important;
+                color: #a9a9a9 !important;
             }
         """)
 
@@ -427,13 +428,50 @@ class DataAugmentGUI(QMainWindow):
         buttons_layout = QHBoxLayout()
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setMinimumHeight(35)
-        self.cancel_button.setStyleSheet("font-size: 10pt;")
+        self.cancel_button.setStyleSheet("""
+            QPushButton {
+                font-size: 10pt !important;
+                background-color: #f0f0f0 !important;
+                border: 2px solid #cccccc !important;
+                border-radius: 6px !important;
+                padding: 8px 16px !important;
+                color: #333333 !important;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0 !important;
+                border: 2px solid #999999 !important;
+            }
+            QPushButton:pressed {
+                background-color: #d0d0d0 !important;
+                border: 2px solid #777777 !important;
+            }
+        """)
+        self.cancel_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
         self.cancel_button.clicked.connect(self.close)
         buttons_layout.addWidget(self.cancel_button)
         self.apply_button = QPushButton("Apply Changes and Continue")
         self.apply_button.setMinimumHeight(35)
         self.apply_button.clicked.connect(self.apply_changes)
-        self.apply_button.setStyleSheet("background-color: #0b6337; color: white; font-size: 10pt;")
+        self.apply_button.setStyleSheet("""
+            QPushButton {
+                background-color: #0b6337 !important; 
+                color: white !important; 
+                font-size: 10pt !important;
+                border: 2px solid #0b6337 !important;
+                border-radius: 6px !important;
+                font-weight: bold !important;
+                padding: 8px 16px !important;
+            }
+            QPushButton:hover {
+                background-color: #094D2A !important;
+                border: 2px solid #094D2A !important;
+            }
+            QPushButton:pressed {
+                background-color: #073A20 !important;
+                border: 2px solid #073A20 !important;
+            }
+        """)
+        self.apply_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
         self.apply_button.setEnabled(self.train_df is not None)
         buttons_layout.addWidget(self.apply_button)
         self.main_layout.addLayout(buttons_layout)
