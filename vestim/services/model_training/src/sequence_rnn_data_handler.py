@@ -53,10 +53,6 @@ class SequenceRNNDataHandler(BaseDataHandler):
         X_sequences = np.empty((num_sequences, self.lookback, X_data_arr.shape[1]), dtype=np.float32)
         y_sequences = np.empty((num_sequences,), dtype=np.float32)
         
-        if self.logger:
-            memory_mb = (X_sequences.nbytes + y_sequences.nbytes) / 1024 / 1024
-            self.logger.info(f"Pre-allocated sequence arrays: X_sequences shape: {X_sequences.shape}, y_sequences shape: {y_sequences.shape}, Memory: {memory_mb:.1f} MB")
-        
         # Fill pre-allocated arrays directly (no memory growth during loop!)
         # Use vectorized operations where possible for better performance
         for i in range(num_sequences):
@@ -108,7 +104,6 @@ class SequenceRNNDataHandler(BaseDataHandler):
             if file_path not in file_row_counts:
                 continue # Skip files that were invalid in the first pass
 
-            self.logger.info(f"Processing file {file_idx+1}/{len(csv_files)}: {os.path.basename(file_path)}")
             df_selected = self._read_and_select_columns(file_path)
             if df_selected is None or df_selected.empty or len(df_selected) <= self.lookback:
                 continue

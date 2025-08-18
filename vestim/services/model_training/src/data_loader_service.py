@@ -213,8 +213,6 @@ class DataLoaderService:
         # Process each file individually
         for file_name in csv_files:
             file_path = os.path.join(folder_path, file_name)
-            self.logger.info(f"Processing file: {file_name}")
-            
             try:
                 # Load individual file
                 df = pd.read_csv(file_path)
@@ -417,8 +415,6 @@ class DataLoaderService:
         
         # Process each file individually with temporal splitting
         for file_idx, file_path in enumerate(csv_files):
-            self.logger.info(f"Processing file {file_idx+1}/{len(csv_files)}: {file_path}")
-            
             try:
                 # Read and select columns
                 df = pd.read_csv(file_path)
@@ -464,8 +460,6 @@ class DataLoaderService:
                     val_y_file = y_file_sequences[train_seq_count:]
                     all_val_X_sequences.append(val_X_file)
                     all_val_y_sequences.append(val_y_file)
-                
-                self.logger.info(f"File {file_idx+1}: {train_seq_count} train sequences, {num_sequences - train_seq_count} val sequences")
                 
             except Exception as e:
                 self.logger.error(f"Error processing file {file_path}: {e}")

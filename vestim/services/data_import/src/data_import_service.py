@@ -45,21 +45,15 @@ def upload_files():
     for file_path in train_files:
         dest_path = os.path.join(train_raw_folder, os.path.basename(file_path))
         shutil.copy(file_path, dest_path)
-        print(f'Copied {file_path} to {dest_path}') # Debugging
 
     # Copy testing files to the raw_data folder
     for file_path in test_files:
         dest_path = os.path.join(test_raw_folder, os.path.basename(file_path))
         shutil.copy(file_path, dest_path)
-        print(f'Copied {file_path} to {dest_path}') # Debugging
 
     # Prepare the file paths for conversion
     train_file_paths = [os.path.join(train_raw_folder, os.path.basename(file)) for file in train_files]
     test_file_paths = [os.path.join(test_raw_folder, os.path.basename(file)) for file in test_files]
-
-    # Debugging: Print file paths before sending
-    print(f"Train file paths: {train_file_paths}")
-    print(f"Test file paths: {test_file_paths}")
 
     # Combine paths and send to data conversion service
     all_file_paths_for_conversion = train_file_paths + test_file_paths

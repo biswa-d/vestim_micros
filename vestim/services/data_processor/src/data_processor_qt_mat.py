@@ -236,8 +236,6 @@ class DataProcessorMAT:
         output_csv (str): Output CSV file path.
         target_freq (str): Frequency for resampling (default: '1S' for 1Hz).
         """
-        print(f"Processing file: {mat_file}")
-
         # Step 1: Extract data
         df = self.extract_data_from_matfile(mat_file)
         if df is None:

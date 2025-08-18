@@ -473,9 +473,6 @@ class DataImportGUI(QMainWindow):
         train_files = [item.data(Qt.UserRole) for item in self.train_list_widget.selectedItems()]
         val_files = [item.data(Qt.UserRole) for item in self.val_list_widget.selectedItems()]
         test_files = [item.data(Qt.UserRole) for item in self.test_list_widget.selectedItems()]
-        print(f"Train files: {train_files}")
-        print(f"Validation files: {val_files}")
-        print(f"Test files: {test_files}")
 
 
         if not train_files or not val_files or not test_files:

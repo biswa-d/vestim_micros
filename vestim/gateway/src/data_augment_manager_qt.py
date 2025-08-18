@@ -332,7 +332,6 @@ class DataAugmentManager(QObject): # Inherit from QObject
            self.logger.info(f"Found {total_files} CSV files to process.")
 
            for i, file_path in enumerate(all_files_to_process):
-                self.logger.info(f"Processing file ({i+1}/{total_files}): {file_path}")
                 file_metadata = {'filepath': file_path, 'status': 'Skipped', 'error': 'Unknown reason'} # Default status
                 df = None # Initialize df
                 try:
@@ -343,21 +342,9 @@ class DataAugmentManager(QObject): # Inherit from QObject
 
                     # 1. Resampling
                     if resampling_frequency and resampling_frequency != 'None' and df is not None and not df.empty:
-                        self.logger.info(f"DataFrame before resampling for {file_path}:")
-                        buffer = io.StringIO()
-                        df.info(buf=buffer)
-                        info_str = buffer.getvalue()
-                        self.logger.info(f"\n{info_str}\n{df.head().to_string()}")
-
-                        self.logger.info(f"Resampling {file_path} to {resampling_frequency}")
                         df_after_resample = self.service.resample_data(df, resampling_frequency)
                         
-                        self.logger.info(f"DataFrame after resampling for {file_path}:")
                         if df_after_resample is not None and not df_after_resample.empty:
-                            buffer_after = io.StringIO()
-                            df_after_resample.info(buf=buffer_after)
-                            info_str_after = buffer_after.getvalue()
-                            self.logger.info(f"\n{info_str_after}\n{df_after_resample.head().to_string()}")
                             df = df_after_resample
                             actual_resampling_frequency_for_padding = resampling_frequency # Store for padding
                         else:
@@ -382,9 +369,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
                     formula_error_occurred = False # Flag to indicate if a formula error stopped processing
                     if column_formulas and df is not None and not df.empty:
                         try:
-                            self.logger.info(f"Applying {len(column_formulas)} column formulas to {file_path} (after potential resampling)")
                             df = self.service.create_columns(df, column_formulas)
-                            self.logger.info(f"Shape after column creation for {file_path}: {df.shape if df is not None else 'None'}")
                         except ValueError as e_formula:
                             error_msg = f"Error applying formula to {os.path.basename(file_path)}: {e_formula}"
                             self.logger.error(error_msg, exc_info=True)
@@ -401,16 +386,12 @@ class DataAugmentManager(QObject): # Inherit from QObject
                     
                     # 4. Padding
                     if not formula_error_occurred and padding_length and padding_length > 0 and df is not None and not df.empty:
-                        self.logger.info(f"Applying padding of {padding_length} to {file_path} (after potential resampling, column creation, and normalization)")
                         df = self.service.pad_data(df, padding_length, resample_freq_for_time_padding=actual_resampling_frequency_for_padding)
-                        self.logger.info(f"Shape after padding for {file_path}: {df.shape if df is not None else 'None'}")
 
                     # 5. Normalization (as the final step before saving)
                     if not formula_error_occurred and normalize_data and global_scaler and df is not None and not df.empty:
-                        self.logger.info(f"Applying normalization to {file_path} using global scaler for columns: {actual_columns_to_normalize}")
                         try:
                             df = self.service.apply_normalization(df, global_scaler, actual_columns_to_normalize)
-                            self.logger.info(f"Shape after normalization for {file_path}: {df.shape if df is not None else 'None'}")
                         except Exception as e_norm:
                             self.logger.error(f"Error during normalization for {file_path}: {e_norm}", exc_info=True)
                             file_metadata['status'] = 'Failed'
