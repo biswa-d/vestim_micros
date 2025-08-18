@@ -1,8 +1,8 @@
 {
     "last_used": {
-        "train_folder": "C:/Users/dehuryb/code/vestim_micros/data/train_data",
-        "val_folder": "C:/Users/dehuryb/code/vestim_micros/data/val_data",
-        "test_folder": "C:/Users/dehuryb/code/vestim_micros/data/test_data",
+        "train_folder": "C:/Users/dehuryb/code/E66_All_Temp/cell_train_small",
+        "val_folder": "C:/Users/dehuryb/code/E66_All_Temp/valid_data",
+        "test_folder": "C:/Users/dehuryb/code/E66_All_Temp/test_data",
         "file_format": "csv",
         "hyperparams": {
             "FEATURE_COLUMNS": [
@@ -15,11 +15,11 @@
             "USE_MIXED_PRECISION": true,
             "OPTIMIZER_TYPE": "Adam",
             "WEIGHT_DECAY": "0.00004",
-            "NUM_WORKERS": "1",
+            "NUM_WORKERS": "4",
             "PIN_MEMORY": true,
-            "PREFETCH_FACTOR": "1",
-            "MODEL_TYPE": "LSTM",
-            "TRAINING_METHOD": "Sequence-to-Sequence",
+            "PREFETCH_FACTOR": "4",
+            "MODEL_TYPE": "FNN",
+            "TRAINING_METHOD": "WholeSequenceFNN",
             "LOOKBACK": "400",
             "BATCH_TRAINING": true,
             "BATCH_SIZE": "256",
@@ -43,8 +43,8 @@
             "EXPLOIT_EPOCHS": "10",
             "EXPLOIT_REPETITIONS": "2",
             "FINAL_LR": "1e-7",
-            "LAYERS": "1",
-            "HIDDEN_UNITS": "10",
+            "FNN_HIDDEN_LAYERS": "128,64",
+            "FNN_DROPOUT_PROB": "0.1",
             "MAX_TRAINING_TIME_SECONDS": 0
         }
     },

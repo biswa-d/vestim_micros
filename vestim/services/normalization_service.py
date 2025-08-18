@@ -296,16 +296,17 @@ def transform_data(data_df, scaler, feature_columns, all_numeric_columns=None):
         for col in actual_cols_to_transform:
             data_copy[col] = transformed_df[col]
         
-        print(f"Data transformed for columns: {actual_cols_to_transform}")
-        non_transformed_cols = [col for col in data_copy.columns if col not in actual_cols_to_transform]
-        print(f"Preserved non-normalized columns: {non_transformed_cols}")
+        # The following logs are too verbose for production, but useful for debugging.
+        # print(f"Data transformed for columns: {actual_cols_to_transform}")
+        # non_transformed_cols = [col for col in data_copy.columns if col not in actual_cols_to_transform]
+        # print(f"Preserved non-normalized columns: {non_transformed_cols}")
         
-        # Debug: Check if timestamp columns are preserved
-        timestamp_cols = [col for col in non_transformed_cols if 'time' in col.lower().replace(" ", "")]
-        if timestamp_cols:
-            print(f"Timestamp columns preserved: {timestamp_cols}")
-        else:
-            print("No timestamp columns found in preserved columns")
+        # # Debug: Check if timestamp columns are preserved
+        # timestamp_cols = [col for col in non_transformed_cols if 'time' in col.lower().replace(" ", "")]
+        # if timestamp_cols:
+        #     print(f"Timestamp columns preserved: {timestamp_cols}")
+        # else:
+        #     print("No timestamp columns found in preserved columns")
             
         return data_copy
     except Exception as e:

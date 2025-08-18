@@ -52,17 +52,17 @@ class DataProcessorCSV:
         for original_file_path in train_files:
             dest_path = os.path.join(train_raw_folder, os.path.basename(original_file_path))
             shutil.copy(original_file_path, dest_path)
-            self.logger.info(f"Copied {original_file_path} to {dest_path}")
+            # self.logger.info(f"Copied {original_file_path} to {dest_path}") # Too verbose
         
         for original_file_path in val_files:
             dest_path = os.path.join(val_raw_folder, os.path.basename(original_file_path))
             shutil.copy(original_file_path, dest_path)
-            self.logger.info(f"Copied {original_file_path} to {dest_path}")
+            # self.logger.info(f"Copied {original_file_path} to {dest_path}") # Too verbose
         
         for original_file_path in test_files:
             dest_path = os.path.join(test_raw_folder, os.path.basename(original_file_path))
             shutil.copy(original_file_path, dest_path)
-            self.logger.info(f"Copied {original_file_path} to {dest_path}")
+            # self.logger.info(f"Copied {original_file_path} to {dest_path}") # Too verbose
 
         # 2. Process CSVs from raw_data to processed_data
         self.logger.info("Processing CSV files from raw_data to processed_data...")
@@ -164,7 +164,7 @@ class DataProcessorCSV:
             gc.collect()
 
     def _process_standard_csv(self, input_csv_path, output_csv_path, sampling_frequency=None):
-        self.logger.info(f"Processing standard CSV: {input_csv_path}")
+        # self.logger.info(f"Processing standard CSV: {input_csv_path}") # Too verbose
         try:
             # Headers at row 1 (0-indexed 0), data starts at row 2 (0-indexed 1)
             df = pd.read_csv(input_csv_path, header=0, encoding='utf-8', on_bad_lines='warn')
@@ -196,7 +196,7 @@ class DataProcessorCSV:
                     self.logger.warning(f"Resampling resulted in empty or None data for {input_csv_path}. Using original (cleaned) data.")
             
             df.to_csv(output_csv_path, index=False)
-            self.logger.info(f"Successfully processed standard CSV and saved to {output_csv_path}")
+            # self.logger.info(f"Successfully processed standard CSV and saved to {output_csv_path}") # Too verbose
 
         except pd.errors.EmptyDataError:
             self.logger.error(f"Pandas EmptyDataError: File {input_csv_path} is empty or contains no data rows. Skipping.")

@@ -320,11 +320,9 @@ class VEstimTrainSetupGUI(QWidget):
             }
             QPushButton:hover {
                 background-color: #094D2A !important;
-                transform: scale(1.02);
             }
             QPushButton:pressed {
                 background-color: #073A20 !important;
-                transform: scale(0.98);
             }
         """)
         proceed_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events

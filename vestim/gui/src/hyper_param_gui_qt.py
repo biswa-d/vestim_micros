@@ -368,11 +368,9 @@ class VEstimHyperParamGUI(QWidget):
             }
             QPushButton:hover {
                 background-color: #246B8A !important;
-                transform: scale(1.02);
             }
             QPushButton:pressed {
                 background-color: #1E5670 !important;
-                transform: scale(0.98);
             }
         """)
         auto_search_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
@@ -395,11 +393,9 @@ class VEstimHyperParamGUI(QWidget):
             }
             QPushButton:hover {
                 background-color: #094D2A !important;
-                transform: scale(1.02);
             }
             QPushButton:pressed {
                 background-color: #073A20 !important;
-                transform: scale(0.98);
             }
         """)
         grid_search_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events

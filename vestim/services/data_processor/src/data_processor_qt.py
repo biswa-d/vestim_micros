@@ -82,7 +82,7 @@ class DataProcessor:
         for file_path in files:
             dest_path = os.path.join(destination_folder, os.path.basename(file_path))
             shutil.copy(file_path, dest_path)
-            self.logger.info(f"Copied {file_path} to {dest_path}")
+            # self.logger.info(f"Copied {file_path} to {dest_path}") # Too verbose
 
             # Update progress based on the number of files processed
             processed_files += 1
@@ -100,7 +100,7 @@ class DataProcessor:
                 if file.endswith('.mat'):
                     file_path = os.path.join(root, file)
                     self._convert_mat_to_csv(file_path, output_folder)
-                    self.logger.info(f"Converted {file_path} to CSV")
+                    # self.logger.info(f"Converted {file_path} to CSV") # Too verbose
                     processed_files += 1
                     self.processed_files += 1  # Update the overall processed files count
                     self._update_progress(progress_callback)

@@ -54,17 +54,23 @@ class WholeSequenceFNNDataHandler(BaseDataHandler):
             # Features are expected to be [timesteps, num_features]
             X_data_file = df_selected[self.feature_cols].values
             # Target is expected to be [timesteps, 1] or [timesteps, num_output_features]
-            Y__data_file = df_selected[[self.target_col]].values # Ensure Y_data_file is 2D
+            Y_data_file = df_selected[[self.target_col]].values # Ensure Y_data_file is 2D
 
             all_X_data_list.append(X_data_file)
             all_Y_data_list.append(Y_data_file)
             
             if return_timestamp:
-                timestamps = df_selected['Timestamp'].values
-                all_timestamps_list.append(timestamps)
+                if 'Timestamp' in df_selected.columns:
+                    timestamps = df_selected['Timestamp'].values
+                    all_timestamps_list.append(timestamps)
+                else:
+                    # If timestamp is requested but not present, we should handle it gracefully.
+                    # For now, we'll append None and handle it during concatenation.
+                    # A better approach might be to log a warning.
+                    all_timestamps_list.append(None)
 
             del df_selected, X_data_file, Y_data_file
-            if return_timestamp:
+            if return_timestamp and 'timestamps' in locals():
                 del timestamps
             gc.collect()
 

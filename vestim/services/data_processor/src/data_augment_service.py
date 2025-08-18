@@ -430,7 +430,7 @@ class DataAugmentService:
         Returns:
             pd.DataFrame: The DataFrame with specified columns normalized.
         """
-        self.logger.info(f"Applying normalization with normalize_all_numeric={normalize_all_numeric}.")
+        # self.logger.info(f"Applying normalization with normalize_all_numeric={normalize_all_numeric}.") # Too verbose
         if df.empty:
             self.logger.warning("Input DataFrame to apply_normalization is empty. Returning empty DataFrame.")
             return df
@@ -452,18 +452,18 @@ class DataAugmentService:
                 feature_columns=columns_to_normalize, # The columns the scaler was FIT on
                 all_numeric_columns=cols_to_apply_transform # The columns to APPLY the transform to
             )
-            self.logger.info("Normalization function executed.")
+            # self.logger.info("Normalization function executed.") # Too verbose
             return transformed_df
         except Exception as e:
             self.logger.error(f"Error during data normalization in service: {e}", exc_info=True)
             return df
     
     def save_single_augmented_file(self, augmented_df: pd.DataFrame, output_filepath: str):
-        self.logger.info(f"Saving augmented DataFrame to: {output_filepath}")
+        # self.logger.info(f"Saving augmented DataFrame to: {output_filepath}") # Too verbose
         try:
             os.makedirs(os.path.dirname(output_filepath), exist_ok=True)
             augmented_df.to_csv(output_filepath, index=False)
-            self.logger.info(f"Successfully saved augmented file: {output_filepath}")
+            # self.logger.info(f"Successfully saved augmented file: {output_filepath}") # Too verbose
         except Exception as e:
             self.logger.error(f"Failed to save augmented file {output_filepath}: {e}", exc_info=True)
             raise 

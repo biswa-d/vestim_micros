@@ -574,6 +574,7 @@ class VEstimTrainingSetupManager:
             'REPETITIONS': hyperparams['REPETITIONS'],
             'NUM_LEARNABLE_PARAMS': num_learnable_params,
             'DEVICE_SELECTION': hyperparams.get('DEVICE_SELECTION', 'cuda:0'),  # Include device selection from GUI
+            'NUM_WORKERS': hyperparams.get('NUM_WORKERS', 4),
         }
         final_hyperparams['normalization_applied'] = job_normalization_metadata.get('normalization_applied', False)
         final_hyperparams['FEATURE_COLUMNS'] = model_task['FEATURE_COLUMNS']
@@ -640,7 +641,9 @@ class VEstimTrainingSetupManager:
                 'batch_size': hyperparams['BATCH_SIZE'],
                 'feature_columns': model_task['FEATURE_COLUMNS'],
                 'target_column': model_task['TARGET_COLUMN'],
-                'num_workers': hyperparams.get('NUM_WORKERS', 4)  # Use GUI value or default to 4
+                'num_workers': hyperparams.get('NUM_WORKERS', 4),  # Use GUI value or default to 4
+                'pin_memory': hyperparams.get('PIN_MEMORY', True),
+                'prefetch_factor': hyperparams.get('PREFETCH_FACTOR', 2)
             },
             'training_params': {
                 'early_stopping': True,

@@ -15,7 +15,6 @@ from vestim.services.model_training.src.training_task_service import TrainingTas
 try:
     from vestim.services.model_training.src.cuda_graphs_training_service import CUDAGraphsTrainingService
     CUDA_GRAPHS_AVAILABLE = True
-    print("CUDA Graphs optimization available!")
 except ImportError as e:
     print(f"CUDA Graphs optimization not available: {e}")
     CUDA_GRAPHS_AVAILABLE = False
@@ -86,7 +85,6 @@ class TrainingTaskManager:
             # FIXED: Pass the device to CUDA Graphs service so it respects GUI selection
             self.training_service = CUDAGraphsTrainingService(device=self.device)
             self.logger.info("CUDA Graphs training service initialized for RTX 5070 optimization")
-            print("CUDA Graphs enabled - expect 1.2x-3x speedup for FNN models!")
         else:
             # FIXED: Pass the device to TrainingTaskService so it respects GUI selection
             self.training_service = TrainingTaskService(device=self.device)
@@ -203,7 +201,6 @@ class TrainingTaskManager:
             # Create data loaders for the task
             train_loader, val_loader = self.create_data_loaders(task)
             self.logger.info(f"DataLoaders configured for task_id: {task.get('task_id', 'N/A')}")
-            print(f" dataloader size, Train: {len(train_loader)} | Validation: {len(val_loader)}")
 
             # Send device information to the GUI log
             device_str = str(self.device)
@@ -282,10 +279,6 @@ class TrainingTaskManager:
         log_model_dir = os.path.relpath(model_dir, output_dir_root) if model_dir and output_dir_root in model_dir else model_dir
         log_csv_file = os.path.relpath(csv_log_file, output_dir_root) if csv_log_file and output_dir_root in csv_log_file else csv_log_file
         log_db_file = os.path.relpath(db_log_file, output_dir_root) if db_log_file and output_dir_root in db_log_file else db_log_file
-
-        print(f"Setting up logging for job: {job_id}")
-        print(f"Model directory (relative to output): {log_model_dir}")
-        print(f"Log files for task {task['task_id']} (relative to output): CSV: {log_csv_file}, DB: {log_db_file}")
 
         # Ensure the model_dir exists
         if model_dir and not os.path.exists(model_dir):
@@ -469,13 +462,16 @@ class TrainingTaskManager:
         target_col = task['data_loader_params']['target_column']
         
         # Enhanced data loading configuration
-        num_workers = int(task['hyperparams'].get('NUM_WORKERS', self.get_optimal_num_workers()))
+        if 'NUM_WORKERS' in task['hyperparams']:
+            num_workers = int(task['hyperparams']['NUM_WORKERS'])
+        else:
+            num_workers = self.get_optimal_num_workers()
         pin_memory = task['hyperparams'].get('PIN_MEMORY', True)
         prefetch_factor = int(task['hyperparams'].get('PREFETCH_FACTOR', 2))
         persistent_workers = task['hyperparams'].get('PERSISTENT_WORKERS', True) if num_workers > 0 else False
         
-        # Log data loading optimization settings
-        self.logger.info(f"Data loading optimization settings:")
+        # Log initial data loading optimization settings from hyperparams
+        self.logger.info(f"Initial data loading optimization settings:")
         self.logger.info(f"  - CPU Threads (NUM_WORKERS): {num_workers}")
         self.logger.info(f"  - Fast CPU-GPU Transfer (PIN_MEMORY): {pin_memory}")
         self.logger.info(f"  - Batch Pre-loading (PREFETCH_FACTOR): {prefetch_factor}")
@@ -483,64 +479,76 @@ class TrainingTaskManager:
         
         seed = int(task['hyperparams'].get('SEED', 2000))
         
-        training_method = task['hyperparams'].get('TRAINING_METHOD', 'Sequence-to-Sequence') # Default if not present
-        model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM') # Default if not present
-
-        self.logger.info(f"Selected Training Method: {training_method}, Model Type: {model_type}")
-
-        # Get the job folder path instead of just the train folder
+        training_method = task['hyperparams'].get('TRAINING_METHOD', 'Sequence-to-Sequence')
+        model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM')
         job_folder_path = self.job_manager.get_job_folder()
-        
-        if training_method == 'Whole Sequence' and model_type in ['LSTM', 'GRU']: # Check for RNN types
-            self.logger.info("Using concatenated whole sequence loader for RNN.")
-            # TODO: Update this method to support three-folder structure
-            # For now, fallback to the new method
-            lookback = int(task['data_loader_params'].get('lookback', 50))
-            user_batch_size = int(task['data_loader_params'].get('batch_size', 32))
-            
-            train_loader, val_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
-                job_folder_path=job_folder_path,
-                training_method=training_method,
-                feature_cols=feature_cols,
-                target_col=target_col,
-                batch_size=user_batch_size,
-                num_workers=num_workers,
-                lookback=lookback,
-                concatenate_raw_data=True,  # Use concatenated for whole sequence
-                seed=seed,
-                model_type=model_type,
-                create_test_loader=False,  # Skip test loader during training to save memory
-                pin_memory=pin_memory,
-                prefetch_factor=prefetch_factor,
-                persistent_workers=persistent_workers
-            )
-        else: # Default to lookback-based sequence loading
-            if training_method == 'Whole Sequence' and model_type not in ['LSTM', 'GRU']:
-                 self.logger.info(f"Training method is 'Whole Sequence' but model type is {model_type}. Using standard sequence loader (this path is typically for FNNs with whole_sequence_fnn_data_handler or similar).")
-            
-            lookback = int(task['data_loader_params'].get('lookback', 50)) # Default lookback
-            user_batch_size = int(task['data_loader_params'].get('batch_size', 32))
 
-            self.logger.info(f"Using new three-folder data loader. User batch size: {user_batch_size}, Lookback: {lookback}")
-            
+        if model_type in ['LSTM', 'GRU'] and training_method == "Sequence-to-Sequence":
+            try:
+                train_X, train_y, _ = self.data_loader_service.get_processed_data(
+                    os.path.join(job_folder_path, 'train_data', 'processed_data'),
+                    training_method, feature_cols, target_col,
+                    lookback=int(task['data_loader_params'].get('lookback', 50)),
+                    model_type=model_type
+                )
+                val_X, val_y, _ = self.data_loader_service.get_processed_data(
+                    os.path.join(job_folder_path, 'val_data', 'processed_data'),
+                    training_method, feature_cols, target_col,
+                    lookback=int(task['data_loader_params'].get('lookback', 50)),
+                    model_type=model_type
+                )
+
+                total_size_mb = (train_X.nbytes + train_y.nbytes + val_X.nbytes + val_y.nbytes) / (1024 * 1024)
+                self.logger.info(f"Accurate total processed data size for RNN: {total_size_mb:.2f} MB")
+
+                if total_size_mb > 300:
+                    self.logger.warning(f"Data size ({total_size_mb:.2f} MB) exceeds 300 MB. Forcing num_workers=0 to avoid shared memory errors on Windows.")
+                    num_workers = 0
+                    prefetch_factor = None
+                    persistent_workers = False
+
+                train_loader = self.data_loader_service._create_loader_from_tensors(
+                    train_X, train_y, int(task['data_loader_params'].get('batch_size', 32)),
+                    num_workers, True, "train", pin_memory, prefetch_factor, persistent_workers
+                )
+                val_loader = self.data_loader_service._create_loader_from_tensors(
+                    val_X, val_y, int(task['data_loader_params'].get('batch_size', 32)),
+                    num_workers, False, "validation", pin_memory, prefetch_factor, persistent_workers
+                )
+
+            except Exception as e:
+                self.logger.error(f"Error during RNN data size calculation: {e}", exc_info=True)
+                num_workers = 0
+                prefetch_factor = None
+                persistent_workers = False
+                train_loader, val_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
+                    job_folder_path=job_folder_path, training_method=training_method, feature_cols=feature_cols,
+                    target_col=target_col, batch_size=int(task['data_loader_params'].get('batch_size', 32)),
+                    num_workers=num_workers, lookback=int(task['data_loader_params'].get('lookback', 50)),
+                    seed=seed, model_type=model_type, create_test_loader=False, pin_memory=pin_memory,
+                    prefetch_factor=prefetch_factor, persistent_workers=persistent_workers
+                )
+        else:
+            self.logger.info(f"Using standard data loader creation for model type: {model_type}")
             train_loader, val_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
-                job_folder_path=job_folder_path,
-                training_method=training_method,
-                feature_cols=feature_cols,
-                target_col=target_col,
-                batch_size=user_batch_size,
-                num_workers=num_workers,
-                lookback=lookback,
-                concatenate_raw_data=False,
-                seed=seed,
-                model_type=model_type,
-                create_test_loader=False,  # Skip test loader during training to save memory
-                pin_memory=pin_memory,
-                prefetch_factor=prefetch_factor,
-                persistent_workers=persistent_workers
+                job_folder_path=job_folder_path, training_method=training_method, feature_cols=feature_cols,
+                target_col=target_col, batch_size=int(task['data_loader_params'].get('batch_size', 32)),
+                num_workers=num_workers, lookback=int(task['data_loader_params'].get('lookback', 50)),
+                concatenate_raw_data=(training_method == 'Whole Sequence' and model_type in ['LSTM', 'GRU']),
+                seed=seed, model_type=model_type, create_test_loader=False, pin_memory=pin_memory,
+                prefetch_factor=prefetch_factor, persistent_workers=persistent_workers
             )
 
-        # Return only train and val loaders for training (no test loader needed)
+        try:
+            if train_loader and hasattr(train_loader.dataset, 'tensors'):
+                train_size_bytes = train_loader.dataset.tensors[0].storage().nbytes()
+                val_size_bytes = val_loader.dataset.tensors[0].storage().nbytes()
+                train_loader_size_mb = train_size_bytes / (1024 * 1024)
+                val_loader_size_mb = val_size_bytes / (1024 * 1024)
+                self.logger.info(f"DataLoader memory size: Train={train_loader_size_mb:.2f}MB, Validation={val_loader_size_mb:.2f}MB")
+        except Exception as e:
+            self.logger.warning(f"Could not calculate DataLoader memory size: {e}")
+            
         return train_loader, val_loader
 
     def run_training(self, task, update_progress_callback, train_loader, val_loader, device):
@@ -575,7 +583,6 @@ class TrainingTaskManager:
                 device_display = device_str
             
             self.logger.info(f"Training will be executed on device: {device_display}")
-            print(f"Training starting on device: {device_display}")
             
             # Send training start device log message to GUI
             update_progress_callback.emit({
@@ -699,7 +706,6 @@ class TrainingTaskManager:
             for epoch in range(1, max_epochs + 1):
                 if self.stop_requested:  # Ensure thread safety here
                     self.logger.info("Training stopped by user")
-                    print("Stopping training...")
                     break
                 
                 # Check for max training time exceeded
@@ -707,7 +713,6 @@ class TrainingTaskManager:
                     current_training_duration = time.time() - overall_training_start_time
                     if current_training_duration > max_training_time_seconds:
                         self.logger.info(f"Max training time ({max_training_time_seconds}s) exceeded. Stopping training.")
-                        print(f"Max training time ({max_training_time_seconds}s) exceeded. Stopping training.")
                         self.stop_requested = True # Use existing flag to gracefully stop
                         early_stopping = True # Indicate it was a form of early stop
                         # Also update task results if possible here or after loop
@@ -785,7 +790,6 @@ class TrainingTaskManager:
 
                 if self.stop_requested:
                     self.logger.info("Training stopped by user")
-                    print("Training stopped after training phase.")
                     self.logger.info("Training stopped after training phase.")
                     break
 
@@ -833,7 +837,6 @@ class TrainingTaskManager:
                     current_lr = optimizer.param_groups[0]['lr']
                     
                     if val_loss_norm < best_validation_loss: # best_validation_loss is also on normalized scale
-                        print(f"Epoch: {epoch}, Validation loss improved from {best_validation_loss:.6f} to {val_loss_norm:.6f}. Saving model...")
                         best_validation_loss = val_loss_norm
                         
                         # Save to best_model_path
@@ -1054,7 +1057,6 @@ class TrainingTaskManager:
                             
                             self.logger.info(f"Patience reached at epoch {epoch}. Entering exploit mode iteration {exploit_mode}/{exploit_repetitions}.")
                             self.logger.info(f"Patience counter reset to 0. Current patience set to {current_patience} for exploit phase.")
-                            print(f"Patience reached. Loading best model and reducing LR to exploit best loss surface.")
                             update_progress_callback.emit({'status': f"Patience reached. Exploiting for {exploit_repetitions} reps with patience {exploit_epochs} (Rep {exploit_mode})"})
 
                             # Load the best model state from memory or disk
@@ -1156,7 +1158,6 @@ class TrainingTaskManager:
                         else:
                             # If patience is reached and all exploit repetitions are used, stop.
                             early_stopping = True
-                            print(f"Early stopping at epoch {epoch} after exhausting exploit repetitions.")
                             self.logger.info(f"Early stopping at epoch {epoch} after exhausting exploit repetitions.")
                             task['results']['early_stopped_reason'] = 'Patience in Exploit Mode'
                             break
@@ -1295,7 +1296,6 @@ class TrainingTaskManager:
 
                 new_lr = optimizer.param_groups[0]['lr']
                 if new_lr != current_lr:
-                    print(f"Learning rate changed from {current_lr:.8f} to {new_lr:.8f} at epoch {epoch}")
                     logging.info(f"Learning rate changed from {current_lr:.8f} to {new_lr:.8f} at epoch {epoch}")
                     current_lr = new_lr
 
@@ -1327,7 +1327,6 @@ class TrainingTaskManager:
                 # )
 
             if self.stop_requested:
-                print("Training was stopped early. Exiting...")
                 self.logger.info("Training was stopped early. Exiting...")
 
             # Final save and cleanup
@@ -1993,11 +1992,9 @@ with torch.no_grad():
     def stop_task(self):
         self.stop_requested = True  # Set the flag to request a stop
         if self.training_thread and self.training_thread.isRunning():  # Use isRunning() instead of is_alive()
-            print("Attempting to gracefully stop the training thread...")
+            self.logger.info("Attempting to gracefully stop the training thread...")
             self.training_thread.quit()  # Gracefully stop the thread
             if self.training_thread.wait(7000):  # Wait for the thread to finish cleanly
-                print("Training thread has finished.")
                 self.logger.info("Training thread has finished after stop request.")
             else:
-                print("Training thread did not finish cleanly after 7 seconds.")
                 self.logger.warning("Training thread did not finish cleanly after stop request and 7s wait.")

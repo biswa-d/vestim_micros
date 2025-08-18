@@ -551,111 +551,64 @@ class DataLoaderService:
         self.logger.info("Temporal sequence data loaders created successfully - NO DATA LEAKAGE!")
         return train_loader, val_loader
 
-    def create_data_loaders_from_separate_folders(self, job_folder_path: str, training_method: str, feature_cols: list, target_col: str,
-                                                 batch_size: int, num_workers: int,
-                                                 lookback: int = None, # Optional, only for SequenceRNN
-                                                 concatenate_raw_data: bool = False, # Optional, for SequenceRNN
-                                                 seed: int = None, model_type: str = "LSTM", 
-                                                 create_test_loader: bool = True,
-                                                 pin_memory: bool = None,  # New parameter
-                                                 prefetch_factor: int = 2,  # New parameter
-                                                 persistent_workers: bool = None):  # New parameter:
+    def get_processed_data(self, folder_path: str, training_method: str, feature_cols: list, target_col: str,
+                           lookback: int = None, concatenate_raw_data: bool = False, model_type: str = "LSTM",
+                           return_timestamp: bool = False):
         """
-        Creates DataLoaders for training, validation, and optionally test data from separate folders.
-        This method replaces the train_split approach and expects the job folder to contain
-        train_data/processed_data, val_data/processed_data, and test_data/processed_data folders.
-
-        :param job_folder_path: Path to the job folder containing train_data, val_data, test_data subfolders.
-        :param training_method: Specifies the data handling strategy ("SequenceRNN" or "WholeSequenceFNN").
-        :param feature_cols: List of feature column names.
-        :param target_col: Target column name.
-        :param batch_size: The batch size for the DataLoader.
-        :param num_workers: Number of subprocesses to use for data loading.
-        :param lookback: The lookback window (required for "SequenceRNN").
-        :param concatenate_raw_data: For "SequenceRNN", if True, concatenates raw data before sequencing.
-        :param seed: Random seed for reproducibility.
-        :param model_type: Type of model (LSTM, GRU, FNN) - affects data loading strategy.
-        :param create_test_loader: Whether to create test loader (False during training to save memory).
-        :return: A tuple of (train_loader, val_loader, test_loader) PyTorch DataLoader objects when create_test_loader=True.
-                 A tuple of (train_loader, val_loader) PyTorch DataLoader objects when create_test_loader=False.
+        Loads and processes data from a folder, returning NumPy arrays.
         """
-        if seed is None:
-            seed = int(datetime.now().timestamp())
-        
-        self.logger.info(f"Creating data loaders from separate folders for {model_type}")
-        self.logger.info(f"Job folder: {job_folder_path}")
-        
-        # Define folder paths
-        train_folder = os.path.join(job_folder_path, 'train_data', 'processed_data')
-        val_folder = os.path.join(job_folder_path, 'val_data', 'processed_data')
-        test_folder = os.path.join(job_folder_path, 'test_data', 'processed_data')
-        
-        # Verify required folders exist (test folder only if needed)
-        required_folders = [("train", train_folder), ("validation", val_folder)]
-        if create_test_loader:
-            required_folders.append(("test", test_folder))
-            
-        for folder_name, folder_path in required_folders:
-            if not os.path.exists(folder_path):
-                self.logger.error(f"{folder_name} folder not found: {folder_path}")
-                raise ValueError(f"{folder_name} folder not found: {folder_path}")
-        
-        # Special handling for FNN models with batch training
-        if model_type == "FNN":
-            train_loader = self._create_single_data_loader(
-                train_folder, feature_cols, target_col, batch_size, num_workers, seed, "train"
-            )
-            val_loader = self._create_single_data_loader(
-                val_folder, feature_cols, target_col, batch_size, num_workers, seed, "validation"
-            )
-            if create_test_loader:
-                test_loader = self._create_single_data_loader(
-                    test_folder, feature_cols, target_col, batch_size, num_workers, seed, "test"
-                )
-                return train_loader, val_loader, test_loader
-            else:
-                return train_loader, val_loader
-        
-        # For LSTM/GRU models, use the sequence data handlers
         handler_kwargs = {}
         if training_method == "Sequence-to-Sequence":
             if lookback is None or lookback <= 0:
-                self.logger.error("Lookback must be a positive integer for SequenceRNN training method.")
-                raise ValueError("Lookback must be a positive integer for SequenceRNN training method.")
+                raise ValueError("Lookback must be a positive integer for Sequence-to-Sequence training.")
             handler = SequenceRNNDataHandler(feature_cols, target_col, lookback, concatenate_raw_data)
             handler_kwargs['lookback'] = lookback
-        elif training_method == "WholeSequenceFNN":
+        elif training_method in ["WholeSequenceFNN", "Whole Sequence"]:
             handler = WholeSequenceFNNDataHandler(feature_cols, target_col)
         else:
-            self.logger.error(f"Unsupported training_method: {training_method}")
             raise ValueError(f"Unsupported training_method: {training_method}")
-        
+
         handler.logger = self.logger
-        
-        # Load data from each folder
-        train_X, train_y = handler.load_and_process_data(train_folder, **handler_kwargs)
-        val_X, val_y = handler.load_and_process_data(val_folder, **handler_kwargs)
-        
-        # Create data loaders with optimization parameters
-        train_loader = self._create_loader_from_tensors(train_X, train_y, batch_size, num_workers, True, "train", 
-                                                       pin_memory, prefetch_factor, persistent_workers)
-        val_loader = self._create_loader_from_tensors(val_X, val_y, batch_size, num_workers, False, "validation",
-                                                     pin_memory, prefetch_factor, persistent_workers)
-        
-        # Conditionally create test loader
+        result = handler.load_and_process_data(folder_path, return_timestamp=return_timestamp, **handler_kwargs)
+        if len(result) == 2:
+            return result[0], result[1], None
+        return result
+
+    def create_data_loaders_from_separate_folders(self, job_folder_path: str, training_method: str, feature_cols: list, target_col: str,
+                                                 batch_size: int, num_workers: int,
+                                                 lookback: int = None,
+                                                 concatenate_raw_data: bool = False,
+                                                 seed: int = None, model_type: str = "LSTM",
+                                                 create_test_loader: bool = True,
+                                                 pin_memory: bool = None,
+                                                 prefetch_factor: int = 2,
+                                                 persistent_workers: bool = None,
+                                                 return_data_size: bool = False):
+        if seed is None:
+            seed = int(datetime.now().timestamp())
+
+        self.logger.info(f"Creating data loaders from separate folders for {model_type}")
+        train_folder = os.path.join(job_folder_path, 'train_data', 'processed_data')
+        val_folder = os.path.join(job_folder_path, 'val_data', 'processed_data')
+
+        train_X, train_y, _ = self.get_processed_data(train_folder, training_method, feature_cols, target_col, lookback, concatenate_raw_data, model_type)
+        val_X, val_y, _ = self.get_processed_data(val_folder, training_method, feature_cols, target_col, lookback, concatenate_raw_data, model_type)
+
+        total_size_mb = (train_X.nbytes + train_y.nbytes + val_X.nbytes + val_y.nbytes) / (1024 * 1024)
+        if return_data_size:
+            # If only the size is needed, we can return early
+            return None, None, total_size_mb
+
+        train_loader = self._create_loader_from_tensors(train_X, train_y, batch_size, num_workers, True, "train", pin_memory, prefetch_factor, persistent_workers)
+        val_loader = self._create_loader_from_tensors(val_X, val_y, batch_size, num_workers, False, "validation", pin_memory, prefetch_factor, persistent_workers)
+
         if create_test_loader:
-            # For test data, use WholeSequenceFNNDataHandler to avoid sequencing
-            # Test data should remain as original processed data for proper evaluation
-            self.logger.info("Loading test data without sequencing for proper evaluation")
-            test_handler = WholeSequenceFNNDataHandler(feature_cols, target_col)
-            test_handler.logger = self.logger
-            test_X, test_y, test_timestamps = test_handler.load_and_process_data(test_folder, return_timestamp=True)
-            test_loader = self._create_loader_from_tensors(test_X, test_y, batch_size, num_workers, False, "test",
-                                                         pin_memory, prefetch_factor, persistent_workers)
+            test_folder = os.path.join(job_folder_path, 'test_data', 'processed_data')
+            test_X, test_y, test_timestamps = self.get_processed_data(test_folder, "Whole Sequence", feature_cols, target_col, return_timestamp=True)
+            test_loader = self._create_loader_from_tensors(test_X, test_y, batch_size, num_workers, False, "test", pin_memory, prefetch_factor, persistent_workers)
             return train_loader, val_loader, test_loader, test_timestamps
-        else:
-            self.logger.info("Skipping test loader creation (create_test_loader=False)")
-            return train_loader, val_loader
+        
+        return train_loader, val_loader
 
     def _create_single_data_loader(self, folder_path: str, feature_cols: list, target_col: str,
                                   batch_size: int, num_workers: int, seed: int, data_type: str):
