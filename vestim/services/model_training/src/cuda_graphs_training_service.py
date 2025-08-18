@@ -102,10 +102,9 @@ class CUDAGraphsTrainingService:
         
         # Prepare for graph capture
         self.train_graph = torch.cuda.CUDAGraph()
-        optimizer.zero_grad(set_to_none=True)
-        
         # Capture the graph
         with torch.cuda.graph(self.train_graph):
+            optimizer.zero_grad(set_to_none=True)
             if self.scaler:
                 with torch.cuda.amp.autocast(dtype=torch.bfloat16):
                     self.static_output = model(self.static_input)
@@ -116,18 +115,21 @@ class CUDAGraphsTrainingService:
                             self.static_output = self.static_output.squeeze(-1)
                     self.static_loss = self.criterion(self.static_output, self.static_target)
                 
+                # The optimizer step must be captured inside the graph
+                # The scaler manages the gradient scaling and optimizer step together
                 self.scaler.scale(self.static_loss).backward()
+                # We capture the scaler.step(optimizer) which includes the weight update
                 self.scaler.step(optimizer)
-                self.scaler.update()
+                # The update to the scaler's scale factor should be done outside the graph
             else:
                 self.static_output = model(self.static_input)
                 if self.static_output.shape != self.static_target.shape:
-                    if (self.static_output.ndim > self.static_target.ndim and 
+                    if (self.static_output.ndim > self.static_target.ndim and
                         self.static_output.shape[-1] == 1):
                         self.static_output = self.static_output.squeeze(-1)
                 self.static_loss = self.criterion(self.static_output, self.static_target)
                 self.static_loss.backward()
-                optimizer.step()
+                optimizer.step() # This is correct for no scaler
         
         self.logger.info("Training CUDA graph captured successfully")
     
@@ -195,6 +197,10 @@ class CUDAGraphsTrainingService:
                 self.static_input.copy_(X_batch)
                 self.static_target.copy_(y_batch)
                 self.train_graph.replay()
+                
+                # After replaying the graph, if using a scaler, we need to update it
+                if self.scaler:
+                    self.scaler.update()
                 
                 # Get the loss and output from the static tensors
                 loss = self.static_loss
