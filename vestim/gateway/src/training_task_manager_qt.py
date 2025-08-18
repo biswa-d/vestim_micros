@@ -500,11 +500,13 @@ class TrainingTaskManager:
                 total_size_mb = (train_X.nbytes + train_y.nbytes + val_X.nbytes + val_y.nbytes) / (1024 * 1024)
                 self.logger.info(f"Accurate total processed data size for RNN: {total_size_mb:.2f} MB")
 
-                if total_size_mb > 300:
-                    self.logger.warning(f"Data size ({total_size_mb:.2f} MB) exceeds 300 MB. Forcing num_workers=0 to avoid shared memory errors on Windows.")
+                if total_size_mb > 300 and sys.platform == "win32":
+                    self.logger.warning(f"Data size ({total_size_mb:.2f} MB) exceeds 300 MB on Windows. Forcing num_workers=0 to avoid shared memory errors.")
                     num_workers = 0
                     prefetch_factor = None
                     persistent_workers = False
+                elif total_size_mb > 300:
+                    self.logger.warning(f"Data size ({total_size_mb:.2f} MB) is large. Proceeding with user-defined num_workers={num_workers} on non-Windows OS.")
 
                 train_loader = self.data_loader_service._create_loader_from_tensors(
                     train_X, train_y, int(task['data_loader_params'].get('batch_size', 32)),
