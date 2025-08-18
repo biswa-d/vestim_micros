@@ -260,8 +260,8 @@ def transform_data(data_df, scaler, feature_columns, all_numeric_columns=None):
         # Log any excluded columns for debugging
         excluded_cols = [col for col in (all_numeric_columns or feature_columns) 
                         if col in data_df.columns and col not in scaler_features]
-        if excluded_cols:
-            print(f"Info: Skipping columns not in scaler features: {excluded_cols}")
+        # if excluded_cols:
+        #     print(f"Info: Skipping columns not in scaler features: {excluded_cols}")
     
     if not cols_to_transform:
         print("Warning: No valid columns to transform found after filtering.")

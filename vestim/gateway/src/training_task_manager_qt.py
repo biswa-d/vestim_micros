@@ -461,16 +461,16 @@ class TrainingTaskManager:
         feature_cols = task['data_loader_params']['feature_columns']
         target_col = task['data_loader_params']['target_column']
         
-        # Enhanced data loading configuration
-        if 'NUM_WORKERS' in task['hyperparams']:
-            num_workers = int(task['hyperparams']['NUM_WORKERS'])
-        else:
-            num_workers = self.get_optimal_num_workers()
-        pin_memory = task['hyperparams'].get('PIN_MEMORY', True)
-        prefetch_factor = int(task['hyperparams'].get('PREFETCH_FACTOR', 2))
-        persistent_workers = task['hyperparams'].get('PERSISTENT_WORKERS', True) if num_workers > 0 else False
-        
-        # Log initial data loading optimization settings from hyperparams
+        # Consolidate parameters from both global_params and task['hyperparams']
+        # Task-specific hyperparams will override global settings
+        combined_params = {**self.global_params, **task['hyperparams']}
+
+        # Enhanced data loading configuration from combined params
+        num_workers = int(combined_params.get('NUM_WORKERS', self.get_optimal_num_workers()))
+        pin_memory = bool(combined_params.get('PIN_MEMORY', True))
+        prefetch_factor = int(combined_params.get('PREFETCH_FACTOR', 2))
+        persistent_workers = bool(combined_params.get('PERSISTENT_WORKERS', num_workers > 0))
+
         self.logger.info(f"Initial data loading optimization settings:")
         self.logger.info(f"  - CPU Threads (NUM_WORKERS): {num_workers}")
         self.logger.info(f"  - Fast CPU-GPU Transfer (PIN_MEMORY): {pin_memory}")
@@ -478,7 +478,6 @@ class TrainingTaskManager:
         self.logger.info(f"  - Persistent Workers: {persistent_workers}")
         
         seed = int(task['hyperparams'].get('SEED', 2000))
-        
         training_method = task['hyperparams'].get('TRAINING_METHOD', 'Sequence-to-Sequence')
         model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM')
         job_folder_path = self.job_manager.get_job_folder()

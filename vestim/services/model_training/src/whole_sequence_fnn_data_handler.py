@@ -64,10 +64,7 @@ class WholeSequenceFNNDataHandler(BaseDataHandler):
                     timestamps = df_selected['Timestamp'].values
                     all_timestamps_list.append(timestamps)
                 else:
-                    # If timestamp is requested but not present, we should handle it gracefully.
-                    # For now, we'll append None and handle it during concatenation.
-                    # A better approach might be to log a warning.
-                    all_timestamps_list.append(None)
+                    all_timestamps_list.append(np.array([])) # Append empty array if no timestamp
 
             del df_selected, X_data_file, Y_data_file
             if return_timestamp and 'timestamps' in locals():
