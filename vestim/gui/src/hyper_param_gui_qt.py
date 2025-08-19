@@ -92,91 +92,64 @@ class VEstimHyperParamGUI(QWidget):
 
     def load_default_hyperparameters(self):
         """Auto-load default hyperparameters and populate the GUI with column validation"""
+        import traceback
         try:
             # FIXED:Get default hyperparameters from config (includes last used params with features/targets)
             default_params = get_default_hyperparams()
-            
+            self.logger.info(f"DEBUG: Type of default_params: {type(default_params)}")
+            self.logger.info(f"DEBUG: Contents of default_params: {default_params}")
+
             # FIXED:Validate feature/target columns against current dataset
             validated_params = self.validate_columns_against_dataset(default_params)
-            
+            self.logger.info(f"DEBUG: Type of validated_params: {type(validated_params)}")
+            self.logger.info(f"DEBUG: Contents of validated_params: {validated_params}")
+
             # FIXED:Load and validate parameters using the manager (same as load_params_from_json)
             self.params = self.hyper_param_manager.validate_and_normalize_params(validated_params)
             self.logger.info("Successfully loaded default hyperparameters automatically")
 
             # FIXED:Update GUI elements with loaded parameters (same as load_params_from_json)
             self.update_gui_with_loaded_params()
-            
+
         except Exception as e:
-            self.logger.error(f"Failed to auto-load default hyperparameters: {e}")
+            self.logger.error(f"Failed to auto-load default hyperparameters: {type(e).__name__}: {e}")
+            self.logger.error(traceback.format_exc())
             # FIXED:If auto-load fails, just continue with empty params - user can manually load
 
     def validate_columns_against_dataset(self, params):
         """Validate that feature and target columns exist in the current dataset"""
         try:
-            # FIXED:Get available columns from the current dataset
             available_columns = self.load_column_names()
-            
             if not available_columns:
                 self.logger.warning("No columns available in dataset, using parameters as-is")
                 return params
-            
+
             validated_params = params.copy()
-            
-            # FIXED:Validate feature columns
+
+            # Only remove missing features, keep the rest
             if "FEATURE_COLUMNS" in params and params["FEATURE_COLUMNS"]:
                 original_features = params["FEATURE_COLUMNS"]
                 if isinstance(original_features, list):
-                    # FIXED:Filter features to only include available columns
                     valid_features = [col for col in original_features if col in available_columns]
-                    
-                    if not valid_features:
-                        # FIXED:No valid features, use first 3 available columns as fallback
-                        valid_features = available_columns[:3] if len(available_columns) >= 3 else available_columns[:-1]
-                        self.logger.warning(f"No saved feature columns found in dataset. Using fallback features: {valid_features}")
-                    elif len(valid_features) < len(original_features):
-                        missing_features = [col for col in original_features if col not in available_columns]
+                    missing_features = [col for col in original_features if col not in available_columns]
+                    if missing_features:
                         self.logger.info(f"Some saved feature columns not found in dataset. Missing: {missing_features}. Using available: {valid_features}")
-                    
                     validated_params["FEATURE_COLUMNS"] = valid_features
                 else:
-                    # FIXED:Handle case where FEATURE_COLUMNS is not a list
-                    validated_params["FEATURE_COLUMNS"] = available_columns[:3] if len(available_columns) >= 3 else available_columns[:-1]
-                    self.logger.warning("Invalid feature columns format, using fallback features")
-            
-            # FIXED:Validate target column
+                    validated_params["FEATURE_COLUMNS"] = []
+                    self.logger.warning("Invalid feature columns format, clearing features.")
+
+            # If target column missing, clear it (don't force a default)
             if "TARGET_COLUMN" in params and params["TARGET_COLUMN"]:
                 original_target = params["TARGET_COLUMN"]
                 if original_target not in available_columns:
-                    # FIXED:Use last available column as fallback target
-                    fallback_target = available_columns[-1] if available_columns else ""
-                    validated_params["TARGET_COLUMN"] = fallback_target
-                    self.logger.warning(f"Saved target column '{original_target}' not found in dataset. Using fallback target: '{fallback_target}'")
-                else:
-                    # Check if target is a timestamp column
-                    valid_targets = self.filter_valid_target_columns([original_target])
-                    if not valid_targets:
-                        # Target is a timestamp column - find a safe alternative
-                        safe_targets = self.filter_valid_target_columns(available_columns)
-                        if safe_targets:
-                            fallback_target = safe_targets[0]
-                            validated_params["TARGET_COLUMN"] = fallback_target
-                            self.logger.warning(f"Target column '{original_target}' appears to be a timestamp column. Using safe fallback target: '{fallback_target}'")
-                        else:
-                            self.logger.warning(f"Target column '{original_target}' appears to be a timestamp column, but no safe alternatives found.")
-                    else:
-                        self.logger.info(f"Target column '{original_target}' found in dataset and is valid")
-            
-            # FIXED:Validate training method compatibility with model type
-            model_type = validated_params.get("MODEL_TYPE", "LSTM")
-            training_method = validated_params.get("TRAINING_METHOD", "Sequence-to-Sequence")
-            
-            if model_type in ["LSTM", "GRU"] and training_method == "Whole Sequence":
-                validated_params["TRAINING_METHOD"] = "Sequence-to-Sequence"
-                self.logger.info(f"Converted training method from 'Whole Sequence' to 'Sequence-to-Sequence' for {model_type} model")
-            elif model_type == "FNN" and training_method != "WholeSequenceFNN":
-                # FIXED:For FNN, ensure we use the correct method name that data loader expects
-                validated_params["TRAINING_METHOD"] = "WholeSequenceFNN"
-                self.logger.info(f"Set training method to 'WholeSequenceFNN' for FNN model")
+                    validated_params["TARGET_COLUMN"] = ""
+                    self.logger.warning(f"Saved target column '{original_target}' not found in dataset. Clearing target.")
+
+            return validated_params
+        except Exception as e:
+            self.logger.error(f"Error validating columns against dataset: {e}")
+            return params
             
             return validated_params
             
@@ -1252,7 +1225,7 @@ class VEstimHyperParamGUI(QWidget):
             return
 
         # FIXED:✅ Update standard hyperparameters (Text Fields, Dropdowns, Checkboxes)
-        for param_name, entry in self.param_entries.items():
+        for param_name, entry in list(self.param_entries.items()):
             if param_name in self.params:
                 value = self.params[param_name]
 
@@ -1593,17 +1566,17 @@ class VEstimHyperParamGUI(QWidget):
             hours = int(params.get("MAX_TRAIN_HOURS", "0"))
             minutes = int(params.get("MAX_TRAIN_MINUTES", "0"))
             seconds = int(params.get("MAX_TRAIN_SECONDS", "0"))
-            
+
             total_seconds = hours * 3600 + minutes * 60 + seconds
             params["MAX_TRAINING_TIME_SECONDS"] = total_seconds
-            
-            # FIXED:Remove the individual time components as they're now consolidated
-            for key in ["MAX_TRAIN_HOURS", "MAX_TRAIN_MINUTES", "MAX_TRAIN_SECONDS"]:
-                if key in params:
-                    del params[key]
-                    
+
+            # FIXED: Remove the individual time components as they're now consolidated
+            keys_to_delete = [key for key in ["MAX_TRAIN_HOURS", "MAX_TRAIN_MINUTES", "MAX_TRAIN_SECONDS"] if key in params]
+            for key in keys_to_delete:
+                del params[key]
+
             self.logger.info(f"Converted time fields to total seconds: {total_seconds}")
-            
+
         except ValueError as e:
             self.logger.warning(f"Error converting time fields: {e}. Setting total time to 0.")
             params["MAX_TRAINING_TIME_SECONDS"] = 0

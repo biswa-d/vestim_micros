@@ -224,6 +224,19 @@ class ContinuousTestingService:
             y_true = df_scaled[target_col].iloc[:original_len].values.astype(np.float32)
             y_pred_arr = y_preds.cpu().numpy()
             
+            # Match prediction length to raw data file length to handle padding from augmentation
+            raw_file_path = test_file_path.replace("processed_data", "raw_data")
+            if os.path.exists(raw_file_path):
+                try:
+                    df_raw = pd.read_csv(raw_file_path, usecols=[0])
+                    raw_len = len(df_raw)
+                    if raw_len < len(y_pred_arr):
+                        print(f"Trimming predictions from {len(y_pred_arr)} to match raw file length {raw_len}")
+                        y_pred_arr = y_pred_arr[:raw_len]
+                        y_true = y_true[:raw_len]
+                except Exception as e:
+                    print(f"Warning: Could not read raw file to get length: {e}")
+
             print(f"Generated {len(y_pred_arr)} predictions (after warmup: {warmup_samples if is_first_file else 0})")
             print(f"Data processing mode: processed file (from data augmentation pipeline)")
             print(f"Normalization was applied during training: {normalization_applied}")
@@ -373,7 +386,7 @@ class ContinuousTestingService:
     def _calculate_metrics_and_format_results(self, y_pred, y_true, target_col, task):
         """Calculate metrics and format results."""
         target_column_name = target_col.lower()
-        
+
         # Determine unit suffix and multiplier
         if "voltage" in target_column_name:
             unit_suffix = "_mv"
@@ -382,7 +395,18 @@ class ContinuousTestingService:
         elif "soc" in target_column_name:
             unit_suffix = "_percent"
             unit_display = "SOC"
-            multiplier = 100.0 if np.max(np.abs(y_true)) <= 1.0 else 1.0
+            # Always check the value range and log it for consistency
+            soc_max = np.max(np.abs(y_true))
+            soc_min = np.min(np.abs(y_true))
+            print(f"[VEstim] SOC value range for error calculation: min={soc_min}, max={soc_max}")
+            # If values are in [0, 1], use 100.0; if in [0, 100], use 1.0
+            # Use a tolerance to account for floating-point imprecision and ensure consistent percent error reporting
+            if soc_max <= 5.0:
+                multiplier = 100.0
+                print(f"[VEstim] SOC detected in [0, ~1] range (with tolerance <=5.0). Using multiplier=100.0 for percent error.")
+            else:
+                multiplier = 1.0
+                print(f"[VEstim] SOC detected in [0, 100] range. Using multiplier=1.0 for percent error.")
         elif "temperature" in target_column_name or "temp" in target_column_name:
             unit_suffix = "_degC"
             unit_display = "Deg C"
@@ -391,19 +415,21 @@ class ContinuousTestingService:
             unit_suffix = ""
             unit_display = ""
             multiplier = 1.0
-        
+
         # Calculate metrics
         rms_error_val = np.sqrt(mean_squared_error(y_true, y_pred)) * multiplier
         mae_val = mean_absolute_error(y_true, y_pred) * multiplier
         mape_denominator = np.maximum(1e-10, np.abs(y_true))
         mape = np.mean(np.abs((y_true - y_pred) / mape_denominator)) * 100
         r2 = r2_score(y_true, y_pred)
-        
+
         # Calculate error values for SOC
         error_percent_soc_values = (y_true - y_pred) * multiplier
-        
-        print(f"Metrics - RMS Error: {rms_error_val:.3f} {unit_display}, MAE: {mae_val:.3f} {unit_display}, MAPE: {mape:.2f}%, R²: {r2:.4f}")
-        
+
+        print(f"[VEstim] Metrics - RMS Error: {rms_error_val:.3f} {unit_display}, MAE: {mae_val:.3f} {unit_display}, MAPE: {mape:.2f}%, R²: {r2:.4f}")
+        print(f"[VEstim] Error values (first 5): {error_percent_soc_values[:5]}")
+        print(f"[VEstim] Multiplier used for error calculation: {multiplier}")
+
         # Format results similar to original method
         results_dict = {
             'predictions': y_pred,
@@ -416,7 +442,7 @@ class ContinuousTestingService:
             'multiplier': multiplier,
             'error_percent_soc_values': error_percent_soc_values
         }
-        
+
         return results_dict
     
     def _create_model_instance(self, task):

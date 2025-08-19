@@ -238,37 +238,33 @@ class ConfigManager:
     def update_last_used_hyperparams(self, hyperparams):
         """Update the last used hyperparameters in hyperparams_last_used.json."""
         try:
-            if getattr(sys, 'frozen', False):
-                # Running as compiled executable - save in projects directory
-                projects_dir = self.get_projects_directory()
-                filepath = Path(projects_dir) / "hyperparams_last_used.json"
-            else:
-                # Running as script - save in the vestim directory
-                app_dir = Path(__file__).parent
-                filepath = app_dir / "hyperparams_last_used.json"
-
+            # Always save in defaults_templates folder in project directory
+            repo_root = Path(__file__).parent.parent
+            defaults_dir = repo_root / "defaults_templates"
+            defaults_dir.mkdir(exist_ok=True)
+            filepath = defaults_dir / "hyperparams_last_used.json"
             with open(filepath, 'w') as f:
                 json.dump(hyperparams, f, indent=4)
+            print(f"[VEstim] Saved last used hyperparams to: {filepath}")
         except Exception as e:
             print(f"Could not save last used hyperparams: {e}")
 
     def get_default_hyperparams(self):
         """Get default hyperparameters - from last used file or system defaults."""
         try:
-            if getattr(sys, 'frozen', False):
-                # Running as compiled executable - check projects directory
-                projects_dir = self.get_projects_directory()
-                filepath = Path(projects_dir) / "hyperparams_last_used.json"
-            else:
-                # Running as script - check the vestim directory
-                app_dir = Path(__file__).parent
-                filepath = app_dir / "hyperparams_last_used.json"
-
+            # Always load from defaults_templates folder in project directory
+            repo_root = Path(__file__).parent.parent
+            defaults_dir = repo_root / "defaults_templates"
+            filepath = defaults_dir / "hyperparams_last_used.json"
+            print(f"[VEstim] Attempting to load last used hyperparams from: {filepath}")
             if filepath.exists():
+                print(f"[VEstim] Found last used hyperparams file: {filepath}")
                 with open(filepath, 'r') as f:
                     return json.load(f)
+            else:
+                print(f"[VEstim] WARNING: last used hyperparams file not found at {filepath}. Falling back to initial defaults.")
         except Exception as e:
-            print(f"Could not load last used hyperparams: {e}")
+            print(f"[VEstim] ERROR: Could not load last used hyperparams: {e}. Falling back to initial defaults.")
 
         # Fallback to initial defaults
         return self._get_initial_default_hyperparams()

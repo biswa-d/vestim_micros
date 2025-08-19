@@ -143,15 +143,15 @@ class FilterInputDialog(QDialog):
     def initUI(self):
         self.setWindowTitle("Filter Column")
         self.setMinimumWidth(400)
-        
+
         layout = QVBoxLayout()
-        
+
         form_layout = QFormLayout()
-        
+
         self.column_combo = QComboBox()
         self.column_combo.addItems(self.available_columns)
         form_layout.addRow("Select Column:", self.column_combo)
-        
+
         self.filter_type_combo = QComboBox()
         self.filter_type_combo.addItems(["Butterworth"])
         form_layout.addRow("Filter Type:", self.filter_type_combo)
@@ -162,13 +162,19 @@ class FilterInputDialog(QDialog):
         self.sampling_rate_spinbox.setSingleStep(1.0)
         form_layout.addRow("Sampling Rate (Hz):", self.sampling_rate_spinbox)
 
+        self.filter_order_spinbox = QSpinBox()
+        self.filter_order_spinbox.setRange(1, 10)
+        self.filter_order_spinbox.setValue(4)
+        self.filter_order_spinbox.setSingleStep(1)
+        form_layout.addRow("Filter Order:", self.filter_order_spinbox)
+
         self.corner_frequency_spinbox = QDoubleSpinBox()
-        self.corner_frequency_spinbox.setRange(0.0001, 10000.0)  # Allow very low frequencies like 0.0002 Hz
-        self.corner_frequency_spinbox.setValue(1.0)
-        self.corner_frequency_spinbox.setSingleStep(0.0001)  # Smaller step for precision with low frequencies
-        self.corner_frequency_spinbox.setDecimals(6)  # More decimal places for precision
+        self.corner_frequency_spinbox.setRange(0.0000001, 0.5)  # Allow frequencies between 1e-7 and 0.5 Hz
+        self.corner_frequency_spinbox.setValue(0.01)
+        self.corner_frequency_spinbox.setSingleStep(0.0000001)  # Very small step for precision
+        self.corner_frequency_spinbox.setDecimals(7)  # More decimal places for precision
         form_layout.addRow("Corner Frequency (Hz):", self.corner_frequency_spinbox)
-        
+            
         layout.addLayout(form_layout)
         
         buttons_layout = QHBoxLayout()
@@ -189,6 +195,11 @@ class FilterInputDialog(QDialog):
         self.column_name = self.column_combo.currentText()
         self.corner_frequency = self.corner_frequency_spinbox.value()
         self.sampling_rate = self.sampling_rate_spinbox.value()
+        self.filter_order = self.filter_order_spinbox.value()
+        # Validate frequency range
+        if not (1e-7 <= self.corner_frequency <= 0.5):
+            QMessageBox.warning(self, "Input Error", "Corner frequency must be between 1e-7 Hz and 0.5 Hz.")
+            return
         self.accept()
 
 class AugmentationWorker(QObject):

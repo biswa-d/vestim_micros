@@ -338,9 +338,10 @@ class VEstimTestingManager:
                 # Apply appropriate multiplier based on target type for consistent error reporting
                 if "voltage" in target_column_name.lower():
                     difference *= 1000  # Convert V difference to mV for CSV display consistency with error metrics
-                elif ("soc" in target_column_name.lower() or "soe" in target_column_name.lower() or "sop" in target_column_name.lower()) and np.max(np.abs(y_true_scaled)) <= 1.0:
-                    # Check if SOC/SOE/SOP is in 0-1 range and needs percentage conversion
-                    difference *= 100  # Convert 0-1 difference to percentage for CSV display
+                elif "soc" in target_column_name.lower() or "soe" in target_column_name.lower() or "sop" in target_column_name.lower():
+                    # Use the multiplier calculated earlier for SOC/SOE/SOP error
+                    multiplier = file_results.get('multiplier', 100)
+                    difference *= multiplier
                 
                 # Save predictions with dynamic column names - matching training GUI conventions
                 predictions_file = os.path.join(test_results_dir, f"{file_name}_predictions.csv")

@@ -408,11 +408,7 @@ class DataAugmentService:
         padded_df = pd.concat([padding_df, df], ignore_index=True)
         self.logger.info(f"Padding applied. Original shape: {df.shape}, New shape: {padded_df.shape}")
         
-        buffer = io.StringIO()
-        padded_df.info(buf=buffer)
-        info_str = buffer.getvalue()
-        self.logger.info(f"Padded DataFrame info:\n{info_str}")
-        self.logger.info(f"Padded DataFrame head:\n{padded_df.head(padding_length + 2).to_string()}") 
+        self.logger.info(f"Padded DataFrame head (first 5 rows):\n{padded_df.head(5).to_string()}")
 
         return padded_df
 
