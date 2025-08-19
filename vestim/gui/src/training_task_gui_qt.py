@@ -330,7 +330,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         train_control_keys.extend(['VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS'])
         
         # Section 4: Execution Environment
-        exec_env_keys = ['DEVICE_SELECTION', 'CURRENT_DEVICE', 'MAX_TRAINING_TIME_SECONDS']
+        exec_env_keys = ['CURRENT_DEVICE', 'MAX_TRAINING_TIME_SECONDS']
         # Section 5: Data Columns
         data_keys = ['FEATURE_COLUMNS', 'TARGET_COLUMN']
         

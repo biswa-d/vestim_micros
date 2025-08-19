@@ -236,21 +236,41 @@ class ConfigManager:
         return self._default_settings.get("last_used", {}).get("file_format", "csv")
     
     def update_last_used_hyperparams(self, hyperparams):
-        """Update the last used hyperparameters"""
-        if "last_used" not in self._default_settings:
-            self._default_settings["last_used"] = {}
-            
-        self._default_settings["last_used"]["hyperparams"] = hyperparams
-        self._save_default_settings()
-    
+        """Update the last used hyperparameters in hyperparams_last_used.json."""
+        try:
+            if getattr(sys, 'frozen', False):
+                # Running as compiled executable - save in projects directory
+                projects_dir = self.get_projects_directory()
+                filepath = Path(projects_dir) / "hyperparams_last_used.json"
+            else:
+                # Running as script - save in the vestim directory
+                app_dir = Path(__file__).parent
+                filepath = app_dir / "hyperparams_last_used.json"
+
+            with open(filepath, 'w') as f:
+                json.dump(hyperparams, f, indent=4)
+        except Exception as e:
+            print(f"Could not save last used hyperparams: {e}")
+
     def get_default_hyperparams(self):
-        """Get default hyperparameters - either last used or system defaults"""
-        last_used_hyperparams = self._default_settings.get("last_used", {}).get("hyperparams")
-        
-        if last_used_hyperparams:
-            return last_used_hyperparams
-        
-        # Return system default hyperparameters for first-time use
+        """Get default hyperparameters - from last used file or system defaults."""
+        try:
+            if getattr(sys, 'frozen', False):
+                # Running as compiled executable - check projects directory
+                projects_dir = self.get_projects_directory()
+                filepath = Path(projects_dir) / "hyperparams_last_used.json"
+            else:
+                # Running as script - check the vestim directory
+                app_dir = Path(__file__).parent
+                filepath = app_dir / "hyperparams_last_used.json"
+
+            if filepath.exists():
+                with open(filepath, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Could not load last used hyperparams: {e}")
+
+        # Fallback to initial defaults
         return self._get_initial_default_hyperparams()
     
     def _get_initial_default_hyperparams(self):

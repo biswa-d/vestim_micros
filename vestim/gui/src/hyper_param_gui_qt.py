@@ -619,7 +619,7 @@ class VEstimHyperParamGUI(QWidget):
         # FIXED:Define keys for model-specific parameters that might exist from a previous selection
         lstm_specific_keys = ["LAYERS", "HIDDEN_UNITS"] # FIXED:Add any other LSTM specific QLineEdit keys
         gru_specific_keys = ["GRU_LAYERS", "GRU_HIDDEN_UNITS"] # FIXED:Add any other GRU specific QLineEdit keys
-        fnn_specific_keys = ["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB"] # FIXED:Add FNN specific QLineEdit keys
+        fnn_specific_keys = ["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB", "FNN_ACTIVATION"] # FIXED:Add FNN specific QLineEdit keys
         
         all_model_specific_keys = lstm_specific_keys + gru_specific_keys + fnn_specific_keys
         
@@ -714,9 +714,19 @@ class VEstimHyperParamGUI(QWidget):
             self.model_param_container.addWidget(fnn_dropout_label)
             self.model_param_container.addWidget(self.fnn_dropout_entry)
 
+            fnn_activation_label = QLabel("Activation Function:")
+            fnn_activation_label.setStyleSheet("font-size: 9pt;")
+            fnn_activation_label.setToolTip("Select the activation function for hidden layers.")
+            self.fnn_activation_combo = QComboBox()
+            self.fnn_activation_combo.addItems(["ReLU", "GELU"])
+            self.param_entries["FNN_ACTIVATION"] = self.fnn_activation_combo
+            self.model_param_container.addWidget(fnn_activation_label)
+            self.model_param_container.addWidget(self.fnn_activation_combo)
+
             # FIXED:✅ Store in model_params for later update to self.param_entries
             model_params["FNN_HIDDEN_LAYERS"] = self.fnn_hidden_layers_entry
             model_params["FNN_DROPOUT_PROB"] = self.fnn_dropout_entry
+            model_params["FNN_ACTIVATION"] = self.fnn_activation_combo
 
         # FIXED:✅ Register current model-specific QLineEdit parameters in self.param_entries
         # FIXED:This ensures self.param_entries only contains widgets relevant to the *current* model type

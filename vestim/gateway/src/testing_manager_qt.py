@@ -42,19 +42,24 @@ class VEstimTestingManager:
         # Get device selection from hyperparameters if available, fallback to CUDA detection
         self.params = params if params is not None else {}
         device_selection = self.params.get('DEVICE_SELECTION', 'cuda' if torch.cuda.is_available() else 'cpu')
-        if isinstance(device_selection, str) and device_selection.lower().startswith('cuda'):
-            if torch.cuda.is_available():
-                self.device = device_selection
-                self.logger.info(f"TestingManager: Using device from hyperparameters: {device_selection}")
-            else:
-                self.device = 'cpu'
-                self.logger.warning(f"TestingManager: CUDA device {device_selection} requested but CUDA not available, using CPU")
-        else:
-            self.device = device_selection if device_selection == 'cpu' else ('cuda' if torch.cuda.is_available() else 'cpu')
-            self.logger.info(f"TestingManager: Using device: {self.device}")
         
-        # Ensure device is a string for consistency
-        self.device = str(self.device) if hasattr(self.device, '__str__') else self.device
+        # Store the functional device string for backend services
+        self.functional_device = device_selection if torch.cuda.is_available() and 'cuda' in device_selection else 'cpu'
+        
+        # Determine the full device name for display
+        if 'cuda' in self.functional_device and torch.cuda.is_available():
+            try:
+                gpu_idx = int(self.functional_device.split(':')[-1]) if ':' in self.functional_device else 0
+                full_device_name = torch.cuda.get_device_name(gpu_idx)
+                self.display_device = f"{self.functional_device.upper()} ({full_device_name})"
+            except Exception as e:
+                self.logger.error(f"Could not get GPU name for {self.functional_device}: {e}")
+                self.display_device = self.functional_device.upper()
+        else:
+            self.display_device = 'CPU'
+        
+        self.params['CURRENT_DEVICE'] = self.display_device
+        self.logger.info(f"TestingManager: Functional device: {self.functional_device}, Display device: {self.display_device}")
         
         self.max_workers = 4  # Number of concurrent threads
         self.queue = None  # Initialize the queue attribute
@@ -126,7 +131,7 @@ class VEstimTestingManager:
             print(f"Preparing test data for Task {idx + 1}...")
             
             # Create a new instance of the testing service for each thread to ensure isolation
-            continuous_testing_service = ContinuousTestingService(device=str(self.device))
+            continuous_testing_service = ContinuousTestingService(device=self.functional_device)
             
             # Get required paths and parameters
             lookback = task['hyperparams']['LOOKBACK']

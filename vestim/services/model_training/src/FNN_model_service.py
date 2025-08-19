@@ -38,10 +38,11 @@ class FNNModelService:
             raise ValueError("Cannot build FNN model without hidden layer sizes.")
 
         apply_clipped_relu = params.get("normalization_applied", False)
+        activation_function = params.get("FNN_ACTIVATION", "ReLU")
         self.logger.info(
             f"Building FNN model with input_size={input_size}, output_size={output_size}, "
             f"hidden_layers={hidden_layer_sizes}, dropout_prob={dropout_prob}, device={target_device}, "
-            f"apply_clipped_relu={apply_clipped_relu}"
+            f"apply_clipped_relu={apply_clipped_relu}, activation_function={activation_function}"
         )
         
         model = FNNModel(
@@ -49,7 +50,8 @@ class FNNModelService:
             output_size=output_size,
             hidden_layer_sizes=hidden_layer_sizes,
             dropout_prob=dropout_prob,
-            apply_clipped_relu=apply_clipped_relu
+            apply_clipped_relu=apply_clipped_relu,
+            activation_function=activation_function
         ).to(target_device)
         
         return model

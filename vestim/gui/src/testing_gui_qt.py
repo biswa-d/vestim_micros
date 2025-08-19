@@ -306,7 +306,7 @@ class VEstimTestingGUI(QMainWindow):
         train_control_keys.extend(['VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS'])
         
         # Other sections
-        exec_env_keys = ['DEVICE_SELECTION', 'MAX_TRAINING_TIME_SECONDS']
+        exec_env_keys = ['DEVICE_SELECTION', 'CURRENT_DEVICE', 'MAX_TRAINING_TIME_SECONDS']
         data_keys = ['FEATURE_COLUMNS', 'TARGET_COLUMN']
         
         # Combine all ordered keys

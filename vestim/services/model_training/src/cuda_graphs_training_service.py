@@ -230,18 +230,20 @@ class CUDAGraphsTrainingService:
         
         return avg_batch_time, avg_loss, all_train_y_pred, all_train_y_true
     
-    def validate_epoch_with_graphs(self, model, val_loader, epoch, device, stop_requested, task):
+    def validate_epoch_with_graphs(self, model, val_loader, epoch, device, stop_requested, task, verbose=True):
         """Validate with potential CUDA graph optimization."""
         model.eval()
         total_val_loss = []
         all_val_y_pred = []
         all_val_y_true = []
+        batch_times = []
         
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
                 if stop_requested:
                     break
                 
+                start_time = time.time()
                 X_batch, y_batch = X_batch.to(device, non_blocking=True), y_batch.to(device, non_blocking=True)
                 
                 if self.scaler:
@@ -259,6 +261,11 @@ class CUDAGraphsTrainingService:
                 total_val_loss.append(loss.item())
                 all_val_y_pred.append(output.cpu())
                 all_val_y_true.append(y_batch.cpu())
+                batch_times.append(time.time() - start_time)
+
+                if verbose and batch_idx % 100 == 0:
+                    self.logger.info(f"Epoch {epoch}, Validation Batch {batch_idx}/{len(val_loader)}, "
+                                   f"Loss: {loss.item():.6f}, Time: {batch_times[-1]*1000:.1f}ms")
         
         avg_loss = sum(total_val_loss) / len(total_val_loss) if total_val_loss else float('nan')
         all_val_y_pred = torch.cat(all_val_y_pred, dim=0) if all_val_y_pred else None
@@ -269,4 +276,4 @@ class CUDAGraphsTrainingService:
     def validate_epoch(self, model, model_type, val_loader, h_s_val, h_c_val, epoch, device, stop_requested, task, verbose=True):
         """Fallback validate_epoch method for compatibility with standard training code."""
         # Just delegate to validate_epoch_with_graphs since they're essentially the same for validation
-        return self.validate_epoch_with_graphs(model, val_loader, epoch, device, stop_requested, task)
+        return self.validate_epoch_with_graphs(model, val_loader, epoch, device, stop_requested, task, verbose=verbose)

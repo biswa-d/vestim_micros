@@ -162,6 +162,11 @@ class TrainingTaskManager:
         
         train_loader, val_loader = None, None  # Initialize to ensure they exist for the finally block
         try:
+            # Reset CUDA graphs state before starting a new task to prevent state leakage
+            if hasattr(self.training_service, 'reset_cuda_graphs'):
+                self.logger.info("Resetting CUDA Graphs state for new task.")
+                self.training_service.reset_cuda_graphs()
+
             # Concise log for starting task - only include model-appropriate parameters
             task_hyperparams = task['hyperparams']
             model_type = task_hyperparams.get('MODEL_TYPE', 'LSTM')
@@ -600,7 +605,17 @@ class TrainingTaskManager:
             best_train_loss_denorm = float('inf')
 
             hyperparams = self.convert_hyperparams(task['hyperparams']) # This ensures BATCH_SIZE is int if it exists
-            model = task['model'].to(device)
+            model = task['model']
+            
+            # Reload model from the untrained template to ensure a clean slate for each repetition
+            model_path = task.get('model_path')
+            if model_path and os.path.exists(model_path):
+                model.load_state_dict(torch.load(model_path, map_location=device))
+                self.logger.info(f"Reloaded untrained model state from {model_path} for task {task['task_id']}")
+            else:
+                self.logger.warning(f"Untrained model template not found at {model_path}. Model may not be reset for new repetition.")
+            
+            model = model.to(device)
             
             # Ensure BATCH_SIZE from hyperparams (which might be the string from QLineEdit) is correctly converted and available
             # The actual batch size used by train_loader is now determined by DataLoaderService based on use_full_train_batch_flag
@@ -823,7 +838,7 @@ class TrainingTaskManager:
                     if (hasattr(self.training_service, 'validate_epoch_with_graphs') and 
                         device.type == 'cuda' and model_type == 'FNN'):
                         val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch_with_graphs(
-                            model, val_loader, epoch, device, self.stop_requested, task
+                            model, val_loader, epoch, device, self.stop_requested, task, verbose=verbose
                         )
                     else:
                         # Standard validation
@@ -1142,7 +1157,7 @@ class TrainingTaskManager:
                             if (hasattr(self.training_service, 'validate_epoch_with_graphs') and 
                                 device.type == 'cuda' and model_type == 'FNN'):
                                 val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch_with_graphs(
-                                    model, val_loader, epoch, device, self.stop_requested, task
+                                    model, val_loader, epoch, device, self.stop_requested, task, verbose=False
                                 )
                             else:
                                 # Standard validation
