@@ -509,7 +509,7 @@ class VEstimTrainingSetupManager:
 
         model_dir = model_task['model_dir']
         task_dir_name = self._generate_task_dir_name(hyperparams, grid_keys=grid_keys)
-        if not is_optuna_task and repetition > 1:
+        if not is_optuna_task and int(hyperparams.get('REPETITIONS', 1)) > 1:
             task_dir_name += f"_rep_{repetition}"
         
         task_dir = os.path.join(model_dir, task_dir_name)
@@ -572,6 +572,7 @@ class VEstimTrainingSetupManager:
             'VALID_FREQUENCY': hyperparams['VALID_FREQUENCY'],
             'SCHEDULER_TYPE': hyperparams['SCHEDULER_TYPE'],
             'REPETITIONS': hyperparams['REPETITIONS'],
+            'CURRENT_REPETITION': repetition,
             'NUM_LEARNABLE_PARAMS': num_learnable_params,
             'DEVICE_SELECTION': hyperparams.get('DEVICE_SELECTION', 'cuda:0'),  # Include device selection from GUI
             'NUM_WORKERS': hyperparams.get('NUM_WORKERS', 4),
@@ -623,6 +624,7 @@ class VEstimTrainingSetupManager:
 
         task_info = {
             'task_id': task_id,
+            'repetition': repetition,
             'model_name': model_name,
             'model': model_task['model'],
             'model_dir': model_task['model_dir'],

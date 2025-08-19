@@ -178,7 +178,8 @@ class TrainingTaskManager:
             h_params_summary = {
                 k: task_hyperparams.get(k) for k in essential_keys if k in task_hyperparams
             }
-            self.logger.info(f"Starting task_id: {task.get('task_id', 'N/A')} with key hyperparams: {h_params_summary}")
+            repetition_info = f" (Repetition {task.get('repetition', 1)} of {task_hyperparams.get('REPETITIONS', 1)})" if int(task_hyperparams.get('REPETITIONS', 1)) > 1 else ""
+            self.logger.info(f"Starting task_id: {task.get('task_id', 'N/A')}{repetition_info} with key hyperparams: {h_params_summary}")
 
             # Load normalization metadata and scaler if applicable
             self.load_normalization_info_and_scaler()
