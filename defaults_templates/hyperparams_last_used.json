@@ -1,6 +1,6 @@
 {
     "FEATURE_COLUMNS": [
-        "Battery_Temp_degC",
+        "Temperature",
         "Voltage_filtered",
         "Current_filtered"
     ],
@@ -12,11 +12,11 @@
     "NUM_WORKERS": "16",
     "PIN_MEMORY": false,
     "PREFETCH_FACTOR": "16",
-    "MODEL_TYPE": "LSTM",
-    "TRAINING_METHOD": "Sequence-to-Sequence",
+    "MODEL_TYPE": "FNN",
+    "TRAINING_METHOD": "WholeSequenceFNN",
     "LOOKBACK": "400",
     "BATCH_TRAINING": true,
-    "BATCH_SIZE": "256",
+    "BATCH_SIZE": "2048",
     "VALID_PATIENCE": "30",
     "VALID_FREQUENCY": "1",
     "MAX_EPOCHS": "150",
@@ -24,10 +24,10 @@
     "MAX_TRAIN_HOURS": "0",
     "MAX_TRAIN_MINUTES": "0",
     "MAX_TRAIN_SECONDS": "0",
-    "SCHEDULER_TYPE": "CosineAnnealingWarmRestarts",
-    "INITIAL_LR": "0.0001",
-    "LR_PARAM": "0.1",
-    "LR_PERIOD": "10",
+    "SCHEDULER_TYPE": "StepLR",
+    "INITIAL_LR": "0.0005",
+    "LR_PARAM": "0.8",
+    "LR_PERIOD": "8",
     "PLATEAU_PATIENCE": "10",
     "PLATEAU_FACTOR": "0.1",
     "COSINE_T0": "10",
@@ -37,7 +37,8 @@
     "EXPLOIT_EPOCHS": "5",
     "EXPLOIT_REPETITIONS": "2",
     "FINAL_LR": "1e-7",
-    "LAYERS": "1",
-    "HIDDEN_UNITS": "10",
+    "FNN_ACTIVATION": "ReLU",
+    "FNN_HIDDEN_LAYERS": "128,64",
+    "FNN_DROPOUT_PROB": "0.1",
     "MAX_TRAINING_TIME_SECONDS": 0
 }

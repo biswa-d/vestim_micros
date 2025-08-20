@@ -493,13 +493,39 @@ class VEstimTestingGUI(QMainWindow):
             std_error = np.std(errors_for_plot)
 
             x_axis, x_label = (df.index, "Sample Index")
-            if timestamp_col:
-                try:
-                    timestamps = pd.to_datetime(df[timestamp_col], errors='coerce')
-                    if not timestamps.isna().all():
-                        time_seconds = (timestamps - timestamps.iloc[0]).dt.total_seconds()
-                        x_axis, x_label = time_seconds, "Time (seconds)"
-                except: pass
+
+            # 1) Prefer explicit seconds if present (no guessing)
+            for cand in ("Time (s)", "Time_s", "Seconds", "time_s"):
+                if cand in df.columns:
+                    x_axis, x_label = df[cand], "Time (seconds)"
+                    break
+            else:
+                # 2) Your existing logic, but with Excel-serial handling
+                if timestamp_col:
+                    try:
+                        ts = df[timestamp_col]
+                        if pd.api.types.is_numeric_dtype(ts):
+                            ts_num = pd.to_numeric(ts, errors='coerce')
+                            if ts_num.notna().any() and 10000 < ts_num.max() < 1_000_000:
+                                t = pd.to_datetime(ts_num, unit="D", origin="1899-12-30")
+                                x_axis = (t - t.iloc[0]).dt.total_seconds()
+                            else:
+                                x_axis = ts_num - ts_num.iloc[0]
+                        else:
+                            t = pd.to_datetime(ts, errors='coerce')
+                            if t.notna().any():
+                                x_axis = (t - t.iloc[0]).dt.total_seconds()
+                        x_label = "Time (seconds)"
+                    except:
+                        pass
+
+            # Final fallback if degenerate
+            try:
+                xa = np.asarray(x_axis)
+                if np.nanmax(xa) - np.nanmin(xa) == 0:
+                    x_axis, x_label = (df.index, "Sample Index")
+            except:
+                x_axis, x_label = (df.index, "Sample Index")
 
             plot_dialog = QDialog(self)
             plot_dialog.setWindowTitle(f"Test Results: {os.path.basename(predictions_file)}")
