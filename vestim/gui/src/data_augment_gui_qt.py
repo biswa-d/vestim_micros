@@ -655,7 +655,8 @@ class DataAugmentGUI(QMainWindow):
                     self.train_df,
                     column_name,
                     corner_frequency,
-                    sampling_rate
+                    sampling_rate,
+                    filter_order
                 )
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Could not apply filter: {e}")
@@ -663,8 +664,8 @@ class DataAugmentGUI(QMainWindow):
                 filter_type = "Butterworth"
                 log_message = f"{filter_order}th order {filter_type} filter with corner frequency of {corner_frequency}Hz applied to column '{column_name}' (Fs={sampling_rate}Hz)"
                 logger.info(log_message)
-                self.filter_list.addItem(f"Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz)")
-                self.filter_configs.append({"column": column_name, "corner_frequency": corner_frequency, "sampling_rate": sampling_rate})
+                self.filter_list.addItem(f"Order {filter_order} Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz)")
+                self.filter_configs.append({"column": column_name, "corner_frequency": corner_frequency, "sampling_rate": sampling_rate, "filter_order": filter_order})
                 self.remove_filter_button.setEnabled(True)
 
     def remove_filter(self):
@@ -699,19 +700,22 @@ class DataAugmentGUI(QMainWindow):
         dialog.column_combo.setCurrentText(column_name)
         dialog.corner_frequency_spinbox.setValue(corner_frequency)
         dialog.sampling_rate_spinbox.setValue(sampling_rate)
+        dialog.filter_order_spinbox.setValue(config.get("filter_order", 4)) # Use get for safety
 
         if dialog.exec_() == QDialog.Accepted:
             new_column_name = dialog.column_name
             new_corner_frequency = dialog.corner_frequency
             new_sampling_rate = dialog.sampling_rate
+            new_filter_order = dialog.filter_order
 
             # Update the filter configuration
             self.filter_configs[row]["column"] = new_column_name
             self.filter_configs[row]["corner_frequency"] = new_corner_frequency
             self.filter_configs[row]["sampling_rate"] = new_sampling_rate
+            self.filter_configs[row]["filter_order"] = new_filter_order
 
             # Update the display in the list
-            self.filter_list.item(row).setText(f"Filter '{new_column_name}' at {new_corner_frequency}Hz (Fs={new_sampling_rate}Hz)")
+            self.filter_list.item(row).setText(f"Order {new_filter_order} Filter '{new_column_name}' at {new_corner_frequency}Hz (Fs={new_sampling_rate}Hz)")
 
             # Apply the filter immediately to the sample dataframe
             try:
@@ -719,7 +723,8 @@ class DataAugmentGUI(QMainWindow):
                     self.train_df,
                     new_column_name,
                     new_corner_frequency,
-                    new_sampling_rate
+                    new_sampling_rate,
+                    new_filter_order
                 )
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Could not apply filter: {e}")
@@ -950,8 +955,8 @@ class DataAugmentGUI(QMainWindow):
             sampling_rate = setting["sampling_rate"]
             filter_order = setting["filter_order"]
             filter_type = setting["filter_type"]
-            self.filter_configs.append({"column": column_name, "corner_frequency": corner_frequency, "sampling_rate": sampling_rate})
-            self.filter_list.addItem(f"Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz)")
+            self.filter_configs.append({"column": column_name, "corner_frequency": corner_frequency, "sampling_rate": sampling_rate, "filter_order": filter_order})
+            self.filter_list.addItem(f"Order {filter_order} Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz)")
             self.remove_filter_button.setEnabled(True)
 
 

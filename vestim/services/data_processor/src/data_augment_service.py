@@ -301,7 +301,7 @@ class DataAugmentService:
                 safe_globals = {"np": np}
                 safe_locals = {col: result_df[col] for col in result_df.columns}
                 result_df[column_name] = eval(formula, safe_globals, safe_locals)
-                self.logger.info(f"Successfully created column '{column_name}'")
+                #self.logger.info(f"Successfully created column '{column_name}'")
                 if progress_callback: progress_callback(10 + int((i + 1) * progress_increment))
             except Exception as e:
                 self.logger.error(f"Error creating column '{column_name}': {e}", exc_info=True)
@@ -464,16 +464,26 @@ class DataAugmentService:
             self.logger.error(f"Failed to save augmented file {output_filepath}: {e}", exc_info=True)
             raise 
 
-    def update_augmentation_metadata(self, job_folder: str, processed_files_info: List[Dict[str, Any]]):
+    def update_augmentation_metadata(self, job_folder: str, processed_files_info: List[Dict[str, Any]], filter_configs: Optional[List[Dict[str, Any]]] = None):
         self.logger.info(f"Updating augmentation metadata for job: {job_folder}")
-        self._set_job_context(job_folder) 
+        self._set_job_context(job_folder)
 
-        metadata_path = os.path.join(job_folder, 'augmentation_log.txt') 
+        metadata_path = os.path.join(job_folder, 'augmentation_log.txt')
 
         try:
-            with open(metadata_path, 'w') as f: 
+            with open(metadata_path, 'w') as f:
                 f.write(f"--- Data Augmentation Process --- Job ID: {self.job_manager.get_job_id()} ---\n")
                 f.write(f'Augmentation Run Date: {pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}\n\n')
+
+                if filter_configs:
+                    f.write("--- Applied Filters ---\n")
+                    for config in filter_configs:
+                        f.write(f"  - Column: {config.get('column', 'N/A')}\n")
+                        f.write(f"    Type: Butterworth\n")
+                        f.write(f"    Order: {config.get('filter_order', 'N/A')}\n")
+                        f.write(f"    Corner Frequency: {config.get('corner_frequency', 'N/A')} Hz\n")
+                        f.write(f"    Sampling Rate: {config.get('sampling_rate', 'N/A')} Hz\n\n")
+
                 f.write(f'Total files processed: {len(processed_files_info)}\n\n')
                 f.write("--- Processed File Details ---\n")
                 
@@ -547,6 +557,6 @@ class DataAugmentService:
        # Add the filtered data to the DataFrame
        df[new_column_name] = filtered_data
        
-       self.logger.info(f"Successfully created filtered column '{new_column_name}'")
+       #self.logger.info(f"Successfully created filtered column '{new_column_name}'")
        
        return df

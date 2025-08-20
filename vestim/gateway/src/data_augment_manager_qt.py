@@ -178,7 +178,8 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                         df_temp_for_stats,
                                         column_name=config['column'],
                                         corner_frequency=config['corner_frequency'],
-                                        sampling_rate=config['sampling_rate']
+                                        sampling_rate=config['sampling_rate'],
+                                        filter_order=config.get('filter_order', 4)
                                     )
 
                             if column_formulas and df_temp_for_stats is not None and not df_temp_for_stats.empty:
@@ -359,7 +360,8 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                     df,
                                     column_name=config['column'],
                                     corner_frequency=config['corner_frequency'],
-                                    sampling_rate=config['sampling_rate']
+                                    sampling_rate=config['sampling_rate'],
+                                    filter_order=config.get('filter_order', 4)
                                 )
                             except Exception as e_filter:
                                 self.logger.error(f"Error applying filter for {file_path}: {e_filter}", exc_info=True)
@@ -428,7 +430,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
                 current_progress = int(((i + 1) / total_files) * 95)
                 self.augmentationProgress.emit(current_progress)
 
-           self.service.update_augmentation_metadata(job_folder, processed_files_metadata)
+           self.service.update_augmentation_metadata(job_folder, processed_files_metadata, filter_configs=filter_configs)
            
            # Save simple data file reference for future traceability
            try:

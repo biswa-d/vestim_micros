@@ -58,15 +58,28 @@ class CUDAGraphsTrainingService:
             self.static_val_target = None
             self.logger.info("CUDA graphs state reset - graphs will be re-captured on next training epoch")
     
-    def _warmup_model(self, model, sample_input, sample_target, optimizer, device):
+    def _warmup_model(self, model, sample_input, sample_target, optimizer, device, warmup_iters=3):
         """Warmup to allocate all memory before capturing graph."""
-        self.logger.info("Warming up model for CUDA Graphs...")
+        self.logger.info(f"Warming up model for CUDA Graphs with {warmup_iters} iterations...")
         
-        # Warmup forward and backward pass
-        optimizer.zero_grad(set_to_none=True)
-        
-        if self.scaler:
-            with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+        for i in range(warmup_iters):
+            # Warmup forward and backward pass
+            optimizer.zero_grad(set_to_none=True)
+            
+            if self.scaler:
+                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                    output = model(sample_input)
+                    if output.shape != sample_target.shape:
+                        if output.ndim > sample_target.ndim and output.shape[-1] == 1:
+                            output = output.squeeze(-1)
+                        elif sample_target.ndim == 1 and output.ndim == 2 and output.shape[1] == 1:
+                            sample_target = sample_target.unsqueeze(1)
+                    loss = self.criterion(output, sample_target)
+                
+                self.scaler.scale(loss).backward()
+                self.scaler.step(optimizer)
+                self.scaler.update()
+            else:
                 output = model(sample_input)
                 if output.shape != sample_target.shape:
                     if output.ndim > sample_target.ndim and output.shape[-1] == 1:
@@ -74,20 +87,8 @@ class CUDAGraphsTrainingService:
                     elif sample_target.ndim == 1 and output.ndim == 2 and output.shape[1] == 1:
                         sample_target = sample_target.unsqueeze(1)
                 loss = self.criterion(output, sample_target)
-            
-            self.scaler.scale(loss).backward()
-            self.scaler.step(optimizer)
-            self.scaler.update()
-        else:
-            output = model(sample_input)
-            if output.shape != sample_target.shape:
-                if output.ndim > sample_target.ndim and output.shape[-1] == 1:
-                    output = output.squeeze(-1)
-                elif sample_target.ndim == 1 and output.ndim == 2 and output.shape[1] == 1:
-                    sample_target = sample_target.unsqueeze(1)
-            loss = self.criterion(output, sample_target)
-            loss.backward()
-            optimizer.step()
+                loss.backward()
+                optimizer.step()
         
         torch.cuda.synchronize()
         self.logger.info("Model warmup completed")
@@ -149,6 +150,7 @@ class CUDAGraphsTrainingService:
         # Warmup and capture graph on first epoch or after reset
         if self.train_graph is None:
             self._warmup_model(model, sample_input, sample_target, optimizer, device)
+            torch.cuda.synchronize() # Ensure warmup is complete
             self._capture_training_graph(model, optimizer, device, 
                                        sample_input.shape, sample_target.shape)
         

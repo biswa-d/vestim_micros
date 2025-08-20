@@ -1,8 +1,8 @@
 {
     "last_used": {
-        "train_folder": "/mnt/data1/dehuryb/CATL_data/train_cell_SOC",
-        "val_folder": "/mnt/data1/dehuryb/CATL_data/val_cell_SOC",
-        "test_folder": "/mnt/data1/dehuryb/CATL_data/test_cell_SOC",
+        "train_folder": "C:/Users/dehuryb/code/CATL_161/train_small",
+        "val_folder": "C:/Users/dehuryb/code/CATL_161/val_cell_SOC",
+        "test_folder": "C:/Users/dehuryb/code/CATL_161/test_small",
         "file_format": "csv",
         "hyperparams": {
             "FEATURE_COLUMNS": [
