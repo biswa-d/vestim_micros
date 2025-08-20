@@ -277,7 +277,8 @@ class DataAugmentGUI(QMainWindow):
         self.created_columns = []
         self.filter_configs = []
         self.settings_file = os.path.join(self.job_folder, "filter_settings.json") if self.job_folder else None
-        self.last_used_settings_file = os.path.join(self.job_folder, "filter_settings_last_used.json") if self.job_folder else None
+        # Use a fixed path in the defaults_templates directory for last used settings
+        self.last_used_settings_file = "defaults_templates/filter_settings_last_used.json"
         self.initUI()
         if self.job_folder:
             self.load_filter_settings_last_used()
@@ -291,6 +292,18 @@ class DataAugmentGUI(QMainWindow):
                     json.dump(self.filter_configs, f)
             except Exception as e:
                 self.logger.error(f"Error saving filter settings: {e}", exc_info=True)
+
+    def save_filter_settings_last_used(self):
+        """Save the current filter settings to the last used file."""
+        if self.last_used_settings_file and self.filter_configs:
+            try:
+                import json
+                os.makedirs(os.path.dirname(self.last_used_settings_file), exist_ok=True)
+                with open(self.last_used_settings_file, "w") as f:
+                    json.dump(self.filter_configs, f)
+                self.logger.info(f"Saved last used filter settings to {self.last_used_settings_file}")
+            except Exception as e:
+                self.logger.error(f"Error saving last used filter settings: {e}", exc_info=True)
 
     def load_filter_settings(self):
         """Load filter settings from a JSON file."""
@@ -735,6 +748,10 @@ class DataAugmentGUI(QMainWindow):
         if self.job_folder is None:
             QMessageBox.warning(self, "Warning", "Please select a job folder first.")
             return
+        
+        # Save the current settings as the last used for the next session
+        self.save_filter_settings_last_used()
+
         self.logger.info(f"Job folder in apply_changes: {self.job_folder}")
 
         self.progress_bar.setVisible(True)
@@ -932,32 +949,48 @@ class DataAugmentGUI(QMainWindow):
             self.cancel_button.setEnabled(True)
 
     def load_filter_settings_last_used(self):
-        """Load filter settings from a JSON file."""
+        """Load filter settings from the last used JSON file."""
         import json
-        default_settings = [
-            {"column": "Voltage", "filter_type": "Butterworth", "corner_frequency": 0.0002, "sampling_rate": 1.0, "filter_order": 4},
-            {"column": "Current", "filter_type": "Butterworth", "corner_frequency": 0.0002, "sampling_rate": 1.0, "filter_order": 4}
-        ]
-        if self.last_used_settings_file and os.path.exists(self.last_used_settings_file):
-            try:
-                with open(self.last_used_settings_file, "r") as f:
-                    loaded_settings = json.load(f)
-            except Exception as e:
-                self.logger.error(f"Error loading filter settings: {e}", exc_info=True)
-                loaded_settings = default_settings
-        else:
-            loaded_settings = default_settings
+        self.logger.info(f"Attempting to load last used filter settings from: {self.last_used_settings_file}")
 
-        # Apply the loaded settings
-        for setting in loaded_settings:
-            column_name = setting["column"]
-            corner_frequency = setting["corner_frequency"]
-            sampling_rate = setting["sampling_rate"]
-            filter_order = setting["filter_order"]
-            filter_type = setting["filter_type"]
-            self.filter_configs.append({"column": column_name, "corner_frequency": corner_frequency, "sampling_rate": sampling_rate, "filter_order": filter_order})
-            self.filter_list.addItem(f"Order {filter_order} Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz)")
-            self.remove_filter_button.setEnabled(True)
+        if not (self.last_used_settings_file and os.path.exists(self.last_used_settings_file)):
+            self.logger.info("Last used filter settings file not found. No settings will be loaded.")
+            return
+
+        try:
+            with open(self.last_used_settings_file, "r") as f:
+                loaded_settings = json.load(f)
+        except Exception as e:
+            self.logger.error(f"Error reading or parsing last used filter settings file: {e}", exc_info=True)
+            return
+
+        if not self.train_df is None:
+            available_columns = self.train_df.columns.tolist()
+            self.filter_list.clear()
+            self.filter_configs.clear()
+
+            for setting in loaded_settings:
+                column_name = setting.get("column")
+                if column_name in available_columns:
+                    corner_frequency = setting.get("corner_frequency", 0.01)
+                    sampling_rate = setting.get("sampling_rate", 1.0)
+                    filter_order = setting.get("filter_order", 4)
+                    
+                    self.filter_configs.append({
+                        "column": column_name, 
+                        "corner_frequency": corner_frequency, 
+                        "sampling_rate": sampling_rate, 
+                        "filter_order": filter_order
+                    })
+                    self.filter_list.addItem(f"Order {filter_order} Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz)")
+                    self.logger.info(f"Loaded and applied filter setting for column '{column_name}'.")
+                else:
+                    self.logger.warning(f"Skipping loaded filter for column '{column_name}' as it is not present in the current dataset.")
+            
+            if self.filter_list.count() > 0:
+                self.remove_filter_button.setEnabled(True)
+        else:
+            self.logger.warning("Cannot load filter settings as no sample dataframe is loaded.")
 
 
 def main():
