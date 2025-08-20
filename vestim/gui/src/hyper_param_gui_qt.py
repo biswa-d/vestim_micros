@@ -501,7 +501,7 @@ class VEstimHyperParamGUI(QWidget):
         current_training_method = self.training_method_combo.currentText()
         current_model_type = self.model_combo.currentText() # FIXED:Assuming self.model_combo exists and is accessible
 
-        is_rnn_model = current_model_type in ["LSTM", "GRU"]
+        is_rnn_model = current_model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]
         is_fnn_model = current_model_type == "FNN"
         is_whole_sequence_rnn = (current_training_method == "Whole Sequence" and is_rnn_model)
         is_sequence_to_sequence = (current_training_method == "Sequence-to-Sequence")
@@ -557,9 +557,9 @@ class VEstimHyperParamGUI(QWidget):
         model_label.setToolTip("Select a model architecture for training.")
 
         self.model_combo = QComboBox()
-        model_options = ["LSTM", "FNN", "GRU"]
+        model_options = ["LSTM", "FNN", "GRU", "LSTM_EMA", "LSTM_LPF"]
         self.model_combo.addItems(model_options)
-        self.model_combo.setToolTip("LSTM for time-series, CNN for feature extraction, GRU for memory-efficient training, Transformer for advanced architectures.")
+        self.model_combo.setToolTip("LSTM for time-series, FNN for non-sequential data, GRU for memory-efficient training, LSTM_EMA and LSTM_LPF for filtered outputs.")
 
         # FIXED:**Model-Specific Parameters Placeholder**
         self.model_param_container = QVBoxLayout()
@@ -614,7 +614,7 @@ class VEstimHyperParamGUI(QWidget):
         model_params = {} # FIXED:This will hold QLineEdit widgets for the current model
 
         # FIXED:**Model-Specific Parameters**
-        if selected_model == "LSTM" or selected_model == "":
+        if selected_model in ["LSTM", "LSTM_EMA", "LSTM_LPF"] or selected_model == "":
             lstm_layers_label = QLabel("LSTM Layers:")
             lstm_layers_label.setStyleSheet("font-size: 9pt;")
             lstm_layers_label.setToolTip("Number of LSTM layers in the model.")
@@ -1504,7 +1504,7 @@ class VEstimHyperParamGUI(QWidget):
                 new_params["BATCH_SIZE"] = "5000"
         
         # FIXED:Special handling for LSTM/GRU models - ensure compatible training method
-        elif new_params.get("MODEL_TYPE") in ["LSTM", "GRU"]:
+        elif new_params.get("MODEL_TYPE") in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]:
             # FIXED:For RNN models, only "Sequence-to-Sequence" is supported by data loader
             if new_params.get("TRAINING_METHOD") == "Whole Sequence":
                 new_params["TRAINING_METHOD"] = "Sequence-to-Sequence"

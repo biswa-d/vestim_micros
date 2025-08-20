@@ -458,14 +458,14 @@ class ContinuousTestingService:
             from vestim.services.model_training.src.GRU_model import GRUModel
             from vestim.services.model_training.src.FNN_model import FNNModel
             
-            # Get model parameters
-            input_size = len(task.get('data_loader_params', {}).get('feature_columns', []))
+            # Get model parameters from the definitive hyperparams dictionary
+            input_size = hyperparams['INPUT_SIZE']
             output_size = 1  # Single target prediction
             
             # Model-specific parameter handling
-            if model_type in ['LSTM', 'GRU']:
-                hidden_units = hyperparams.get('HIDDEN_UNITS', 64)
-                num_layers = hyperparams.get('LAYERS', 2)
+            if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
+                hidden_units = hyperparams['HIDDEN_UNITS']
+                num_layers = hyperparams['LAYERS']
                 dropout = hyperparams.get('DROPOUT_PROB', 0.0)
                 
                 if model_type == 'GRU':
@@ -474,14 +474,14 @@ class ContinuousTestingService:
                     model = LSTMModel(input_size, hidden_units, num_layers, self.device, dropout, apply_clipped_relu=apply_clipped_relu)
             elif model_type == 'FNN':
                 # For FNN models, use different parameters
-                hidden_layer_sizes = hyperparams.get('HIDDEN_LAYER_SIZES', [64, 32])
+                hidden_layer_sizes = hyperparams['HIDDEN_LAYER_SIZES']
                 dropout_prob = hyperparams.get('DROPOUT_PROB', 0.0)
                 model = FNNModel(input_size, output_size, hidden_layer_sizes, dropout_prob, apply_clipped_relu=apply_clipped_relu)
             else:
-                # Fallback for unknown model types
-                hidden_units = model_metadata.get('hidden_units', 64)
-                num_layers = model_metadata.get('num_layers', 2)
-                dropout = model_metadata.get('dropout', 0.2)
+                # Fallback for unknown model types - this should not be reached if hyperparams are correct
+                hidden_units = hyperparams['HIDDEN_UNITS']
+                num_layers = hyperparams['LAYERS']
+                dropout = hyperparams.get('DROPOUT_PROB', 0.0)
                 model = LSTMModel(input_size, hidden_units, num_layers, self.device, dropout)
             
             print(f"Created {model_type} model instance")

@@ -822,10 +822,10 @@ class TrainingTaskManager:
                     # Initialize hidden states only for RNN models (LSTM, GRU)
                     h_s_val, h_c_val = None, None
                     model_type = task.get('model_metadata', {}).get('model_type', task.get('hyperparams', {}).get('MODEL_TYPE', 'LSTM'))
-                    if model_type in ['LSTM', 'GRU']:
+                    if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
                         self.logger.info(f"Initializing {model_type} validation hidden state with batch size: {actual_val_batch_size}")
                         h_s_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
-                        if model_type == 'LSTM':
+                        if model_type in ['LSTM', 'LSTM_EMA', 'LSTM_LPF']:
                             h_c_val = torch.zeros(model.num_layers, actual_val_batch_size, model.hidden_units).to(device)
                     else:
                         self.logger.info(f"Model type {model_type} does not require validation hidden state initialization")

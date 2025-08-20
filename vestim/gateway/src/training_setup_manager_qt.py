@@ -97,6 +97,8 @@ class VEstimTrainingSetupManager:
         
         model_map = {
             "LSTM": self.lstm_model_service.create_and_save_lstm_model,
+            "LSTM_EMA": self.lstm_model_service.create_and_save_lstm_model,
+            "LSTM_LPF": self.lstm_model_service.create_and_save_lstm_model,
             #"LSTM Batch Norm": self.lstm_model_service.create_and_save_lstm_model_with_BN,
             #"LSTM Layer Norm": self.lstm_model_service.create_and_save_lstm_model_with_LN,  # Removed: method does not exist
             #"Transformer": self.transformer_model_service.create_and_save_transformer_model,
@@ -404,7 +406,7 @@ class VEstimTrainingSetupManager:
             "OUTPUT_SIZE": output_size,
             "normalization_applied": job_normalization_metadata.get('normalization_applied', False) if job_normalization_metadata else False
         }
-        if model_type in ["LSTM", "GRU"]:
+        if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]:
             model_params["HIDDEN_UNITS"] = int(hyperparams.get("HIDDEN_UNITS", hyperparams.get("GRU_HIDDEN_UNITS", 10)))
             model_params["LAYERS"] = int(hyperparams.get("LAYERS", hyperparams.get("GRU_LAYERS", 1)))
         elif model_type == "FNN":
@@ -461,7 +463,7 @@ class VEstimTrainingSetupManager:
         try:
             model_type = hyperparams.get('MODEL_TYPE', 'MDL')
             name_parts = []
-            if model_type in ['LSTM', 'GRU']:
+            if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
                 layers = int(hyperparams.get('LAYERS', hyperparams.get('GRU_LAYERS', 0)))
                 hidden_units = int(hyperparams.get('HIDDEN_UNITS', hyperparams.get('GRU_HIDDEN_UNITS', 0)))
                 name_parts.extend([model_type, f"L{layers}", f"HU{hidden_units}"])
@@ -536,7 +538,7 @@ class VEstimTrainingSetupManager:
         model_type = model_task.get('model_type', 'LSTM')
         
         # For RNN models (LSTM/GRU), use HIDDEN_UNITS and LAYERS
-        if model_type in ['LSTM', 'GRU']:
+        if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
             hidden_units = model_task['hyperparams']['HIDDEN_UNITS']
             layers = model_task['hyperparams']['LAYERS']
             num_learnable_params = self.calculate_learnable_parameters(
@@ -603,7 +605,7 @@ class VEstimTrainingSetupManager:
         final_hyperparams['FINAL_LR'] = hyperparams.get('FINAL_LR')
 
         # Add model-specific and method-specific parameters
-        if model_type in ['LSTM', 'GRU']:
+        if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
             final_hyperparams['HIDDEN_UNITS'] = hidden_units
             final_hyperparams['LAYERS'] = layers
             final_hyperparams['LOOKBACK'] = hyperparams['LOOKBACK']

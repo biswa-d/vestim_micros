@@ -68,10 +68,10 @@ class TrainingTaskService:
         
         # Make copies of initial hidden states to be used and modified in the loop if RNN
         h_s, h_c = None, None
-        if model_type in ["LSTM", "GRU"]: # Or any other RNN type needing hidden states
+        if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]: # Or any other RNN type needing hidden states
             if h_s_initial is not None:
                 h_s = h_s_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
-            if model_type == "LSTM" and h_c_initial is not None:
+            if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"] and h_c_initial is not None:
                 h_c = h_c_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
 
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
@@ -89,7 +89,7 @@ class TrainingTaskService:
             if use_mixed_precision:
                 with torch.cuda.amp.autocast():
                     # Forward pass with mixed precision
-                    if model_type == "LSTM":
+                    if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
                         if h_s is None or h_c is None: # Ensure hidden states are initialized
                             h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                             h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
@@ -133,7 +133,7 @@ class TrainingTaskService:
                 scaler.update()
             else:
                 # Standard precision training
-                if model_type == "LSTM":
+                if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
                     if h_s is None or h_c is None:
                         h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                         h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
@@ -190,7 +190,7 @@ class TrainingTaskService:
                     print(f"Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}, Input: {X_batch.shape}, Pred: {y_pred.shape}")
 
             del X_batch, y_batch, y_pred, loss
-            if model_type == "LSTM":
+            if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
                 h_s = h_s.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
                 h_c = h_c.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
             elif model_type == "GRU":
@@ -223,10 +223,10 @@ class TrainingTaskService:
             print(f"Using mixed precision for validation in epoch {epoch}")
         
         h_s, h_c = None, None
-        if model_type in ["LSTM", "GRU"]:
+        if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]:
             if h_s_initial is not None:
                 h_s = h_s_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
-            if model_type == "LSTM" and h_c_initial is not None:
+            if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"] and h_c_initial is not None:
                 h_c = h_c_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
 
         with torch.no_grad():
@@ -240,7 +240,7 @@ class TrainingTaskService:
                 # Use AMP autocast context manager when mixed precision is enabled
                 if use_mixed_precision:
                     with torch.cuda.amp.autocast():
-                        if model_type == "LSTM":
+                        if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
                             if h_s is None or h_c is None:
                                 h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                                 h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
@@ -271,7 +271,7 @@ class TrainingTaskService:
 
                         loss = self.criterion(y_pred, y_batch)
                 else:
-                    if model_type == "LSTM":
+                    if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
                         if h_s is None or h_c is None:
                             h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                             h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
@@ -279,14 +279,14 @@ class TrainingTaskService:
                             # Ensure existing hidden states are on the correct device
                             h_s = h_s.to(device)
                             h_c = h_c.to(device)
-                        y_pred, (_, _) = model(X_batch, h_s, h_c)
+                        y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                     elif model_type == "GRU":
                         if h_s is None:
                             h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                         else:
                             # Ensure existing hidden state is on the correct device
                             h_s = h_s.to(device)
-                        y_pred, _ = model(X_batch, h_s)
+                        y_pred, h_s = model(X_batch, h_s)
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
                     else:
@@ -316,7 +316,7 @@ class TrainingTaskService:
                         print(f"Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")
 
                 del X_batch, y_batch, y_pred, loss
-                if model_type == "LSTM":
+                if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
                     h_s = h_s.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
                     h_c = h_c.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
                 elif model_type == "GRU":

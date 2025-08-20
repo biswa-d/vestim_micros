@@ -6,18 +6,20 @@ import torch
 import torch.nn as nn
 import torch.nn.utils.prune as prune
 from vestim.services.model_training.src.LSTM_model import LSTMModel
+from vestim.services.model_training.src.LSTM_model_filterable import LSTM_EMA, LSTM_LPF
 
 class LSTMModelService:
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def build_lstm_model(self, params, device=None):
+    def build_lstm_model(self, params, model_type="LSTM", device=None):
         """
         Build the LSTM model using the provided parameters.
 
         :param params: Dictionary containing model parameters.
+        :param model_type: The type of model to build (e.g., "LSTM", "LSTM_EMA", "LSTM_LPF").
         :param device: The target device for the model.
-        :return: An instance of LSTMModel.
+        :return: An instance of the specified model.
         """
         target_device = device if device is not None else self.device
         input_size = params.get("INPUT_SIZE", 3)
@@ -26,12 +28,17 @@ class LSTMModelService:
         dropout_prob = params.get("DROPOUT_PROB", 0.5)
 
         apply_clipped_relu = params.get("normalization_applied", False)
-        print(f"Building LSTM model with input_size={input_size}, hidden_units={hidden_units}, "
+        print(f"Building {model_type} model with input_size={input_size}, hidden_units={hidden_units}, "
               f"num_layers={num_layers}, dropout_prob={dropout_prob}, device={target_device}, "
               f"apply_clipped_relu={apply_clipped_relu}")
 
-        # Create an instance of the refactored LSTMModel
-        model = LSTMModel(
+        model_class = {
+            "LSTM": LSTMModel,
+            "LSTM_EMA": LSTM_EMA,
+            "LSTM_LPF": LSTM_LPF,
+        }.get(model_type, LSTMModel)
+
+        model = model_class(
             input_size=input_size,
             hidden_units=hidden_units,
             num_layers=num_layers,
@@ -42,15 +49,16 @@ class LSTMModelService:
 
         return model
 
-    def create_model(self, params, device=None):
+    def create_model(self, params, model_type="LSTM", device=None):
         """
         Create an LSTM model in-memory without saving it.
 
         :param params: Dictionary containing model parameters.
+        :param model_type: The type of model to create.
         :param device: The target device for the model.
-        :return: An instance of LSTMModel.
+        :return: An instance of the specified model.
         """
-        return self.build_lstm_model(params, device=device)
+        return self.build_lstm_model(params, model_type=model_type, device=device)
     def save_model(self, model, model_path):
         """
         Save the model to the specified path after removing pruning reparameterizations.
@@ -73,6 +81,7 @@ class LSTMModelService:
         :param device: The target device for the model.
         :return: The built LSTM model.
         """
-        model = self.build_lstm_model(params, device=device)
+        model_type = params.get("MODEL_TYPE", "LSTM")
+        model = self.build_lstm_model(params, model_type=model_type, device=device)
         self.save_model(model, model_path)
         return model

@@ -66,7 +66,7 @@ class VEstimTestingService:
             else:
                 # RNN testing: requires hidden states (LSTM/GRU)
                 h_s = torch.zeros(num_layers, 1, hidden_units).to(self.device)
-                if model_type == "LSTM":
+                if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
                     h_c = torch.zeros(num_layers, 1, hidden_units).to(self.device)
                 else:  # GRU
                     h_c = None
@@ -75,19 +75,20 @@ class VEstimTestingService:
                 for X_batch, y_batch in test_loader:
                     # Since test_loader is batched, process each sequence in the batch individually
                     for i in range(X_batch.size(0)):
+                        # Re-initialize hidden states for each new sequence
+                        h_s = torch.zeros(num_layers, 1, hidden_units).to(self.device)
+                        if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
+                            h_c = torch.zeros(num_layers, 1, hidden_units).to(self.device)
+
                         # Extract a single sequence (shape: [1, lookback, features])
                         x_seq = X_batch[i].unsqueeze(0).to(self.device)
                         y_true = y_batch[i].unsqueeze(0).to(self.device)
 
-                        # Forward pass with current hidden states
-                        if model_type == "LSTM":
+                        # Forward pass with re-initialized hidden states
+                        if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
                             y_out, (h_s, h_c) = model(x_seq, h_s, h_c)
-                            # Detach hidden states to avoid accumulation of gradients
-                            h_s, h_c = h_s.detach(), h_c.detach()
                         elif model_type == "GRU":
                             y_out, h_s = model(x_seq, h_s)
-                            # Detach hidden state to avoid accumulation of gradients
-                            h_s = h_s.detach()
                         else:
                             raise ValueError(f"Unsupported model_type in test_model: {model_type}")
 
@@ -231,7 +232,7 @@ class VEstimTestingService:
             model_type = task.get('model_metadata', {}).get('model_type', 'LSTM')
             hyperparams = task.get('hyperparams', {})
             
-            if model_type == 'LSTM':
+            if model_type in ['LSTM', 'LSTM_EMA', 'LSTM_LPF']:
                 model = LSTMModel(
                     input_size=hyperparams['INPUT_SIZE'],
                     hidden_units=hyperparams['HIDDEN_UNITS'],
@@ -269,7 +270,7 @@ class VEstimTestingService:
             model_type = task.get('model_metadata', {}).get('model_type', 'LSTM')  # Get model type from task
             
             # Get model-specific parameters safely
-            if model_type in ['LSTM', 'GRU']:
+            if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
                 hidden_units = task['model_metadata']["hidden_units"]
                 num_layers = task['model_metadata']["num_layers"]
             else:  # FNN or other models
@@ -293,4 +294,3 @@ class VEstimTestingService:
         except Exception as e:
             print(f"Error testing model {model_path}: {str(e)}")
             return None
-
