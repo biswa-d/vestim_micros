@@ -16,7 +16,7 @@
     "TRAINING_METHOD": "WholeSequenceFNN",
     "LOOKBACK": "400",
     "BATCH_TRAINING": true,
-    "BATCH_SIZE": "2048",
+    "BATCH_SIZE": "256",
     "VALID_PATIENCE": "30",
     "VALID_FREQUENCY": "1",
     "MAX_EPOCHS": "150",

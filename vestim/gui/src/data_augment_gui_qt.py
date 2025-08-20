@@ -276,7 +276,35 @@ class DataAugmentGUI(QMainWindow):
         
         self.created_columns = []
         self.filter_configs = []
+        self.settings_file = os.path.join(self.job_folder, "filter_settings.json") if self.job_folder else None
         self.initUI()
+
+    def save_filter_settings(self):
+        """Save the current filter settings to a JSON file."""
+        if self.settings_file and self.filter_configs:
+            try:
+                import json
+                with open(self.settings_file, "w") as f:
+                    json.dump(self.filter_configs, f)
+            except Exception as e:
+                self.logger.error(f"Error saving filter settings: {e}", exc_info=True)
+
+    def load_filter_settings(self):
+        """Load filter settings from a JSON file."""
+        if self.settings_file and os.path.exists(self.settings_file):
+            try:
+                import json
+                with open(self.settings_file, "r") as f:
+                    self.filter_configs = json.load(f)
+                # Update the GUI with the loaded settings
+                for config in self.filter_configs:
+                    column_name = config["column"]
+                    corner_frequency = config["corner_frequency"]
+                    sampling_rate = config["sampling_rate"]
+                    self.filter_list.addItem(f"Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz)")
+                    self.remove_filter_button.setEnabled(True)
+            except Exception as e:
+                self.logger.error(f"Error loading filter settings: {e}", exc_info=True)
     
     def initUI(self):
         self.setWindowTitle("VEstim Data Augmentation")
@@ -332,6 +360,7 @@ class DataAugmentGUI(QMainWindow):
         filtering_layout.addWidget(self.filter_list_label)
         self.filter_list = QListWidget()
         self.filter_list.setMinimumHeight(80)
+        self.filter_list.itemDoubleClicked.connect(self.edit_filter)
         filtering_layout.addWidget(self.filter_list)
         self.remove_filter_button = QPushButton("Remove Selected Filter")
         self.remove_filter_button.clicked.connect(self.remove_filter)
@@ -458,7 +487,7 @@ class DataAugmentGUI(QMainWindow):
             }
         """)
         self.cancel_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
-        self.cancel_button.clicked.connect(self.close)
+        self.cancel_button.clicked.connect(self.close_gui)
         buttons_layout.addWidget(self.cancel_button)
         self.apply_button = QPushButton("Apply Changes and Continue")
         self.apply_button.setMinimumHeight(35)
@@ -499,6 +528,15 @@ class DataAugmentGUI(QMainWindow):
             self.column_creation_checkbox.setEnabled(False)
             self.filtering_checkbox.setEnabled(False)
             self.normalization_checkbox.setEnabled(False) # Disable normalization checkbox
+        
+        # Load filter settings when the GUI is initialized
+        if self.job_folder:
+            self.load_filter_settings()
+    
+    def close_gui(self):
+        """Save filter settings before closing the GUI."""
+        self.save_filter_settings()
+        self.close()
     
     def select_job_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Job Folder")
@@ -590,8 +628,8 @@ class DataAugmentGUI(QMainWindow):
             
         dialog = FilterInputDialog(columns_for_filter, self)
         if dialog.exec_() == QDialog.Accepted:
-            column_name, corner_frequency, sampling_rate = dialog.column_name, dialog.corner_frequency, dialog.sampling_rate
-            
+            column_name, corner_frequency, sampling_rate, filter_order = dialog.column_name, dialog.corner_frequency, dialog.sampling_rate, dialog.filter_order
+
             # Apply the filter immediately to the sample dataframe
             try:
                 self.train_df = self.data_augment_manager.service.apply_butterworth_filter(
@@ -600,19 +638,73 @@ class DataAugmentGUI(QMainWindow):
                     corner_frequency,
                     sampling_rate
                 )
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not apply filter: {e}")
+            else:
+                filter_type = "Butterworth"
+                log_message = f"{filter_order}th order {filter_type} filter with corner frequency of {corner_frequency}Hz applied to column '{column_name}' (Fs={sampling_rate}Hz)"
+                logger.info(log_message)
                 self.filter_list.addItem(f"Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz)")
                 self.filter_configs.append({"column": column_name, "corner_frequency": corner_frequency, "sampling_rate": sampling_rate})
                 self.remove_filter_button.setEnabled(True)
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Could not apply filter: {e}")
 
     def remove_filter(self):
         selected_items = self.filter_list.selectedItems()
-        if not selected_items: return
+        if not selected_items:
+            return
         row = self.filter_list.row(selected_items[0])
         self.filter_list.takeItem(row)
         self.filter_configs.pop(row)
-        if self.filter_list.count() == 0: self.remove_filter_button.setEnabled(False)
+        if self.filter_list.count() == 0:
+            self.remove_filter_button.setEnabled(False)
+
+    def edit_filter(self, item):
+        """Edit the selected filter."""
+        row = self.filter_list.row(item)
+        if row < 0 or row >= len(self.filter_configs):
+            self.logger.warning(f"Invalid row index: {row}")
+            return
+
+        config = self.filter_configs[row]
+        column_name = config["column"]
+        corner_frequency = config["corner_frequency"]
+        sampling_rate = config["sampling_rate"]
+
+        # First, get all columns that are numerically typed.
+        numeric_columns = list(self.train_df.select_dtypes(include=np.number).columns)
+        # Then, explicitly exclude columns that are not suitable for filtering, regardless of type.
+        exclude_names = ['time', 'timestamp', 'status']
+        columns_for_filter = [col for col in numeric_columns if col.lower() not in exclude_names]
+
+        dialog = FilterInputDialog(columns_for_filter, self)
+        dialog.column_combo.setCurrentText(column_name)
+        dialog.corner_frequency_spinbox.setValue(corner_frequency)
+        dialog.sampling_rate_spinbox.setValue(sampling_rate)
+
+        if dialog.exec_() == QDialog.Accepted:
+            new_column_name = dialog.column_name
+            new_corner_frequency = dialog.corner_frequency
+            new_sampling_rate = dialog.sampling_rate
+
+            # Update the filter configuration
+            self.filter_configs[row]["column"] = new_column_name
+            self.filter_configs[row]["corner_frequency"] = new_corner_frequency
+            self.filter_configs[row]["sampling_rate"] = new_sampling_rate
+
+            # Update the display in the list
+            self.filter_list.item(row).setText(f"Filter '{new_column_name}' at {new_corner_frequency}Hz (Fs={new_sampling_rate}Hz)")
+
+            # Apply the filter immediately to the sample dataframe
+            try:
+                self.train_df = self.data_augment_manager.service.apply_butterworth_filter(
+                    self.train_df,
+                    new_column_name,
+                    new_corner_frequency,
+                    new_sampling_rate
+                )
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not apply filter: {e}")
+
 
     def apply_changes(self):
         self.logger.info("apply_changes method entered.")
