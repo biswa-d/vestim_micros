@@ -277,7 +277,10 @@ class DataAugmentGUI(QMainWindow):
         self.created_columns = []
         self.filter_configs = []
         self.settings_file = os.path.join(self.job_folder, "filter_settings.json") if self.job_folder else None
+        self.last_used_settings_file = os.path.join(self.job_folder, "filter_settings_last_used.json") if self.job_folder else None
         self.initUI()
+        if self.job_folder:
+            self.load_filter_settings_last_used()
 
     def save_filter_settings(self):
         """Save the current filter settings to a JSON file."""
@@ -305,7 +308,7 @@ class DataAugmentGUI(QMainWindow):
                     self.remove_filter_button.setEnabled(True)
             except Exception as e:
                 self.logger.error(f"Error loading filter settings: {e}", exc_info=True)
-    
+
     def initUI(self):
         self.setWindowTitle("VEstim Data Augmentation")
         self.setGeometry(100, 100, 1200, 800) # Adjusted for wider layout
@@ -349,6 +352,7 @@ class DataAugmentGUI(QMainWindow):
         filtering_group.setStyleSheet(group_box_style)
         filtering_layout = QVBoxLayout()
         self.filtering_checkbox = QCheckBox("Enable data filtering")
+        self.filtering_checkbox.setChecked(True)
         self.filtering_checkbox.setToolTip("Apply a Butterworth filter to a selected column.")
         self.filtering_checkbox.stateChanged.connect(self.toggle_filtering_options)
         filtering_layout.addWidget(self.filtering_checkbox)
@@ -573,6 +577,21 @@ class DataAugmentGUI(QMainWindow):
                 self.apply_button.setEnabled(False); self.padding_checkbox.setEnabled(False); self.resampling_checkbox.setEnabled(False); self.column_creation_checkbox.setEnabled(False); self.filtering_checkbox.setEnabled(False); self.normalization_checkbox.setEnabled(False)
                 QMessageBox.critical(self, "Error", f"Could not load sample data schema: {e}")
 
+                # Prefill Voltage and Current filters if available
+                if self.train_df is not None:
+                    if "Voltage" in self.train_df.columns:
+                        self.filter_configs.append({"column": "Voltage", "corner_frequency": 0.001, "sampling_rate": 1.0})
+                        # Check if filter_list is initialized before adding items
+                        if hasattr(self, 'filter_list'):
+                            self.filter_list.addItem("Filter 'Voltage' at 0.001Hz (Fs=1.0Hz)")
+                        self.remove_filter_button.setEnabled(True)
+                    if "Current" in self.train_df.columns:
+                        self.filter_configs.append({"column": "Current", "corner_frequency": 0.001, "sampling_rate": 1.0})
+                        # Check if filter_list is initialized before adding items
+                        if hasattr(self, 'filter_list'):
+                            self.filter_list.addItem("Filter 'Current' at 0.001Hz (Fs=1.0Hz)")
+                        self.remove_filter_button.setEnabled(True)
+
     def toggle_padding_options(self, state):
         self.padding_length_spinbox.setEnabled(state == Qt.Checked)
 
@@ -603,7 +622,7 @@ class DataAugmentGUI(QMainWindow):
             self.created_columns.append((new_column, formula))
             logger.info(f"DataAugmentGUI: self.created_columns is now: {self.created_columns}")
             self.remove_formula_button.setEnabled(True)
-    
+
     def remove_formula(self):
         selected_items = self.formula_list.selectedItems()
         if not selected_items: return
@@ -907,13 +926,41 @@ class DataAugmentGUI(QMainWindow):
             self.apply_button.setEnabled(True)
             self.cancel_button.setEnabled(True)
 
+    def load_filter_settings_last_used(self):
+        """Load filter settings from a JSON file."""
+        import json
+        default_settings = [
+            {"column": "Voltage", "filter_type": "Butterworth", "corner_frequency": 0.0002, "sampling_rate": 1.0, "filter_order": 4},
+            {"column": "Current", "filter_type": "Butterworth", "corner_frequency": 0.0002, "sampling_rate": 1.0, "filter_order": 4}
+        ]
+        if self.last_used_settings_file and os.path.exists(self.last_used_settings_file):
+            try:
+                with open(self.last_used_settings_file, "r") as f:
+                    loaded_settings = json.load(f)
+            except Exception as e:
+                self.logger.error(f"Error loading filter settings: {e}", exc_info=True)
+                loaded_settings = default_settings
+        else:
+            loaded_settings = default_settings
+
+        # Apply the loaded settings
+        for setting in loaded_settings:
+            column_name = setting["column"]
+            corner_frequency = setting["corner_frequency"]
+            sampling_rate = setting["sampling_rate"]
+            filter_order = setting["filter_order"]
+            filter_type = setting["filter_type"]
+            self.filter_configs.append({"column": column_name, "corner_frequency": corner_frequency, "sampling_rate": sampling_rate})
+            self.filter_list.addItem(f"Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz)")
+            self.remove_filter_button.setEnabled(True)
+
 
 def main():
     app = QApplication(sys.argv)
     # Example: Launch with a specific job folder if available (e.g., from command line or previous step)
     # job_folder_to_pass = "path/to/your/job_folder" # Replace with actual logic if needed
     # ex = DataAugmentGUI(job_folder=job_folder_to_pass)
-    ex = DataAugmentGUI() 
+    ex = DataAugmentGUI()
     ex.show()
     sys.exit(app.exec_())
 

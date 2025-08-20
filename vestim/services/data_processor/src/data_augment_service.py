@@ -522,7 +522,7 @@ class DataAugmentService:
        Returns:
            The DataFrame with the new filtered column.
        """
-       self.logger.info(f"Applying Butterworth filter to column '{column_name}' with corner frequency {corner_frequency}Hz and sampling rate {sampling_rate}Hz")
+       #self.logger.info(f"Applying Butterworth filter to column '{column_name}' with corner frequency {corner_frequency}Hz and sampling rate {sampling_rate}Hz")
        
        if column_name not in df.columns:
            raise ValueError(f"Column '{column_name}' not found in DataFrame.")
