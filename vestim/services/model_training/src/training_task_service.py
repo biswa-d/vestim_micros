@@ -202,7 +202,9 @@ class TrainingTaskService:
 
             del X_batch, y_batch, y_pred, loss
             if model_type == "LSTM_LPF":
-                h_s, h_c, z = h_s.detach(), h_c.detach(), z.detach()
+                h_s, h_c = h_s.detach(), h_c.detach()
+                if z is not None:
+                    z = z.detach()
             elif model_type in ["LSTM", "LSTM_EMA"]:
                 h_s = h_s.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
                 h_c = h_c.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
@@ -341,7 +343,9 @@ class TrainingTaskService:
 
                 del X_batch, y_batch, y_pred, loss
                 if model_type == "LSTM_LPF":
-                    h_s, h_c, z = h_s.detach(), h_c.detach(), z.detach()
+                    h_s, h_c = h_s.detach(), h_c.detach()
+                    if z is not None:
+                        z = z.detach()
                 elif model_type in ["LSTM", "LSTM_EMA"]:
                     h_s = h_s.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
                     h_c = h_c.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach

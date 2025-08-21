@@ -285,6 +285,14 @@ class VEstimHyperParamGUI(QWidget):
         # Column 2: Device and Optimizer (row 0), Validation Training (row 1)
         hyperparam_section.addWidget(device_optimizer_group, 0, 1)
         hyperparam_section.addWidget(validation_group, 1, 1)
+
+        # Inference Filter Group (initially hidden)
+        self.inference_filter_group = QGroupBox("Inference Filter")
+        self.inference_filter_group.setStyleSheet(group_box_style)
+        inference_filter_layout = QVBoxLayout()
+        self.add_inference_filter_selection(inference_filter_layout)
+        self.inference_filter_group.setLayout(inference_filter_layout)
+        hyperparam_section.addWidget(self.inference_filter_group, 2, 1) # Add to grid
         
         # Column 3: Learning Rate Scheduler (spans rows 0-2)
         hyperparam_section.addWidget(lr_group, 0, 2, 3, 1)
@@ -705,6 +713,10 @@ class VEstimHyperParamGUI(QWidget):
         # FIXED:This ensures self.param_entries only contains widgets relevant to the *current* model type
         self.param_entries.update(model_params)
 
+        # Show/hide the inference filter group based on model selection
+        if hasattr(self, 'inference_filter_group'):
+            self.inference_filter_group.setVisible(selected_model == "LSTM_LPF")
+
 
 
     def add_exploit_lr_widgets(self, layout):
@@ -1103,6 +1115,48 @@ class VEstimHyperParamGUI(QWidget):
         form_layout.addRow(prefetch_label, self.prefetch_factor_entry)
 
         layout.addLayout(form_layout)
+
+    def add_inference_filter_selection(self, layout):
+        """Adds UI components for selecting a post-inference filter."""
+        form_layout = QFormLayout()
+
+        filter_type_label = QLabel("Filter Type:")
+        filter_type_label.setStyleSheet("font-size: 9pt;")
+        self.filter_type_combo = QComboBox()
+        self.filter_type_combo.addItems(["None", "Moving Average", "Exponential Moving Average"])
+        self.param_entries["INFERENCE_FILTER_TYPE"] = self.filter_type_combo
+        form_layout.addRow(filter_type_label, self.filter_type_combo)
+
+        self.filter_window_label = QLabel("Window Size:")
+        self.filter_window_label.setStyleSheet("font-size: 9pt;")
+        self.filter_window_entry = QLineEdit("100")
+        self.param_entries["INFERENCE_FILTER_WINDOW_SIZE"] = self.filter_window_entry
+        form_layout.addRow(self.filter_window_label, self.filter_window_entry)
+
+        self.filter_alpha_label = QLabel("Alpha (EMA):")
+        self.filter_alpha_label.setStyleSheet("font-size: 9pt;")
+        self.filter_alpha_entry = QLineEdit("0.1")
+        self.param_entries["INFERENCE_FILTER_ALPHA"] = self.filter_alpha_entry
+        form_layout.addRow(self.filter_alpha_label, self.filter_alpha_entry)
+
+        self.filter_type_combo.currentIndexChanged.connect(self.update_inference_filter_params)
+        
+        layout.addLayout(form_layout)
+        self.update_inference_filter_params()
+
+    def update_inference_filter_params(self):
+        """Shows/hides filter parameter fields based on the selected filter type."""
+        if not hasattr(self, 'filter_type_combo'): return # Widgets not created yet
+        filter_type = self.filter_type_combo.currentText()
+        
+        is_ma = (filter_type == "Moving Average")
+        is_ema = (filter_type == "Exponential Moving Average")
+
+        self.filter_window_label.setVisible(is_ma)
+        self.filter_window_entry.setVisible(is_ma)
+        
+        self.filter_alpha_label.setVisible(is_ema)
+        self.filter_alpha_entry.setVisible(is_ema)
 
     def get_selected_features(self):
         """Retrieve selected feature columns as a list."""

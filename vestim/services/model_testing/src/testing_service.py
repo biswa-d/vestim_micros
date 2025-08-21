@@ -11,6 +11,30 @@ import json # For potentially loading metadata
 
 # Removed torch.serialization.add_safe_globals as we are reverting to weights_only=False
 
+def apply_inference_filter(predictions, task_info):
+    """
+    Applies a post-inference filter to the predictions based on task_info.
+    """
+    filter_type = task_info.get('hyperparams', {}).get('INFERENCE_FILTER_TYPE', 'None')
+    
+    if filter_type == 'None':
+        return predictions
+        
+    try:
+        if filter_type == 'Moving Average':
+            window_size = int(task_info['hyperparams']['INFERENCE_FILTER_WINDOW_SIZE'])
+            return pd.Series(predictions).rolling(window=window_size, min_periods=1).mean().values
+            
+        elif filter_type == 'Exponential Moving Average':
+            alpha = float(task_info['hyperparams']['INFERENCE_FILTER_ALPHA'])
+            return pd.Series(predictions).ewm(alpha=alpha, adjust=False).mean().values
+            
+    except Exception as e:
+        print(f"Warning: Could not apply inference filter '{filter_type}'. Error: {e}. Returning original predictions.")
+        return predictions
+        
+    return predictions
+
 class VEstimTestingService:
     def __init__(self, device='cpu'):
         print("Initializing VEstimTestingService...")
@@ -110,121 +134,123 @@ class VEstimTestingService:
                 y_pred_normalized = np.concatenate(all_predictions).flatten()
                 y_test_normalized = np.concatenate([y.flatten() for y in y_test_normalized_list])
 
-            print(f"DEBUG: Normalized y_pred shape: {y_pred_normalized.shape}, Normalized y_actual shape: {y_test_normalized.shape}")
+        # --- Apply inference filter if specified ---
+        if model_type == 'LSTM_LPF' and task_info:
+            print("Applying inference filter...")
+            y_pred_normalized = apply_inference_filter(y_pred_normalized, task_info)
 
-            # --- Inverse Transform if normalization was applied ---
-            y_pred_original_scale = y_pred_normalized.copy()
-            y_test_original_scale = y_test_normalized.copy()
-            scaler_loaded = None
-            normalization_applied_during_training = False
-            normalized_columns_during_training = [] # Columns the scaler was fit on
+        print(f"DEBUG: Normalized y_pred shape: {y_pred_normalized.shape}, Normalized y_actual shape: {y_test_normalized.shape}")
 
-            if task_info:
-                # Предполагается, что task_info['job_metadata'] содержит данные из job_metadata.json
-                # или task_info напрямую содержит 'normalization_applied', 'scaler_path', 'normalized_columns'
-                # Это должно быть установлено на этапе настройки обучения и сохранено с артефактами модели.
-                # 'job_metadata' should now be directly available in task_info and contain the parsed JSON content.
-                job_meta = task_info.get('job_metadata', {})
-                normalization_applied_during_training = job_meta.get('normalization_applied', False)
-                scaler_path_relative = job_meta.get('scaler_path')
-                normalized_columns_during_training = job_meta.get('normalized_columns', [])
+        # --- Inverse Transform if normalization was applied ---
+        y_pred_original_scale = y_pred_normalized.copy()
+        y_test_original_scale = y_test_normalized.copy()
+        scaler_loaded = None
+        normalization_applied_during_training = False
+        normalized_columns_during_training = [] # Columns the scaler was fit on
+
+        if task_info:
+            # Check if normalization was applied during training
+            job_meta = task_info.get('job_metadata', {})
+            normalization_applied_during_training = job_meta.get('normalization_applied', False)
+            scaler_path_relative = job_meta.get('scaler_path')
+            normalized_columns_during_training = job_meta.get('normalized_columns', [])
+            
+            # job_folder_augmented_from is now directly in task_info
+            job_folder_for_scaler = task_info.get('job_folder_augmented_from')
+            
+            if normalization_applied_during_training and scaler_path_relative and job_folder_for_scaler and normalized_columns_during_training:
+                # Ensure scaler_path is absolute
+                if not os.path.isabs(scaler_path_relative):
+                    scaler_path_absolute = os.path.join(job_folder_for_scaler, scaler_path_relative)
+                else:
+                    scaler_path_absolute = scaler_path_relative
                 
-                # job_folder_augmented_from is now directly in task_info
-                job_folder_for_scaler = task_info.get('job_folder_augmented_from')
-                
-                if normalization_applied_during_training and scaler_path_relative and job_folder_for_scaler and normalized_columns_during_training:
-                    # Ensure scaler_path is absolute
-                    if not os.path.isabs(scaler_path_relative):
-                        scaler_path_absolute = os.path.join(job_folder_for_scaler, scaler_path_relative)
-                    else:
-                        scaler_path_absolute = scaler_path_relative
+                print(f"Normalization was applied during training. Attempting to load scaler from: {scaler_path_absolute}")
+                scaler_loaded = norm_svc.load_scaler(scaler_path_absolute)
+                if scaler_loaded:
+                    print(f"Scaler loaded. Applying inverse transform to target '{target_column_name}' using standardized method")
                     
-                    print(f"Normalization was applied during training. Attempting to load scaler from: {scaler_path_absolute}")
-                    scaler_loaded = norm_svc.load_scaler(scaler_path_absolute)
-                    if scaler_loaded:
-                        print(f"Scaler loaded. Applying inverse transform to target '{target_column_name}' using standardized method")
-                        
-                        # Use the standardized denormalization function instead of DataFrame method
-                        y_pred_original_scale = norm_svc.inverse_transform_single_column(
-                            y_pred_normalized, scaler_loaded, target_column_name, normalized_columns_during_training
-                        )
-                        y_test_original_scale = norm_svc.inverse_transform_single_column(
-                            y_test_normalized, scaler_loaded, target_column_name, normalized_columns_during_training
-                        )
-                        
-                        print("Standardized inverse transform applied to y_pred and y_test.")
-                        print(f"Sample denormalized values - Pred: {y_pred_original_scale[:3] if len(y_pred_original_scale) > 3 else y_pred_original_scale}")
-                        print(f"Sample denormalized values - True: {y_test_original_scale[:3] if len(y_test_original_scale) > 3 else y_test_original_scale}")
-                        
-                    else:
-                        print(f"Warning: Failed to load scaler from {scaler_path_absolute}. Metrics will be on normalized scale.")
-                elif normalization_applied_during_training:
-                    print("Warning: Normalization was applied during training, but scaler path or related info is missing. Metrics on normalized scale.")
-            
-            # Use y_test_original_scale and y_pred_original_scale for metrics
-            # The existing multiplier logic might need adjustment if inverse transform is successful.
-            # If inverse transform happened, data is in original units. 'soc' might be 0-1.
-            # The multiplier for 'soc' (100.0) would still apply to convert 0-1 to percentage for display.
-            
-            # Determine multiplier and unit based on target_column_name
-            unit_suffix = ""
-            multiplier = 1.0
-            unit_display = ""
-            
-            if "voltage" in target_column_name.lower():
-                unit_suffix = "_mv"
-                unit_display = "mV"
-                multiplier = 1000.0  # Match training task part - V to mV conversion
-            elif "soc" in target_column_name.lower():
-                unit_suffix = "_percent"
-                unit_display = "SOC"  # Match training task GUI format
-                multiplier = 100.0  # Match training task part - 0-1 to percentage conversion
-            elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
-                unit_suffix = "_degC"
-                unit_display = "Deg C"  # Match training task GUI format
-                multiplier = 1.0  # Temperature already in the correct scale
-            
-            # Calculate error metrics with appropriate multipliers
-            # Metrics are calculated on the potentially original scale values
-            y_for_metrics_actual = y_test_original_scale
-            y_for_metrics_pred = y_pred_original_scale
+                    # Use the standardized denormalization function instead of DataFrame method
+                    y_pred_original_scale = norm_svc.inverse_transform_single_column(
+                        y_pred_normalized, scaler_loaded, target_column_name, normalized_columns_during_training
+                    )
+                    y_test_original_scale = norm_svc.inverse_transform_single_column(
+                        y_test_normalized, scaler_loaded, target_column_name, normalized_columns_during_training
+                    )
+                    
+                    print("Standardized inverse transform applied to y_pred and y_test.")
+                    print(f"Sample denormalized values - Pred: {y_pred_original_scale[:3] if len(y_pred_original_scale) > 3 else y_pred_original_scale}")
+                    print(f"Sample denormalized values - True: {y_test_original_scale[:3] if len(y_test_original_scale) > 3 else y_test_original_scale}")
+                    
+                else:
+                    print(f"Warning: Failed to load scaler from {scaler_path_absolute}. Metrics will be on normalized scale.")
+            elif normalization_applied_during_training:
+                print("Warning: Normalization was applied during training, but scaler path or related info is missing. Metrics on normalized scale.")
+        
+        # Use y_test_original_scale and y_pred_original_scale for metrics
+        # The existing multiplier logic might need adjustment if inverse transform is successful.
+        # If inverse transform happened, data is in original units. 'soc' might be 0-1.
+        # The multiplier for 'soc' (100.0) would still apply to convert 0-1 to percentage for display.
+        
+        # Determine multiplier and unit based on target_column_name
+        unit_suffix = ""
+        multiplier = 1.0
+        unit_display = ""
+        
+        if "voltage" in target_column_name.lower():
+            unit_suffix = "_mv"
+            unit_display = "mV"
+            multiplier = 1000.0  # Match training task part - V to mV conversion
+        elif "soc" in target_column_name.lower():
+            unit_suffix = "_percent"
+            unit_display = "SOC"  # Match training task GUI format
+            multiplier = 100.0  # Match training task part - 0-1 to percentage conversion
+        elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
+            unit_suffix = "_degC"
+            unit_display = "Deg C"  # Match training task GUI format
+            multiplier = 1.0  # Temperature already in the correct scale
+        
+        # Calculate error metrics with appropriate multipliers
+        # Metrics are calculated on the potentially original scale values
+        y_for_metrics_actual = y_test_original_scale
+        y_for_metrics_pred = y_pred_original_scale
 
-            # If normalization was applied and inverse transform was successful,
-            # the data is now in its original scale (e.g. SOC might be 0-1).
-            # The multiplier logic for display (e.g. *100 for SOC %) should still apply.
-            # If inverse transform failed, y_for_metrics will be the normalized values.
+        # If normalization was applied and inverse transform was successful,
+        # the data is now in its original scale (e.g. SOC might be 0-1).
+        # The multiplier logic for display (e.g. *100 for SOC %) should still apply.
+        # If inverse transform failed, y_for_metrics will be the normalized values.
 
-            rms_error_val = np.sqrt(mean_squared_error(y_for_metrics_actual, y_for_metrics_pred)) * multiplier
-            mae_val = mean_absolute_error(y_for_metrics_actual, y_for_metrics_pred) * multiplier
-            # MAPE calculation should use the original scale if available, otherwise normalized.
-            # Ensure y_for_metrics_actual in MAPE denominator is not zero.
-            mape_denominator = np.maximum(1e-10, np.abs(y_for_metrics_actual))
-            mape = np.mean(np.abs((y_for_metrics_actual - y_for_metrics_pred) / mape_denominator)) * 100
-            r2 = r2_score(y_for_metrics_actual, y_for_metrics_pred)
+        rms_error_val = np.sqrt(mean_squared_error(y_for_metrics_actual, y_for_metrics_pred)) * multiplier
+        mae_val = mean_absolute_error(y_for_metrics_actual, y_for_metrics_pred) * multiplier
+        # MAPE calculation should use the original scale if available, otherwise normalized.
+        # Ensure y_for_metrics_actual in MAPE denominator is not zero.
+        mape_denominator = np.maximum(1e-10, np.abs(y_for_metrics_actual))
+        mape = np.mean(np.abs((y_for_metrics_actual - y_for_metrics_pred) / mape_denominator)) * 100
+        r2 = r2_score(y_for_metrics_actual, y_for_metrics_pred)
 
-            # Calculate error for the "Error (% SOC)" column
-            # y_for_metrics_actual is y_test_original_scale (e.g., SOC 0-1)
-            # y_for_metrics_pred is y_pred_original_scale (e.g., SOC 0-1)
-            # multiplier is 100.0 for SOC, so error is in percentage points
-            error_percent_soc_values = (y_for_metrics_actual - y_for_metrics_pred) * multiplier
-            
-            print(f"Metrics calculated on (potentially) original scale values.")
-            print(f"RMS Error: {rms_error_val} {unit_display}, MAE: {mae_val} {unit_display}, MAPE: {mape}%, R²: {r2}")
+        # Calculate error for the "Error (% SOC)" column
+        # y_for_metrics_actual is y_test_original_scale (e.g., SOC 0-1)
+        # y_for_metrics_pred is y_pred_original_scale (e.g., SOC 0-1)
+        # multiplier is 100.0 for SOC, so error is in percentage points
+        error_percent_soc_values = (y_for_metrics_actual - y_for_metrics_pred) * multiplier
+        
+        print(f"Metrics calculated on (potentially) original scale values.")
+        print(f"RMS Error: {rms_error_val} {unit_display}, MAE: {mae_val} {unit_display}, MAPE: {mape}%, R²: {r2}")
 
-            results_dict = {
-                'predictions': y_pred_original_scale, # Renamed for compatibility, points to original scale
-                'true_values': y_test_original_scale, # Renamed for compatibility, points to original scale
-                'predictions_normalized': y_pred_normalized if normalization_applied_during_training else None,
-                'true_values_normalized': y_test_normalized if normalization_applied_during_training else None,
-                f'rms_error{unit_suffix}': rms_error_val,
-                f'mae{unit_suffix}': mae_val,
-                'mape_percent': mape, # Explicitly state mape is percent
-                'r2': r2,
-                'unit_display': unit_display,  # Add the unit display string for consistent labeling
-                'multiplier': multiplier,  # Store the multiplier for potential reuse
-                'error_percent_soc_values': error_percent_soc_values # New key for direct error values
-            }
-            return results_dict
+        results_dict = {
+            'predictions': y_pred_original_scale, # Renamed for compatibility, points to original scale
+            'true_values': y_test_original_scale, # Renamed for compatibility, points to original scale
+            'predictions_normalized': y_pred_normalized if normalization_applied_during_training else None,
+            'true_values_normalized': y_test_normalized if normalization_applied_during_training else None,
+            f'rms_error{unit_suffix}': rms_error_val,
+            f'mae{unit_suffix}': mae_val,
+            'mape_percent': mape, # Explicitly state mape is percent
+            'r2': r2,
+            'unit_display': unit_display,  # Add the unit display string for consistent labeling
+            'multiplier': multiplier,  # Store the multiplier for potential reuse
+            'error_percent_soc_values': error_percent_soc_values # New key for direct error values
+        }
+        return results_dict
  
     def run_testing(self, task, model_path, test_loader, test_file_path):
         """Runs testing for a given model and test file, returning results without saving."""

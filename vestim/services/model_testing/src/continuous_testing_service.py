@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import joblib
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from scipy.signal import savgol_filter
+from vestim.services.model_testing.src.testing_service import apply_inference_filter
 
 class ContinuousTestingService:
     """
@@ -209,7 +211,8 @@ class ContinuousTestingService:
                     else: # LSTM variants
                         if self.hidden_states['model_type'] == 'LSTM_LPF':
                             y_pred, (h_s, h_c), z = self.model_instance(x_t, self.hidden_states['h_s'], self.hidden_states['h_c'], self.hidden_states.get('z'))
-                            self.hidden_states['z'] = z.detach()
+                            if z is not None:
+                                self.hidden_states['z'] = z.detach()
                         else: # LSTM and LSTM_EMA
                             y_pred, (h_s, h_c) = self.model_instance(x_t, self.hidden_states['h_s'], self.hidden_states['h_c'])
                         
@@ -229,6 +232,13 @@ class ContinuousTestingService:
             # Get true values and convert predictions to numpy
             y_true = df_scaled[target_col].iloc[:original_len].values.astype(np.float32)
             y_pred_arr = y_preds.cpu().numpy()
+
+            # Post-inference smoothing for LSTM_LPF models to reduce variance
+            model_type = task.get('model_metadata', {}).get('model_type', 'LSTM')
+            if model_type == 'LSTM_LPF':
+                print("Applying configurable inference filter for LSTM_LPF model.")
+                y_pred_arr = apply_inference_filter(y_pred_arr, task)
+                print("Inference filter applied.")
             
             # Match prediction length to raw data file length to handle padding from augmentation
             raw_file_path = test_file_path.replace("processed_data", "raw_data")

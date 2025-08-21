@@ -65,7 +65,6 @@ class LSTM_LPF(nn.Module):
     def __init__(self, input_size, hidden_units, num_layers, device, dropout_prob=0.0, apply_clipped_relu=False):
         super(LSTM_LPF, self).__init__()
         self.lstm = LSTMModel(input_size, hidden_units, num_layers, device, dropout_prob, apply_clipped_relu)
-        self.lpf_head = CausalLPFHead()
 
     @property
     def hidden_units(self):
@@ -76,10 +75,8 @@ class LSTM_LPF(nn.Module):
         return self.lstm.num_layers
 
     def forward(self, x, h_s=None, h_c=None, z=None):
+        # The 'z' parameter is kept for compatibility with the testing service, but it is not used.
         out, (h_s, h_c) = self.lstm(x, h_s, h_c)
-        out = out.unsqueeze(0) # Reshape for CausalLPFHead
-        out, z = self.lpf_head(out, z)
-        out = out.squeeze(0)
         return out, (h_s, h_c), z
 
 class LSTMModel(nn.Module):
