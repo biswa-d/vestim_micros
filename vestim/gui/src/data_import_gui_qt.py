@@ -696,49 +696,17 @@ class FileOrganizer(QObject):
         """Emit progress as a percentage."""
         self.progress.emit(progress_value)
 
-def handle_gpu_setup():
-    """Check for GPU and prompt user to install GPU-enabled PyTorch if needed."""
-    if not gpu_setup.check_gpu():
-        try:
-            # Check for nvidia-smi to see if a GPU is physically present
-            subprocess.check_output("nvidia-smi", shell=True)
-            gpu_physically_present = True
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            gpu_physically_present = False
-
-        if gpu_physically_present:
-            msg_box = QMessageBox()
-            msg_box.setIcon(QMessageBox.Question)
-            msg_box.setText("NVIDIA GPU Detected")
-            msg_box.setInformativeText(
-                "Your system has an NVIDIA GPU, but the necessary PyTorch libraries (CUDA) are not installed.\n\n"
-                "Would you like to download and install them now? This may take several minutes and requires an internet connection."
-            )
-            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            msg_box.setDefaultButton(QMessageBox.Yes)
-            reply = msg_box.exec_()
-
-            if reply == QMessageBox.Yes:
-                success = gpu_setup.install_gpu_pytorch()
-                if success:
-                    QMessageBox.information(
-                        None, "Installation Successful",
-                        "The GPU-enabled PyTorch libraries have been installed.\n\nPlease restart the application to use the GPU."
-                    )
-                else:
-                    QMessageBox.critical(
-                        None, "Installation Failed",
-                        "Failed to install GPU-enabled PyTorch. The application will continue using the CPU."
-                    )
-                # Exit because a restart is required for changes to take effect.
-                sys.exit(0)
-
 def main():
     multiprocessing.freeze_support()
+    
+    if '--install-gpu' in sys.argv:
+        gpu_setup.install_gpu_pytorch()
+        sys.exit(0)
+        
     app = QApplication(sys.argv)
     
     # Handle GPU setup before showing the main window
-    handle_gpu_setup()
+    # handle_gpu_setup()
 
     # Initialize configuration manager early
     from vestim.config_manager import get_config_manager

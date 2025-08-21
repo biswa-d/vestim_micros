@@ -17,39 +17,46 @@ def check_gpu():
         return False
 
 def install_gpu_pytorch():
-    """Install the GPU-enabled version of PyTorch."""
+    """
+    Install the GPU-enabled version of PyTorch.
+    Returns a tuple (success, logs).
+    """
     print("Attempting to install PyTorch with CUDA support...")
+    logs = ""
     try:
-        # Command to install PyTorch with CUDA support
-        # This command might need to be adjusted based on the latest PyTorch installation instructions
         command = [
-            sys.executable, "-m", "pip", "install", 
+            sys.executable, "-m", "pip", "install",
             "torch==2.4.0", "--index-url", "https://download.pytorch.org/whl/cu118"
         ]
         
-        # Execute the command
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False  # Do not raise exception on non-zero exit code
+        )
         
-        # Print output in real-time
-        while True:
-            output = process.stdout.readline()
-            if output == '' and process.poll() is not None:
-                break
-            if output:
-                print(output.strip())
-        
-        stderr = process.communicate()[1]
-        if process.returncode != 0:
-            print("Error installing PyTorch with CUDA support:")
-            print(stderr)
-            return False
-        else:
+        logs += "--- Installation Logs ---\n"
+        logs += f"Command: {' '.join(command)}\n"
+        logs += f"Exit Code: {result.returncode}\n"
+        logs += "--- STDOUT ---\n"
+        logs += result.stdout + "\n"
+        logs += "--- STDERR ---\n"
+        logs += result.stderr + "\n"
+
+        if result.returncode == 0 and "Successfully installed" in result.stdout:
             print("PyTorch with CUDA support installed successfully.")
-            return True
+            return True, logs
+        else:
+            print("Error installing PyTorch with CUDA support:")
+            print(logs)
+            return False, logs
             
     except Exception as e:
-        print(f"An error occurred during installation: {e}")
-        return False
+        error_message = f"An unexpected error occurred during installation: {e}"
+        print(error_message)
+        logs += error_message
+        return False, logs
 
 def main():
     """Main function to handle GPU setup."""

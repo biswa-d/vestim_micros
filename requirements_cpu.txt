@@ -1,6 +1,6 @@
 altgraph==0.17.4
-build==1.2.2
-certifi==2.024.8.30
+build
+certifi
 charset-normalizer==3.3.2
 click==8.1.7
 colorama==0.4.6
@@ -49,7 +49,7 @@ setuptools==74.1.2
 sh==2.0.7
 six==1.16.0
 smmap==5.0.1
-sympy==1.13.2
+sympy
 threadpoolctl==3.5.0
 torch==2.4.0+cpu
 tqdm==4.66.5

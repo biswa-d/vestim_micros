@@ -25,6 +25,10 @@ RequestExecutionLevel user
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
+
+Page custom GpuSelectionPage
+!define MUI_PAGE_CUSTOMFUNCTION_PRE GpuSelectionPagePre
+
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 
@@ -36,6 +40,36 @@ RequestExecutionLevel user
 !insertmacro MUI_LANGUAGE "English"
 
 # Installer sections
+Function GpuSelectionPage
+    !insertmacro MUI_HEADER_TEXT "GPU Selection" "Choose whether to install GPU support."
+    
+    nsDialogs::Create 1018
+    Pop $0
+
+    ${NSD_CreateLabel} 0 0 100% 12u "Do you want to install GPU support for PyTorch?"
+    Pop $0
+    
+    ${NSD_CreateRadioButton} 10u 20u 80% 8u "Yes, install GPU support"
+    Pop $hRadioYes
+    
+    ${NSD_CreateRadioButton} 10u 35u 80% 8u "No, continue with CPU-only version"
+    Pop $hRadioNo
+    
+    ${If} $GpuSupport == "1"
+        ${NSD_Check} $hRadioYes
+    ${Else}
+        ${NSD_Check} $hRadioNo
+    ${EndIf}
+    
+    nsDialogs::Show
+FunctionEnd
+
+Function GpuSelectionPagePre
+    ${If} $GpuSupport == ""
+        StrCpy $GpuSupport "0"
+    ${EndIf}
+FunctionEnd
+
 Section "Main Application" SecMain
     SetOutPath "$INSTDIR"
     File "dist\${APP_EXE}"
@@ -55,6 +89,14 @@ Section "Main Application" SecMain
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "DisplayVersion" "${APP_VERSION}"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "Publisher" "${APP_PUBLISHER}"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "URLInfoAbout" "${APP_URL}"
+SectionEnd
+
+Section "GPU Support" SecGpu
+    SectionIn RO
+    
+    DetailPrint "Installing GPU support for PyTorch..."
+    
+    ExecWait '"$INSTDIR\${APP_EXE}" --install-gpu'
 SectionEnd
 
 Section "Desktop Shortcut" SecDesktop

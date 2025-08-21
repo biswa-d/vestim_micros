@@ -6,7 +6,7 @@ echo ========================================
 echo.
 echo Step 1: Installing build dependencies from requirements_cpu.txt...
 python -m pip install --upgrade pip
-python -m pip install -r requirements_cpu.txt
+python -m pip install -r requirements_cpu.txt --index-url https://download.pytorch.org/whl/cpu
 
 echo.
 REM pause
@@ -30,11 +30,6 @@ if exist dist (
     rmdir /s /q dist
 )
 echo Cleanup complete.
-echo.
-echo Step 1: Installing build dependencies...
-python -m ensurepip
-python -m pip install --upgrade pip
-python -m pip install -r packaging\build_requirements.txt
 
 echo.
 echo Step 2: Preparing installer assets...
@@ -67,22 +62,21 @@ echo - Desktop/Start menu shortcuts
 echo - Uninstaller with cleanup
 echo.
 
-REM Check if Inno Setup is available
-where iscc >nul 2>&1
+REM Check if NSIS is available
+where makensis >nul 2>&1
 if errorlevel 1 (
-    echo Inno Setup not found in PATH.
+    echo NSIS not found in PATH.
     echo.
     echo Manual steps:
-    echo 1. Install Inno Setup from https://jrsoftware.org/isinfo.php
-    echo 2. Open vestim_installer.iss in Inno Setup
-    echo 3. Click Build to create the installer
+    echo 1. Install NSIS from https://nsis.sourceforge.io/Download
+    echo 2. Right-click on packaging\vestim_installer.nsi and select 'Compile NSIS Script'
     echo.
     REM pause
     exit /b 0
 )
 
-echo Inno Setup found! Creating professional installer...
-iscc packaging\vestim_installer.iss
+echo NSIS found! Creating professional installer...
+makensis packaging\vestim_installer.nsi
 
 if exist "installer_output\vestim-installer-2.0.0.exe" (
     echo.
