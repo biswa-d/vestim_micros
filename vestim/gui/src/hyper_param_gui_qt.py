@@ -24,6 +24,7 @@ from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
 from vestim.config_manager import get_default_hyperparams, update_last_used_hyperparams, load_hyperparams_from_root
+from vestim.gui.src.adaptive_gui_utils import scale_font, scale_widget_size, get_adaptive_stylesheet
 
 # FIXED:Initialize the JobManager
 import logging
@@ -48,23 +49,9 @@ class VEstimHyperParamGUI(QWidget):
         """Initial setup for the main window appearance with responsive sizing."""
         self.setWindowTitle("VEstim - Hyperparameter Selection")
         
-        # Get screen geometry for responsive sizing
-        screen = QApplication.desktop().screenGeometry()
-        screen_width = screen.width()
-        screen_height = screen.height()
-        
-        # Calculate responsive window size (80% of screen, but with min/max limits)
-        window_width = max(1000, min(1400, int(screen_width * 0.8)))
-        window_height = max(700, min(900, int(screen_height * 0.8)))
-        
-        # Center the window on screen
-        x = (screen_width - window_width) // 2
-        y = (screen_height - window_height) // 2
-        
-        self.setGeometry(x, y, window_width, window_height)
-        
-        # Set minimum size to prevent too much shrinking
-        self.setMinimumSize(900, 600)
+        # Adapt window size to screen
+        self.setGeometry(100, 100, scale_widget_size(1200), scale_widget_size(900))
+        self.setMinimumSize(scale_widget_size(900), scale_widget_size(600))
         
         # Enable DPI scaling
         self.setAttribute(Qt.WA_AcceptTouchEvents)
@@ -177,13 +164,12 @@ class VEstimHyperParamGUI(QWidget):
         # FIXED:Title & Guide Section
         title_label = QLabel("Select Hyperparameters for Model Training")
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
+        title_label.setStyleSheet(get_adaptive_stylesheet("font-size: 20pt; font-weight: bold; color: #0b6337; margin-bottom: 15px;"))
         content_layout.addWidget(title_label)
 
         guide_button = QPushButton("Open Hyperparameter Guide")
-        guide_button.setFixedWidth(220)
-        guide_button.setFixedHeight(30)
-        guide_button.setStyleSheet("""
+        guide_button.setFixedHeight(scale_widget_size(40))
+        guide_button.setStyleSheet(get_adaptive_stylesheet("""
             QPushButton {
                 font-size: 10pt !important;
                 background-color: #f0f0f0 !important;
@@ -200,7 +186,7 @@ class VEstimHyperParamGUI(QWidget):
                 background-color: #d0d0d0 !important;
                 border: 2px solid #777777 !important;
             }
-        """)
+        """))
         guide_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
         guide_button.clicked.connect(self.open_guide)
         guide_button_layout = QHBoxLayout()
@@ -217,14 +203,14 @@ class VEstimHyperParamGUI(QWidget):
             "Refer to the guide above for more details."
         )
         instructions_label.setAlignment(Qt.AlignCenter)
-        instructions_label.setStyleSheet("font-size: 10pt; color: gray; margin-bottom: 10px;")
+        instructions_label.setStyleSheet(get_adaptive_stylesheet("font-size: 10pt; color: gray; margin-bottom: 10px;"))
         instructions_label.setWordWrap(True)  # Allow text wrapping
         content_layout.addWidget(instructions_label)
 
         # FIXED:Hyperparameter Selection Section
         hyperparam_section = QGridLayout()
-        hyperparam_section.setSpacing(10)  # Add spacing between grid items
-        group_box_style = "QGroupBox { font-size: 10pt; font-weight: bold; }"
+        hyperparam_section.setSpacing(scale_widget_size(10))  # Add spacing between grid items
+        group_box_style = get_adaptive_stylesheet("QGroupBox { font-size: 10pt; font-weight: bold; }")
 
         # FIXED:--- Row 0 ---
         data_selection_group = QGroupBox("Data Selection")
@@ -307,9 +293,8 @@ class VEstimHyperParamGUI(QWidget):
         # FIXED:Bottom Buttons
         button_layout = QVBoxLayout()
         load_button = QPushButton("Load Params from File")
-        load_button.setFixedWidth(220)
-        load_button.setFixedHeight(30)
-        load_button.setStyleSheet("""
+        load_button.setFixedHeight(scale_widget_size(40))
+        load_button.setStyleSheet(get_adaptive_stylesheet("""
             QPushButton {
                 font-size: 10pt !important;
                 background-color: #f0f0f0 !important;
@@ -326,7 +311,7 @@ class VEstimHyperParamGUI(QWidget):
                 background-color: #d0d0d0 !important;
                 border: 2px solid #777777 !important;
             }
-        """)
+        """))
         load_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
         load_button.clicked.connect(self.load_params_from_json)
         button_layout.addWidget(load_button, alignment=Qt.AlignCenter)
@@ -335,9 +320,8 @@ class VEstimHyperParamGUI(QWidget):
         search_method_layout.setAlignment(Qt.AlignCenter)
         
         auto_search_button = QPushButton("Auto Search (Optuna)")
-        auto_search_button.setFixedWidth(180)
-        auto_search_button.setFixedHeight(35)
-        auto_search_button.setStyleSheet("""
+        auto_search_button.setFixedHeight(scale_widget_size(45))
+        auto_search_button.setStyleSheet(get_adaptive_stylesheet("""
             QPushButton {
                 background-color: #2E86AB !important;
                 color: white !important;
@@ -353,16 +337,15 @@ class VEstimHyperParamGUI(QWidget):
             QPushButton:pressed {
                 background-color: #1E5670 !important;
             }
-        """)
+        """))
         auto_search_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
         auto_search_button.setToolTip("Use Optuna for automatic hyperparameter optimization.\nRequires boundary format [min,max] for core hyperparameters (layers, hidden units, learning rate, epochs).\nTime and validation parameters can use single values.\nExample: [1,5] for layers, [0.001,0.1] for learning rate")
         auto_search_button.clicked.connect(self.proceed_to_auto_search)
         self.auto_search_button = auto_search_button
         
         grid_search_button = QPushButton("Exhaustive Grid Search")
-        grid_search_button.setFixedWidth(180)
-        grid_search_button.setFixedHeight(35)
-        grid_search_button.setStyleSheet("""
+        grid_search_button.setFixedHeight(scale_widget_size(45))
+        grid_search_button.setStyleSheet(get_adaptive_stylesheet("""
             QPushButton {
                 background-color: #0b6337 !important;
                 color: white !important;
@@ -378,7 +361,7 @@ class VEstimHyperParamGUI(QWidget):
             QPushButton:pressed {
                 background-color: #073A20 !important;
             }
-        """)
+        """))
         grid_search_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
         grid_search_button.setToolTip("Use traditional exhaustive grid search.\nRequires comma-separated values: 1,2,5 or semicolon for multiple configs: [64,128];[32,64]")
         grid_search_button.clicked.connect(self.proceed_to_grid_search)

@@ -2,7 +2,7 @@
     "last_used": {
         "train_folder": "C:/Users/dehuryb/code/CATL_161/train_small",
         "val_folder": "C:/Users/dehuryb/code/CATL_161/val_small",
-        "test_folder": "C:/Users/dehuryb/code/CATL_161/test_small",
+        "test_folder": "C:/Users/dehuryb/code/CATL_161/test_cell_SOC",
         "file_format": "csv",
         "hyperparams": {
             "FEATURE_COLUMNS": [

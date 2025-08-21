@@ -4,7 +4,7 @@
         "Voltage_filtered",
         "Current_filtered"
     ],
-    "TARGET_COLUMN": "SOC",
+    "TARGET_COLUMN": "WhAccu",
     "DEVICE_SELECTION": "cuda:0",
     "USE_MIXED_PRECISION": false,
     "OPTIMIZER_TYPE": "Adam",
@@ -20,7 +20,7 @@
     "VALID_PATIENCE": "50",
     "VALID_FREQUENCY": "1",
     "MAX_EPOCHS": "250",
-    "REPETITIONS": 1,
+    "REPETITIONS": 2,
     "MAX_TRAIN_HOURS": "0",
     "MAX_TRAIN_MINUTES": "0",
     "MAX_TRAIN_SECONDS": "0",
