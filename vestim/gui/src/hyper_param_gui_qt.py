@@ -698,7 +698,7 @@ class VEstimHyperParamGUI(QWidget):
 
         # Show/hide the inference filter group based on model selection
         if hasattr(self, 'inference_filter_group'):
-            self.inference_filter_group.setVisible(selected_model == "LSTM_LPF")
+            self.inference_filter_group.setVisible(True)
 
 
 

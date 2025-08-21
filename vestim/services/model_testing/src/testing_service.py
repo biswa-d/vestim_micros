@@ -23,10 +23,12 @@ def apply_inference_filter(predictions, task_info):
     try:
         if filter_type == 'Moving Average':
             window_size = int(task_info['hyperparams']['INFERENCE_FILTER_WINDOW_SIZE'])
+            print(f"DEBUG: Applying Moving Average filter with window size: {window_size}")
             return pd.Series(predictions).rolling(window=window_size, min_periods=1).mean().values
             
         elif filter_type == 'Exponential Moving Average':
             alpha = float(task_info['hyperparams']['INFERENCE_FILTER_ALPHA'])
+            print(f"DEBUG: Applying Exponential Moving Average filter with alpha: {alpha}")
             return pd.Series(predictions).ewm(alpha=alpha, adjust=False).mean().values
             
     except Exception as e:
@@ -135,9 +137,11 @@ class VEstimTestingService:
                 y_test_normalized = np.concatenate([y.flatten() for y in y_test_normalized_list])
 
         # --- Apply inference filter if specified ---
-        if model_type == 'LSTM_LPF' and task_info:
-            print("Applying inference filter...")
-            y_pred_normalized = apply_inference_filter(y_pred_normalized, task_info)
+        if task_info:
+            inference_filter_type = task_info.get('hyperparams', {}).get('INFERENCE_FILTER_TYPE', 'None')
+            if inference_filter_type != 'None':
+                print("Applying inference filter...")
+                y_pred_normalized = apply_inference_filter(y_pred_normalized, task_info)
 
         print(f"DEBUG: Normalized y_pred shape: {y_pred_normalized.shape}, Normalized y_actual shape: {y_test_normalized.shape}")
 

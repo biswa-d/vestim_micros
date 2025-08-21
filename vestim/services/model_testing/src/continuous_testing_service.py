@@ -234,9 +234,10 @@ class ContinuousTestingService:
             y_pred_arr = y_preds.cpu().numpy()
 
             # Post-inference smoothing for LSTM_LPF models to reduce variance
-            model_type = task.get('model_metadata', {}).get('model_type', 'LSTM')
-            if model_type == 'LSTM_LPF':
-                print("Applying configurable inference filter for LSTM_LPF model.")
+            hyperparams = task.get('hyperparams', {})
+            inference_filter_type = hyperparams.get('INFERENCE_FILTER_TYPE', 'None')
+            if inference_filter_type != 'None':
+                print(f"Applying {inference_filter_type} inference filter.")
                 y_pred_arr = apply_inference_filter(y_pred_arr, task)
                 print("Inference filter applied.")
             
@@ -498,6 +499,7 @@ class ContinuousTestingService:
                 hidden_layer_sizes = hyperparams['HIDDEN_LAYER_SIZES']
                 dropout_prob = hyperparams.get('DROPOUT_PROB', 0.0)
                 model = FNNModel(input_size, output_size, hidden_layer_sizes, dropout_prob, apply_clipped_relu=apply_clipped_relu)
+                model.to(self.device)
             else:
                 # Fallback for unknown model types - this should not be reached if hyperparams are correct
                 hidden_units = hyperparams['HIDDEN_UNITS']

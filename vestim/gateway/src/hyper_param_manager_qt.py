@@ -312,6 +312,11 @@ class VEstimHyperParamManager:
         validated_params["FEATURE_COLUMNS"] = params.get("FEATURE_COLUMNS", [])
         validated_params["TARGET_COLUMN"] = params.get("TARGET_COLUMN", "")
         validated_params["MODEL_TYPE"] = params.get("MODEL_TYPE", "")
+        
+        # Add inference filter parameters
+        validated_params["INFERENCE_FILTER_TYPE"] = params.get("INFERENCE_FILTER_TYPE", "None")
+        validated_params["INFERENCE_FILTER_WINDOW_SIZE"] = params.get("INFERENCE_FILTER_WINDOW_SIZE", "100")
+        validated_params["INFERENCE_FILTER_ALPHA"] = params.get("INFERENCE_FILTER_ALPHA", "0.1")
 
         self.logger.info("Parameter validation and normalization completed successfully.")
         return validated_params

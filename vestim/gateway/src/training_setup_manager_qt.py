@@ -601,11 +601,10 @@ class VEstimTrainingSetupManager:
         final_hyperparams['EXPLOIT_REPETITIONS'] = hyperparams.get('EXPLOIT_REPETITIONS')
         final_hyperparams['FINAL_LR'] = hyperparams.get('FINAL_LR')
 
-        # Add inference filter parameters if the model is LSTM_LPF
-        if model_type == 'LSTM_LPF':
-            final_hyperparams['INFERENCE_FILTER_TYPE'] = hyperparams.get('INFERENCE_FILTER_TYPE', 'None')
-            final_hyperparams['INFERENCE_FILTER_WINDOW_SIZE'] = hyperparams.get('INFERENCE_FILTER_WINDOW_SIZE', 100)
-            final_hyperparams['INFERENCE_FILTER_ALPHA'] = hyperparams.get('INFERENCE_FILTER_ALPHA', 0.1)
+        # Add inference filter parameters for all model types
+        final_hyperparams['INFERENCE_FILTER_TYPE'] = hyperparams.get('INFERENCE_FILTER_TYPE', 'None')
+        final_hyperparams['INFERENCE_FILTER_WINDOW_SIZE'] = hyperparams.get('INFERENCE_FILTER_WINDOW_SIZE', 100)
+        final_hyperparams['INFERENCE_FILTER_ALPHA'] = hyperparams.get('INFERENCE_FILTER_ALPHA', 0.1)
 
         # Add model-specific and method-specific parameters
         if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
