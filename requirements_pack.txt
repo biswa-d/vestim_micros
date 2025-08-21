@@ -1,8 +1,0 @@
-# Requirements for building the standalone installer
-pyinstaller>=5.0
-setuptools>=45.0
-wheel>=0.37.0
-
-# Optional installer tools (install these manually)
-# Inno Setup: https://jrsoftware.org/isinfo.php
-# NSIS: https://nsis.sourceforge.io/Download

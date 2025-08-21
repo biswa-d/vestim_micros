@@ -4,9 +4,10 @@ echo ========================================
 echo Vestim Professional Installer Builder  
 echo ========================================
 echo.
-echo This script will create a professional Windows
-echo installer (.exe) for Vestim with user-configurable
-echo project folders and embedded demo data.
+echo Step 1: Installing build dependencies from requirements_cpu.txt...
+python -m pip install --upgrade pip
+python -m pip install -r requirements_cpu.txt
+
 echo.
 REM pause
 
@@ -33,7 +34,7 @@ echo.
 echo Step 1: Installing build dependencies...
 python -m ensurepip
 python -m pip install --upgrade pip
-python -m pip install -r build_requirements.txt
+python -m pip install -r packaging\build_requirements.txt
 
 echo.
 echo Step 2: Preparing installer assets...
@@ -44,7 +45,7 @@ echo.
 
 echo.
 echo Step 3: Building standalone executable...
-python build_exe.py
+python packaging\build_exe.py
 
 if not exist "dist\*.exe" (
     echo Error: Failed to create executable
@@ -81,7 +82,7 @@ if errorlevel 1 (
 )
 
 echo Inno Setup found! Creating professional installer...
-iscc vestim_installer.iss
+iscc packaging\vestim_installer.iss
 
 if exist "installer_output\vestim-installer-2.0.0.exe" (
     echo.

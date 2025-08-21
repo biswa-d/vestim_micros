@@ -18,7 +18,7 @@ def prepare_demo_data():
     print("Preparing installer assets...")
     
     # Create installer assets directory
-    assets_dir = Path("installer_assets")
+    assets_dir = Path("../installer_assets")
     assets_dir.mkdir(parents=True, exist_ok=True)
     
     # Create demo data directory structure
@@ -34,7 +34,7 @@ def prepare_demo_data():
     test_dir.mkdir(exist_ok=True)
     
     # Source data directory
-    source_data_dir = Path("data")
+    source_data_dir = Path("../data")
     
     if not source_data_dir.exists():
         print("Warning: No source data directory found. Installer will create empty demo structure.")
@@ -145,7 +145,7 @@ def create_user_readme(assets_dir):
     """Copy comprehensive user README to installer assets"""
     try:
         # Use the comprehensive README we created
-        source_readme = Path("USER_README.md")
+        source_readme = Path("../USER_README.md")
         if source_readme.exists():
             target_readme = assets_dir / "USER_README.md"
             shutil.copy2(source_readme, target_readme)
@@ -191,10 +191,10 @@ def build_executable():
     assets_dir = prepare_demo_data()
     
     # Get the main script path
-    main_script = "vestim/gui/src/data_import_gui_qt.py"
+    main_script = "../vestim/gui/src/data_import_gui_qt.py"
     
     # Get icon path if it exists
-    icon_path = "vestim/gui/resources/icon.ico"
+    icon_path = "../vestim/gui/resources/icon.ico"
     if not Path(icon_path).exists():
         icon_path = None
     
@@ -216,9 +216,9 @@ def build_executable():
         f'--name={exe_name}',
         '--onefile',  # Create single executable
         # Note: Removed --windowed to show console window with logs
-        '--add-data=vestim;vestim',  # Include entire vestim package
-        '--add-data=hyperparams.json;.',  # Include config files
-        '--add-data=USER_README.md;.',  # Include comprehensive user README
+        '--add-data=../vestim;vestim',  # Include entire vestim package
+        '--add-data=../hyperparams.json;.',  # Include config files
+        '--add-data=../USER_README.md;.',  # Include comprehensive user README
         f'--add-data={assets_dir};installer_assets',  # Include all installer assets
         '--hidden-import=PyQt5.QtCore',
         '--hidden-import=PyQt5.QtWidgets', 
@@ -239,7 +239,7 @@ def build_executable():
         args.append(f'--add-binary={torch_lib_path}{os.pathsep}torch/lib')
     
     # Add the runtime hook
-    args.append('--runtime-hook=runtime_hook.py')
+    args.append('--runtime-hook=../runtime_hook.py')
     
     # Add icon if available
     if icon_path:
@@ -309,7 +309,7 @@ VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
   ]
 )'''
     
-    version_file = Path("version_info.txt")
+    version_file = Path("../version_info.txt")
     version_file.write_text(version_content)
     return str(version_file)
 
