@@ -81,37 +81,28 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.param_labels = {
             "LAYERS": "Layers",
             "HIDDEN_UNITS": "Hidden Units",
-            "HIDDEN_LAYER_SIZES": "Hidden Layers",  # For FNN
-            "DROPOUT_PROB": "Dropout Prob",         # For FNN
+            "HIDDEN_LAYER_SIZES": "Hidden Layers",
+            "DROPOUT_PROB": "Dropout Prob",
             "BATCH_SIZE": "Batch Size",
             "MAX_EPOCHS": "Max Epochs",
-            "INITIAL_LR": "Initial LR", # Shorter
-            "LR_DROP_FACTOR": "LR Drop Factor", # Keep for StepLR specific
-            "LR_DROP_PERIOD": "LR Drop Period", # Keep for StepLR specific
-            "PLATEAU_PATIENCE": "Plateau Patience", # For ReduceLROnPlateau
-            "PLATEAU_FACTOR": "Plateau Factor",   # For ReduceLROnPlateau
-            "COSINE_T0": "Initial Period (T0)", # For CosineAnnealingWarmRestarts
-            "COSINE_T_MULT": "Period Multiplier (T_mult)", # For CosineAnnealingWarmRestarts
-            "COSINE_ETA_MIN": "Min LR (eta_min)", # For CosineAnnealingWarmRestarts
+            "INITIAL_LR": "Initial LR",
+            "LR_PARAM": "LR Drop Factor",  # Corrected label
+            "LR_PERIOD": "LR Period",
             "VALID_PATIENCE": "Validation Patience",
-            "VALID_FREQUENCY": "Validation Freq", # Shorter
-            "LOOKBACK": "Lookback", # Shorter
+            "VALID_FREQUENCY": "Validation Freq",
+            "LOOKBACK": "Lookback",
             "REPETITIONS": "Repetitions",
-            "NUM_LEARNABLE_PARAMS": "# Params", # Shorter
-            "INPUT_SIZE": "Input Size",
-            "OUTPUT_SIZE": "Output Size",
+            "NUM_LEARNABLE_PARAMS": "# Params",
             "SCHEDULER_TYPE": "LR Scheduler",
-            "DEVICE_SELECTION": "Device Selection",
+            "DEVICE_SELECTION": "Device",
             "CURRENT_DEVICE": "Current Device",
             "TRAINING_METHOD": "Training Method",
-            "DEVICE_SELECTION": "Device", # Added
-            "MAX_TRAINING_TIME_SECONDS": "Max Train Time (Task)", # Added
-            "NUM_WORKERS": "# CPU Threads",        # Data loading optimization
-            "PIN_MEMORY": "Fast CPU-GPU Transfer", # Data loading optimization
-            "PREFETCH_FACTOR": "Batch Pre-loading", # Data loading optimization
-            "USE_CUDA_GRAPHS": "CUDA Graphs",      # GPU optimization
-            # Add other specific keys from hyperparams if they need special display names
-            # e.g. BATCH_TRAINING, MODEL_TYPE are already strings from QComboBox
+            "MAX_TRAINING_TIME_SECONDS": "Max Train Time (Task)",
+            "NUM_WORKERS": "# CPU Threads",
+            "PIN_MEMORY": "Fast CPU-GPU Transfer",
+            "PREFETCH_FACTOR": "Batch Pre-loading",
+            "USE_CUDA_GRAPHS": "CUDA Graphs",
+            "USE_MIXED_PRECISION": "Mixed Precision"
         }
 
         self.initUI()

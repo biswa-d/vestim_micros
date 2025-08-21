@@ -1,10 +1,10 @@
 {
     "FEATURE_COLUMNS": [
-        "Temperature",
-        "Voltage_filtered",
-        "Current_filtered"
+        "Battery_Temp_degC",
+        "SOC",
+        "Power"
     ],
-    "TARGET_COLUMN": "SOC",
+    "TARGET_COLUMN": "Voltage",
     "DEVICE_SELECTION": "cuda:0",
     "USE_MIXED_PRECISION": false,
     "OPTIMIZER_TYPE": "Adam",
@@ -12,8 +12,8 @@
     "NUM_WORKERS": "16",
     "PIN_MEMORY": false,
     "PREFETCH_FACTOR": "16",
-    "MODEL_TYPE": "LSTM",
-    "TRAINING_METHOD": "Sequence-to-Sequence",
+    "MODEL_TYPE": "FNN",
+    "TRAINING_METHOD": "WholeSequenceFNN",
     "LOOKBACK": "90",
     "BATCH_TRAINING": true,
     "BATCH_SIZE": "512",
@@ -27,7 +27,7 @@
     "SCHEDULER_TYPE": "StepLR",
     "INITIAL_LR": "0.005",
     "LR_PARAM": "0.8",
-    "LR_PERIOD": "50",
+    "LR_PERIOD": "20",
     "PLATEAU_PATIENCE": "10",
     "PLATEAU_FACTOR": "0.1",
     "COSINE_T0": "10",
@@ -37,11 +37,12 @@
     "EXPLOIT_EPOCHS": "5",
     "EXPLOIT_REPETITIONS": "2",
     "FINAL_LR": "1e-7",
-    "INFERENCE_FILTER_TYPE": "Exponential Moving Average",
+    "INFERENCE_FILTER_TYPE": "None",
     "INFERENCE_FILTER_WINDOW_SIZE": "500",
     "INFERENCE_FILTER_ALPHA": "0.0015",
     "INFERENCE_FILTER_POLYORDER": "2",
-    "LAYERS": "1",
-    "HIDDEN_UNITS": "20",
+    "FNN_ACTIVATION": "ReLU",
+    "FNN_HIDDEN_LAYERS": "64,32",
+    "FNN_DROPOUT_PROB": "0.1",
     "MAX_TRAINING_TIME_SECONDS": 0
 }

@@ -47,7 +47,7 @@ def display_hyperparameters(gui, params):
     model_type = params.get('MODEL_TYPE', 'LSTM')
     scheduler_type = params.get('SCHEDULER_TYPE', 'StepLR')
 
-    def is_parameter_relevant(param_key, model_type, scheduler_type):
+    def is_parameter_relevant(param_key, model_type, scheduler_type, current_params):
         # Exclude INPUT_SIZE and OUTPUT_SIZE from the display
         if param_key in ['INPUT_SIZE', 'OUTPUT_SIZE']:
             return False
@@ -55,14 +55,21 @@ def display_hyperparameters(gui, params):
         always_relevant = {
             'MODEL_TYPE', 'NUM_LEARNABLE_PARAMS',
             'TRAINING_METHOD', 'BATCH_TRAINING', 'BATCH_SIZE',
-            'MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE', 
+            'MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE',
             'VALID_FREQUENCY', 'REPETITIONS', 'DEVICE_SELECTION', 'USE_MIXED_PRECISION',
-            'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN'
+            'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN',
+            'CURRENT_REPETITION', 'INFERENCE_FILTER_TYPE'
         }
-        
+
         if param_key in always_relevant:
             return True
-        
+
+        # Conditionally hide inference filter parameters if filter type is None
+        inference_filter_type = current_params.get('INFERENCE_FILTER_TYPE')
+        if param_key in ['INFERENCE_FILTER_WINDOW_SIZE', 'INFERENCE_FILTER_ALPHA', 'INFERENCE_FILTER_POLYORDER']:
+            if inference_filter_type is None or str(inference_filter_type).strip().lower() == 'none':
+                return False
+
         if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
             lstm_gru_params = {'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'}
             if param_key in lstm_gru_params:
@@ -92,7 +99,7 @@ def display_hyperparameters(gui, params):
         
         return True
 
-    filtered_params = {k: v for k, v in params.items() if is_parameter_relevant(k, model_type, scheduler_type)}
+    filtered_params = {k: v for k, v in params.items() if is_parameter_relevant(k, model_type, scheduler_type, params)}
     
     # Reordered sections for better logical flow
     data_keys = ['FEATURE_COLUMNS', 'TARGET_COLUMN']
@@ -116,11 +123,29 @@ def display_hyperparameters(gui, params):
         train_control_keys.extend(['COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'])
     train_control_keys.extend(['VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS'])
     
-    # Grouped device and precision settings
-    exec_env_keys = ['DEVICE_SELECTION', 'USE_MIXED_PRECISION', 'CURRENT_DEVICE', 'MAX_TRAINING_TIME_SECONDS']
+    # Device info after model arch
+    device_keys = ['DEVICE_SELECTION', 'CURRENT_DEVICE', 'USE_MIXED_PRECISION']
+
+    train_method_keys = ['TRAINING_METHOD', 'LOOKBACK', 'BATCH_TRAINING', 'BATCH_SIZE']
     
-    # New order: Data -> Model -> Method -> Control -> Environment
-    all_ordered_keys = data_keys + model_arch_keys + train_method_keys + train_control_keys + exec_env_keys
+    # Reordered training controls
+    train_control_keys = ['MAX_EPOCHS', 'SCHEDULER_TYPE', 'INITIAL_LR']
+    if scheduler_type == 'StepLR':
+        train_control_keys.extend(['LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'])
+    elif scheduler_type == 'ReduceLROnPlateau':
+        train_control_keys.extend(['PLATEAU_PATIENCE', 'PLATEAU_FACTOR'])
+    elif scheduler_type == 'CosineAnnealingWarmRestarts':
+        train_control_keys.extend(['COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'])
+    
+    validation_keys = ['VALID_FREQUENCY', 'VALID_PATIENCE']
+    
+    repetition_keys = ['REPETITIONS', 'CURRENT_REPETITION']
+    
+    other_keys = ['MAX_TRAINING_TIME_SECONDS']
+    
+    # New order: Data -> Model -> Device -> Method -> Controls -> Others -> Repetitions
+    all_ordered_keys = (data_keys + model_arch_keys + device_keys + train_method_keys + 
+                        train_control_keys + validation_keys + other_keys + repetition_keys)
     
     ordered_items = []
     used_keys = set()
@@ -135,8 +160,8 @@ def display_hyperparameters(gui, params):
             ordered_items.append((key, value))
 
     items = ordered_items
-    # Reduced to 3 columns to give more space and prevent text cutoff
-    num_cols = 3
+    # Revert to 4 columns as requested
+    num_cols = 4
     num_rows = (len(items) + num_cols - 1) // num_cols
 
     for i, (param, value) in enumerate(items):
@@ -158,6 +183,15 @@ def display_hyperparameters(gui, params):
         grid_layout.addWidget(param_label, row, col)
         grid_layout.addWidget(value_label, row, col + 1)
 
-    for c in range(num_cols):
-        grid_layout.setColumnStretch(c * 2, 0)
-        grid_layout.setColumnStretch(c * 2 + 1, 1)
+    # Custom column stretch for 4 columns.
+    # The grid has 8 columns total (4 label/value pairs).
+    # We give the first value column (index 1) a higher stretch factor
+    # to make it wider for long text like the feature list.
+    grid_layout.setColumnStretch(0, 0) # Col 1 Label
+    grid_layout.setColumnStretch(1, 2) # Col 1 Value (weight 2)
+    grid_layout.setColumnStretch(2, 0) # Col 2 Label
+    grid_layout.setColumnStretch(3, 1) # Col 2 Value (weight 1)
+    grid_layout.setColumnStretch(4, 0) # Col 3 Label
+    grid_layout.setColumnStretch(5, 1) # Col 3 Value (weight 1)
+    grid_layout.setColumnStretch(6, 0) # Col 4 Label
+    grid_layout.setColumnStretch(7, 1) # Col 4 Value (weight 1)
