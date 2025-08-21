@@ -25,6 +25,7 @@ from vestim.services.data_processor.src.data_processor_qt_csv import DataProcess
 from vestim.services.data_processor.src.data_processor_qt_mat import DataProcessorMAT
 from vestim.services.data_processor.src.data_processor_qt_xlsx import DataProcessorXLSX
 from vestim.config_manager import get_data_directory, get_default_folders, update_last_used_folders, get_default_file_format
+from vestim.gui.src.adaptive_gui_utils import scale_font, scale_widget_size, get_adaptive_stylesheet
 
 import logging
 
@@ -96,7 +97,8 @@ class DataImportGUI(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("VEstim Modelling Tool")
-        self.setGeometry(100, 100, 1200, 800)
+        # Adapt window size to screen
+        self.setGeometry(100, 100, scale_widget_size(1200), scale_widget_size(800))
         self.setMouseTracking(True)  # Enable mouse tracking for hover effects
 
         # Main layout
@@ -115,19 +117,19 @@ class DataImportGUI(QMainWindow):
         # Header
         self.header_label = QLabel("VEstim Modelling Tool\nData Import and Preparation", self)
         self.header_label.setAlignment(Qt.AlignCenter)
-        self.header_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
+        self.header_label.setStyleSheet(get_adaptive_stylesheet("font-size: 20pt; font-weight: bold; color: #0b6337; margin-bottom: 15px;"))
         self.main_layout.addWidget(self.header_label)
 
         # Training folder section
         train_layout = QVBoxLayout()
         self.train_select_button = QPushButton("Select Train Data Folder", self)
-        self.train_select_button.setStyleSheet("""
+        self.train_select_button.setStyleSheet(get_adaptive_stylesheet("""
             QPushButton {
-                background-color: #add8e6 !important;  /* Light blue background */
+                background-color: #add8e6 !important;
                 font-weight: bold !important;
                 font-size: 10pt !important;
-                padding: 8px 15px !important;  /* Adds padding inside the button */
-                color: black !important;  /* Set the text color to black for contrast */
+                padding: 8px 15px !important;
+                color: black !important;
                 border: 2px solid #87ceeb !important;
                 border-radius: 6px !important;
             }
@@ -139,10 +141,10 @@ class DataImportGUI(QMainWindow):
                 background-color: #6fa8dc !important;
                 border: 2px solid #5a94c7 !important;
             }
-        """)
-        self.train_select_button.setFixedHeight(30)  # Set a consistent height for the button
-        self.train_select_button.setMinimumWidth(150)  # Set a reasonable minimum width
-        self.train_select_button.setMaximumWidth(300)  # Set a reasonable maximum width
+        """))
+        self.train_select_button.setFixedHeight(scale_widget_size(40))
+        self.train_select_button.setMinimumWidth(scale_widget_size(200))
+        self.train_select_button.setMaximumWidth(scale_widget_size(400))
         self.train_select_button.clicked.connect(self.select_train_folder)
         self.train_select_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
 
@@ -156,7 +158,7 @@ class DataImportGUI(QMainWindow):
         # Train folder list widget (covers full width)
         self.train_list_widget = QListWidget(self)
         self.train_list_widget.setSelectionMode(QListWidget.MultiSelection)
-        self.train_list_widget.setMinimumHeight(100)  # Set minimum height for scrollability
+        self.train_list_widget.setMinimumHeight(scale_widget_size(150))
         train_layout.addWidget(self.train_list_widget)
 
         # Add the training section to the main layout
@@ -165,13 +167,13 @@ class DataImportGUI(QMainWindow):
         # Validation folder section (moved before test)
         val_layout = QVBoxLayout()
         self.val_select_button = QPushButton("Select Validation Data Folder", self)
-        self.val_select_button.setStyleSheet("""
+        self.val_select_button.setStyleSheet(get_adaptive_stylesheet("""
             QPushButton {
-                background-color: #ffcccb !important;  /* Light red background */
+                background-color: #ffcccb !important;
                 font-weight: bold !important;
                 font-size: 10pt !important;
-                padding: 8px 15px !important;  /* Adds padding inside the button */
-                color: black !important;  /* Set the text color to black for contrast */
+                padding: 8px 15px !important;
+                color: black !important;
                 border: 2px solid #ffaaaa !important;
                 border-radius: 6px !important;
             }
@@ -183,10 +185,10 @@ class DataImportGUI(QMainWindow):
                 background-color: #ff8888 !important;
                 border: 2px solid #ff6666 !important;
             }
-        """)
-        self.val_select_button.setFixedHeight(30)  # Set a consistent height for the button
-        self.val_select_button.setMinimumWidth(150)  # Set a reasonable minimum width
-        self.val_select_button.setMaximumWidth(300)  # Set a reasonable maximum width
+        """))
+        self.val_select_button.setFixedHeight(scale_widget_size(40))
+        self.val_select_button.setMinimumWidth(scale_widget_size(200))
+        self.val_select_button.setMaximumWidth(scale_widget_size(400))
         self.val_select_button.clicked.connect(self.select_val_folder)
         self.val_select_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
 
@@ -200,7 +202,7 @@ class DataImportGUI(QMainWindow):
         # Validation folder list widget (covers full width)
         self.val_list_widget = QListWidget(self)
         self.val_list_widget.setSelectionMode(QListWidget.MultiSelection)
-        self.val_list_widget.setMinimumHeight(100)
+        self.val_list_widget.setMinimumHeight(scale_widget_size(150))
         val_layout.addWidget(self.val_list_widget)
 
         # Add the validation section to the main layout
@@ -209,13 +211,13 @@ class DataImportGUI(QMainWindow):
         # Testing folder section (moved after validation)
         test_layout = QVBoxLayout()
         self.test_select_button = QPushButton("Select Test Data Folder", self)
-        self.test_select_button.setStyleSheet("""
+        self.test_select_button.setStyleSheet(get_adaptive_stylesheet("""
             QPushButton {
-                background-color: #98fb98 !important;  /* Light green background */
+                background-color: #98fb98 !important;
                 font-weight: bold !important;
                 font-size: 10pt !important;
-                padding: 8px 15px !important;  /* Adds padding inside the button */
-                color: black !important;  /* Set the text color to black for contrast */
+                padding: 8px 15px !important;
+                color: black !important;
                 border: 2px solid #7ee87e !important;
                 border-radius: 6px !important;
             }
@@ -227,10 +229,10 @@ class DataImportGUI(QMainWindow):
                 background-color: #66d466 !important;
                 border: 2px solid #4cc04c !important;
             }
-        """)
-        self.test_select_button.setFixedHeight(30)  # Set a consistent height for the button
-        self.test_select_button.setMinimumWidth(150)  # Set a reasonable minimum width
-        self.test_select_button.setMaximumWidth(300)  # Set a reasonable maximum width
+        """))
+        self.test_select_button.setFixedHeight(scale_widget_size(40))
+        self.test_select_button.setMinimumWidth(scale_widget_size(200))
+        self.test_select_button.setMaximumWidth(scale_widget_size(400))
         self.test_select_button.clicked.connect(self.select_test_folder)
         self.test_select_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
 
@@ -244,7 +246,7 @@ class DataImportGUI(QMainWindow):
         # Test folder list widget (covers full width)
         self.test_list_widget = QListWidget(self)
         self.test_list_widget.setSelectionMode(QListWidget.MultiSelection)
-        self.test_list_widget.setMinimumHeight(100)
+        self.test_list_widget.setMinimumHeight(scale_widget_size(150))
         test_layout.addWidget(self.test_list_widget)
 
         # Add the testing section to the main layout
@@ -255,15 +257,15 @@ class DataImportGUI(QMainWindow):
 
         # Data source label with color change, bold text, and padding
         data_source_label = QLabel("File Format:")
-        data_source_label.setStyleSheet("color: purple; font-weight: bold; font-size: 14px; padding-right: 10px;")
+        data_source_label.setStyleSheet(get_adaptive_stylesheet("color: purple; font-weight: bold; font-size: 14pt; padding-right: 10px;"))
         combined_layout.addWidget(data_source_label)
 
         # Data source selection with consistent height and styling
         self.data_source_combo = QComboBox(self)
         self.data_source_combo.addItems(["csv", "mat", "xlsx"])  # CSV as default/top option
-        self.data_source_combo.setFixedHeight(35)  # Set a specific height for the ComboBox
-        self.data_source_combo.setFixedWidth(120)  # Set a specific width for the ComboBox
-        self.data_source_combo.setStyleSheet("font-size: 10pt; padding: 5px;")
+        self.data_source_combo.setFixedHeight(scale_widget_size(40))
+        self.data_source_combo.setFixedWidth(scale_widget_size(150))
+        self.data_source_combo.setStyleSheet(get_adaptive_stylesheet("font-size: 10pt; padding: 5px;"))
         combined_layout.addWidget(self.data_source_combo)
         self.data_source_combo.currentIndexChanged.connect(self.on_data_source_selection_changed)
 
@@ -272,12 +274,12 @@ class DataImportGUI(QMainWindow):
 
         # Organize button with consistent height and padding
         self.organize_button = QPushButton("Load and Prepare Files", self)
-        self.organize_button.setStyleSheet("""
+        self.organize_button.setStyleSheet(get_adaptive_stylesheet("""
             QPushButton {
-                background-color: #d3d3d3 !important;  /* Grey background when disabled */
+                background-color: #d3d3d3 !important;
                 font-size: 10pt !important;
-                padding: 10px 20px !important;  /* Adjust padding for visual appeal */
-                color: #666666 !important;  /* Darker grey text when disabled */
+                padding: 10px 20px !important;
+                color: #666666 !important;
                 border: 2px solid #bbbbbb !important;
                 border-radius: 6px !important;
             }
@@ -304,10 +306,10 @@ class DataImportGUI(QMainWindow):
                 background-color: #073A20 !important;
                 border: 2px solid #073A20 !important;
             }
-        """)
-        self.organize_button.setFixedHeight(35)  # Ensure consistent height
-        self.organize_button.setMinimumWidth(150)  # Set minimum width
-        self.organize_button.setMaximumWidth(300)  # Set maximum width
+        """))
+        self.organize_button.setFixedHeight(scale_widget_size(40))
+        self.organize_button.setMinimumWidth(scale_widget_size(200))
+        self.organize_button.setMaximumWidth(scale_widget_size(400))
         self.organize_button.clicked.connect(self.organize_files)
         self.organize_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
 
@@ -321,7 +323,10 @@ class DataImportGUI(QMainWindow):
         self.main_layout.addLayout(combined_layout)
 
         # Add margins to the main layout for border spacing
-        self.main_layout.setContentsMargins(30, 10, 30, 10)  # Increase left, right margins for more centering
+        self.main_layout.setContentsMargins(
+            scale_widget_size(30), scale_widget_size(10),
+            scale_widget_size(30), scale_widget_size(10)
+        )
 
         # Progress bar
         self.progress_bar = QProgressBar(self)
