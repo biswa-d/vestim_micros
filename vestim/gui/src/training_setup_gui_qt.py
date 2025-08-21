@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame
+    QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout, QFrame, QMessageBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 import sys
@@ -9,6 +9,7 @@ from vestim.gateway.src.optuna_setup_manager_qt import OptunaSetupManager
 from vestim.gui.src.training_task_gui_qt import VEstimTrainingTaskGUI
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
+from vestim.gui.src.adaptive_gui_utils import display_hyperparameters
 import logging
 
 class SetupWorker(QThread):
@@ -136,12 +137,8 @@ class VEstimTrainSetupGUI(QWidget):
                 background-color: #ffffff;
             }
         """)
-        hyperparam_layout = QGridLayout()
-        hyperparam_layout.setContentsMargins(30, 30, 30, 30)
-        hyperparam_layout.setHorizontalSpacing(25)
-        hyperparam_layout.setVerticalSpacing(20)
-        self.display_hyperparameters(hyperparam_layout)
-        self.hyperparam_frame.setLayout(hyperparam_layout)
+        self.hyperparam_frame.setLayout(QVBoxLayout())
+        self.display_hyperparameters(self.params)
         h_layout = QHBoxLayout()
         h_layout.addStretch(1)
         h_layout.addWidget(self.hyperparam_frame)
@@ -161,88 +158,8 @@ class VEstimTrainSetupGUI(QWidget):
         bottom_layout.addWidget(self.status_label)
         self.main_layout.addWidget(self.bottom_widget)
 
-    def display_hyperparameters(self, layout):
-        # Get model type and scheduler type to determine which parameters to display
-        model_type = self.params.get('MODEL_TYPE', 'LSTM')
-        scheduler_type = self.params.get('SCHEDULER_TYPE', 'StepLR')
-
-        # Define smart parameter filtering based on model and scheduler types
-        def is_parameter_relevant(param_key, model_type, scheduler_type):
-            """Determine if a parameter should be displayed based on model and scheduler type"""
-            
-            # Always relevant parameters
-            always_relevant = {
-                'MODEL_TYPE', 'INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_LEARNABLE_PARAMS',
-                'TRAINING_METHOD', 'BATCH_TRAINING', 'BATCH_SIZE',
-                'MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE', 
-                'VALID_FREQUENCY', 'REPETITIONS', 'DEVICE_SELECTION',
-                'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN'
-            }
-            
-            if param_key in always_relevant:
-                return True
-            
-            # Model-specific parameters
-            if model_type in ['LSTM', 'GRU']:
-                lstm_gru_params = {'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'}
-                if param_key in lstm_gru_params:
-                    return True
-            elif model_type == 'FNN':
-                fnn_params = {'FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB', 'HIDDEN_LAYER_SIZES', 'DROPOUT_PROB'}
-                if param_key in fnn_params:
-                    return True
-                # FNN doesn't use LOOKBACK, LAYERS, HIDDEN_UNITS
-                if param_key in {'LOOKBACK', 'LAYERS', 'HIDDEN_UNITS'}:
-                    return False
-            
-            # Scheduler-specific parameters
-            if scheduler_type == 'StepLR':
-                if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'}:
-                    return True
-                # Hide other scheduler params
-                if param_key in {'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
-                    return False
-            elif scheduler_type == 'ReduceLROnPlateau':
-                if param_key in {'PLATEAU_PATIENCE', 'PLATEAU_FACTOR'}:
-                    return True
-                # Hide other scheduler params
-                if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
-                    return False
-            elif scheduler_type == 'CosineAnnealingWarmRestarts':
-                if param_key in {'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
-                    return True
-                # Hide other scheduler params
-                if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR'}:
-                    return False
-            
-            # Default: show parameter if it has a value
-            return True
-
-        # Filter parameters to only show relevant ones
-        filtered_params = {k: v for k, v in self.params.items() if is_parameter_relevant(k, model_type, scheduler_type)}
-        
-        items = list(filtered_params.items())
-        num_cols = 4
-        num_rows = (len(items) + num_cols - 1) // num_cols
-
-        for i, (param, value) in enumerate(items):
-            row = i % num_rows
-            col = (i // num_rows) * 2
-            label_text = self.param_labels.get(param, param.replace("_", " ").title())
-            value_str = str(value)
-            param_label = QLabel(f"{label_text}:")
-            param_label.setStyleSheet("font-size: 9pt; color: #333; font-weight: bold;")
-            param_label.setAlignment(Qt.AlignRight | Qt.AlignTop)
-            value_label = QLabel(value_str)
-            value_label.setStyleSheet("font-size: 9pt; color: #005878;")
-            value_label.setWordWrap(True)
-            value_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-            layout.addWidget(param_label, row, col)
-            layout.addWidget(value_label, row, col + 1)
-
-        for c in range(num_cols):
-            layout.setColumnStretch(c * 2, 0)
-            layout.setColumnStretch(c * 2 + 1, 1)
+    def display_hyperparameters(self, params):
+        display_hyperparameters(self, params)
 
     def start_setup(self):
         if not self.is_multiple_configs:
