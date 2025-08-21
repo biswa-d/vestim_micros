@@ -97,12 +97,14 @@ class ContinuousTestingService:
                     print(f"DEBUG: Hidden state device: {self.hidden_states['h_s'].device}")
                     print(f"DEBUG: Service device: {self.device}")
                 else:
-                    # LSTM has both hidden state (h_s) and cell state (h_c)
+                    # LSTM variants
                     self.hidden_states = {
                         'h_s': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
                         'h_c': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
-                        'model_type': 'LSTM'
+                        'model_type': model_type  # Use the specific model_type
                     }
+                    if model_type == 'LSTM_LPF':
+                        self.hidden_states['z'] = None # Initialize filter state
                     print(f"Hidden states initialized for continuous testing ({model_type})")
             
             # Load scaler only once
@@ -204,9 +206,13 @@ class ContinuousTestingService:
                         y_pred, h_s = self.model_instance(x_t, self.hidden_states['h_s'])
                         # Update hidden state for next sample
                         self.hidden_states['h_s'] = h_s.detach()
-                    else:
-                        # LSTM forward pass with persistent hidden states
-                        y_pred, (h_s, h_c) = self.model_instance(x_t, self.hidden_states['h_s'], self.hidden_states['h_c'])
+                    else: # LSTM variants
+                        if self.hidden_states['model_type'] == 'LSTM_LPF':
+                            y_pred, (h_s, h_c), z = self.model_instance(x_t, self.hidden_states['h_s'], self.hidden_states['h_c'], self.hidden_states.get('z'))
+                            self.hidden_states['z'] = z.detach()
+                        else: # LSTM and LSTM_EMA
+                            y_pred, (h_s, h_c) = self.model_instance(x_t, self.hidden_states['h_s'], self.hidden_states['h_c'])
+                        
                         # Update hidden states for next sample
                         self.hidden_states['h_s'] = h_s.detach()
                         self.hidden_states['h_c'] = h_c.detach()
@@ -457,6 +463,7 @@ class ContinuousTestingService:
             from vestim.services.model_training.src.LSTM_model import LSTMModel
             from vestim.services.model_training.src.GRU_model import GRUModel
             from vestim.services.model_training.src.FNN_model import FNNModel
+            from vestim.services.model_training.src.LSTM_model_filterable import LSTM_EMA, LSTM_LPF
             
             # Get model parameters from the definitive hyperparams dictionary
             input_size = hyperparams['INPUT_SIZE']
@@ -470,6 +477,10 @@ class ContinuousTestingService:
                 
                 if model_type == 'GRU':
                     model = GRUModel(input_size, hidden_units, num_layers, output_size, dropout, device=self.device, apply_clipped_relu=apply_clipped_relu)
+                elif model_type == 'LSTM_EMA':
+                    model = LSTM_EMA(input_size, hidden_units, num_layers, self.device, dropout, apply_clipped_relu=apply_clipped_relu)
+                elif model_type == 'LSTM_LPF':
+                    model = LSTM_LPF(input_size, hidden_units, num_layers, self.device, dropout, apply_clipped_relu=apply_clipped_relu)
                 else:  # Default LSTM
                     model = LSTMModel(input_size, hidden_units, num_layers, self.device, dropout, apply_clipped_relu=apply_clipped_relu)
             elif model_type == 'FNN':

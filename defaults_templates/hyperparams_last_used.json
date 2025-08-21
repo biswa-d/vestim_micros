@@ -12,7 +12,7 @@
     "NUM_WORKERS": "16",
     "PIN_MEMORY": false,
     "PREFETCH_FACTOR": "16",
-    "MODEL_TYPE": "LSTM_LPF",
+    "MODEL_TYPE": "LSTM_EMA",
     "TRAINING_METHOD": "Sequence-to-Sequence",
     "LOOKBACK": "120",
     "BATCH_TRAINING": true,

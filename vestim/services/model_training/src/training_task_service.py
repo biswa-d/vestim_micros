@@ -68,6 +68,7 @@ class TrainingTaskService:
         
         # Make copies of initial hidden states to be used and modified in the loop if RNN
         h_s, h_c = None, None
+        z = None # Initialize filter state for LPF models
         if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]: # Or any other RNN type needing hidden states
             if h_s_initial is not None:
                 h_s = h_s_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
@@ -89,7 +90,12 @@ class TrainingTaskService:
             if use_mixed_precision:
                 with torch.cuda.amp.autocast():
                     # Forward pass with mixed precision
-                    if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
+                    if model_type == "LSTM_LPF":
+                        if h_s is None or h_c is None: # Ensure hidden states are initialized
+                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                        y_pred, (h_s, h_c), z = model(X_batch, h_s, h_c, z)
+                    elif model_type in ["LSTM", "LSTM_EMA"]:
                         if h_s is None or h_c is None: # Ensure hidden states are initialized
                             h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                             h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
@@ -133,7 +139,12 @@ class TrainingTaskService:
                 scaler.update()
             else:
                 # Standard precision training
-                if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
+                if model_type == "LSTM_LPF":
+                    if h_s is None or h_c is None:
+                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                        h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                    y_pred, (h_s, h_c), z = model(X_batch, h_s, h_c, z)
+                elif model_type in ["LSTM", "LSTM_EMA"]:
                     if h_s is None or h_c is None:
                         h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                         h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
@@ -190,7 +201,9 @@ class TrainingTaskService:
                     print(f"Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}, Input: {X_batch.shape}, Pred: {y_pred.shape}")
 
             del X_batch, y_batch, y_pred, loss
-            if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
+            if model_type == "LSTM_LPF":
+                h_s, h_c, z = h_s.detach(), h_c.detach(), z.detach()
+            elif model_type in ["LSTM", "LSTM_EMA"]:
                 h_s = h_s.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
                 h_c = h_c.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
             elif model_type == "GRU":
@@ -223,6 +236,7 @@ class TrainingTaskService:
             print(f"Using mixed precision for validation in epoch {epoch}")
         
         h_s, h_c = None, None
+        z = None # Initialize filter state for LPF models
         if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]:
             if h_s_initial is not None:
                 h_s = h_s_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
@@ -240,7 +254,12 @@ class TrainingTaskService:
                 # Use AMP autocast context manager when mixed precision is enabled
                 if use_mixed_precision:
                     with torch.cuda.amp.autocast():
-                        if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
+                        if model_type == "LSTM_LPF":
+                            if h_s is None or h_c is None:
+                                h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                                h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                            y_pred, (h_s, h_c), z = model(X_batch, h_s, h_c, z)
+                        elif model_type in ["LSTM", "LSTM_EMA"]:
                             if h_s is None or h_c is None:
                                 h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                                 h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
@@ -271,7 +290,12 @@ class TrainingTaskService:
 
                         loss = self.criterion(y_pred, y_batch)
                 else:
-                    if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
+                    if model_type == "LSTM_LPF":
+                        if h_s is None or h_c is None:
+                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                        y_pred, (h_s, h_c), z = model(X_batch, h_s, h_c, z)
+                    elif model_type in ["LSTM", "LSTM_EMA"]:
                         if h_s is None or h_c is None:
                             h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                             h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
@@ -316,7 +340,9 @@ class TrainingTaskService:
                         print(f"Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")
 
                 del X_batch, y_batch, y_pred, loss
-                if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
+                if model_type == "LSTM_LPF":
+                    h_s, h_c, z = h_s.detach(), h_c.detach(), z.detach()
+                elif model_type in ["LSTM", "LSTM_EMA"]:
                     h_s = h_s.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
                     h_c = h_c.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
                 elif model_type == "GRU":

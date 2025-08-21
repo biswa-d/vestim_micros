@@ -99,13 +99,10 @@ class VEstimTrainingSetupManager:
             "LSTM": self.lstm_model_service.create_and_save_lstm_model,
             "LSTM_EMA": self.lstm_model_service.create_and_save_lstm_model,
             "LSTM_LPF": self.lstm_model_service.create_and_save_lstm_model,
-            #"LSTM Batch Norm": self.lstm_model_service.create_and_save_lstm_model_with_BN,
-            #"LSTM Layer Norm": self.lstm_model_service.create_and_save_lstm_model_with_LN,  # Removed: method does not exist
-            #"Transformer": self.transformer_model_service.create_and_save_transformer_model,
-            #"FCNN": self.fcnn_model_service.create_and_save_fcnn_model,
             "GRU": self.gru_model_service.create_and_save_gru_model,
             "FNN": self.fnn_model_service.create_and_save_fnn_model,
         }
+        model_params['MODEL_TYPE'] = model_type
 
         # Call the function from the dictionary or raise an error if not found
         if model_type in model_map:

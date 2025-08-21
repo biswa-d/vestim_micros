@@ -66,6 +66,7 @@ class VEstimTestingService:
             else:
                 # RNN testing: requires hidden states (LSTM/GRU)
                 h_s = torch.zeros(num_layers, 1, hidden_units).to(self.device)
+                z = None # Initialize filter state for LPF models
                 if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
                     h_c = torch.zeros(num_layers, 1, hidden_units).to(self.device)
                 else:  # GRU
@@ -77,6 +78,7 @@ class VEstimTestingService:
                     for i in range(X_batch.size(0)):
                         # Re-initialize hidden states for each new sequence
                         h_s = torch.zeros(num_layers, 1, hidden_units).to(self.device)
+                        z = None # Re-initialize filter state for each new sequence
                         if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
                             h_c = torch.zeros(num_layers, 1, hidden_units).to(self.device)
 
@@ -85,7 +87,9 @@ class VEstimTestingService:
                         y_true = y_batch[i].unsqueeze(0).to(self.device)
 
                         # Forward pass with re-initialized hidden states
-                        if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
+                        if model_type == "LSTM_LPF":
+                            y_out, (h_s, h_c), z = model(x_seq, h_s, h_c, z)
+                        elif model_type in ["LSTM", "LSTM_EMA"]:
                             y_out, (h_s, h_c) = model(x_seq, h_s, h_c)
                         elif model_type == "GRU":
                             y_out, h_s = model(x_seq, h_s)

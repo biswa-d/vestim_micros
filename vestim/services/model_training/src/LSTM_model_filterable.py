@@ -29,19 +29,30 @@ class EmaHead(nn.Module):
 class CausalLPFHead(nn.Module):
     def __init__(self, K=15):
         super().__init__()
-        self.logits = nn.Parameter(torch.zeros(K))  # learns shape of LPF
-    def forward(self, r):                 # r: [T,B,1]
-        w = torch.softmax(self.logits, dim=0).view(1,1,-1)  # nonneg, sum=1
-        x = r.transpose(0,1)                              # [B,T,1]
-        x = F.pad(x, (0,0, w.shape[-1]-1, 0))             # causal left-pad
-        y = F.conv1d(x, w).transpose(1,2).transpose(0,1)  # [T,B,1]
-        return y
+        self.logits = nn.Parameter(torch.zeros(K))
+
+    def forward(self, r, z=None):  # r: [T,B,1], z: [B,K-1,1]
+        w = torch.softmax(self.logits, dim=0).view(1, 1, -1)
+        x = r.transpose(0, 1)
+        if z is None:
+            z = torch.zeros(x.shape[0], w.shape[-1] - 1, x.shape[-1], device=x.device)
+        x = torch.cat([z, x], dim=1)
+        y = F.conv1d(x.transpose(1, 2), w).transpose(1, 2)
+        return y.transpose(0, 1), x[:, -w.shape[-1] + 1:]
 
 class LSTM_EMA(nn.Module):
     def __init__(self, input_size, hidden_units, num_layers, device, dropout_prob=0.0, apply_clipped_relu=False):
         super(LSTM_EMA, self).__init__()
         self.lstm = LSTMModel(input_size, hidden_units, num_layers, device, dropout_prob, apply_clipped_relu)
         self.ema_head = EmaHead()
+
+    @property
+    def hidden_units(self):
+        return self.lstm.hidden_units
+
+    @property
+    def num_layers(self):
+        return self.lstm.num_layers
 
     def forward(self, x, h_s=None, h_c=None):
         out, (h_s, h_c) = self.lstm(x, h_s, h_c)
@@ -56,12 +67,20 @@ class LSTM_LPF(nn.Module):
         self.lstm = LSTMModel(input_size, hidden_units, num_layers, device, dropout_prob, apply_clipped_relu)
         self.lpf_head = CausalLPFHead()
 
-    def forward(self, x, h_s=None, h_c=None):
+    @property
+    def hidden_units(self):
+        return self.lstm.hidden_units
+
+    @property
+    def num_layers(self):
+        return self.lstm.num_layers
+
+    def forward(self, x, h_s=None, h_c=None, z=None):
         out, (h_s, h_c) = self.lstm(x, h_s, h_c)
         out = out.unsqueeze(0) # Reshape for CausalLPFHead
-        out = self.lpf_head(out)
+        out, z = self.lpf_head(out, z)
         out = out.squeeze(0)
-        return out, (h_s, h_c)
+        return out, (h_s, h_c), z
 
 class LSTMModel(nn.Module):
     def __init__(self, input_size, hidden_units, num_layers, device, dropout_prob=0.0, apply_clipped_relu=False):
