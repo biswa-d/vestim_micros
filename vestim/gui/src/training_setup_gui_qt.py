@@ -262,9 +262,10 @@ class VEstimTrainSetupGUI(QWidget):
                 print("No tasks to train.")
                 return
 
-            first_task_params = task_list[0]['hyperparams']
+            # Ensure the most up-to-date params, including detected device, are passed
+            final_params = self.worker.training_setup_manager.get_task_list()[0]['hyperparams']
             
-            self.training_gui = VEstimTrainingTaskGUI(job_manager=self.job_manager, task_list=task_list, params=first_task_params)
+            self.training_gui = VEstimTrainingTaskGUI(job_manager=self.job_manager, task_list=task_list, params=final_params)
             
             current_geometry = self.geometry()
             self.training_gui.setGeometry(current_geometry)

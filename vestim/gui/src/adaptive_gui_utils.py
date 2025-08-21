@@ -58,7 +58,7 @@ def display_hyperparameters(gui, params):
             'MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE',
             'VALID_FREQUENCY', 'REPETITIONS', 'DEVICE_SELECTION', 'USE_MIXED_PRECISION',
             'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN',
-            'CURRENT_REPETITION', 'INFERENCE_FILTER_TYPE'
+            'CURRENT_REPETITION', 'INFERENCE_FILTER_TYPE', 'PIN_MEMORY'
         }
 
         if param_key in always_relevant:
@@ -169,7 +169,16 @@ def display_hyperparameters(gui, params):
         col = (i // num_rows) * 2
 
         label_text = gui.param_labels.get(param, param.replace("_", " ").title())
-        value_str = str(value)
+        
+        # Convert to float for formatting check, handle potential errors
+        try:
+            float_val = float(value)
+            if 0 < abs(float_val) < 0.01:
+                value_str = f"{float_val:.1e}"
+            else:
+                value_str = str(value)
+        except (ValueError, TypeError):
+            value_str = str(value)
 
         param_label = QLabel(f"{label_text}:")
         param_label.setStyleSheet("font-size: 9pt; color: #333;")

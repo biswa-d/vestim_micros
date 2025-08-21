@@ -131,7 +131,10 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
         # Title Label with dynamic model type
         model_type = self.params.get("MODEL_TYPE", "Model")  # Get model type from params
-        title_label = QLabel(f"Training {model_type} Model with Hyperparameters")
+        
+        # Use the detailed device name if available
+        device_name = task['hyperparams'].get('CURRENT_DEVICE', self.params.get("DEVICE_SELECTION", "Device"))
+        title_label = QLabel(f"Training {model_type} on {device_name} with Hyperparameters")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
         self.main_layout.addWidget(title_label)

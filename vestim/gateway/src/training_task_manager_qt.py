@@ -619,6 +619,10 @@ class TrainingTaskManager:
             best_train_loss_norm = float('inf')
             best_train_loss_denorm = float('inf')
 
+            # Lists to store epoch-wise loss history
+            train_loss_history = []
+            val_loss_history = []
+
             hyperparams = self.convert_hyperparams(task['hyperparams']) # This ensures BATCH_SIZE is int if it exists
             model = task['model']
             
@@ -813,6 +817,8 @@ class TrainingTaskManager:
                         model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task, verbose=verbose
                     )
                 
+                train_loss_history.append(train_loss_norm)
+
                 if train_loss_norm < best_train_loss_norm:
                     best_train_loss_norm = train_loss_norm
 
@@ -860,6 +866,8 @@ class TrainingTaskManager:
                         val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
                             model, model_type, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task, verbose=verbose
                         )
+                    
+                    val_loss_history.append(val_loss_norm)
 
                     current_time = time.time()
                     elapsed_time = current_time - loop_start_time # Use loop_start_time for per-epoch/validation cycle timing
@@ -1388,15 +1396,11 @@ class TrainingTaskManager:
             # Save detailed training task summary for testing GUI integration
             self._save_training_task_summary(task, best_validation_loss, train_loss_norm, val_loss_norm,
                                            epoch, max_epochs, early_stopping, final_task_elapsed_time,
-                                           best_train_loss_norm, best_train_loss_denorm)
+                                           best_train_loss_norm, best_train_loss_denorm,
+                                           train_loss_history, val_loss_history)
 
-            # Log final summary to txt file
-            if task.get('model_dir'):
-                with open(os.path.join(task['model_dir'], 'training_summary.txt'), 'w') as f:
-                    f.write(f"Training completed\n")
-                    f.write(f"Best validation loss: {best_validation_loss:.6f}\n")
-                    f.write(f"Final learning rate: {optimizer.param_groups[0]['lr']:.8f}\n")
-                    f.write(f"Stopped at epoch: {epoch}/{max_epochs}\n")
+            # The text summary is redundant now that we have a detailed JSON summary.
+            # This section has been removed to clean up the output.
 
             self.logger.info(f"Training loop finished for task {task['task_id']}. Best model is at: {task.get('training_params', {}).get('best_model_path')}")
             formatted_task_time = format_time(final_task_elapsed_time)
@@ -1730,7 +1734,7 @@ class TrainingTaskManager:
                     self.logger.error(f"Could not parse boundary format for {param_name}: {param_value} - {e}")
                     raise ValueError(f"Invalid {param_name} value: {param_value}")
 
-    def _save_training_task_summary(self, task, best_val_loss_norm, final_train_loss_norm, final_val_loss_norm, final_epoch, max_epochs, early_stopping, elapsed_time, best_train_loss_norm, best_train_loss_denorm):
+    def _save_training_task_summary(self, task, best_val_loss_norm, final_train_loss_norm, final_val_loss_norm, final_epoch, max_epochs, early_stopping, elapsed_time, best_train_loss_norm, best_train_loss_denorm, train_loss_history, val_loss_history):
         """Saves a detailed summary of the completed training task and stores it."""
         try:
             task_id = task['task_id']
@@ -1746,6 +1750,17 @@ class TrainingTaskManager:
             best_validation_loss_denorm = getattr(self, f'_task_{task_id}_best_val_rmse_orig', float('inf'))
             # Use the stored best training loss from attributes instead of passed parameter
             best_train_loss_denorm = getattr(self, f'_task_{task_id}_best_train_rmse_orig', float('inf'))
+
+            # Restructure training history for easier analysis
+            history = []
+            for i in range(len(train_loss_history)):
+                epoch_data = {
+                    'epoch': i + 1,
+                    'train_loss_normalized': train_loss_history[i],
+                    # Validation loss may not be present for every epoch
+                    'validation_loss_normalized': val_loss_history[i] if i < len(val_loss_history) else None
+                }
+                history.append(epoch_data)
 
             summary_data = {
                 'task_id': task_id,
@@ -1764,6 +1779,7 @@ class TrainingTaskManager:
                 'early_stopped': early_stopping,
                 'training_time_seconds': elapsed_time,
                 'training_time_formatted': format_time_long(elapsed_time),
+                'training_history': history
             }
 
             with open(summary_file_path, 'w') as f:

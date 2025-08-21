@@ -155,10 +155,11 @@ class CUDAGraphsTrainingService:
                 self._capture_training_graph(model, optimizer, device, 
                                            sample_input.shape, sample_target.shape)
             except torch.cuda.AcceleratorError as e:
-                self.logger.warning(f"CUDA graph capture failed: {e}. Falling back to standard training for this epoch.")
-                self.graphs_enabled = False # Disable graphs for the rest of the training
-                return self._train_epoch_standard(model, train_loader, optimizer, epoch, device, 
-                                                  stop_requested, task, verbose)
+                self.logger.warning(f"CUDA graph capture failed: {e}. Attempting to clear cache and fall back to standard training.")
+                self.graphs_enabled = False  # Disable graphs for the rest of the training
+                torch.cuda.empty_cache()  # Attempt to clear the corrupted state
+                # Re-raise the exception to be caught by the training manager, which will switch the service
+                raise e
 
         # Training loop with CUDA graphs
         try:
