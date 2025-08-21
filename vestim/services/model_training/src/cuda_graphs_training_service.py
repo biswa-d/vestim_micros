@@ -149,75 +149,87 @@ class CUDAGraphsTrainingService:
         
         # Warmup and capture graph on first epoch or after reset
         if self.train_graph is None:
-            self._warmup_model(model, sample_input, sample_target, optimizer, device)
-            torch.cuda.synchronize() # Ensure warmup is complete
-            self._capture_training_graph(model, optimizer, device, 
-                                       sample_input.shape, sample_target.shape)
-        
+            try:
+                self._warmup_model(model, sample_input, sample_target, optimizer, device)
+                torch.cuda.synchronize() # Ensure warmup is complete
+                self._capture_training_graph(model, optimizer, device, 
+                                           sample_input.shape, sample_target.shape)
+            except torch.cuda.AcceleratorError as e:
+                self.logger.warning(f"CUDA graph capture failed: {e}. Falling back to standard training for this epoch.")
+                self.graphs_enabled = False # Disable graphs for the rest of the training
+                return self._train_epoch_standard(model, train_loader, optimizer, epoch, device, 
+                                                  stop_requested, task, verbose)
+
         # Training loop with CUDA graphs
-        for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
-            if stop_requested:
-                self.logger.info("Training stopped by user request")
-                break
-            
-            start_time = time.time()
-            X_batch, y_batch = X_batch.to(device, non_blocking=True), y_batch.to(device, non_blocking=True)
-            
-            # Check if batch shape matches captured graph (or if graphs need to be re-captured)
-            if (self.static_input is None or self.static_target is None or
-                X_batch.shape != self.static_input.shape or 
-                y_batch.shape != self.static_target.shape):
-                if self.static_input is None or self.static_target is None:
-                    # Only log once per epoch when graphs need re-capturing
-                    if batch_idx == 0:
-                        self.logger.info("CUDA graphs not captured yet - will capture before training loop")
-                else:
-                    self.logger.warning(f"Batch shape mismatch at batch {batch_idx}. "
-                                      f"Expected input: {self.static_input.shape}, got: {X_batch.shape}. "
-                                      f"Expected target: {self.static_target.shape}, got: {y_batch.shape}. "
-                                      f"Falling back to standard training for this batch.")
-                # Fall back to standard training for this batch
-                optimizer.zero_grad()
-                if self.scaler:
-                    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+        try:
+            for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
+                if stop_requested:
+                    self.logger.info("Training stopped by user request")
+                    break
+                
+                start_time = time.time()
+                X_batch, y_batch = X_batch.to(device, non_blocking=True), y_batch.to(device, non_blocking=True)
+                
+                # Check if batch shape matches captured graph (or if graphs need to be re-captured)
+                if (self.static_input is None or self.static_target is None or
+                    X_batch.shape != self.static_input.shape or 
+                    y_batch.shape != self.static_target.shape):
+                    if self.static_input is None or self.static_target is None:
+                        # Only log once per epoch when graphs need re-capturing
+                        if batch_idx == 0:
+                            self.logger.info("CUDA graphs not captured yet - will capture before training loop")
+                    else:
+                        self.logger.warning(f"Batch shape mismatch at batch {batch_idx}. "
+                                          f"Expected input: {self.static_input.shape}, got: {X_batch.shape}. "
+                                          f"Expected target: {self.static_target.shape}, got: {y_batch.shape}. "
+                                          f"Falling back to standard training for this batch.")
+                    # Fall back to standard training for this batch
+                    optimizer.zero_grad()
+                    if self.scaler:
+                        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                            output = model(X_batch)
+                            if output.shape != y_batch.shape and output.ndim > y_batch.ndim:
+                                output = output.squeeze(-1)
+                            loss = self.criterion(output, y_batch)
+                        self.scaler.scale(loss).backward()
+                        self.scaler.step(optimizer)
+                        self.scaler.update()
+                    else:
                         output = model(X_batch)
                         if output.shape != y_batch.shape and output.ndim > y_batch.ndim:
                             output = output.squeeze(-1)
                         loss = self.criterion(output, y_batch)
-                    self.scaler.scale(loss).backward()
-                    self.scaler.step(optimizer)
-                    self.scaler.update()
+                        loss.backward()
+                        optimizer.step()
                 else:
-                    output = model(X_batch)
-                    if output.shape != y_batch.shape and output.ndim > y_batch.ndim:
-                        output = output.squeeze(-1)
-                    loss = self.criterion(output, y_batch)
-                    loss.backward()
-                    optimizer.step()
-            else:
-                # Use CUDA graphs - copy data and replay
-                self.static_input.copy_(X_batch)
-                self.static_target.copy_(y_batch)
-                self.train_graph.replay()
+                    # Use CUDA graphs - copy data and replay
+                    self.static_input.copy_(X_batch)
+                    self.static_target.copy_(y_batch)
+                    self.train_graph.replay()
+                    
+                    # After replaying the graph, if using a scaler, we need to update it
+                    if self.scaler:
+                        self.scaler.update()
+                    
+                    # Get the loss and output from the static tensors
+                    loss = self.static_loss
+                    output = self.static_output
                 
-                # After replaying the graph, if using a scaler, we need to update it
-                if self.scaler:
-                    self.scaler.update()
+                # Collect metrics
+                total_train_loss.append(loss.item())
+                all_train_y_pred.append(output.detach().cpu())
+                all_train_y_true.append(y_batch.detach().cpu())
                 
-                # Get the loss and output from the static tensors
-                loss = self.static_loss
-                output = self.static_output
-            
-            # Collect metrics
-            total_train_loss.append(loss.item())
-            all_train_y_pred.append(output.detach().cpu())
-            all_train_y_true.append(y_batch.detach().cpu())
-            
-            batch_times.append(time.time() - start_time)
-            
-            if verbose and batch_idx % 100 == 0:
-                self.logger.info(f"Epoch {epoch}, Batch {batch_idx}/{len(train_loader)}, "
-                               f"Loss: {loss.item():.6f}, Time: {batch_times[-1]*1000:.1f}ms")
+                batch_times.append(time.time() - start_time)
+                
+                if verbose and batch_idx % 100 == 0:
+                    self.logger.info(f"Epoch {epoch}, Batch {batch_idx}/{len(train_loader)}, "
+                                   f"Loss: {loss.item():.6f}, Time: {batch_times[-1]*1000:.1f}ms")
+        except torch.cuda.AcceleratorError as e:
+            self.logger.warning(f"CUDA graph replay failed: {e}. Falling back to standard training for this epoch.")
+            self.graphs_enabled = False # Disable graphs for the rest of the training
+            return self._train_epoch_standard(model, train_loader, optimizer, epoch, device, 
+                                              stop_requested, task, verbose)
         
         # Calculate metrics
         avg_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0
@@ -228,6 +240,60 @@ class CUDAGraphsTrainingService:
         all_train_y_true = torch.cat(all_train_y_true, dim=0) if all_train_y_true else None
         
         self.logger.info(f"Epoch {epoch} completed. Avg batch time: {avg_batch_time*1000:.1f}ms, "
+                        f"Avg loss: {avg_loss:.6f}")
+        
+        return avg_batch_time, avg_loss, all_train_y_pred, all_train_y_true
+
+    def _train_epoch_standard(self, model, train_loader, optimizer, epoch, device, 
+                              stop_requested, task, verbose=True):
+        """Train one epoch using standard PyTorch, without CUDA graphs."""
+        model.train()
+        total_train_loss = []
+        all_train_y_pred = []
+        all_train_y_true = []
+        batch_times = []
+
+        for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
+            if stop_requested:
+                self.logger.info("Training stopped by user request")
+                break
+            
+            start_time = time.time()
+            X_batch, y_batch = X_batch.to(device, non_blocking=True), y_batch.to(device, non_blocking=True)
+            
+            optimizer.zero_grad()
+            if self.scaler:
+                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                    output = model(X_batch)
+                    if output.shape != y_batch.shape and output.ndim > y_batch.ndim:
+                        output = output.squeeze(-1)
+                    loss = self.criterion(output, y_batch)
+                self.scaler.scale(loss).backward()
+                self.scaler.step(optimizer)
+                self.scaler.update()
+            else:
+                output = model(X_batch)
+                if output.shape != y_batch.shape and output.ndim > y_batch.ndim:
+                    output = output.squeeze(-1)
+                loss = self.criterion(output, y_batch)
+                loss.backward()
+                optimizer.step()
+            
+            total_train_loss.append(loss.item())
+            all_train_y_pred.append(output.detach().cpu())
+            all_train_y_true.append(y_batch.detach().cpu())
+            batch_times.append(time.time() - start_time)
+
+            if verbose and batch_idx % 100 == 0:
+                self.logger.info(f"Epoch {epoch}, Batch {batch_idx}/{len(train_loader)}, "
+                               f"Loss: {loss.item():.6f}, Time: {batch_times[-1]*1000:.1f}ms")
+
+        avg_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0
+        avg_loss = sum(total_train_loss) / len(total_train_loss) if total_train_loss else float('nan')
+        all_train_y_pred = torch.cat(all_train_y_pred, dim=0) if all_train_y_pred else None
+        all_train_y_true = torch.cat(all_train_y_true, dim=0) if all_train_y_true else None
+        
+        self.logger.info(f"Epoch {epoch} completed (standard). Avg batch time: {avg_batch_time*1000:.1f}ms, "
                         f"Avg loss: {avg_loss:.6f}")
         
         return avg_batch_time, avg_loss, all_train_y_pred, all_train_y_true

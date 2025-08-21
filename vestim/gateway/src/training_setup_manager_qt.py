@@ -603,8 +603,9 @@ class VEstimTrainingSetupManager:
 
         # Add inference filter parameters for all model types
         final_hyperparams['INFERENCE_FILTER_TYPE'] = hyperparams.get('INFERENCE_FILTER_TYPE', 'None')
-        final_hyperparams['INFERENCE_FILTER_WINDOW_SIZE'] = hyperparams.get('INFERENCE_FILTER_WINDOW_SIZE', 100)
+        final_hyperparams['INFERENCE_FILTER_WINDOW_SIZE'] = hyperparams.get('INFERENCE_FILTER_WINDOW_SIZE', 101)
         final_hyperparams['INFERENCE_FILTER_ALPHA'] = hyperparams.get('INFERENCE_FILTER_ALPHA', 0.1)
+        final_hyperparams['INFERENCE_FILTER_POLYORDER'] = hyperparams.get('INFERENCE_FILTER_POLYORDER', 2)
 
         # Add model-specific and method-specific parameters
         if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:

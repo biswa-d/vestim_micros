@@ -315,8 +315,9 @@ class VEstimHyperParamManager:
         
         # Add inference filter parameters
         validated_params["INFERENCE_FILTER_TYPE"] = params.get("INFERENCE_FILTER_TYPE", "None")
-        validated_params["INFERENCE_FILTER_WINDOW_SIZE"] = params.get("INFERENCE_FILTER_WINDOW_SIZE", "100")
+        validated_params["INFERENCE_FILTER_WINDOW_SIZE"] = params.get("INFERENCE_FILTER_WINDOW_SIZE", "101")
         validated_params["INFERENCE_FILTER_ALPHA"] = params.get("INFERENCE_FILTER_ALPHA", "0.1")
+        validated_params["INFERENCE_FILTER_POLYORDER"] = params.get("INFERENCE_FILTER_POLYORDER", "2")
 
         self.logger.info("Parameter validation and normalization completed successfully.")
         return validated_params

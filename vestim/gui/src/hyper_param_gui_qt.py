@@ -1106,13 +1106,13 @@ class VEstimHyperParamGUI(QWidget):
         filter_type_label = QLabel("Filter Type:")
         filter_type_label.setStyleSheet("font-size: 9pt;")
         self.filter_type_combo = QComboBox()
-        self.filter_type_combo.addItems(["None", "Moving Average", "Exponential Moving Average"])
+        self.filter_type_combo.addItems(["None", "Moving Average", "Exponential Moving Average", "Savitzky-Golay"])
         self.param_entries["INFERENCE_FILTER_TYPE"] = self.filter_type_combo
         form_layout.addRow(filter_type_label, self.filter_type_combo)
 
         self.filter_window_label = QLabel("Window Size:")
         self.filter_window_label.setStyleSheet("font-size: 9pt;")
-        self.filter_window_entry = QLineEdit("100")
+        self.filter_window_entry = QLineEdit("101")
         self.param_entries["INFERENCE_FILTER_WINDOW_SIZE"] = self.filter_window_entry
         form_layout.addRow(self.filter_window_label, self.filter_window_entry)
 
@@ -1121,6 +1121,12 @@ class VEstimHyperParamGUI(QWidget):
         self.filter_alpha_entry = QLineEdit("0.1")
         self.param_entries["INFERENCE_FILTER_ALPHA"] = self.filter_alpha_entry
         form_layout.addRow(self.filter_alpha_label, self.filter_alpha_entry)
+
+        self.filter_polyorder_label = QLabel("Polynomial Order (SavGol):")
+        self.filter_polyorder_label.setStyleSheet("font-size: 9pt;")
+        self.filter_polyorder_entry = QLineEdit("2")
+        self.param_entries["INFERENCE_FILTER_POLYORDER"] = self.filter_polyorder_entry
+        form_layout.addRow(self.filter_polyorder_label, self.filter_polyorder_entry)
 
         self.filter_type_combo.currentIndexChanged.connect(self.update_inference_filter_params)
         
@@ -1134,12 +1140,16 @@ class VEstimHyperParamGUI(QWidget):
         
         is_ma = (filter_type == "Moving Average")
         is_ema = (filter_type == "Exponential Moving Average")
+        is_savgol = (filter_type == "Savitzky-Golay")
 
-        self.filter_window_label.setVisible(is_ma)
-        self.filter_window_entry.setVisible(is_ma)
+        self.filter_window_label.setVisible(is_ma or is_savgol)
+        self.filter_window_entry.setVisible(is_ma or is_savgol)
         
         self.filter_alpha_label.setVisible(is_ema)
         self.filter_alpha_entry.setVisible(is_ema)
+
+        self.filter_polyorder_label.setVisible(is_savgol)
+        self.filter_polyorder_entry.setVisible(is_savgol)
 
     def get_selected_features(self):
         """Retrieve selected feature columns as a list."""

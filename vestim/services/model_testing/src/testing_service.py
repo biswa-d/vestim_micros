@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from scipy.signal import savgol_filter
 from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN # Keep imports for type hinting if model object is used
 from vestim.services.model_training.src.GRU_model import GRUModel # Add GRU model import
 from vestim.services.model_training.src.FNN_model import FNNModel # Add FNN model import
@@ -30,6 +31,45 @@ def apply_inference_filter(predictions, task_info):
             alpha = float(task_info['hyperparams']['INFERENCE_FILTER_ALPHA'])
             print(f"DEBUG: Applying Exponential Moving Average filter with alpha: {alpha}")
             return pd.Series(predictions).ewm(alpha=alpha, adjust=False).mean().values
+            
+        elif filter_type == 'Savitzky-Golay':
+            window_size = int(task_info['hyperparams']['INFERENCE_FILTER_WINDOW_SIZE'])
+            polyorder = int(task_info['hyperparams']['INFERENCE_FILTER_POLYORDER'])
+            # Ensure window_size is odd and greater than polyorder
+            if window_size % 2 == 0:
+                window_size += 1
+            if window_size <= polyorder:
+                window_size = polyorder + 1
+                if window_size % 2 == 0:
+                    window_size += 1
+            print(f"DEBUG: Applying Savitzky-Golay filter with window size: {window_size} and polynomial order: {polyorder}")
+            return savgol_filter(predictions, window_size, polyorder)
+            
+        elif filter_type == 'Savitzky-Golay':
+            window_size = int(task_info['hyperparams']['INFERENCE_FILTER_WINDOW_SIZE'])
+            polyorder = int(task_info['hyperparams']['INFERENCE_FILTER_POLYORDER'])
+            # Ensure window_size is odd and greater than polyorder
+            if window_size % 2 == 0:
+                window_size += 1
+            if window_size <= polyorder:
+                window_size = polyorder + 1
+                if window_size % 2 == 0:
+                    window_size += 1
+            print(f"DEBUG: Applying Savitzky-Golay filter with window size: {window_size} and polynomial order: {polyorder}")
+            return savgol_filter(predictions, window_size, polyorder)
+            
+        elif filter_type == 'Savitzky-Golay':
+            window_size = int(task_info['hyperparams']['INFERENCE_FILTER_WINDOW_SIZE'])
+            polyorder = int(task_info['hyperparams']['INFERENCE_FILTER_POLYORDER'])
+            # Ensure window_size is odd and greater than polyorder
+            if window_size % 2 == 0:
+                window_size += 1
+            if window_size <= polyorder:
+                window_size = polyorder + 1
+                if window_size % 2 == 0:
+                    window_size += 1
+            print(f"DEBUG: Applying Savitzky-Golay filter with window size: {window_size} and polynomial order: {polyorder}")
+            return savgol_filter(predictions, window_size, polyorder)
             
     except Exception as e:
         print(f"Warning: Could not apply inference filter '{filter_type}'. Error: {e}. Returning original predictions.")

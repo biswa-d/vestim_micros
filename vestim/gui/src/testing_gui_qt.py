@@ -512,7 +512,7 @@ class VEstimTestingGUI(QMainWindow):
                             else:
                                 x_axis = ts_num - ts_num.iloc[0]
                         else:
-                            t = pd.to_datetime(ts, errors='coerce')
+                            t = pd.to_datetime(ts, errors='coerce', format='%Y-%m-%d %H:%M:%S.%f')
                             if t.notna().any():
                                 x_axis = (t - t.iloc[0]).dt.total_seconds()
                         x_label = "Time (seconds)"

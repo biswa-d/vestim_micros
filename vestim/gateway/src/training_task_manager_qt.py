@@ -231,14 +231,29 @@ class TrainingTaskManager:
             })
 
             # ROUTER: Check if this is an Optuna task and call the appropriate loop
-            if 'optuna_trial' in task and task['optuna_trial'] is not None:
-                self.logger.info(f"Task {task['task_id']} is an Optuna trial. Using Optuna-specific training loop.")
-                update_progress_callback.emit({'status': f'Running Optuna Trial {task["optuna_trial"].number} for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
-                self.run_optuna_training(task, update_progress_callback, train_loader, val_loader, self.device)
-            else:
-                self.logger.info(f"Task {task['task_id']} is a standard training task. Using standard training loop.")
-                update_progress_callback.emit({'status': f'Training {model_type} model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
-                self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
+            try:
+                if 'optuna_trial' in task and task['optuna_trial'] is not None:
+                    self.logger.info(f"Task {task['task_id']} is an Optuna trial. Using Optuna-specific training loop.")
+                    update_progress_callback.emit({'status': f'Running Optuna Trial {task["optuna_trial"].number} for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
+                    self.run_optuna_training(task, update_progress_callback, train_loader, val_loader, self.device)
+                else:
+                    self.logger.info(f"Task {task['task_id']} is a standard training task. Using standard training loop.")
+                    update_progress_callback.emit({'status': f'Training {model_type} model for {task["hyperparams"]["MAX_EPOCHS"]} epochs...'})
+                    self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
+            except torch.AcceleratorError as e:
+                self.logger.warning(f"CUDA Graphs training failed for task {task.get('task_id', 'N/A')}: {e}. Attempting to fall back to standard training.")
+                if isinstance(self.training_service, CUDAGraphsTrainingService):
+                    self.training_service = TrainingTaskService(device=self.device)
+                    self.logger.info("Switched to standard TrainingTaskService.")
+                    update_progress_callback.emit({'status': 'CUDA Graphs failed. Falling back to standard training...'})
+                    # Retry the training for the same task with the standard service
+                    if 'optuna_trial' in task and task['optuna_trial'] is not None:
+                         self.run_optuna_training(task, update_progress_callback, train_loader, val_loader, self.device)
+                    else:
+                         self.run_training(task, update_progress_callback, train_loader, val_loader, self.device)
+                else:
+                    self.logger.error("CUDA error occurred even with standard training service. Cannot recover.")
+                    raise e # Re-raise if it's not a graph service issue
 
         except Exception as e:
             # Catch TrialPruned exception specifically to avoid logging it as an error
@@ -875,6 +890,11 @@ class TrainingTaskManager:
                             exploit_mode = 0  # Exit exploit mode
                             scheduler = main_scheduler  # Revert to the main scheduler
                             current_patience = valid_patience  # Revert to main patience
+                            # Reset learning rate to initial value
+                            current_lr = hyperparams["INITIAL_LR"]
+                            for param_group in optimizer.param_groups:
+                                param_group['lr'] = current_lr
+                            self.logger.info(f"Optimizer LR reset to {current_lr} after finding new best model.")
                     else:
                         patience_counter += 1
                     # Determine target variable specifics for error reporting

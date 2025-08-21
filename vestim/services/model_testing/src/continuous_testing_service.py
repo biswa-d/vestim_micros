@@ -253,6 +253,19 @@ class ContinuousTestingService:
                         y_true = y_true[:raw_len]
                 except Exception as e:
                     print(f"Warning: Could not read raw file to get length: {e}")
+            
+            # Match prediction length to raw data file length to handle padding from augmentation
+            raw_file_path = test_file_path.replace("processed_data", "raw_data")
+            if os.path.exists(raw_file_path):
+                try:
+                    df_raw = pd.read_csv(raw_file_path, usecols=[0])
+                    raw_len = len(df_raw)
+                    if raw_len < len(y_pred_arr):
+                        print(f"Trimming predictions from {len(y_pred_arr)} to match raw file length {raw_len}")
+                        y_pred_arr = y_pred_arr[:raw_len]
+                        y_true = y_true[:raw_len]
+                except Exception as e:
+                    print(f"Warning: Could not read raw file to get length: {e}")
 
             print(f"Generated {len(y_pred_arr)} predictions (after warmup: {warmup_samples if is_first_file else 0})")
             print(f"Data processing mode: processed file (from data augmentation pipeline)")
