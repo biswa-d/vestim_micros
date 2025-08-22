@@ -238,6 +238,10 @@ class DataAugmentService:
             if progress_callback: progress_callback(0)
             raise ValueError(f"Resampling failed: {e}")
     
+    @staticmethod
+    def _generate_noise(mean, std, size):
+        return np.random.normal(mean, std, size)
+
     def validate_formula(self, formula: str, df: pd.DataFrame) -> Tuple[bool, Optional[str]]:
         self.logger.info(f"Validating formula: {formula}")
         forbidden_patterns = [r'__.*__', r'eval\s*\(', r'exec\s*\(', r'import\s+', r'open\s*\(', r'os\.', r'sys\.', r'subprocess\.', r'shutil\.']
@@ -247,10 +251,10 @@ class DataAugmentService:
                 self.logger.warning(error_msg)
                 return False, error_msg
         
-        potential_cols = re.findall(r'\b([a-zA-Z_]\w*)(?!\s*\()', formula)
+        potential_cols = re.findall(r'[a-zA-Z_]\w*', formula)
         python_keywords = ['and', 'or', 'not', 'if', 'else', 'for', 'in', 'True', 'False', 'None']
         numpy_funcs = ['sin', 'cos', 'tan', 'exp', 'log', 'sqrt', 'abs', 'floor', 'ceil']
-        allowed_refs = python_keywords + numpy_funcs + ['np']
+        allowed_refs = python_keywords + numpy_funcs + ['np', 'noise']
         potential_cols = [col for col in potential_cols if col not in allowed_refs]
         
         df_columns = df.columns.tolist()
@@ -262,7 +266,10 @@ class DataAugmentService:
         
         try:
             sample_df = df.iloc[:1].copy()
-            safe_globals = {"np": np}
+            safe_globals = {
+                "np": np,
+                "noise": lambda mean, std: self._generate_noise(mean, std, len(sample_df))
+            }
             safe_locals = {col: sample_df[col] for col in sample_df.columns}
             result = eval(formula, safe_globals, safe_locals)
             if not hasattr(result, '__len__'):
@@ -298,7 +305,10 @@ class DataAugmentService:
             if progress_callback: progress_callback(10 + int((i + 0.5) * progress_increment))
             
             try:
-                safe_globals = {"np": np}
+                safe_globals = {
+                    "np": np,
+                    "noise": lambda mean, std: self._generate_noise(mean, std, len(result_df))
+                }
                 safe_locals = {col: result_df[col] for col in result_df.columns}
                 result_df[column_name] = eval(formula, safe_globals, safe_locals)
                 #self.logger.info(f"Successfully created column '{column_name}'")

@@ -82,7 +82,8 @@ class FormulaInputDialog(QDialog):
         examples_label = QLabel("Examples:\n"
                                "1. column1 * 2 + column2\n"
                                "2. np.sin(column1) + np.log(column2)\n"
-                               "3. (column1 - column2) / column3")
+                               "3. Absolute noise: column1 + noise(0.0, 0.02)\n"
+                               "4. Relative noise: column1 * (1 + noise(0.0, 0.02))")
         examples_label.setStyleSheet("font-style: italic; color: gray;")
         layout.addWidget(examples_label)
         
