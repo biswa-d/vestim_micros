@@ -611,6 +611,64 @@ class TrainingTaskManager:
                 'training_start_log_message': f"<span style='color: #0b6337;'><b>Training started on device:</b> {device_display}</span>"
             })
             
+            # --- GATHER METADATA FOR LOGGING ---
+            job_folder = self.job_manager.get_job_folder()
+            data_ref_path = os.path.join(job_folder, 'data_files_reference.json')
+            if os.path.exists(data_ref_path):
+                with open(data_ref_path, 'r') as f:
+                    data_ref = json.load(f)
+                training_samples = len(data_ref.get('train_files', []))
+                validation_samples = len(data_ref.get('val_files', []))
+            else:
+                training_samples = 'N/A'
+                validation_samples = 'N/A'
+
+            model_total_params = sum(p.numel() for p in task['model'].parameters())
+            mixed_precision = task['hyperparams'].get('USE_MIXED_PRECISION', False)
+            cuda_graph_enabled = isinstance(self.training_service, CUDAGraphsTrainingService)
+            optimizer_type = 'Adam' # Currently hardcoded in the training service
+            
+            model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM')
+            training_method = task['hyperparams'].get('TRAINING_METHOD', 'Sequence-to-Sequence')
+            batch_size = int(task['hyperparams'].get('BATCH_SIZE', 0))
+            lookback_val = task['hyperparams'].get('LOOKBACK', 0)
+            if lookback_val == 'N/A':
+                lookback = 0
+            else:
+                lookback = int(lookback_val)
+
+            if model_type in ['LSTM', 'GRU'] and training_method == 'Sequence-to-Sequence':
+                samples_per_batch = batch_size * lookback
+            else:
+                samples_per_batch = batch_size
+
+            device_str = str(self.device)
+            if device_str == 'cpu':
+                device_name = 'CPU'
+            elif 'cuda' in device_str and torch.cuda.is_available():
+                try:
+                    gpu_idx = int(device_str.split(':')[1]) if ':' in device_str else 0
+                    device_name = torch.cuda.get_device_name(gpu_idx)
+                except Exception:
+                    device_name = device_str.upper()
+            else:
+                device_name = device_str.upper()
+
+            metadata = {
+                "training_samples": training_samples,
+                "validation_samples": validation_samples,
+                "device": str(self.device),
+                "device_name": device_name,
+                "model_type": model_type,
+                "batch_size": batch_size,
+                "samples_per_batch": samples_per_batch,
+                "model_total_params": model_total_params,
+                "mixed_precision": mixed_precision,
+                "cuda_graph_enabled": cuda_graph_enabled,
+                "optimizer_type": optimizer_type,
+            }
+            # --- END METADATA GATHERING ---
+
             # Initialize/reset task-specific best original scale validation RMSE tracker
             # Using a unique attribute name per task to avoid conflicts if manager instance is reused for different tasks sequentially
             # though typically a new manager or thread might be used. This is safer.
@@ -734,9 +792,18 @@ class TrainingTaskManager:
             if csv_log_file:
                 # Ensure the directory for csv_log_file exists (it's task_dir/logs/)
                 os.makedirs(os.path.dirname(csv_log_file), exist_ok=True)
-                with open(csv_log_file, 'w', newline='') as f: # Added newline=''
+                with open(csv_log_file, 'w', newline='') as f:
+                    # Write metadata as commented header
+                    for key, value in metadata.items():
+                        f.write(f"# {key}: {value}\n")
+                    
                     csv_writer = csv.writer(f)
-                    csv_writer.writerow(["epoch", "train_loss_norm", "val_loss_norm", "best_val_loss_norm", "learning_rate", "elapsed_time_sec", "avg_batch_time_sec", "patience_counter", "model_memory_mb"]) # Header
+                    header = [
+                        "epoch", "train_loss_norm", "val_loss_norm", "best_val_loss_norm", 
+                        "learning_rate", "elapsed_time_sec", "avg_batch_time_sec", 
+                        "patience_counter", "model_memory_mb", "time_per_epoch_sec"
+                    ]
+                    csv_writer.writerow(header)
 
             # Training loop
             for epoch in range(1, max_epochs + 1):
@@ -1036,14 +1103,15 @@ class TrainingTaskManager:
                             csv_writer_val = csv.writer(f)
                             csv_writer_val.writerow([
                                 epoch,
-                                f"{train_loss_norm:.6f}" if train_loss_norm is not None else 'nan',
-                                f"{val_loss_norm:.6f}" if val_loss_norm is not None else 'nan',
-                                f"{best_validation_loss:.6f}" if best_validation_loss is not None else 'nan', # best_validation_loss is normalized
-                                f"{current_lr:.1e}" if current_lr is not None else 'nan',
-                                f"{elapsed_time:.2f}" if elapsed_time is not None else 'nan', # elapsed_time for validation epoch
-                                f"{avg_batch_time:.4f}" if avg_batch_time is not None else 'nan', # avg_batch_time for train part of this epoch
+                                f"{train_loss_norm:.8f}" if train_loss_norm is not None else 'nan',
+                                f"{val_loss_norm:.8f}" if val_loss_norm is not None else 'nan',
+                                f"{best_validation_loss:.8f}" if best_validation_loss is not None else 'nan',
+                                f"{current_lr:.6e}" if current_lr is not None else 'nan',
+                                f"{elapsed_time:.4f}" if elapsed_time is not None else 'nan',
+                                f"{avg_batch_time:.6f}" if avg_batch_time is not None else 'nan',
                                 patience_counter if patience_counter is not None else 'nan',
-                                f"{model_memory_usage_mb_val:.3f}" if model_memory_usage_mb_val is not None else 'nan'
+                                f"{model_memory_usage_mb_val:.4f}" if model_memory_usage_mb_val is not None else 'nan',
+                                f"{epoch_duration:.4f}"
                             ])
                     
                     self.logger.info(f"Epoch {epoch} | Train Loss (Norm): {train_loss_norm:.6f} | Val Loss (Norm): {val_loss_norm:.6f} | GUI Train RMSE: {train_rmse_for_gui:.4f} {error_unit_label} | GUI Val RMSE: {val_rmse_for_gui:.4f} {error_unit_label} | LR: {current_lr} | Epoch Time: {formatted_epoch_time} | Best Val Loss (Norm): {best_validation_loss:.6f} | GUI Best Val RMSE: {best_val_rmse_for_gui:.4f} {error_unit_label} | Patience: {patience_counter}")
@@ -1279,14 +1347,15 @@ class TrainingTaskManager:
                                 csv_writer_train_only = csv.writer(f)
                                 csv_writer_train_only.writerow([
                                     epoch,
-                                    f"{train_loss_norm:.6f}" if train_loss_norm is not None else 'nan',
+                                    f"{train_loss_norm:.8f}" if train_loss_norm is not None else 'nan',
                                     'nan',
-                                    f"{best_validation_loss:.6f}" if best_validation_loss is not None else 'nan',
-                                    f"{current_lr:.1e}" if current_lr is not None else 'nan',
-                                    f"{elapsed_time_train_only:.2f}" if elapsed_time_train_only is not None else 'nan',
-                                    f"{avg_batch_time:.4f}" if avg_batch_time is not None else 'nan',
+                                    f"{best_validation_loss:.8f}" if best_validation_loss is not None else 'nan',
+                                    f"{current_lr:.6e}" if current_lr is not None else 'nan',
+                                    f"{elapsed_time_train_only:.4f}" if elapsed_time_train_only is not None else 'nan',
+                                    f"{avg_batch_time:.6f}" if avg_batch_time is not None else 'nan',
                                     patience_counter if patience_counter is not None else 'nan',
-                                    f"{model_memory_usage_mb:.3f}" if model_memory_usage_mb is not None else 'nan'
+                                    f"{model_memory_usage_mb:.4f}" if model_memory_usage_mb is not None else 'nan',
+                                    f"{epoch_duration:.4f}"
                                 ])
                         
                         # Update GUI via signal (for non-validation epochs)

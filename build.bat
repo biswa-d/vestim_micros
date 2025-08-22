@@ -4,17 +4,18 @@ echo ========================================
 echo Vestim Professional Installer Builder  
 echo ========================================
 echo.
-echo Step 1: Installing build dependencies from requirements_cpu.txt...
-python -m pip install --upgrade pip
-python -m pip install -r requirements_cpu.txt --index-url https://download.pytorch.org/whl/cpu
+echo Step 1: Installing build dependencies in build_env...
+.\build_env\Scripts\python.exe -m pip install --upgrade pip
+.\build_env\Scripts\python.exe -m pip install -r requirements_199.txt
+.\build_env\Scripts\python.exe -m pip install h5py
 
 echo.
 REM pause
 
-REM Check if Python is available
-python --version >nul 2>&1
+REM Check if Python is available in build_env
+.\build_env\Scripts\python.exe --version >nul 2>&1
 if errorlevel 1 (
-    echo Error: Python is not installed or not in PATH
+    echo Error: Python is not installed or not in PATH in build_env
     REM pause
     exit /b 1
 )
@@ -40,7 +41,7 @@ echo.
 
 echo.
 echo Step 3: Building standalone executable...
-python packaging\build_exe.py
+.\build_env\Scripts\python.exe packaging\build_exe.py
 
 if not exist "dist\*.exe" (
     echo Error: Failed to create executable

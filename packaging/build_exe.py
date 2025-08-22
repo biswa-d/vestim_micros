@@ -233,6 +233,7 @@ def build_executable():
         '--hidden-import=seaborn',
         '--hidden-import=sklearn.utils._typedefs',
         '--hidden-import=scipy',
+        '--hidden-import=h5py',
         '--collect-all=vestim',  # Ensure all vestim modules are included
         '--distpath=dist',
         '--workpath=build',

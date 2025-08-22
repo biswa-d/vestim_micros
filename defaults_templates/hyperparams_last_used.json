@@ -19,7 +19,7 @@
     "BATCH_SIZE": "512",
     "VALID_PATIENCE": "40",
     "VALID_FREQUENCY": "1",
-    "MAX_EPOCHS": "250",
+    "MAX_EPOCHS": "500",
     "REPETITIONS": 1,
     "MAX_TRAIN_HOURS": "0",
     "MAX_TRAIN_MINUTES": "0",
@@ -27,7 +27,7 @@
     "SCHEDULER_TYPE": "StepLR",
     "INITIAL_LR": "0.005",
     "LR_PARAM": "0.8",
-    "LR_PERIOD": "10",
+    "LR_PERIOD": "8",
     "PLATEAU_PATIENCE": "10",
     "PLATEAU_FACTOR": "0.1",
     "COSINE_T0": "10",
@@ -42,7 +42,7 @@
     "INFERENCE_FILTER_ALPHA": "0.0015",
     "INFERENCE_FILTER_POLYORDER": "2",
     "FNN_ACTIVATION": "ReLU",
-    "FNN_HIDDEN_LAYERS": "64,32",
-    "FNN_DROPOUT_PROB": "0.1",
+    "FNN_HIDDEN_LAYERS": "32,16",
+    "FNN_DROPOUT_PROB": "0.15",
     "MAX_TRAINING_TIME_SECONDS": 0
 }

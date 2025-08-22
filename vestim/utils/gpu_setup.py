@@ -24,8 +24,9 @@ def install_gpu_pytorch():
     print("Attempting to install PyTorch with CUDA support...")
     logs = ""
     try:
+        executable = "py" if sys.platform == "win32" else "python3"
         command = [
-            sys.executable, "-m", "pip", "install",
+            executable, "-m", "pip", "install",
             "torch==2.4.0", "--index-url", "https://download.pytorch.org/whl/cu118"
         ]
         
