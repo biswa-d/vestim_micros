@@ -451,7 +451,7 @@ class DataAugmentGUI(QMainWindow):
         padding_length_label = QLabel("Padding Length (rows):")
         padding_length_layout.addWidget(padding_length_label)
         self.padding_length_spinbox = QSpinBox()
-        self.padding_length_spinbox.setRange(0, 1000) # Sensible range
+        self.padding_length_spinbox.setRange(0, 10000) # Increased range
         self.padding_length_spinbox.setValue(10)      # Default value
         self.padding_length_spinbox.setEnabled(False)
         padding_length_layout.addWidget(self.padding_length_spinbox)

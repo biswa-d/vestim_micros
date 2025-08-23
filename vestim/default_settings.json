@@ -1,8 +1,8 @@
 {
     "last_used": {
         "train_folder": "C:/Users/dehuryb/code/SD60/train",
-        "val_folder": "C:/Users/dehuryb/code/vestim_micros/output/job_20250823-032940/val_data/raw_data",
-        "test_folder": "C:/Users/dehuryb/code/vestim_micros/output/job_20250823-032940/test_data/raw_data",
+        "val_folder": "C:/Users/dehuryb/code/SD60/test",
+        "test_folder": "C:/Users/dehuryb/code/SD60/test",
         "file_format": "csv",
         "hyperparams": {
             "FEATURE_COLUMNS": [
