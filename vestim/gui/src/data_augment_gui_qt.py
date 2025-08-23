@@ -80,10 +80,12 @@ class FormulaInputDialog(QDialog):
         layout.addWidget(self.formula_edit)
         
         examples_label = QLabel("Examples:\n"
-                               "1. column1 * 2 + column2\n"
-                               "2. np.sin(column1) + np.log(column2)\n"
-                               "3. Absolute noise: column1 + noise(0.0, 0.02)\n"
-                               "4. Relative noise: column1 * (1 + noise(0.0, 0.02))")
+                               "1. `column1 * 2 + column2`\n"
+                               "2. `np.sin(column1) + np.log(column2)`\n"
+                               "3. Absolute noise: `column1 + noise(0.0, 0.02)`\n"
+                               "4. Relative noise: `column1 * (1 + noise(0.0, 0.02))`\n"
+                               "5. Moving average: `moving_average(column1, 10)`\n"
+                               "6. Rolling max: `rolling_max(column1, 10)`")
         examples_label.setStyleSheet("font-style: italic; color: gray;")
         layout.addWidget(examples_label)
         
@@ -154,7 +156,7 @@ class FilterInputDialog(QDialog):
         form_layout.addRow("Select Column:", self.column_combo)
 
         self.filter_type_combo = QComboBox()
-        self.filter_type_combo.addItems(["Butterworth"])
+        self.filter_type_combo.addItems(["Butterworth", "Savitzky-Golay", "Exponential Moving Average"])
         form_layout.addRow("Filter Type:", self.filter_type_combo)
 
         self.sampling_rate_spinbox = QDoubleSpinBox()

@@ -242,6 +242,14 @@ class DataAugmentService:
     def _generate_noise(mean, std, size):
         return np.random.normal(mean, std, size)
 
+    @staticmethod
+    def _moving_average(data_series, window):
+        return data_series.rolling(window=int(window), min_periods=1).mean()
+
+    @staticmethod
+    def _rolling_max(data_series, window):
+        return data_series.rolling(window=int(window), min_periods=1).max()
+
     def validate_formula(self, formula: str, df: pd.DataFrame) -> Tuple[bool, Optional[str]]:
         self.logger.info(f"Validating formula: {formula}")
         forbidden_patterns = [r'__.*__', r'eval\s*\(', r'exec\s*\(', r'import\s+', r'open\s*\(', r'os\.', r'sys\.', r'subprocess\.', r'shutil\.']
@@ -254,7 +262,7 @@ class DataAugmentService:
         potential_cols = re.findall(r'[a-zA-Z_]\w*', formula)
         python_keywords = ['and', 'or', 'not', 'if', 'else', 'for', 'in', 'True', 'False', 'None']
         numpy_funcs = ['sin', 'cos', 'tan', 'exp', 'log', 'sqrt', 'abs', 'floor', 'ceil']
-        allowed_refs = python_keywords + numpy_funcs + ['np', 'noise']
+        allowed_refs = python_keywords + numpy_funcs + ['np', 'noise', 'moving_average', 'rolling_max']
         potential_cols = [col for col in potential_cols if col not in allowed_refs]
         
         df_columns = df.columns.tolist()
@@ -268,7 +276,9 @@ class DataAugmentService:
             sample_df = df.iloc[:1].copy()
             safe_globals = {
                 "np": np,
-                "noise": lambda mean, std: self._generate_noise(mean, std, len(sample_df))
+                "noise": lambda mean, std: self._generate_noise(mean, std, len(sample_df)),
+                "moving_average": lambda data, window: self._moving_average(data, window),
+                "rolling_max": lambda data, window: self._rolling_max(data, window)
             }
             safe_locals = {col: sample_df[col] for col in sample_df.columns}
             result = eval(formula, safe_globals, safe_locals)
@@ -307,7 +317,9 @@ class DataAugmentService:
             try:
                 safe_globals = {
                     "np": np,
-                    "noise": lambda mean, std: self._generate_noise(mean, std, len(result_df))
+                    "noise": lambda mean, std: self._generate_noise(mean, std, len(result_df)),
+                    "moving_average": lambda data, window: self._moving_average(result_df[data], window) if isinstance(data, str) else self._moving_average(data, window),
+                    "rolling_max": lambda data, window: self._rolling_max(result_df[data], window) if isinstance(data, str) else self._rolling_max(data, window)
                 }
                 safe_locals = {col: result_df[col] for col in result_df.columns}
                 result_df[column_name] = eval(formula, safe_globals, safe_locals)
