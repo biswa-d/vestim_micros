@@ -219,6 +219,7 @@ def build_executable():
         '--add-data=vestim;vestim',  # Include entire vestim package
         '--add-data=hyperparams.json;.',  # Include config files
         '--add-data=USER_README.md;.',  # Include comprehensive user README
+        '--add-data=requirements_cpu.txt;.', # Include requirements_cpu.txt
         f'--add-data={assets_dir};installer_assets',  # Include all installer assets
         '--hidden-import=PyQt5.QtCore',
         '--hidden-import=PyQt5.QtWidgets', 

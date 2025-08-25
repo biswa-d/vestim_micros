@@ -1,4 +1,4 @@
-; Inno Setup Script for Vestim
+; Inno Setup Script for Vestim (199 Env)
 ; This creates a professional Windows installer
 
 #define MyAppName "Vestim"
@@ -25,7 +25,7 @@ LicenseFile=LICENSE
 InfoBeforeFile=INSTALL_INFO.txt
 OutputDir=installer_output
 #define BuildDate GetDateTimeString('yyyy-mm-dd', '-', ':')
-OutputBaseFilename=vestim-installer-{#MyAppVersion}-{#BuildDate}
+OutputBaseFilename=vestim-installer-{#MyAppVersion}-{#BuildDate}-199
 SetupIconFile=vestim\gui\resources\icon.ico
 Compression=lzma
 SolidCompression=yes
@@ -50,7 +50,6 @@ Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "hyperparams.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "defaults_templates\*"; DestDir: "{app}\defaults_templates"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "vestim\gpu_setup.py"; DestDir: "{app}"; Flags: ignoreversion
 ; Demo data files and hyperparams templates will be copied to projects folder by installer script
 
 [Icons]
@@ -62,7 +61,6 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Fil
 [Run]
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Microsoft Visual C++ 2015-2022 Redistributable..."; Tasks: vc2019redist; Check: VCRedistNeedsInstallAndDownload
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\python\python.exe"; Parameters: """{app}\gpu_setup.py"""; StatusMsg: "Checking for GPU..."; Flags: runhidden
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

@@ -78,7 +78,7 @@ if errorlevel 1 (
 )
 
 echo NSIS found! Creating professional installer...
-makensis packaging\vestim_installer.nsi
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "vestim_installer.iss"
 
 if exist "installer_output\vestim-installer-2.0.0.exe" (
     echo.

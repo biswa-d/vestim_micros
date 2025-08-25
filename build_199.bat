@@ -1,12 +1,12 @@
 @echo off
-title Vestim Professional Installer Builder
+title Vestim Professional Installer Builder (199 Env)
 echo ========================================
-echo Vestim Professional Installer Builder  
+echo Vestim Professional Installer Builder (199 Env)
 echo ========================================
 echo.
 echo Step 1: Installing build dependencies in build_env...
 .\build_env\Scripts\python.exe -m pip install --upgrade pip
-.\build_env\Scripts\python.exe -m pip install -r requirements_cpu.txt
+.\build_env\Scripts\python.exe -m pip install -r requirements_199.txt
 .\build_env\Scripts\python.exe -m pip install h5py
 
 echo.
@@ -78,7 +78,7 @@ if errorlevel 1 (
 )
 
 echo NSIS found! Creating professional installer...
-makensis packaging\vestim_installer.nsi
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "vestim_installer_199.iss"
 
 if exist "installer_output\vestim-installer-2.0.0.exe" (
     echo.
