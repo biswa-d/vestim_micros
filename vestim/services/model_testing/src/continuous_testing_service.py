@@ -449,14 +449,17 @@ class ContinuousTestingService:
         # Calculate metrics
         rms_error_val = np.sqrt(mean_squared_error(y_true, y_pred)) * multiplier
         mae_val = mean_absolute_error(y_true, y_pred) * multiplier
-        mape_denominator = np.maximum(1e-10, np.abs(y_true))
-        mape = np.mean(np.abs((y_true - y_pred) / mape_denominator)) * 100
+        # MASE calculation: robust to zero values and interpretable
+        mae = mean_absolute_error(y_true, y_pred)
+        # Naive forecast (persistence model) error
+        naive_mae = np.mean(np.abs(np.diff(y_true)))
+        mase = mae / naive_mae if naive_mae > 1e-8 else 0.0
         r2 = r2_score(y_true, y_pred)
 
         # Calculate error values for SOC
         error_percent_soc_values = (y_true - y_pred) * multiplier
 
-        print(f"[VEstim] Metrics - RMS Error: {rms_error_val:.3f} {unit_display}, MAE: {mae_val:.3f} {unit_display}, MAPE: {mape:.2f}%, R²: {r2:.4f}")
+        print(f"[VEstim] Metrics - RMS Error: {rms_error_val:.3f} {unit_display}, MAE: {mae_val:.3f} {unit_display}, MASE: {mase:.4f}, R²: {r2:.4f}")
         print(f"[VEstim] Error values (first 5): {error_percent_soc_values[:5]}")
         print(f"[VEstim] Multiplier used for error calculation: {multiplier}")
 
@@ -466,7 +469,7 @@ class ContinuousTestingService:
             'true_values': y_true,
             f'rms_error{unit_suffix}': rms_error_val,
             f'mae{unit_suffix}': mae_val,
-            'mape_percent': mape,
+            'mase': mase,
             'r2': r2,
             'unit_display': unit_display,
             'multiplier': multiplier,

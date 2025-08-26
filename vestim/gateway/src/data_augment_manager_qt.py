@@ -371,7 +371,9 @@ class DataAugmentManager(QObject): # Inherit from QObject
                     formula_error_occurred = False # Flag to indicate if a formula error stopped processing
                     if column_formulas and df is not None and not df.empty:
                         try:
-                            df = self.service.create_columns(df, column_formulas)
+                            # Log details only for the first file
+                            log_formula_details = (i == 0)
+                            df = self.service.create_columns(df, column_formulas, log_details=log_formula_details)
                         except ValueError as e_formula:
                             error_msg = f"Error applying formula to {os.path.basename(file_path)}: {e_formula}"
                             self.logger.error(error_msg, exc_info=True)

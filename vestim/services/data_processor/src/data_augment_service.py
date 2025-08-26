@@ -244,6 +244,8 @@ class DataAugmentService:
 
     @staticmethod
     def _moving_average(data_series, window):
+        if not isinstance(data_series, pd.Series):
+            data_series = pd.Series(data_series)
         return data_series.rolling(window=int(window), min_periods=1).mean()
 
     @staticmethod
@@ -256,8 +258,9 @@ class DataAugmentService:
         # Use forward fill to handle NaNs created by the shift
         return shifted_series.ffill()
 
-    def validate_formula(self, formula: str, df: pd.DataFrame) -> Tuple[bool, Optional[str]]:
-        self.logger.info(f"Validating formula: {formula}")
+    def validate_formula(self, formula: str, df: pd.DataFrame, log_details: bool = True) -> Tuple[bool, Optional[str]]:
+        if log_details:
+            self.logger.info(f"Validating formula: {formula}")
         forbidden_patterns = [r'__.*__', r'eval\s*\(', r'exec\s*\(', r'import\s+', r'open\s*\(', r'os\.', r'sys\.', r'subprocess\.', r'shutil\.']
         for pattern in forbidden_patterns:
             if re.search(pattern, formula):
@@ -291,7 +294,8 @@ class DataAugmentService:
             result = eval(formula, safe_globals, safe_locals)
             if not hasattr(result, '__len__'):
                 result = np.full(len(sample_df), result)
-            self.logger.info(f"Formula validated successfully: {formula}")
+            if log_details:
+                self.logger.info(f"Formula validated successfully: {formula}")
             return True, None
         except Exception as e:
             error_msg = f"Error evaluating formula: {e}"
@@ -301,10 +305,11 @@ class DataAugmentService:
             self.logger.error(f"Formula validation failed during evaluation: {e}", exc_info=True)
             return False, error_msg
     
-    def create_columns(self, df: pd.DataFrame, 
-                      column_formulas: List[Tuple[str, str]], 
-                      progress_callback=None) -> pd.DataFrame:
-        self.logger.info(f"Creating {len(column_formulas)} new columns")
+    def create_columns(self, df: pd.DataFrame,
+                      column_formulas: List[Tuple[str, str]],
+                      progress_callback=None, log_details: bool = True) -> pd.DataFrame:
+        if log_details:
+            self.logger.info(f"Creating {len(column_formulas)} new columns")
         if not column_formulas: return df
         if progress_callback: progress_callback(10)
         
@@ -312,8 +317,9 @@ class DataAugmentService:
         progress_increment = 80 / len(column_formulas) if len(column_formulas) > 0 else 0
         
         for i, (column_name, formula) in enumerate(column_formulas):
-            self.logger.info(f"Creating column '{column_name}' with formula: {formula}")
-            is_valid, error_detail = self.validate_formula(formula, result_df)
+            if log_details:
+                self.logger.info(f"Creating column '{column_name}' with formula: {formula}")
+            is_valid, error_detail = self.validate_formula(formula, result_df, log_details=log_details)
             if not is_valid:
                 error_message = f"Invalid formula for column '{column_name}': {formula}. Reason: {error_detail}"
                 self.logger.error(error_message)

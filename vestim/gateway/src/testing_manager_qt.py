@@ -426,7 +426,7 @@ class VEstimTestingManager:
                     "Epochs Trained": completed_epochs,
                     f"Test RMSE {error_unit_display}": f"{file_results.get(rms_key, float('nan')):.2f}",
                     f"Test MAXE {error_unit_display}": f"{max_abs_error_val:.2f}",
-                    "MAPE (%)": f"{file_results.get('mape_percent', float('nan')):.2f}",
+                    "MASE": f"{file_results.get('mase', float('nan')):.4f}",
                     "R2": f"{file_results.get('r2', float('nan')):.4f}"
                 }
                 self.results_summary.append(summary_row)
@@ -462,7 +462,7 @@ class VEstimTestingManager:
                 gui_result_data[rms_key] = file_results.get(rms_key, 'N/A')
                 gui_result_data[mae_key] = file_results.get(mae_key, 'N/A')
                 gui_result_data[f'max_abs_error{unit_suffix}'] = max_abs_error_val
-                gui_result_data['mape_percent'] = file_results.get('mape_percent', 'N/A')
+                gui_result_data['mase'] = file_results.get('mase', 'N/A')
                 gui_result_data['r2'] = file_results.get('r2', 'N/A')
                 
                 # Include the unit suffix directly for GUI use
@@ -586,7 +586,7 @@ class VEstimTestingManager:
             results.get('rms_error_mv', results.get('rms_error_percent', results.get('rms_error_degC', 0))),
             results.get('mae_mv', results.get('mae_percent', results.get('mae_degC', 0))),
             results.get('max_abs_error_mv', results.get('max_abs_error_percent', results.get('max_abs_error_degC', 0))),
-            results.get('mape_percent', 0),
+            results.get('mase', 0),
             results.get('r2', 0)
         ))
 
@@ -595,7 +595,7 @@ class VEstimTestingManager:
 
     def log_test_to_csv(self, task, results, csv_log_file):
         """Log test results to CSV file."""
-        fieldnames = ['Task ID', 'File Name', 'Model', 'RMS Error', 'MAE', 'Max Error', 'MAPE', 'R2', 'Units']
+        fieldnames = ['Task ID', 'File Name', 'Model', 'RMS Error', 'MAE', 'Max Error', 'MASE', 'R2', 'Units']
         file_exists = os.path.isfile(csv_log_file)
         
         # Determine units based on task target
@@ -614,7 +614,7 @@ class VEstimTestingManager:
                 'RMS Error': results.get('rms_error_mv', results.get('rms_error_percent', results.get('rms_error_degC', 'N/A'))),
                 'MAE': results.get('mae_mv', results.get('mae_percent', results.get('mae_degC', 'N/A'))),
                 'Max Error': results.get('max_abs_error_mv', results.get('max_abs_error_percent', results.get('max_abs_error_degC', 'N/A'))),
-                'MAPE': results.get('mape_percent', 'N/A'),
+                'MASE': results.get('mase', 'N/A'),
                 'R2': results.get('r2', 'N/A'),
                 'Units': units
             })

@@ -548,7 +548,7 @@ class VEstimHyperParamGUI(QWidget):
         model_label.setToolTip("Select a model architecture for training.")
 
         self.model_combo = QComboBox()
-        model_options = ["LSTM", "FNN", "GRU", "LSTM_EMA", "LSTM_LPF"]
+        model_options = ["LSTM", "FNN", "GRU"]
         self.model_combo.addItems(model_options)
         self.model_combo.setToolTip("LSTM for time-series, FNN for non-sequential data, GRU for memory-efficient training, LSTM_EMA and LSTM_LPF for filtered outputs.")
 
@@ -1446,12 +1446,12 @@ class VEstimHyperParamGUI(QWidget):
         """Collect basic parameters that are common to both Optuna and grid search."""
         new_params = {}
 
-        # FIXED:Collect values from stored param entries
+        # Collect values from stored param entries
         for param, entry in self.param_entries.items():
             if isinstance(entry, QLineEdit):
-                new_params[param] = entry.text().strip()  # FIXED:Text input
+                new_params[param] = entry.text().strip()
             elif isinstance(entry, QComboBox):
-                new_params[param] = entry.currentText()  # FIXED:Dropdown selection
+                new_params[param] = entry.currentText()
             elif isinstance(entry, QListWidget) and param == "OPTIMIZER_TYPE":
                 selected_optimizers = [item.text() for item in entry.selectedItems()]
                 new_params[param] = ",".join(selected_optimizers)
@@ -1459,6 +1459,17 @@ class VEstimHyperParamGUI(QWidget):
                 new_params[param] = entry.isChecked()
             elif isinstance(entry, QListWidget):
                 new_params[param] = [item.text() for item in entry.selectedItems()]
+
+        # Conditionally remove inference filter params if 'None' is selected
+        if new_params.get("INFERENCE_FILTER_TYPE") == "None":
+            params_to_remove = [
+                "INFERENCE_FILTER_WINDOW_SIZE",
+                "INFERENCE_FILTER_ALPHA",
+                "INFERENCE_FILTER_POLYORDER"
+            ]
+            for p in params_to_remove:
+                if p in new_params:
+                    del new_params[p]
 
         # FIXED:Debug: Log collected parameter values
         self.logger.info("Collected parameters from GUI:")

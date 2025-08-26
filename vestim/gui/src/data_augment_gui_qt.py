@@ -82,10 +82,10 @@ class FormulaInputDialog(QDialog):
         examples_label = QLabel("Examples:\n"
                                "1. `column1 * 2 + column2`\n"
                                "2. `np.sin(column1) + np.log(column2)`\n"
-                               "3. Absolute noise: `column1 + noise(0.0, 0.02)`\n"
-                               "4. Relative noise: `column1 * (1 + noise(0.0, 0.02))`\n"
-                               "5. Moving average: `moving_average(column1, 10)`\n"
-                               "6. Rolling max: `rolling_max(column1, 10)`")
+                               "3. Lagged feature: `shift(column1, -1)`\n"
+                               "4. Additive noise: `column1 + noise(0.0, 0.02)`\n"
+                               "5. Multiplicative noise: `column1 * (1 + noise(0.0, 0.02))`\n"
+                               "6. Moving average: `moving_average(column1, 10)`")
         examples_label.setStyleSheet("font-style: italic; color: gray;")
         layout.addWidget(examples_label)
         
@@ -624,13 +624,18 @@ class DataAugmentGUI(QMainWindow):
 
     def show_formula_dialog(self):
         if self.train_df is None:
-            QMessageBox.warning(self, "Warning", "Please load data first (select a valid job folder).")
-            return
+            # Attempt to load the dataframe if it's missing
+            if self.job_folder:
+                self.train_df = self.data_augment_manager.get_sample_train_dataframe(self.job_folder)
+            
+            if self.train_df is None:
+                QMessageBox.warning(self, "Warning", "Please select a valid job folder with data to see available columns.")
+                return
+
         available_columns = list(self.train_df.columns)
-        # Get names of columns already created in this session
         session_created_names = [name for name, formula in self.created_columns]
         
-        dialog = FormulaInputDialog(available_columns, session_created_names, self) # Pass session names
+        dialog = FormulaInputDialog(available_columns, session_created_names, self)
         if dialog.exec_() == QDialog.Accepted:
             new_column, formula = dialog.new_column_name, dialog.formula
             logger.info(f"DataAugmentGUI: Formula dialog accepted. New column: '{new_column}', Formula: '{formula}'")
