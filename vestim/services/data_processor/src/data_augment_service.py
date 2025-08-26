@@ -252,7 +252,9 @@ class DataAugmentService:
 
     @staticmethod
     def _shift_series(data_series, periods):
-        return data_series.shift(periods=int(periods))
+        shifted_series = data_series.shift(periods=int(periods))
+        # Use forward fill to handle NaNs created by the shift
+        return shifted_series.ffill()
 
     def validate_formula(self, formula: str, df: pd.DataFrame) -> Tuple[bool, Optional[str]]:
         self.logger.info(f"Validating formula: {formula}")
