@@ -1,8 +1,20 @@
 import torch
 import torch.nn as nn
 
+class GRULayerNorm(nn.Module):
+    """A custom GRU layer with Layer Normalization."""
+    def __init__(self, input_size, hidden_size, num_layers, dropout):
+        super(GRULayerNorm, self).__init__()
+        self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout)
+        self.layer_norm = nn.LayerNorm(hidden_size)
+
+    def forward(self, x, hx):
+        x, hx = self.gru(x, hx)
+        x = self.layer_norm(x)
+        return x, hx
+
 class GRUModel(nn.Module):
-    def __init__(self, input_size, hidden_units, num_layers, output_size=1, dropout_prob=0.0, device='cpu', apply_clipped_relu=False):
+    def __init__(self, input_size, hidden_units, num_layers, output_size=1, dropout_prob=0.0, device='cpu', apply_clipped_relu=False, use_layer_norm=False):
         """
         Gated Recurrent Unit (GRU) Model.
 
@@ -13,6 +25,7 @@ class GRUModel(nn.Module):
         :param dropout_prob: Dropout probability for GRU layers (if num_layers > 1) and an optional final dropout.
         :param device: The device to run the model on ('cpu' or 'cuda').
         :param apply_clipped_relu: If True, applies a ReLU clipped at 1.0 to the output.
+        :param use_layer_norm: If True, adds Layer Normalization to the GRU layer.
         """
         super(GRUModel, self).__init__()
         self.input_size = input_size
@@ -22,14 +35,23 @@ class GRUModel(nn.Module):
         self.dropout_prob = dropout_prob
         self.device = device
         self.apply_clipped_relu = apply_clipped_relu
+        self.use_layer_norm = use_layer_norm
 
-        self.gru = nn.GRU(
-            input_size=input_size,
-            hidden_size=hidden_units,
-            num_layers=num_layers,
-            batch_first=True, # Expects input: (batch, seq, feature)
-            dropout=dropout_prob if num_layers > 1 else 0.0
-        ).to(self.device)
+        if self.use_layer_norm:
+            self.gru = GRULayerNorm(
+                input_size=input_size,
+                hidden_size=hidden_units,
+                num_layers=num_layers,
+                dropout=dropout_prob if num_layers > 1 else 0.0
+            ).to(self.device)
+        else:
+            self.gru = nn.GRU(
+                input_size=input_size,
+                hidden_size=hidden_units,
+                num_layers=num_layers,
+                batch_first=True, # Expects input: (batch, seq, feature)
+                dropout=dropout_prob if num_layers > 1 else 0.0
+            ).to(self.device)
 
         # Optional: A dropout layer before the final fully connected layer
         if dropout_prob > 0:

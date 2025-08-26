@@ -205,8 +205,8 @@ class DataLoaderService:
         
         self.logger.info(f"Processing {len(csv_files)} training files: {csv_files}")
         
-        all_X_chunks = []
-        all_y_chunks = []
+        all_X_chunks_from_files = []
+        all_y_chunks_from_files = []
         total_chunks = 0
         total_dropped_samples = 0
         
@@ -256,10 +256,9 @@ class DataLoaderService:
                 X_file_reshaped = X_file.reshape(file_chunks, batch_size, X_file.shape[1])
                 y_file_reshaped = y_file.reshape(file_chunks, batch_size, -1) if y_file.ndim > 1 else y_file.reshape(file_chunks, batch_size, 1)
                 
-                # Add chunks to our collection
-                for chunk_idx in range(file_chunks):
-                    all_X_chunks.append(X_file_reshaped[chunk_idx])
-                    all_y_chunks.append(y_file_reshaped[chunk_idx])
+                # Append the entire block of chunks from the file
+                all_X_chunks_from_files.append(X_file_reshaped)
+                all_y_chunks_from_files.append(y_file_reshaped)
                 
                 total_chunks += file_chunks
                 
@@ -276,9 +275,9 @@ class DataLoaderService:
         self.logger.info(f"Created {total_chunks} chunks from {len(csv_files)} files")
         self.logger.info(f"Total dropped samples across all files: {total_dropped_samples}")
         
-        # Convert chunks to numpy arrays
-        all_X_chunks = np.array(all_X_chunks)  # Shape: (total_chunks, batch_size, num_features)
-        all_y_chunks = np.array(all_y_chunks)  # Shape: (total_chunks, batch_size, num_targets)
+        # Use the highly optimized concatenate function
+        all_X_chunks = np.concatenate(all_X_chunks_from_files, axis=0)
+        all_y_chunks = np.concatenate(all_y_chunks_from_files, axis=0)
         
         # Shuffle chunks and split into train/validation
         np.random.seed(seed)

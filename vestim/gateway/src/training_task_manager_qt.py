@@ -1841,9 +1841,20 @@ class TrainingTaskManager:
                 }
                 history.append(epoch_data)
 
+            # Get absolute paths for data sources
+            job_folder_path = self.job_manager.get_job_folder()
+            train_data_path = os.path.abspath(os.path.join(job_folder_path, 'train_data', 'processed_data'))
+            val_data_path = os.path.abspath(os.path.join(job_folder_path, 'val_data', 'processed_data'))
+            test_data_path = os.path.abspath(os.path.join(job_folder_path, 'test_data', 'processed_data'))
+
             summary_data = {
                 'task_id': task_id,
                 'model_type': task.get('model_metadata', {}).get('model_type', 'N/A'),
+                'data_sources': {
+                    'training_data': train_data_path,
+                    'validation_data': val_data_path,
+                    'testing_data': test_data_path
+                },
                 'hyperparameters': task.get('hyperparams', {}),
                 'best_train_loss_normalized': best_train_loss_norm,
                 'best_train_loss_denormalized': best_train_loss_denorm,

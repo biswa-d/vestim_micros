@@ -38,10 +38,11 @@ class GRUModelService:
             raise ValueError("LAYERS is required for GRUModel.")
 
         apply_clipped_relu = params.get("normalization_applied", False)
+        use_layer_norm = params.get("GRU_USE_LAYERNORM", False)
         self.logger.info(
             f"Building GRU model with input_size={input_size}, hidden_units={hidden_units}, "
             f"num_layers={num_layers}, output_size={output_size}, dropout_prob={dropout_prob}, device={target_device}, "
-            f"apply_clipped_relu={apply_clipped_relu}"
+            f"apply_clipped_relu={apply_clipped_relu}, use_layer_norm={use_layer_norm}"
         )
 
         model = GRUModel(
@@ -51,7 +52,8 @@ class GRUModelService:
             output_size=output_size,
             dropout_prob=dropout_prob,
             device=target_device,
-            apply_clipped_relu=apply_clipped_relu
+            apply_clipped_relu=apply_clipped_relu,
+            use_layer_norm=use_layer_norm
         ).to(target_device)
         
         return model

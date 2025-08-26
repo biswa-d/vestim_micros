@@ -1,24 +1,45 @@
 import torch
 import torch.nn as nn
 
+class LSTMLayerNorm(nn.Module):
+    """A custom LSTM layer with Layer Normalization."""
+    def __init__(self, input_size, hidden_size, num_layers, dropout):
+        super(LSTMLayerNorm, self).__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout)
+        self.layer_norm = nn.LayerNorm(hidden_size)
+
+    def forward(self, x, hx):
+        x, hx = self.lstm(x, hx)
+        x = self.layer_norm(x)
+        return x, hx
+
 class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_units, num_layers, device, dropout_prob=0.0, apply_clipped_relu=False):
+    def __init__(self, input_size, hidden_units, num_layers, device, dropout_prob=0.0, apply_clipped_relu=False, use_layer_norm=False):
         super(LSTMModel, self).__init__()
         self.input_size = input_size
         self.hidden_units = hidden_units
         self.num_layers = num_layers
-        self.device = device  # Store the device in the model
+        self.device = device
         self.dropout_prob = dropout_prob
         self.apply_clipped_relu = apply_clipped_relu
+        self.use_layer_norm = use_layer_norm
 
         # Define the LSTM layer with dropout between layers
-        self.lstm = nn.LSTM(
-            input_size,
-            hidden_units,
-            num_layers,
-            batch_first=True,
-            dropout=dropout_prob if num_layers > 1 else 0  # Dropout only applied if num_layers > 1
-        ).to(self.device)
+        if self.use_layer_norm:
+            self.lstm = LSTMLayerNorm(
+                input_size,
+                hidden_units,
+                num_layers,
+                dropout=dropout_prob if num_layers > 1 else 0
+            ).to(self.device)
+        else:
+            self.lstm = nn.LSTM(
+                input_size,
+                hidden_units,
+                num_layers,
+                batch_first=True,
+                dropout=dropout_prob if num_layers > 1 else 0
+            ).to(self.device)
 
         # Define a dropout layer for the outputs
         self.dropout = nn.Dropout(p=dropout_prob)

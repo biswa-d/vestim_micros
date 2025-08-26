@@ -39,10 +39,12 @@ class FNNModelService:
 
         apply_clipped_relu = params.get("normalization_applied", False)
         activation_function = params.get("FNN_ACTIVATION", "ReLU")
+        use_layer_norm = params.get("FNN_USE_LAYERNORM", False)
         self.logger.info(
             f"Building FNN model with input_size={input_size}, output_size={output_size}, "
             f"hidden_layers={hidden_layer_sizes}, dropout_prob={dropout_prob}, device={target_device}, "
-            f"apply_clipped_relu={apply_clipped_relu}, activation_function={activation_function}"
+            f"apply_clipped_relu={apply_clipped_relu}, activation_function={activation_function}, "
+            f"use_layer_norm={use_layer_norm}"
         )
         
         model = FNNModel(
@@ -51,7 +53,8 @@ class FNNModelService:
             hidden_layer_sizes=hidden_layer_sizes,
             dropout_prob=dropout_prob,
             apply_clipped_relu=apply_clipped_relu,
-            activation_function=activation_function
+            activation_function=activation_function,
+            use_layer_norm=use_layer_norm
         ).to(target_device)
         
         return model

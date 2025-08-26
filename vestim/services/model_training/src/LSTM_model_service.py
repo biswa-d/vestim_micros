@@ -28,9 +28,10 @@ class LSTMModelService:
         dropout_prob = params.get("DROPOUT_PROB", 0.5)
 
         apply_clipped_relu = params.get("normalization_applied", False)
+        use_layer_norm = params.get("LSTM_USE_LAYERNORM", False)
         print(f"Building {model_type} model with input_size={input_size}, hidden_units={hidden_units}, "
               f"num_layers={num_layers}, dropout_prob={dropout_prob}, device={target_device}, "
-              f"apply_clipped_relu={apply_clipped_relu}")
+              f"apply_clipped_relu={apply_clipped_relu}, use_layer_norm={use_layer_norm}")
 
         model_class = {
             "LSTM": LSTMModel,
@@ -44,7 +45,8 @@ class LSTMModelService:
             num_layers=num_layers,
             device=target_device,
             dropout_prob=dropout_prob,
-            apply_clipped_relu=apply_clipped_relu
+            apply_clipped_relu=apply_clipped_relu,
+            use_layer_norm=use_layer_norm
         )
 
         return model
