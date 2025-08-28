@@ -25,21 +25,6 @@ class DataProcessorCSV:
         job_id, job_folder = self.job_manager.create_new_job()
         self.logger.info(f"Job created with ID: {job_id}, Folder: {job_folder}")
 
-        # Save original data paths to metadata
-        try:
-            import json
-            metadata_path = os.path.join(job_folder, 'job_metadata.json')
-            metadata = {
-                'train_folder_path': os.path.dirname(train_files[0]) if train_files else 'Not specified',
-                'val_folder_path': os.path.dirname(val_files[0]) if val_files else 'Not specified',
-                'test_folder_path': os.path.dirname(test_files[0]) if test_files else 'Not specified'
-            }
-            with open(metadata_path, 'w') as f:
-                json.dump(metadata, f, indent=4)
-            self.logger.info(f"Saved original data paths to {metadata_path}")
-        except Exception as e:
-            self.logger.error(f"Failed to save job metadata: {e}")
-
         job_log_file = os.path.join(job_folder, 'job.log')
         self.switch_log_file(job_log_file)
 

@@ -370,6 +370,8 @@ class DataImportGUI(QMainWindow):
             self.populate_file_list(new_folder, self.train_list_widget, selected_format)
             self.auto_select_all_files(self.train_list_widget)
             self.update_button_text(self.train_select_button, new_folder, "Train")
+            self.populate_file_list(new_folder, self.train_list_widget, selected_format)
+            self.auto_select_all_files(self.train_list_widget)
             logger.info(f"Selected training folder: {new_folder}. Populated for format: {selected_format}.")
         self.check_folders_selected()
 
@@ -383,6 +385,8 @@ class DataImportGUI(QMainWindow):
             self.populate_file_list(new_folder, self.test_list_widget, selected_format)
             self.auto_select_all_files(self.test_list_widget)
             self.update_button_text(self.test_select_button, new_folder, "Test")
+            self.populate_file_list(new_folder, self.test_list_widget, selected_format)
+            self.auto_select_all_files(self.test_list_widget)
             logger.info(f"Selected testing folder: {new_folder}. Populated for format: {selected_format}.")
         self.check_folders_selected()
 
@@ -396,6 +400,8 @@ class DataImportGUI(QMainWindow):
             self.populate_file_list(new_folder, self.val_list_widget, selected_format)
             self.auto_select_all_files(self.val_list_widget)
             self.update_button_text(self.val_select_button, new_folder, "Validation")
+            self.populate_file_list(new_folder, self.val_list_widget, selected_format)
+            self.auto_select_all_files(self.val_list_widget)
             logger.info(f"Selected validation folder: {new_folder}. Populated for format: {selected_format}.")
         self.check_folders_selected()
 
@@ -531,6 +537,11 @@ class DataImportGUI(QMainWindow):
 
         # Create and start the file organizer thread with the selected data processor
         # Removed sampling_frequency parameter as this is now handled in the data augmentation GUI
+        # Store original paths in JobManager
+        self.job_manager._train_folder_path = self.train_folder_path
+        self.job_manager._val_folder_path = self.val_folder_path
+        self.job_manager._test_folder_path = self.test_folder_path
+
         self.organizer = FileOrganizer(train_files, val_files, test_files, data_processor)
         self.organizer_thread = QThread()
 

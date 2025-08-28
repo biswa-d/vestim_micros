@@ -436,7 +436,11 @@ class DataAugmentManager(QObject): # Inherit from QObject
            
            # Save simple data file reference for future traceability
            try:
-               self._save_simple_data_reference_safe(job_folder)
+               # Get original folder paths from the DataImportGUI instance if available
+               train_folder_path = self.job_manager.get_train_folder_path() if hasattr(self.job_manager, 'get_train_folder_path') else ""
+               val_folder_path = self.job_manager.get_val_folder_path() if hasattr(self.job_manager, 'get_val_folder_path') else ""
+               test_folder_path = self.job_manager.get_test_folder_path() if hasattr(self.job_manager, 'get_test_folder_path') else ""
+               self._save_simple_data_reference_safe(job_folder, train_folder_path, val_folder_path, test_folder_path)
            except Exception as ref_error:
                self.logger.warning(f"Could not save data reference (non-critical): {ref_error}")
 
@@ -658,7 +662,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
         except Exception as e:
             self.logger.error(f"Error saving simple data reference: {e}", exc_info=True)
 
-    def _save_simple_data_reference_safe(self, job_folder: str):
+    def _save_simple_data_reference_safe(self, job_folder: str, train_folder_path: str = "", val_folder_path: str = "", test_folder_path: str = ""):
         """
         Save simple file references in a way that won't interfere with multiprocessing.
         Uses only basic Python operations and avoids any potential import issues.
@@ -675,7 +679,12 @@ class DataAugmentManager(QObject): # Inherit from QObject
             
             data_reference = {
                 'timestamp': datetime.now().isoformat(),
-                'job_folder': os.path.basename(job_folder),  # Just job name, not full path
+                'job_folder': os.path.basename(job_folder),
+                'original_data_sources': {
+                    'train': train_folder_path,
+                    'validation': val_folder_path,
+                    'test': test_folder_path
+                },
                 'train_files': [],
                 'validation_files': [],
                 'test_files': [],
@@ -735,6 +744,10 @@ class DataAugmentManager(QObject): # Inherit from QObject
                 f.write("=" * 50 + "\n")
                 f.write(f"Job: {data_reference['job_folder']}\n")
                 f.write(f"Created: {data_reference['timestamp']}\n\n")
+                f.write("ORIGINAL DATA SOURCES:\n")
+                f.write(f"  - Training: {data_reference['original_data_sources']['train']}\n")
+                f.write(f"  - Validation: {data_reference['original_data_sources']['validation']}\n")
+                f.write(f"  - Test: {data_reference['original_data_sources']['test']}\n\n")
                 
                 f.write(f"TRAINING FILES ({len(data_reference['train_files'])} files, {data_reference['total_train_samples']:,} total samples):\n")
                 for file_info in data_reference['train_files']:

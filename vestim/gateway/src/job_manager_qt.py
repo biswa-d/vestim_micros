@@ -74,6 +74,15 @@ class JobManager:
             return results_folder
         return None
 
+    def get_train_folder_path(self):
+        return getattr(self, '_train_folder_path', '')
+
+    def get_val_folder_path(self):
+        return getattr(self, '_val_folder_path', '')
+
+    def get_test_folder_path(self):
+        return getattr(self, '_test_folder_path', '')
+
     def cleanup_job_data(self, job_folder=None):
         """
         Removes raw and processed data folders to save space, preserving models and results.

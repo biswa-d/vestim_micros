@@ -271,7 +271,7 @@ class DataAugmentService:
         potential_cols = re.findall(r'[a-zA-Z_]\w*', formula)
         python_keywords = ['and', 'or', 'not', 'if', 'else', 'for', 'in', 'True', 'False', 'None']
         numpy_funcs = ['sin', 'cos', 'tan', 'exp', 'log', 'sqrt', 'abs', 'floor', 'ceil']
-        allowed_refs = python_keywords + numpy_funcs + ['np', 'noise', 'moving_average', 'rolling_max', 'shift']
+        allowed_refs = python_keywords + numpy_funcs + ['np', 'noise', 'moving_average', 'rolling_max', 'shift', 'butterworth_filter']
         potential_cols = [col for col in potential_cols if col not in allowed_refs]
         
         df_columns = df.columns.tolist()
@@ -288,7 +288,8 @@ class DataAugmentService:
                 "noise": lambda mean, std: self._generate_noise(mean, std, len(sample_df)),
                 "moving_average": lambda data, window: self._moving_average(data, window),
                 "rolling_max": lambda data, window: self._rolling_max(data, window),
-                "shift": lambda data, periods: self._shift_series(data, periods)
+                "shift": lambda data, periods: self._shift_series(data, periods),
+                "butterworth_filter": lambda data, corner_freq, sampling_rate, order=4: self.apply_butterworth_filter(sample_df, data, corner_freq, sampling_rate, order)
             }
             safe_locals = {col: sample_df[col] for col in sample_df.columns}
             result = eval(formula, safe_globals, safe_locals)
@@ -333,7 +334,8 @@ class DataAugmentService:
                     "noise": lambda mean, std: self._generate_noise(mean, std, len(result_df)),
                     "moving_average": lambda data, window: self._moving_average(result_df[data], window) if isinstance(data, str) else self._moving_average(data, window),
                     "rolling_max": lambda data, window: self._rolling_max(result_df[data], window) if isinstance(data, str) else self._rolling_max(data, window),
-                    "shift": lambda data, periods: self._shift_series(result_df[data], periods) if isinstance(data, str) else self._shift_series(data, periods)
+                    "shift": lambda data, periods: self._shift_series(result_df[data], periods) if isinstance(data, str) else self._shift_series(data, periods),
+                    "butterworth_filter": lambda data, corner_freq, sampling_rate, order=4: self.apply_butterworth_filter(result_df, data, corner_freq, sampling_rate, order)
                 }
                 safe_locals = {col: result_df[col] for col in result_df.columns}
                 result_df[column_name] = eval(formula, safe_globals, safe_locals)
@@ -554,45 +556,32 @@ class DataAugmentService:
         self.logger.info(f"Collected info for {len(column_info)} columns")
         return column_info
 
-    def apply_butterworth_filter(self, df: pd.DataFrame, column_name: str, corner_frequency: float, sampling_rate: float, filter_order: int = 4) -> pd.DataFrame:
-       """
-       Apply a Butterworth filter to a specific column in the DataFrame.
-       
-       Args:
-           df: The input DataFrame.
-           column_name: The name of the column to filter.
-           corner_frequency: The corner frequency for the filter.
-           sampling_rate: The sampling rate of the data in Hz.
-           filter_order: The order of the Butterworth filter.
-           
-       Returns:
-           The DataFrame with the new filtered column.
-       """
-       #self.logger.info(f"Applying Butterworth filter to column '{column_name}' with corner frequency {corner_frequency}Hz and sampling rate {sampling_rate}Hz")
-       
-       if column_name not in df.columns:
-           raise ValueError(f"Column '{column_name}' not found in DataFrame.")
-           
-       # Create the new column name
-       new_column_name = f"{column_name}_filtered"
-       
-       # Get the data from the column
-       data = df[column_name].values
-       
-       # Define the filter
-       nyquist = 0.5 * sampling_rate
-       if corner_frequency >= nyquist:
-           raise ValueError(f"Corner frequency ({corner_frequency}Hz) must be less than the Nyquist frequency ({nyquist}Hz).")
-       
-       normal_corner = corner_frequency / nyquist
-       b, a = butter(filter_order, normal_corner, btype='low', analog=False)
-       
-       # Apply the filter
-       filtered_data = filtfilt(b, a, data)
-       
-       # Add the filtered data to the DataFrame
-       df[new_column_name] = filtered_data
-       
-       #self.logger.info(f"Successfully created filtered column '{new_column_name}'")
-       
-       return df
+    def apply_butterworth_filter(self, df: pd.DataFrame, column_name: str, corner_frequency: float, sampling_rate: float, filter_order: int = 4) -> pd.Series:
+        """
+        Apply a Butterworth filter to a specific column and return the filtered series.
+        
+        Args:
+            df: The input DataFrame.
+            column_name: The name of the column to filter.
+            corner_frequency: The corner frequency for the filter.
+            sampling_rate: The sampling rate of the data in Hz.
+            filter_order: The order of the Butterworth filter.
+            
+        Returns:
+            A pandas Series with the filtered data.
+        """
+        if column_name not in df.columns:
+            raise ValueError(f"Column '{column_name}' not found in DataFrame.")
+            
+        data = df[column_name].values
+        
+        nyquist = 0.5 * sampling_rate
+        if corner_frequency >= nyquist:
+            raise ValueError(f"Corner frequency ({corner_frequency}Hz) must be less than the Nyquist frequency ({nyquist}Hz).")
+        
+        normal_corner = corner_frequency / nyquist
+        b, a = butter(filter_order, normal_corner, btype='low', analog=False)
+        
+        filtered_data = filtfilt(b, a, data)
+        
+        return pd.Series(filtered_data, index=df.index)

@@ -150,7 +150,7 @@ class VEstimTestingGUI(QMainWindow):
 
         self.tree = QTreeWidget()
         self.tree.setColumnCount(13)
-        self.tree.setHeaderLabels(["Sl.No", "Model", "Task", "File Name", "#W&Bs", "Best Train Loss", "Best Valid Loss", "Epochs Trained", "Test RMSE", "Test MAXE", "MAPE (%)", "R²", "Plot"])
+        self.tree.setHeaderLabels(["Sl.No", "Model", "Task", "File Name", "#W&Bs", "Best Train Loss", "Best Valid Loss", "Epochs Trained", "Test RMSE", "Test MAXE", "MASE", "R²", "Plot"])
         self.tree.setColumnWidth(0, 50)
         self.tree.setColumnWidth(1, 120)
         self.tree.setColumnWidth(2, 220)
@@ -266,7 +266,7 @@ class VEstimTestingGUI(QMainWindow):
             
             rms_error_val = task_data.get(rms_key, 'N/A')
             max_error_val = task_data.get(max_error_key, task_data.get('max_error_mv', 'N/A'))
-            mape = task_data.get('mape_percent', 'N/A')
+            mape = task_data.get('mase', 'N/A') # Use MASE now
             r2 = task_data.get('r2', 'N/A')
 
             try:
