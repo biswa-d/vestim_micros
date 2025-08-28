@@ -556,9 +556,10 @@ class DataAugmentService:
         self.logger.info(f"Collected info for {len(column_info)} columns")
         return column_info
 
-    def apply_butterworth_filter(self, df: pd.DataFrame, column_name: str, corner_frequency: float, sampling_rate: float, filter_order: int = 4) -> pd.Series:
+    def apply_butterworth_filter(self, df: pd.DataFrame, column_name: str, corner_frequency: float, sampling_rate: float, filter_order: int = 4, output_column_name: str = None) -> pd.DataFrame:
         """
-        Apply a Butterworth filter to a specific column and return the filtered series.
+        Apply a Butterworth filter to a specific column.
+        If output_column_name is provided, a new column is created. Otherwise, the original column is overwritten.
         
         Args:
             df: The input DataFrame.
@@ -566,9 +567,10 @@ class DataAugmentService:
             corner_frequency: The corner frequency for the filter.
             sampling_rate: The sampling rate of the data in Hz.
             filter_order: The order of the Butterworth filter.
+            output_column_name: The name of the new column for the filtered data.
             
         Returns:
-            A pandas Series with the filtered data.
+            The DataFrame with the filtered column.
         """
         if column_name not in df.columns:
             raise ValueError(f"Column '{column_name}' not found in DataFrame.")
@@ -584,4 +586,7 @@ class DataAugmentService:
         
         filtered_data = filtfilt(b, a, data)
         
-        return pd.Series(filtered_data, index=df.index)
+        target_column = output_column_name if output_column_name else column_name
+        df[target_column] = filtered_data
+        
+        return df

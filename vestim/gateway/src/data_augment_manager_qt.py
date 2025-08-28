@@ -174,12 +174,14 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             # Also apply filtering during stats calculation pass
                             if filter_configs and df_temp_for_stats is not None and not df_temp_for_stats.empty:
                                 for config in filter_configs:
+                                    output_column_name = config.get('output_column_name')
                                     df_temp_for_stats = self.service.apply_butterworth_filter(
                                         df_temp_for_stats,
                                         column_name=config['column'],
                                         corner_frequency=config['corner_frequency'],
                                         sampling_rate=config['sampling_rate'],
-                                        filter_order=config.get('filter_order', 4)
+                                        filter_order=config.get('filter_order', 4),
+                                        output_column_name=output_column_name
                                     )
 
                             if column_formulas and df_temp_for_stats is not None and not df_temp_for_stats.empty:
@@ -356,12 +358,14 @@ class DataAugmentManager(QObject): # Inherit from QObject
                     if filter_configs and df is not None and not df.empty:
                         for config in filter_configs:
                             try:
+                                output_column_name = config.get('output_column_name')
                                 df = self.service.apply_butterworth_filter(
                                     df,
                                     column_name=config['column'],
                                     corner_frequency=config['corner_frequency'],
                                     sampling_rate=config['sampling_rate'],
-                                    filter_order=config.get('filter_order', 4)
+                                    filter_order=config.get('filter_order', 4),
+                                    output_column_name=output_column_name
                                 )
                             except Exception as e_filter:
                                 self.logger.error(f"Error applying filter for {file_path}: {e_filter}", exc_info=True)
