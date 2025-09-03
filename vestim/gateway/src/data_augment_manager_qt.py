@@ -436,7 +436,12 @@ class DataAugmentManager(QObject): # Inherit from QObject
                 current_progress = int(((i + 1) / total_files) * 95)
                 self.augmentationProgress.emit(current_progress)
 
-           self.service.update_augmentation_metadata(job_folder, processed_files_metadata, filter_configs=filter_configs)
+           normalization_info = {
+               'applied': normalize_data and global_scaler is not None,
+               'scaler_path': os.path.relpath(saved_scaler_path, job_folder) if saved_scaler_path else None,
+               'normalized_columns': actual_columns_to_normalize if normalize_data and global_scaler else []
+           }
+           self.service.update_augmentation_metadata(job_folder, processed_files_metadata, filter_configs=filter_configs, normalization_info=normalization_info)
            
            # Save simple data file reference for future traceability
            try:

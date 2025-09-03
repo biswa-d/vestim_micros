@@ -1,4 +1,4 @@
-import time, os, sys, math, json # Added json
+import time, os, sys, math, json
 import csv
 import sqlite3
 import torch
@@ -10,6 +10,7 @@ import numpy as np
 from PyQt5.QtCore import QThread, pyqtSignal
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
+from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.services.model_training.src.data_loader_service import DataLoaderService
 from vestim.services.model_training.src.training_task_service import TrainingTaskService
 try:
@@ -1829,7 +1830,6 @@ class TrainingTaskManager:
             final_train_loss_denorm = getattr(self, f'_task_{task_id}_last_train_rmse_orig', float('nan'))
             final_val_loss_denorm = getattr(self, f'_task_{task_id}_last_val_rmse_orig', float('nan'))
             best_validation_loss_denorm = getattr(self, f'_task_{task_id}_best_val_rmse_orig', float('inf'))
-            # Use the stored best training loss from attributes instead of passed parameter
             best_train_loss_denorm = getattr(self, f'_task_{task_id}_best_train_rmse_orig', float('inf'))
 
             # Restructure training history for easier analysis
@@ -1838,7 +1838,6 @@ class TrainingTaskManager:
                 epoch_data = {
                     'epoch': i + 1,
                     'train_loss_normalized': train_loss_history[i],
-                    # Validation loss may not be present for every epoch
                     'validation_loss_normalized': val_loss_history[i] if i < len(val_loss_history) else None
                 }
                 history.append(epoch_data)
@@ -1849,6 +1848,10 @@ class TrainingTaskManager:
             val_data_path = os.path.abspath(os.path.join(job_folder_path, 'val_data', 'processed_data'))
             test_data_path = os.path.abspath(os.path.join(job_folder_path, 'test_data', 'processed_data'))
 
+            # Use the centralized filtering method from HyperParamManager
+            hp_manager = VEstimHyperParamManager()
+            hyperparams_to_save = hp_manager._filter_hyperparams_for_saving(task.get('hyperparams', {}))
+
             summary_data = {
                 'task_id': task_id,
                 'model_type': task.get('model_metadata', {}).get('model_type', 'N/A'),
@@ -1857,7 +1860,7 @@ class TrainingTaskManager:
                     'validation_data': val_data_path,
                     'testing_data': test_data_path
                 },
-                'hyperparameters': task.get('hyperparams', {}),
+                'hyperparameters': hyperparams_to_save,
                 'best_train_loss_normalized': best_train_loss_norm,
                 'best_train_loss_denormalized': best_train_loss_denorm,
                 'best_validation_loss_normalized': best_val_loss_norm,

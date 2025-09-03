@@ -502,7 +502,7 @@ class DataAugmentService:
             self.logger.error(f"Failed to save augmented file {output_filepath}: {e}", exc_info=True)
             raise 
 
-    def update_augmentation_metadata(self, job_folder: str, processed_files_info: List[Dict[str, Any]], filter_configs: Optional[List[Dict[str, Any]]] = None):
+    def update_augmentation_metadata(self, job_folder: str, processed_files_info: List[Dict[str, Any]], filter_configs: Optional[List[Dict[str, Any]]] = None, normalization_info: Optional[Dict[str, Any]] = None):
         self.logger.info(f"Updating augmentation metadata for job: {job_folder}")
         self._set_job_context(job_folder)
 
@@ -521,6 +521,16 @@ class DataAugmentService:
                         f.write(f"    Order: {config.get('filter_order', 'N/A')}\n")
                         f.write(f"    Corner Frequency: {config.get('corner_frequency', 'N/A')} Hz\n")
                         f.write(f"    Sampling Rate: {config.get('sampling_rate', 'N/A')} Hz\n\n")
+                
+                if normalization_info and normalization_info.get('applied'):
+                    f.write("--- Normalization ---\n")
+                    f.write(f"  Status: Applied\n")
+                    f.write(f"  Scaler Path: {normalization_info.get('scaler_path', 'N/A')}\n")
+                    columns = normalization_info.get('normalized_columns', [])
+                    f.write(f"  Normalized Columns ({len(columns)}): {', '.join(columns)}\n\n")
+                else:
+                    f.write("--- Normalization ---\n")
+                    f.write(f"  Status: Not Applied\n\n")
 
                 f.write(f'Total files processed: {len(processed_files_info)}\n\n')
                 f.write("--- Processed File Details ---\n")

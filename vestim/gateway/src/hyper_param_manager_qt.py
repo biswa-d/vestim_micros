@@ -323,6 +323,85 @@ class VEstimHyperParamManager:
         return validated_params
 
 
+    def _filter_hyperparams_for_saving(self, hyperparams):
+        """Filters and reorders the hyperparameters dictionary for saving."""
+        params_to_filter = hyperparams.copy()
+        
+        # --- Filtering ---
+        scheduler_type = params_to_filter.get('SCHEDULER_TYPE')
+        if scheduler_type == 'StepLR':
+            if 'LR_PARAM' in params_to_filter:
+                params_to_filter['LR_DROP_FACTOR'] = params_to_filter.pop('LR_PARAM')
+            if 'LR_PERIOD' in params_to_filter:
+                params_to_filter['LR_DROP_PERIOD'] = params_to_filter.pop('LR_PERIOD')
+            params_to_remove = ['PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN']
+        elif scheduler_type == 'ReduceLROnPlateau':
+            params_to_remove = ['LR_DROP_PERIOD', 'LR_DROP_FACTOR', 'LR_PERIOD', 'LR_PARAM', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN']
+        elif scheduler_type == 'CosineAnnealingWarmRestarts':
+            params_to_remove = ['LR_DROP_PERIOD', 'LR_DROP_FACTOR', 'LR_PERIOD', 'LR_PARAM', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR']
+        else:
+            params_to_remove = ['LR_DROP_PERIOD', 'LR_DROP_FACTOR', 'LR_PERIOD', 'LR_PARAM', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN']
+        for param in params_to_remove:
+            params_to_filter.pop(param, None)
+
+        if params_to_filter.get('INFERENCE_FILTER_TYPE') == 'None':
+            for param in ['INFERENCE_FILTER_WINDOW_SIZE', 'INFERENCE_FILTER_ALPHA', 'INFERENCE_FILTER_POLYORDER']:
+                params_to_filter.pop(param, None)
+
+        if int(params_to_filter.get('EXPLOIT_REPETITIONS', 0)) == 0:
+            for param in ['EXPLOIT_EPOCHS', 'EXPLOIT_LR', 'FINAL_LR']:
+                params_to_filter.pop(param, None)
+
+        model_type = params_to_filter.get('MODEL_TYPE')
+        training_method = params_to_filter.get('TRAINING_METHOD')
+        if model_type == 'FNN':
+            params_to_filter.pop('LAYERS', None)
+            params_to_filter.pop('HIDDEN_UNITS', None)
+            if training_method == 'WholeSequenceFNN':
+                params_to_filter.pop('LOOKBACK', None)
+        elif model_type in ['LSTM', 'GRU']:
+            params_to_filter.pop('FNN_HIDDEN_LAYERS', None)
+            params_to_filter.pop('FNN_ACTIVATION', None)
+            params_to_filter.pop('FNN_DROPOUT_PROB', None)
+
+        if int(params_to_filter.get('MAX_TRAINING_TIME_SECONDS', 0)) == 0:
+            params_to_filter.pop('MAX_TRAINING_TIME_SECONDS', None)
+
+        # --- Reordering ---
+        ordered_params = {}
+        order = [
+            # Data and Device
+            "FEATURE_COLUMNS", "TARGET_COLUMN", "DEVICE_SELECTION", "USE_MIXED_PRECISION",
+            # Model
+            "MODEL_TYPE", "TRAINING_METHOD", "LOOKBACK",
+            # FNN Specific
+            "FNN_HIDDEN_LAYERS", "FNN_ACTIVATION", "FNN_DROPOUT_PROB",
+            # RNN Specific
+            "LAYERS", "HIDDEN_UNITS",
+            # Training Core
+            "BATCH_TRAINING", "BATCH_SIZE", "VALID_PATIENCE", "VALID_FREQUENCY", "MAX_EPOCHS", "REPETITIONS",
+            # Optimizer
+            "OPTIMIZER_TYPE", "WEIGHT_DECAY",
+            # Scheduler
+            "SCHEDULER_TYPE", "INITIAL_LR", "LR_DROP_FACTOR", "LR_DROP_PERIOD",
+            "PLATEAU_PATIENCE", "PLATEAU_FACTOR", "COSINE_T0", "COSINE_T_MULT", "COSINE_ETA_MIN",
+            # Exploit Phase
+            "EXPLOIT_REPETITIONS", "EXPLOIT_EPOCHS", "EXPLOIT_LR", "FINAL_LR",
+            # Inference Filter
+            "INFERENCE_FILTER_TYPE", "INFERENCE_FILTER_WINDOW_SIZE", "INFERENCE_FILTER_ALPHA", "INFERENCE_FILTER_POLYORDER",
+            # Performance
+            "NUM_WORKERS", "PIN_MEMORY", "PREFETCH_FACTOR", "MAX_TRAINING_TIME_SECONDS"
+        ]
+        
+        for key in order:
+            if key in params_to_filter:
+                ordered_params[key] = params_to_filter.pop(key)
+        
+        # Add any remaining params that were not in the predefined order
+        ordered_params.update(params_to_filter)
+
+        return ordered_params
+
     def save_params(self):
         """Save the current validated parameters to the job folder in a JSON file."""
         job_folder = self.job_manager.get_job_folder()
@@ -338,52 +417,42 @@ class VEstimHyperParamManager:
         params_file = os.path.join(job_folder, 'hyperparams.json')
 
         try:
-            # Create a copy to modify for saving, especially for max_training_time_seconds
-            params_to_save = self.current_params.copy()
+            params_to_process = self.current_params.copy()
 
             # Calculate max_training_time_seconds
             try:
-                hours = int(params_to_save.get("MAX_TRAIN_HOURS", 0) or 0)
-                minutes = int(params_to_save.get("MAX_TRAIN_MINUTES", 0) or 0)
-                seconds = int(params_to_save.get("MAX_TRAIN_SECONDS", 0) or 0)
+                hours = int(params_to_process.get("MAX_TRAIN_HOURS", 0) or 0)
+                minutes = int(params_to_process.get("MAX_TRAIN_MINUTES", 0) or 0)
+                seconds = int(params_to_process.get("MAX_TRAIN_SECONDS", 0) or 0)
                 max_training_time_seconds = (hours * 3600) + (minutes * 60) + seconds
-                params_to_save["MAX_TRAINING_TIME_SECONDS"] = max_training_time_seconds
-                self.current_params["MAX_TRAINING_TIME_SECONDS"] = max_training_time_seconds # Update in-memory params
+                params_to_process["MAX_TRAINING_TIME_SECONDS"] = max_training_time_seconds
+                self.current_params["MAX_TRAINING_TIME_SECONDS"] = max_training_time_seconds
                 self.logger.info(f"Calculated and stored MAX_TRAINING_TIME_SECONDS: {max_training_time_seconds}")
-            except ValueError:
-                self.logger.warning("Could not parse MAX_TRAIN_HOURS/MINUTES/SECONDS to integers. MAX_TRAINING_TIME_SECONDS will not be saved or default to 0 if not already present.")
-                if "MAX_TRAINING_TIME_SECONDS" not in params_to_save: # Only add if not already there from a previous load
-                    params_to_save["MAX_TRAINING_TIME_SECONDS"] = 0
+            except (ValueError, TypeError):
+                self.logger.warning("Could not parse MAX_TRAIN_HOURS/MINUTES/SECONDS. MAX_TRAINING_TIME_SECONDS will default to 0.")
+                params_to_process["MAX_TRAINING_TIME_SECONDS"] = 0
 
+            params_to_process.pop("MAX_TRAIN_HOURS", None)
+            params_to_process.pop("MAX_TRAIN_MINUTES", None)
+            params_to_process.pop("MAX_TRAIN_SECONDS", None)
 
-            # Remove individual H, M, S from the dict to be saved to avoid redundancy,
-            # as they are primarily GUI input fields.
-            params_to_save.pop("MAX_TRAIN_HOURS", None)
-            params_to_save.pop("MAX_TRAIN_MINUTES", None)
-            params_to_save.pop("MAX_TRAIN_SECONDS", None)
-
-            # ✅ Validate before saving to avoid corrupt JSON
-            # Note: validate_and_normalize_params might need adjustment if it expects H/M/S and they are removed
-            # For now, we validate self.current_params which still has H/M/S, then save the modified params_to_save
-            _ = self.validate_and_normalize_params(self.current_params) # Validate original structure
+            # Filter the parameters before saving
+            params_to_save = self._filter_hyperparams_for_saving(params_to_process)
 
             with open(params_file, 'w') as file:
-                json.dump(params_to_save, file, indent=4) # Save the modified dict
+                json.dump(params_to_save, file, indent=4)
 
-            self.logger.info(f"Hyperparameters successfully saved to file: {params_file}")
+            self.logger.info(f"Filtered hyperparameters successfully saved to file: {params_file}")
             self.logger.info(f"Saved content: {params_to_save}")
 
-            # Also save to defaults config for next time
             try:
-                # Use the current_params (which includes GUI fields) for defaults
                 update_last_used_hyperparams(self.current_params)
-                self.logger.info("Successfully saved hyperparameters as defaults for future use")
+                self.logger.info("Successfully saved current hyperparameters (unfiltered) as defaults for future use")
             except Exception as e:
                 self.logger.warning(f"Failed to save hyperparameters as defaults: {e}")
 
-
         except Exception as e:
-            self.logger.error(f"Failed to save parameters: {e}")
+            self.logger.error(f"Failed to save parameters: {e}", exc_info=True)
             raise ValueError(f"Error saving hyperparameters: {e}")
 
     def save_params_to_file(self, new_params, filepath):
