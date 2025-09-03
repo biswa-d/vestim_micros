@@ -1119,9 +1119,16 @@ class TrainingTaskManager:
                            setattr(self, f'_task_{task["task_id"]}_best_train_rmse_orig', best_train_loss_denorm)  # Store best training loss
                     if val_loss_norm is not None and not math.isnan(val_loss_norm):
                         val_rmse_for_gui = math.sqrt(max(0, val_loss_norm)) * multiplier
+                        # Update the best validation RMSE when no scaler is used
+                        if val_rmse_for_gui < best_val_rmse_orig_scale_for_gui:
+                            best_val_rmse_orig_scale_for_gui = val_rmse_for_gui
+                            setattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', best_val_rmse_orig_scale_for_gui)
                     # If no scaler, best_val_rmse_for_gui is based on best_validation_loss (normalized)
                     if best_validation_loss != float('inf') and not math.isnan(best_validation_loss):
                          best_val_rmse_for_gui = math.sqrt(max(0, best_validation_loss)) * multiplier
+                         # Ensure we update the stored best validation loss for non-scaler case
+                         if best_val_rmse_for_gui < getattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', float('inf')):
+                             setattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', best_val_rmse_for_gui)
                     else:
                          best_val_rmse_for_gui = float('inf') # Ensure it's inf if best_validation_loss is inf
                 
@@ -1628,16 +1635,11 @@ class TrainingTaskManager:
                     
                     # Update the previous batch size for future trials
                     self.previous_batch_size = current_batch_size
-                    
-                    avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch_with_graphs(
-                        model, train_loader, optimizer, epoch, device, self.stop_requested, task, verbose=verbose
-                    )
-                else:
-                    # Standard training
-                    avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch(
-                        model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task, verbose=verbose
-                    )
-
+                
+                avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch_with_graphs(
+                    model, train_loader, optimizer, epoch, device, self.stop_requested, task, verbose=verbose
+                )
+                
                 if self.stop_requested:
                     break
 
@@ -1646,12 +1648,12 @@ class TrainingTaskManager:
                     # Use CUDA Graphs validation if available, consistent with main training loop
                     if (hasattr(self.training_service, 'validate_epoch_with_graphs') and 
                         device.type == 'cuda' and model_type == 'FNN'):
-                        val_loss_norm, _, _ = self.training_service.validate_epoch_with_graphs(
+                        val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch_with_graphs(
                             model, val_loader, epoch, device, self.stop_requested, task
                         )
                     else:
                         # Standard validation - for validation, hidden states are managed within validate_epoch, so we pass None
-                        val_loss_norm, _, _ = self.training_service.validate_epoch(
+                        val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
                             model, model_type, val_loader, None, None, epoch, device, self.stop_requested, task, verbose=verbose
                         )
                     
