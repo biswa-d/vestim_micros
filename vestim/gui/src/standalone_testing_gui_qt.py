@@ -140,37 +140,57 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         display_hyperparameters(self, params)
     
     def create_results_section(self):
-        """Create the results table section exactly like main testing GUI"""
+        """Create the results table section exactly matching main testing GUI columns"""
         results_group = QGroupBox("Testing Results")
         results_layout = QVBoxLayout(results_group)
         
-        # Create results table with training metrics columns (EXACTLY like main testing GUI)
+        # Create results table with exact main testing GUI columns
         self.results_table = QTreeWidget()
         self.results_table.setHeaderLabels([
-            "Model", "Task", "File", "MAE", "MSE", "RMSE", "MAPE", "R²", 
-            "Train Loss", "Val Loss", "Best Val", "Epoch", "Actions"
+            "Model", "Architecture", "Task ID", "File", "#Params", 
+            "Best Train Loss (mV)", "Best Val Loss (mV)", "Epochs Trained", "RMSE (mV)", "Plot"
         ])
         self.results_table.setRootIsDecorated(False)
         self.results_table.setAlternatingRowColors(True)
         
-        # Set column widths (EXACTLY like main testing GUI)
+        # Set column widths to match main testing GUI
         header = self.results_table.header()
-        header.resizeSection(0, 100)  # Model
-        header.resizeSection(1, 100)  # Task  
-        header.resizeSection(2, 150)  # File
-        header.resizeSection(3, 80)   # MAE
-        header.resizeSection(4, 80)   # MSE
-        header.resizeSection(5, 80)   # RMSE
-        header.resizeSection(6, 80)   # MAPE
-        header.resizeSection(7, 80)   # R²
-        header.resizeSection(8, 90)   # Train Loss
-        header.resizeSection(9, 90)   # Val Loss
-        header.resizeSection(10, 90)  # Best Val
-        header.resizeSection(11, 70)  # Epoch
-        header.resizeSection(12, 100) # Actions
+        header.resizeSection(0, 80)   # Model
+        header.resizeSection(1, 120)  # Architecture  
+        header.resizeSection(2, 150)  # Task ID
+        header.resizeSection(3, 100)  # File
+        header.resizeSection(4, 80)   # #Params
+        header.resizeSection(5, 130)  # Best Train Loss (mV)
+        header.resizeSection(6, 130)  # Best Val Loss (mV)
+        header.resizeSection(7, 110)  # Epochs Trained
+        header.resizeSection(8, 100)  # RMSE (mV)
+        header.resizeSection(9, 80)   # Plot
         
         results_layout.addWidget(self.results_table)
         self.main_layout.addWidget(results_group)
+        
+        # Add Open Job Folder button
+        button_layout = QHBoxLayout()
+        self.open_folder_button = QPushButton("📁 Open Job Folder")
+        self.open_folder_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 10px 20px;
+                border-radius: 5px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        self.open_folder_button.clicked.connect(self.open_job_folder)
+        
+        button_layout.addWidget(self.open_folder_button)
+        button_layout.addStretch()  # Push button to left
+        self.main_layout.addLayout(button_layout)
         
         # Progress bar at bottom
         self.progress_bar = QProgressBar()
@@ -181,6 +201,29 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         # Load any existing results from the testing manager
         self.load_testing_results()
     
+    def open_job_folder(self):
+        """Open the job folder in file explorer"""
+        try:
+            import subprocess
+            import platform
+            
+            if os.path.exists(self.job_folder_path):
+                if platform.system() == 'Windows':
+                    subprocess.Popen(['explorer', self.job_folder_path])
+                elif platform.system() == 'Darwin':  # macOS
+                    subprocess.Popen(['open', self.job_folder_path])
+                else:  # Linux
+                    subprocess.Popen(['xdg-open', self.job_folder_path])
+                    
+                print(f"[DEBUG] Opened job folder: {self.job_folder_path}")
+            else:
+                QMessageBox.warning(self, "Folder Not Found", 
+                                  f"Job folder not found: {self.job_folder_path}")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not open job folder: {e}")
+            print(f"[DEBUG] Error opening job folder: {e}")
+
     def load_job_hyperparameters(self):
         """Load and display hyperparameters EXACTLY like main testing GUI"""
         try:
@@ -235,7 +278,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         self.results_table.setItemWidget(placeholder_item, 8, plot_button)
     
     def add_result_row(self, result):
-        """Add result row from standalone testing manager results with training metrics"""
+        """Add result row matching main testing GUI format exactly"""
         print(f"[DEBUG] Received result data: {list(result.keys()) if isinstance(result, dict) else type(result)}")
         
         # Clear placeholder items first
@@ -249,72 +292,84 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             model_type = result.get('model_type', 'N/A')
             architecture = result.get('architecture', 'N/A')
             task = result.get('task', 'N/A')
-            target_column = result.get('target_column', 'N/A')
+            target_column = result.get('target_column', 'voltage')  # Default to voltage
             model_file_path = result.get('model_file_path', '')
             
-            # Get error metrics with proper units (EXACTLY like main testing GUI)
-            mae = result.get('MAE', 'N/A')
-            mse = result.get('MSE', 'N/A')  
+            # Get RMSE in proper units (main testing loop logic)
             rmse = result.get('RMSE', 'N/A')
-            mape = result.get('MAPE', 'N/A')
-            r2 = result.get('R²', 'N/A')
             
-            # Determine error unit based on target column (EXACTLY like main testing GUI)
+            # Determine error unit and convert RMSE (like main testing loop)
             error_unit = ""
             if "voltage" in target_column.lower():
                 error_unit = "mV"
+                if isinstance(rmse, (int, float)):
+                    rmse = rmse * 1000  # Convert to mV
             elif "soc" in target_column.lower():
-                error_unit = "% SOC"
+                error_unit = "%SOC"
+                if isinstance(rmse, (int, float)):
+                    rmse = rmse * 100  # Convert to %SOC
             elif "temperature" in target_column.lower():
                 error_unit = "°C"
             
-            # Get training metrics from training_progress.csv (using min/max aggregation)
-            training_metrics = self.get_training_metrics(model_file_path)
-            train_loss = training_metrics.get('Best Train Loss', 'N/A') if training_metrics else 'N/A'
-            val_loss = training_metrics.get('Best Val Loss', 'N/A') if training_metrics else 'N/A'  
-            best_val_loss = val_loss  # Same as val_loss since we're getting the minimum
-            epochs_trained = training_metrics.get('Epochs Trained', 'N/A') if training_metrics else 'N/A'
+            # Get model parameters count (try from task info first)
+            task_info = result.get('task_info', None)
+            model_params = self.get_model_parameters(model_file_path, task_info)
+            
+            # Get training metrics in proper units (using target column for unit conversion)
+            training_metrics = self.get_training_metrics(model_file_path, target_column)
+            if training_metrics:
+                train_loss = training_metrics.get('Best Train Loss', 'N/A')
+                val_loss = training_metrics.get('Best Val Loss', 'N/A') 
+                epochs_trained = training_metrics.get('Epochs Trained', 'N/A')
+                train_unit = training_metrics.get('Best Train Loss Unit', error_unit)
+                val_unit = training_metrics.get('Best Val Loss Unit', error_unit)
+            else:
+                train_loss = val_loss = epochs_trained = 'N/A'
+                train_unit = val_unit = error_unit
             
             # Get prediction data for plotting
             predictions_file = result.get('predictions_file', '')
-            target_display = result.get('target_display', target_column)
             
-            # Create a simple file identifier
-            file_name = "Test Data"
+            # Get actual test file name instead of "Test Data"
+            test_data_file = result.get('test_data_file', '')
+            if test_data_file and os.path.exists(test_data_file):
+                file_name = os.path.basename(test_data_file)
+            else:
+                # Fallback to predictions file directory structure
+                if predictions_file:
+                    # Extract test file name from predictions file path pattern
+                    pred_basename = os.path.basename(predictions_file)
+                    if '_predictions.csv' in pred_basename:
+                        file_name = pred_basename.replace('_predictions.csv', '.csv')
+                    else:
+                        file_name = "Test Data"
+                else:
+                    file_name = "Test Data"
             
             print(f"[DEBUG] Adding result row: {model_type}/{architecture}/{task}")
-            print(f"[DEBUG] Predictions file: {predictions_file}")
-            print(f"[DEBUG] Training metrics: {training_metrics}")
+            print(f"[DEBUG] Training metrics: Train={train_loss} {train_unit}, Val={val_loss} {val_unit}, Epochs={epochs_trained}")
+            print(f"[DEBUG] RMSE: {rmse} {error_unit}, Params: {model_params}")
             
-            # Create tree widget item
+            # Create tree widget item with exact main GUI columns
             item = QTreeWidgetItem(self.results_table)
-            item.setText(0, f"{model_type}")
-            item.setText(1, f"{architecture}_{task}")
-            item.setText(2, file_name)
+            item.setText(0, model_type)                                # Model
+            item.setText(1, architecture)                             # Architecture
+            item.setText(2, task)                                     # Task ID
+            item.setText(3, file_name)                                # File
+            item.setText(4, str(model_params))                       # #Params
             
-            # Format error metrics with units (EXACTLY like main testing GUI)
-            mae_display = f"{mae:.4f} {error_unit}" if isinstance(mae, (int, float)) and error_unit else (f"{mae:.4f}" if isinstance(mae, (int, float)) else str(mae))
-            mse_display = f"{mse:.4f} {error_unit}²" if isinstance(mse, (int, float)) and error_unit else (f"{mse:.4f}" if isinstance(mse, (int, float)) else str(mse))
-            rmse_display = f"{rmse:.4f} {error_unit}" if isinstance(rmse, (int, float)) and error_unit else (f"{rmse:.4f}" if isinstance(rmse, (int, float)) else str(rmse))
-            mape_display = f"{mape:.2f}%" if isinstance(mape, (int, float)) else str(mape)
-            r2_display = f"{r2:.4f}" if isinstance(r2, (int, float)) else str(r2)
+            # Training metrics with proper units
+            train_display = f"{train_loss:.6f} {train_unit}" if isinstance(train_loss, (int, float)) else "N/A"
+            val_display = f"{val_loss:.6f} {val_unit}" if isinstance(val_loss, (int, float)) else "N/A"
+            epochs_display = str(epochs_trained) if epochs_trained != 'N/A' else "N/A"
             
-            item.setText(3, mae_display)
-            item.setText(4, mse_display)
-            item.setText(5, rmse_display)
-            item.setText(6, mape_display)
-            item.setText(7, r2_display)
+            item.setText(5, train_display)                           # Best Train Loss (mV)
+            item.setText(6, val_display)                             # Best Val Loss (mV)
+            item.setText(7, epochs_display)                          # Epochs Trained
             
-            # Add training metrics (with min/max aggregated values)
-            train_loss_display = f"{train_loss:.6f}" if isinstance(train_loss, (int, float)) else str(train_loss)
-            val_loss_display = f"{val_loss:.6f}" if isinstance(val_loss, (int, float)) else str(val_loss)
-            best_val_display = f"{best_val_loss:.6f}" if isinstance(best_val_loss, (int, float)) else str(best_val_loss)
-            epoch_display = f"{int(epochs_trained)}" if isinstance(epochs_trained, (int, float)) else str(epochs_trained)
-            
-            item.setText(8, train_loss_display)
-            item.setText(9, val_loss_display)
-            item.setText(10, best_val_display)
-            item.setText(11, epoch_display)
+            # RMSE in proper units
+            rmse_display = f"{rmse:.4f} {error_unit}" if isinstance(rmse, (int, float)) else "N/A"
+            item.setText(8, rmse_display)                            # RMSE (mV)
             
             # Create plot button with result data
             plot_button = QPushButton("Plot")
@@ -337,21 +392,74 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 'predictions_file': predictions_file,
                 'model_info': f"{model_type} - {architecture}/{task}",
                 'target_column': target_column,
-                'target_display': target_display,
+                'target_display': target_column,  # Use target_column directly
                 'error_unit': error_unit,
                 'metrics': {
-                    'MAE': mae,
-                    'MSE': mse,
-                    'RMSE': rmse,
-                    'MAPE': mape,
-                    'R²': r2
+                    'RMSE': rmse
                 }
             }
             
             plot_button.clicked.connect(lambda: self.show_model_plot(plot_data))
-            self.results_table.setItemWidget(item, 8, plot_button)
+            self.results_table.setItemWidget(item, 9, plot_button)  # Column 9 for Plot
             
             print(f"[DEBUG] Successfully added result row to table")
+            
+            # Save results to CSV (like main testing loop)
+            self.save_result_to_csv(result, rmse, error_unit, train_loss, val_loss, epochs_trained, model_params)
+            
+        except Exception as e:
+            print(f"[DEBUG] Error adding result row: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def save_result_to_csv(self, result, rmse, error_unit, train_loss, val_loss, epochs_trained, model_params):
+        """Save testing results to CSV file in standalone_test_results directory"""
+        try:
+            import pandas as pd
+            import datetime
+            
+            # Get job folder from model file path
+            model_file_path = result.get('model_file_path', '')
+            if not model_file_path:
+                return
+                
+            job_folder = os.path.dirname(os.path.dirname(os.path.dirname(model_file_path)))
+            standalone_results_dir = os.path.join(job_folder, 'standalone_test_results')
+            os.makedirs(standalone_results_dir, exist_ok=True)
+            
+            # Create timestamped CSV filename
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            architecture = result.get('architecture', 'unknown')
+            task = result.get('task', 'unknown')
+            csv_filename = f"standalone_test_results_{architecture}_{task}_{timestamp}.csv"
+            csv_path = os.path.join(standalone_results_dir, csv_filename)
+            
+            # Prepare data row exactly like main testing GUI
+            result_data = {
+                'Timestamp': datetime.datetime.now().isoformat(),
+                'Model': result.get('model_type', 'N/A'),
+                'Architecture': result.get('architecture', 'N/A'),
+                'Task_ID': result.get('task', 'N/A'),
+                'File': 'Test Data',
+                'Model_Parameters': model_params,
+                f'Best_Train_Loss_{error_unit}': train_loss if isinstance(train_loss, (int, float)) else 'N/A',
+                f'Best_Val_Loss_{error_unit}': val_loss if isinstance(val_loss, (int, float)) else 'N/A',
+                'Epochs_Trained': epochs_trained if epochs_trained != 'N/A' else 'N/A',
+                f'RMSE_{error_unit}': rmse if isinstance(rmse, (int, float)) else 'N/A',
+                'Target_Column': result.get('target_column', 'N/A'),
+                'Predictions_File': os.path.basename(result.get('predictions_file', ''))
+            }
+            
+            # Create DataFrame and save
+            df = pd.DataFrame([result_data])
+            df.to_csv(csv_path, index=False)
+            
+            print(f"[DEBUG] Results saved to CSV: {csv_filename}")
+            
+        except Exception as e:
+            print(f"[DEBUG] Error saving results to CSV: {e}")
+            import traceback
+            traceback.print_exc()
             
         except Exception as e:
             print(f"[DEBUG] Error adding result row: {e}")
@@ -544,8 +652,59 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             import traceback
             traceback.print_exc()
     
-    def get_training_metrics(self, model_file_path):
-        """Get training metrics from training_progress.csv using min/max aggregation for best values"""
+    def get_model_parameters(self, model_file_path, task_info=None):
+        """Get number of model parameters from task info or model file"""
+        try:
+            # First try to get from task info if available
+            if task_info and isinstance(task_info, dict):
+                # Check if parameters are stored in hyperparams or task info
+                hyperparams = task_info.get('hyperparams', {})
+                if 'model_parameters' in hyperparams:
+                    total_params = hyperparams['model_parameters']
+                elif 'MODEL_PARAMETERS' in hyperparams:
+                    total_params = hyperparams['MODEL_PARAMETERS']
+                elif 'total_params' in task_info:
+                    total_params = task_info['total_params']
+                else:
+                    total_params = None
+                
+                if total_params:
+                    # Format in K/M notation like main testing GUI
+                    if total_params >= 1_000_000:
+                        return f"{total_params / 1_000_000:.1f}M"
+                    elif total_params >= 1_000:
+                        return f"{total_params / 1_000:.1f}K"
+                    else:
+                        return str(total_params)
+            
+            # Fallback: Calculate from model file
+            try:
+                import tensorflow as tf
+            except ImportError:
+                print("[DEBUG] TensorFlow not available, cannot count parameters")
+                return "N/A"
+            
+            if not os.path.exists(model_file_path):
+                return "N/A"
+            
+            # Load model and count parameters
+            model = tf.keras.models.load_model(model_file_path, compile=False)
+            total_params = model.count_params()
+            
+            # Format in K/M notation like main testing GUI
+            if total_params >= 1_000_000:
+                return f"{total_params / 1_000_000:.1f}M"
+            elif total_params >= 1_000:
+                return f"{total_params / 1_000:.1f}K"
+            else:
+                return str(total_params)
+                
+        except Exception as e:
+            print(f"[DEBUG] Error getting model parameters: {e}")
+            return "N/A"
+    
+    def get_training_metrics(self, model_file_path, target_column="voltage"):
+        """Get training metrics from training_progress.csv in proper units (mV, %SOC, etc.)"""
         try:
             import pandas as pd
             
@@ -565,38 +724,49 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             # Read the training progress CSV
             df = pd.read_csv(training_csv_path, comment='#')  # Handle comment lines
             print(f"[DEBUG] Loaded training progress CSV with columns: {list(df.columns)}")
-            print(f"[DEBUG] Training progress shape: {df.shape}")
             
             if len(df) > 0:
                 training_metrics = {}
                 
+                # Determine unit conversion factor based on target column (like main testing loop)
+                unit_multiplier = 1.0
+                unit_suffix = ""
+                
+                if "voltage" in target_column.lower():
+                    unit_multiplier = 1000.0  # Convert to mV
+                    unit_suffix = "mV"
+                elif "soc" in target_column.lower():
+                    unit_multiplier = 100.0   # Convert to %SOC 
+                    unit_suffix = "%SOC"
+                elif "temperature" in target_column.lower():
+                    unit_multiplier = 1.0     # Keep as °C
+                    unit_suffix = "°C"
+                
                 # Get best training loss (minimum value from train_loss_norm column)
                 if 'train_loss_norm' in df.columns:
                     best_train_loss = df['train_loss_norm'].min()
-                    training_metrics['Best Train Loss'] = best_train_loss
+                    # Convert to proper units (assuming losses are in normalized/raw units)
+                    training_metrics['Best Train Loss'] = best_train_loss * unit_multiplier
+                    training_metrics['Best Train Loss Unit'] = unit_suffix
                 
                 # Get best validation loss (minimum value from val_loss_norm column)  
                 if 'val_loss_norm' in df.columns:
                     best_val_loss = df['val_loss_norm'].min()
-                    training_metrics['Best Val Loss'] = best_val_loss
+                    training_metrics['Best Val Loss'] = best_val_loss * unit_multiplier
+                    training_metrics['Best Val Loss Unit'] = unit_suffix
                 
                 # Get epochs trained (maximum epoch number)
                 if 'epoch' in df.columns:
-                    epochs_trained = df['epoch'].max()
+                    epochs_trained = int(df['epoch'].max())
                     training_metrics['Epochs Trained'] = epochs_trained
                 
                 # Alternative column names if the above don't exist
                 if 'best_val_loss_norm' in df.columns and 'Best Val Loss' not in training_metrics:
-                    # Use the recorded best validation loss
                     best_val_loss = df['best_val_loss_norm'].min()
-                    training_metrics['Best Val Loss'] = best_val_loss
+                    training_metrics['Best Val Loss'] = best_val_loss * unit_multiplier
+                    training_metrics['Best Val Loss Unit'] = unit_suffix
                 
-                # Add learning rate from last epoch if available
-                if 'learning_rate' in df.columns:
-                    final_lr = df['learning_rate'].iloc[-1]
-                    training_metrics['Final Learning Rate'] = final_lr
-                
-                print(f"[DEBUG] Extracted training metrics (min/max aggregation): {training_metrics}")
+                print(f"[DEBUG] Training metrics in proper units ({unit_suffix}): {training_metrics}")
                 return training_metrics if training_metrics else None
             
             return None

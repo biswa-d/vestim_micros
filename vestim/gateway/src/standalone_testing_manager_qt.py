@@ -623,6 +623,8 @@ class VEstimStandaloneTestingManager(QObject):
                     'target_display': target_display,
                     'error_unit': error_unit,
                     'model_file_path': model_file,  # Add model file path for training metrics
+                    'test_data_file': self.test_data_path,  # Add test data file path for display
+                    'task_info': task_info,  # Add task info for model parameters
                     'predictions_file': predictions_file,  # Add file path for plotting
                     'inference_time': inference_time,
                     'training_info': training_metrics  # Include training metrics for GUI
@@ -668,6 +670,8 @@ class VEstimStandaloneTestingManager(QObject):
                     'target_display': target_display,
                     'error_unit': error_unit,
                     'model_file_path': model_file,  # Add model file path for training metrics
+                    'test_data_file': self.test_data_path,  # Add test data file path for display
+                    'task_info': task_info,  # Add task info for model parameters
                     'predictions_file': predictions_file,  # Add file path for plotting
                     'inference_time': inference_time,
                     'training_info': training_metrics
