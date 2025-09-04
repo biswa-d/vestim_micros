@@ -308,9 +308,20 @@ class TestSelectionGUI(QMainWindow):
         self.log_widget.append("📊 Check the testing results window for all model results!")
         QApplication.processEvents()
         
-        # Update button to show testing is complete
+        # Keep button disabled after completion to prevent re-running
         self.run_test_button.setText("Testing Complete")
-        self.run_test_button.setEnabled(True)
+        self.run_test_button.setEnabled(False)
+        self.run_test_button.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-size: 14pt;
+                font-weight: bold;
+                padding: 15px;
+                border-radius: 8px;
+                border: 2px solid #1e7e34;
+            }
+        """)
     
     def testing_error(self, error_msg):
         """Handle testing errors"""
@@ -345,8 +356,8 @@ class TestSelectionGUI(QMainWindow):
             print("[DEBUG] Standalone Testing GUI opened and ready to receive results!")
             
             # Close this selection GUI after launching testing GUI
-            self.hide()
-            print("[DEBUG] Test selection GUI hidden - testing GUI is now active")
+            self.close()
+            print("[DEBUG] Test selection GUI closed - testing GUI is now active")
             
         except Exception as e:
             self.log_widget.append(f"❌ Failed to launch testing GUI: {str(e)}")

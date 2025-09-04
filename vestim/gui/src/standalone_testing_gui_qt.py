@@ -14,7 +14,7 @@
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, 
     QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QMessageBox, 
-    QGroupBox, QTextEdit, QFrame, QFileDialog
+    QGroupBox, QTextEdit, QFrame, QFileDialog, QTabWidget, QAction
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -220,38 +220,14 @@ class VEstimStandaloneTestingGUI(QMainWindow):
     
     def show_completion_message(self):
         """Show completion message when testing is finished"""
-        try:
-            from PyQt5.QtWidgets import QMessageBox
-            
-            # Hide progress bar
-            self.progress_bar.hide()
-            
-            # Show completion dialog
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("Testing Complete")
-            msg_box.setText("🎉 Standalone Testing Complete!")
-            msg_box.setInformativeText(
-                "All models have been tested successfully.\n\n"
-                "• Results are displayed in the table above\n"
-                "• Click 'Plot' buttons to view detailed visualizations\n"
-                "• Use 'Open Job Folder' to access saved files\n"
-                "• Results are saved as CSV files in standalone_test_results/"
-            )
-            msg_box.setIcon(QMessageBox.Information)
-            
-            # Add custom buttons
-            view_folder_btn = msg_box.addButton("📁 Open Job Folder", QMessageBox.ActionRole)
-            close_btn = msg_box.addButton("Close", QMessageBox.AcceptRole)
-            
-            # Connect button actions
-            view_folder_btn.clicked.connect(self.open_job_folder)
-            
-            msg_box.exec_()
-            
-            print("[DEBUG] Testing completion message shown")
-            
-        except Exception as e:
-            print(f"[DEBUG] Error showing completion message: {e}")
+        # Hide progress bar
+        self.progress_bar.hide()
+        
+        # Just print completion message instead of showing popup
+        print("[TESTING COMPLETE] All models have been tested successfully!")
+        print("[TESTING COMPLETE] Results are displayed in the table above")
+        print("[TESTING COMPLETE] Click 'Plot' buttons to view detailed visualizations")
+        print("[TESTING COMPLETE] Results saved to job folder")
 
     def open_job_folder(self):
         """Open the job folder in file explorer"""
@@ -259,7 +235,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             import subprocess
             import platform
             
-            if os.path.exists(self.job_folder_path):
+            if self.job_folder_path and os.path.exists(self.job_folder_path):
                 if platform.system() == 'Windows':
                     subprocess.Popen(['explorer', self.job_folder_path])
                 elif platform.system() == 'Darwin':  # macOS
@@ -269,12 +245,10 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                     
                 print(f"[DEBUG] Opened job folder: {self.job_folder_path}")
             else:
-                QMessageBox.warning(self, "Folder Not Found", 
-                                  f"Job folder not found: {self.job_folder_path}")
+                print(f"[ERROR] Job folder not found or not set: {self.job_folder_path}")
                 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Could not open job folder: {e}")
-            print(f"[DEBUG] Error opening job folder: {e}")
+            print(f"[ERROR] Could not open job folder: {e}")
 
     def load_job_hyperparameters(self):
         """Load and display hyperparameters EXACTLY like main testing GUI"""
@@ -536,7 +510,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             metrics = plot_data['metrics']
             
             if not predictions_file or not os.path.exists(predictions_file):
-                QMessageBox.warning(self, "Plot Error", f"Predictions file not found: {predictions_file}")
+                print(f"[ERROR] Predictions file not found: {predictions_file}")
                 return
             
             # Read the predictions file (EXACTLY like main testing GUI)
@@ -545,7 +519,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 print(f"[DEBUG] Loaded predictions file: {predictions_file}")
                 print(f"[DEBUG] Columns: {list(df.columns)}")
             except Exception as e:
-                QMessageBox.warning(self, "Plot Error", f"Error reading predictions file: {str(e)}")
+                print(f"[ERROR] Error reading predictions file: {str(e)}")
                 return
             
             # Find columns EXACTLY like main testing GUI
@@ -558,7 +532,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 elif 'timestamp' in col_lower or 'time' in col_lower: timestamp_col = col
             
             if not true_col or not pred_col:
-                QMessageBox.critical(self, "Error", f"Required columns not found in predictions file.\nAvailable columns: {list(df.columns)}")
+                print(f"[ERROR] Required columns not found in predictions file. Available columns: {list(df.columns)}")
                 return
             
             # Unit handling EXACTLY like main testing GUI
@@ -657,33 +631,54 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             
             fig.tight_layout(pad=3.0)
 
-            # Create plot window EXACTLY like main testing GUI
-            plot_window = QMainWindow()
+            # Create plot window EXACTLY like main testing GUI using PlotWindow class
+            plot_window = PlotWindow(self, fig=fig, canvas=canvas, toolbar=toolbar)
             plot_window.setWindowTitle(f"Test Results: {os.path.basename(predictions_file)}")
-            plot_window.setGeometry(100, 100, 1400, 1000)
-            
-            central_widget = QWidget()
-            plot_window.setCentralWidget(central_widget)
-            layout = QVBoxLayout(central_widget)
-            
-            # Add toolbar and canvas
-            layout.addWidget(toolbar)
-            layout.addWidget(canvas)
-            
-            # Add buttons
-            button_layout = QHBoxLayout()
+
+            # Create Save/Close buttons with improved styling and centering
             save_button = QPushButton("Save Plot")
-            save_button.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px; font-weight: bold;")
+            save_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #4CAF50; 
+                    color: white; 
+                    padding: 12px 30px; 
+                    font-weight: bold; 
+                    font-size: 11pt;
+                    border-radius: 5px;
+                    min-width: 120px;
+                }
+                QPushButton:hover {
+                    background-color: #45a049;
+                }
+            """)
             save_button.clicked.connect(lambda: self.save_plot(fig, predictions_file))
             
             close_button = QPushButton("Close")
-            close_button.setStyleSheet("background-color: #f44336; color: white; padding: 8px; font-weight: bold;")
+            close_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #f44336; 
+                    color: white; 
+                    padding: 12px 30px; 
+                    font-weight: bold; 
+                    font-size: 11pt;
+                    border-radius: 5px;
+                    min-width: 120px;
+                }
+                QPushButton:hover {
+                    background-color: #da190b;
+                }
+            """)
             close_button.clicked.connect(plot_window.close)
             
-            button_layout.addWidget(save_button)
-            button_layout.addWidget(close_button)
-            button_layout.addStretch()
-            layout.addLayout(button_layout)
+            plot_window.set_buttons(save_button, close_button)
+
+            # Provide data for "Export Data in Current View"
+            import numpy as np
+            xa = np.asarray(x_axis)
+            def _provider():
+                # returns (x, df, true_col, pred_col, err_series, x_label)
+                return xa, df, true_col, pred_col, errors_for_plot if hasattr(errors_for_plot, 'values') else pd.Series(errors_for_plot), x_label
+            plot_window._current_view_provider = _provider
             
             # Show maximized by default (user can restore)
             plot_window.showMaximized()
@@ -696,11 +691,9 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             print(f"[DEBUG] Plot displayed successfully for {model_info}")
             
         except ImportError:
-            QMessageBox.warning(self, "Plot Error", 
-                              "Matplotlib is required for plotting. Please install it with: pip install matplotlib")
+            print("[ERROR] Matplotlib is required for plotting. Please install it with: pip install matplotlib")
         except Exception as e:
-            QMessageBox.warning(self, "Plot Error", f"Error creating plot: {str(e)}")
-            print(f"[DEBUG] Plot error: {e}")
+            print(f"[ERROR] Error creating plot: {str(e)}")
             import traceback
             traceback.print_exc()
     
@@ -868,15 +861,232 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                           facecolor='white', edgecolor='none')
                 
                 rel_path = os.path.relpath(save_path, job_folder)
-                QMessageBox.information(self, "Plot Saved", 
-                                      f"Plot saved successfully!\n\nLocation: {rel_path}")
-                print(f"[DEBUG] Plot saved to: {save_path}")
+                print(f"[PLOT SAVED] Plot saved successfully to: {rel_path}")
                 
         except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"Could not save plot: {e}")
-            print(f"[DEBUG] Plot save error: {e}")
+            print(f"[ERROR] Could not save plot: {e}")
             import traceback
             traceback.print_exc()
+
+class PlotWindow(QMainWindow):
+    def __init__(self, parent=None, fig=None, canvas=None, toolbar=None):
+        super().__init__(parent)
+        self.setWindowTitle("Test Results")
+        self.setMinimumSize(900, 600)
+        self.setWindowFlags(self.windowFlags() |
+                            Qt.WindowMaximizeButtonHint |
+                            Qt.WindowMinimizeButtonHint)
+        # central widget with layout
+        central = QWidget(self)
+        self.setCentralWidget(central)
+        self.vbox = QVBoxLayout(central)
+
+        # optional tabs to keep things neat if you add diagnostics later
+        self.tabs = QTabWidget(self)
+        self.view_tab = QWidget()
+        self.view_layout = QVBoxLayout(self.view_tab)
+        self.view_layout.addWidget(toolbar)
+        self.view_layout.addWidget(canvas)
+        self.tabs.addTab(self.view_tab, "Overview")
+        self.vbox.addWidget(self.tabs)
+
+        # bottom buttons (keep your Save/Close buttons)
+        self.btn_row = QHBoxLayout()
+        self.vbox.addLayout(self.btn_row)
+
+        self.fig = fig
+        self.canvas = canvas
+
+        self._build_menu()
+
+    def _build_menu(self):
+        menubar = self.menuBar()
+
+        # File
+        file_menu = menubar.addMenu("&File")
+        act_save = QAction("Save Figure…", self)
+        act_save.setShortcut("Ctrl+S")
+        act_save.triggered.connect(self._save_full_figure)
+        file_menu.addAction(act_save)
+
+        act_save_view = QAction("Save Current View…", self)
+        act_save_view.setShortcut("Ctrl+Shift+S")
+        act_save_view.triggered.connect(self._save_current_view)
+        file_menu.addAction(act_save_view)
+
+        act_export_csv = QAction("Export Data in Current View (CSV)…", self)
+        act_export_csv.triggered.connect(self._export_current_view_csv)
+        file_menu.addAction(act_export_csv)
+
+        file_menu.addSeparator()
+        act_copy = QAction("Copy Figure to Clipboard", self)
+        act_copy.setShortcut("Ctrl+C")
+        act_copy.triggered.connect(self._copy_to_clipboard)
+        file_menu.addAction(act_copy)
+
+        file_menu.addSeparator()
+        act_close = QAction("Close", self)
+        act_close.setShortcut("Ctrl+W")
+        act_close.triggered.connect(self.close)
+        file_menu.addAction(act_close)
+
+        # View
+        view_menu = menubar.addMenu("&View")
+        act_full = QAction("Toggle Full Screen", self)
+        act_full.setShortcut("F11")
+        act_full.triggered.connect(self._toggle_fullscreen)
+        view_menu.addAction(act_full)
+
+        act_reset = QAction("Reset View (All Axes)", self)
+        act_reset.setShortcut("Ctrl+R")
+        act_reset.triggered.connect(self._reset_limits_all_axes)
+        view_menu.addAction(act_reset)
+
+        act_grid = QAction("Toggle Grid", self)
+        act_grid.setShortcut("G")
+        act_grid.triggered.connect(self._toggle_grid_all_axes)
+        view_menu.addAction(act_grid)
+
+        act_legend = QAction("Toggle Legend", self)
+        act_legend.setShortcut("L")
+        act_legend.triggered.connect(self._toggle_legend_all_axes)
+        view_menu.addAction(act_legend)
+
+        # Help
+        help_menu = menubar.addMenu("&Help")
+        act_help = QAction("Tips", self)
+        act_help.triggered.connect(lambda: print(
+            "[PLOT TIPS] Zoom: toolbar magnifier | Pan: toolbar hand | "
+            "Save current zoom via File → Save Current View | "
+            "Export visible data as CSV via File → Export Data in Current View"
+        ))
+        help_menu.addAction(act_help)
+
+    # ==== Helpers you'll call from your main widget ====
+    def set_buttons(self, save_button, close_button):
+        # Center the buttons and make them wider
+        self.btn_row.addStretch()  # Left stretch
+        self.btn_row.addWidget(save_button)
+        self.btn_row.addWidget(close_button)
+        self.btn_row.addStretch()  # Right stretch
+
+    # ==== Actions ====
+    def _get_primary_axes(self):
+        # assumes your first subplot is ax1 (lines), 2nd ax2 (errors), 3rd ax3 (hist)
+        # we'll use ax1's x-limits as the "view window"
+        if self.fig is None:
+            return None
+        axes = self.fig.get_axes()
+        return axes[0] if axes else None
+
+    def _save_full_figure(self):
+        from PyQt5.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(self, "Save Figure", "", "PNG (*.png);;PDF (*.pdf);;SVG (*.svg)")
+        if path:
+            try:
+                self.fig.savefig(path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+                print(f"[PLOT SAVED] Full figure saved to: {path}")
+            except Exception as e:
+                print(f"[ERROR] Could not save figure: {e}")
+
+    def _save_current_view(self):
+        from PyQt5.QtWidgets import QFileDialog
+        ax = self._get_primary_axes()
+        if ax is None:
+            return
+        xlim = ax.get_xlim()
+        # temporarily enforce xlim on all time-aligned axes
+        axes = self.fig.get_axes()
+        prev_lims = [a.get_xlim() for a in axes]
+        try:
+            for a in axes[:2]:  # ax1 and ax2 share x; leave hist alone
+                a.set_xlim(xlim)
+            self.canvas.draw_idle()
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Save Current View", "", "PNG (*.png);;PDF (*.pdf);;SVG (*.svg)"
+            )
+            if path:
+                self.fig.savefig(path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+                print(f"[PLOT SAVED] Current view saved to: {path}")
+        except Exception as e:
+            print(f"[ERROR] Could not save current view: {e}")
+        finally:
+            for a, lim in zip(axes, prev_lims):
+                a.set_xlim(lim)
+            self.canvas.draw_idle()
+
+    def _export_current_view_csv(self):
+        from PyQt5.QtWidgets import QFileDialog
+        # This will be filled by the parent with a callback that returns (x, df, true_col, pred_col, err_series, x_label)
+        if not hasattr(self, "_current_view_provider"):
+            print("[WARNING] Export provider not set")
+            return
+        data = self._current_view_provider()
+        if data is None:
+            print("[WARNING] Could not get current view data")
+            return
+        x, df, true_col, pred_col, err_series, x_label = data
+        ax = self._get_primary_axes()
+        if ax is None:
+            return
+        xmin, xmax = ax.get_xlim()
+        try:
+            import numpy as np
+            mask = (x >= xmin) & (x <= xmax)
+            sub = df.loc[mask, [true_col, pred_col]].copy()
+            sub[x_label] = x[mask]
+            if err_series is not None:
+                sub["error_for_plot"] = err_series[mask].values
+            path, _ = QFileDialog.getSaveFileName(self, "Export Visible Data", "", "CSV (*.csv)")
+            if path:
+                sub[[x_label, true_col, pred_col] + (["error_for_plot"] if "error_for_plot" in sub.columns else [])] \
+                    .to_csv(path, index=False)
+                print(f"[DATA EXPORTED] Visible data exported to: {path}")
+        except Exception as e:
+            print(f"[ERROR] Could not export data: {e}")
+
+    def _copy_to_clipboard(self):
+        try:
+            # render to png bytes and put on clipboard
+            import io
+            from PyQt5.QtGui import QImage, QClipboard, QPixmap
+            from PyQt5.QtWidgets import QApplication
+            buf = io.BytesIO()
+            self.fig.savefig(buf, format="png", dpi=200, bbox_inches='tight', facecolor='white', edgecolor='none')
+            buf.seek(0)
+            qimg = QImage.fromData(buf.getvalue(), "PNG")
+            QApplication.clipboard().setPixmap(QPixmap.fromImage(qimg), QClipboard.Clipboard)
+            print("[PLOT COPIED] Figure copied to clipboard")
+        except Exception as e:
+            print(f"[ERROR] Could not copy to clipboard: {e}")
+
+    def _toggle_fullscreen(self):
+        if self.windowState() & Qt.WindowFullScreen:
+            self.setWindowState(self.windowState() & ~Qt.WindowFullScreen)
+        else:
+            self.setWindowState(self.windowState() | Qt.WindowFullScreen)
+
+    def _reset_limits_all_axes(self):
+        for a in self.fig.get_axes():
+            a.autoscale(enable=True, axis='both', tight=False)
+        self.canvas.draw_idle()
+
+    def _toggle_grid_all_axes(self):
+        for a in self.fig.get_axes():
+            grid_lines = a.get_xgridlines()
+            is_grid_on = len(grid_lines) > 0 and grid_lines[0].get_visible()
+            a.grid(not is_grid_on, alpha=0.3)
+        self.canvas.draw_idle()
+
+    def _toggle_legend_all_axes(self):
+        for a in self.fig.get_axes():
+            leg = a.get_legend()
+            if leg is None:
+                # try to create one if there are labeled artists
+                a.legend(fontsize=10)
+            else:
+                leg.set_visible(not leg.get_visible())
+        self.canvas.draw_idle()
 
 def main():
     """Main function to run the standalone testing GUI"""

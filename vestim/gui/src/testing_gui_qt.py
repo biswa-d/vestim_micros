@@ -450,10 +450,18 @@ class VEstimTestingGUI(QMainWindow):
 
     def save_plot(self, fig, test_file_path, save_dir):
         try:
+            # Create plots subdirectory like standalone testing GUI
+            plots_dir = os.path.join(save_dir, 'plots')
+            os.makedirs(plots_dir, exist_ok=True)
+            
             file_name = os.path.splitext(os.path.basename(test_file_path))[0]
-            save_path = os.path.join(save_dir, f"{file_name}_test_plot.png")
-            fig.savefig(save_path, dpi=300, bbox_inches='tight')
-            QMessageBox.information(self, "Plot Saved", f"Plot saved to {save_path}")
+            save_path = os.path.join(plots_dir, f"{file_name}_test_plot.png")
+            fig.savefig(save_path, dpi=300, bbox_inches='tight', 
+                       facecolor='white', edgecolor='none')
+            
+            # Show relative path from job folder
+            rel_path = os.path.relpath(save_path, save_dir)
+            QMessageBox.information(self, "Plot Saved", f"Plot saved to {rel_path}")
         except Exception as e:
             QMessageBox.critical(self, "Save Error", f"Could not save plot: {e}")
 
