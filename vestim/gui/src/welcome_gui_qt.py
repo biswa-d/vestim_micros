@@ -59,26 +59,48 @@ class WelcomeGUI(QMainWindow):
         self.apply_styles()
 
     def apply_styles(self):
-        button_style = get_adaptive_stylesheet("""
+        # Style for "Start New Training" button - light green
+        new_training_button_style = get_adaptive_stylesheet("""
             QPushButton {
                 font-size: 16pt;
                 padding: 18px 35px;
                 border-radius: 8px;
-                background-color: #0b6337;
+                background-color: #28a745;
                 color: white;
                 font-weight: bold;
                 min-width: 350px;
             }
             QPushButton:hover {
-                background-color: #094D2A;
+                background-color: #218838;
             }
             QPushButton:disabled {
                 background-color: #d3d3d3;
                 color: #a9a9a9;
             }
         """)
-        self.new_training_button.setStyleSheet(button_style)
-        self.test_model_button.setStyleSheet(button_style)
+        
+        # Style for "Test Trained Model" button - dark orange
+        test_model_button_style = get_adaptive_stylesheet("""
+            QPushButton {
+                font-size: 16pt;
+                padding: 18px 35px;
+                border-radius: 8px;
+                background-color: #cc5500;
+                color: white;
+                font-weight: bold;
+                min-width: 350px;
+            }
+            QPushButton:hover {
+                background-color: #b84700;
+            }
+            QPushButton:disabled {
+                background-color: #d3d3d3;
+                color: #a9a9a9;
+            }
+        """)
+        
+        self.new_training_button.setStyleSheet(new_training_button_style)
+        self.test_model_button.setStyleSheet(test_model_button_style)
         self.central_widget.setStyleSheet("background-color: #f8f9fa;")
 
     def start_new_training(self):

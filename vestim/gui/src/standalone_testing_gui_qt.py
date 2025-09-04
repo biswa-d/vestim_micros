@@ -108,8 +108,15 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         # Title
         title_label = QLabel("Standalone Testing Results")
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #0b6337; margin-bottom: 20px;")
+        title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #0b6337; margin-bottom: 5px;")
         self.main_layout.addWidget(title_label)
+        
+        # Job directory subtitle
+        job_dir_name = os.path.basename(self.job_folder_path) if self.job_folder_path else "Unknown"
+        job_dir_label = QLabel(f"Job: {job_dir_name}")
+        job_dir_label.setAlignment(Qt.AlignCenter)
+        job_dir_label.setStyleSheet("font-size: 11pt; color: #666; margin-bottom: 20px;")
+        self.main_layout.addWidget(job_dir_label)
 
         # Create hyperparameters display section
         self.create_hyperparams_section()
@@ -201,6 +208,51 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         # Load any existing results from the testing manager
         self.load_testing_results()
     
+    def update_progress_log(self, message):
+        """Handle progress messages from testing manager"""
+        print(f"[TESTING PROGRESS] {message}")
+        
+        # Update progress bar visibility based on message content
+        if "Starting test" in message or "Loading test data" in message:
+            self.progress_bar.show()
+        elif "STANDALONE TESTING COMPLETE" in message or "Testing failed" in message:
+            self.progress_bar.hide()
+    
+    def show_completion_message(self):
+        """Show completion message when testing is finished"""
+        try:
+            from PyQt5.QtWidgets import QMessageBox
+            
+            # Hide progress bar
+            self.progress_bar.hide()
+            
+            # Show completion dialog
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Testing Complete")
+            msg_box.setText("🎉 Standalone Testing Complete!")
+            msg_box.setInformativeText(
+                "All models have been tested successfully.\n\n"
+                "• Results are displayed in the table above\n"
+                "• Click 'Plot' buttons to view detailed visualizations\n"
+                "• Use 'Open Job Folder' to access saved files\n"
+                "• Results are saved as CSV files in standalone_test_results/"
+            )
+            msg_box.setIcon(QMessageBox.Information)
+            
+            # Add custom buttons
+            view_folder_btn = msg_box.addButton("📁 Open Job Folder", QMessageBox.ActionRole)
+            close_btn = msg_box.addButton("Close", QMessageBox.AcceptRole)
+            
+            # Connect button actions
+            view_folder_btn.clicked.connect(self.open_job_folder)
+            
+            msg_box.exec_()
+            
+            print("[DEBUG] Testing completion message shown")
+            
+        except Exception as e:
+            print(f"[DEBUG] Error showing completion message: {e}")
+
     def open_job_folder(self):
         """Open the job folder in file explorer"""
         try:
@@ -375,7 +427,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             plot_button = QPushButton("Plot")
             plot_button.setStyleSheet("""
                 QPushButton {
-                    background-color: #0b6337;
+                    background-color: #663399;
                     color: white;
                     font-weight: bold;
                     padding: 5px 15px;
@@ -383,7 +435,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                     border: none;
                 }
                 QPushButton:hover {
-                    background-color: #0d7940;
+                    background-color: #7d4db3;
                 }
             """)
             

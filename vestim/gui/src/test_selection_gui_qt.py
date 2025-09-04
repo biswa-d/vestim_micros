@@ -27,9 +27,21 @@ class TestSelectionGUI(QMainWindow):
         header_label.setStyleSheet(get_adaptive_stylesheet("font-size: 20pt; font-weight: bold; color: #0b6337;"))
         self.main_layout.addWidget(header_label)
 
-        # Job folder selection
+        # Job folder selection with better description
+        job_desc = QLabel(
+            "Please select a job folder which was created from running the PyBattML tool "
+            "containing the model and task directory with trained model."
+        )
+        job_desc.setWordWrap(True)
+        job_desc.setStyleSheet(get_adaptive_stylesheet("""
+            color: #495057; font-size: 10pt; margin: 10px 0px; 
+            background-color: #f8f9fa; border-radius: 4px; padding: 8px;
+        """))
+        self.main_layout.addWidget(job_desc)
+        
         job_layout = QHBoxLayout()
         self.job_folder_button = QPushButton("Select Job Folder")
+        self.job_folder_button.setToolTip("Browse for a job folder containing trained models")
         self.job_folder_button.clicked.connect(self.select_job_folder)
         job_layout.addWidget(self.job_folder_button)
         
@@ -38,13 +50,22 @@ class TestSelectionGUI(QMainWindow):
         job_layout.addWidget(self.job_path_label, 1)
         self.main_layout.addLayout(job_layout)
 
-        # Test files selection
-        test_files_label = QLabel("Test Data Files:")
-        test_files_label.setStyleSheet(get_adaptive_stylesheet("font-size: 12pt; font-weight: bold;"))
+        # Test files selection with better description  
+        test_files_label = QLabel("Test Data Configuration")
+        test_files_label.setStyleSheet(get_adaptive_stylesheet("font-size: 12pt; font-weight: bold; color: #0b6337; margin-top: 15px;"))
         self.main_layout.addWidget(test_files_label)
+        
+        test_desc = QLabel(
+            "Add CSV files with the same column structure as training data. "
+            "Must include target columns (voltage, SOC, etc.) for error calculation."
+        )
+        test_desc.setWordWrap(True)
+        test_desc.setStyleSheet(get_adaptive_stylesheet("color: #6c757d; font-size: 9pt; margin-bottom: 10px;"))
+        self.main_layout.addWidget(test_desc)
         
         files_layout = QHBoxLayout()
         self.add_files_button = QPushButton("Add Test Files")
+        self.add_files_button.setToolTip("Select CSV files containing test data with target variables")
         self.add_files_button.clicked.connect(self.add_test_files)
         files_layout.addWidget(self.add_files_button)
         
@@ -62,7 +83,16 @@ class TestSelectionGUI(QMainWindow):
         # Run button
         self.run_test_button = QPushButton("Start Testing")
         self.run_test_button.setEnabled(False)
+        self.run_test_button.setToolTip("Begin testing all models against selected test data")
         self.run_test_button.clicked.connect(self.start_testing)
+        self.run_test_button.setStyleSheet(get_adaptive_stylesheet("""
+            QPushButton {
+                font-size: 14pt; font-weight: bold; padding: 15px 30px;
+                background-color: #28a745; color: white; border-radius: 8px;
+            }
+            QPushButton:hover { background-color: #218838; }
+            QPushButton:disabled { background-color: #6c757d; }
+        """))
         self.main_layout.addWidget(self.run_test_button, alignment=Qt.AlignCenter)
 
         # Add log window for testing progress
@@ -221,8 +251,11 @@ class TestSelectionGUI(QMainWindow):
             self.run_test_button.setText("Start Testing")
     
     def update_log(self, message):
-        """Update the log with progress messages"""
-        self.log_widget.append(message)
+        """Update the log with progress messages - send to terminal for debugging"""
+        print(f"[TESTING] {message}")
+        # Also keep GUI log for critical messages only
+        if "❌" in message or "✅" in message:
+            self.log_widget.append(message)
         QApplication.processEvents()
     
     def handle_augmentation_required(self, test_df, filter_configs):
@@ -297,13 +330,23 @@ class TestSelectionGUI(QMainWindow):
             # Connect the results_ready signal from manager to GUI
             if hasattr(self.testing_manager, 'results_ready'):
                 self.testing_manager.results_ready.connect(self.testing_gui.add_result_row)
-                self.log_widget.append("🔗 Connected results signal to testing GUI")
+                print("[DEBUG] Connected results signal to testing GUI")
             else:
-                self.log_widget.append("⚠️ Warning: testing_manager has no results_ready signal")
+                print("[DEBUG] Warning: testing_manager has no results_ready signal")
+            
+            # Connect progress and completion signals for better user experience
+            if hasattr(self.testing_manager, 'progress'):
+                self.testing_manager.progress.connect(self.testing_gui.update_progress_log)
+            if hasattr(self.testing_manager, 'finished'):
+                self.testing_manager.finished.connect(self.testing_gui.show_completion_message)
             
             self.testing_gui.show()
             
-            self.log_widget.append("🎯 Standalone Testing GUI opened and ready to receive results!")
+            print("[DEBUG] Standalone Testing GUI opened and ready to receive results!")
+            
+            # Close this selection GUI after launching testing GUI
+            self.hide()
+            print("[DEBUG] Test selection GUI hidden - testing GUI is now active")
             
         except Exception as e:
             self.log_widget.append(f"❌ Failed to launch testing GUI: {str(e)}")
