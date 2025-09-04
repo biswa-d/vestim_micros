@@ -502,50 +502,49 @@ class DataAugmentService:
             self.logger.error(f"Failed to save augmented file {output_filepath}: {e}", exc_info=True)
             raise 
 
-    def update_augmentation_metadata(self, job_folder: str, processed_files_info: List[Dict[str, Any]], filter_configs: Optional[List[Dict[str, Any]]] = None, normalization_info: Optional[Dict[str, Any]] = None):
+    def update_augmentation_metadata(self, job_folder: str, processed_files_info: List[Dict[str, Any]], 
+                                   filter_configs: Optional[List[Dict[str, Any]]] = None, 
+                                   normalization_info: Optional[Dict[str, Any]] = None, 
+                                   column_formulas: Optional[List[Tuple[str, str]]] = None,
+                                   resampling_info: Optional[Dict[str, Any]] = None,
+                                   padding_info: Optional[Dict[str, Any]] = None):
         self.logger.info(f"Updating augmentation metadata for job: {job_folder}")
         self._set_job_context(job_folder)
 
-        metadata_path = os.path.join(job_folder, 'augmentation_log.txt')
+        json_metadata_path = os.path.join(job_folder, 'augmentation_metadata.json')
 
+        # Convert column formulas to structured format
+        created_columns = []
+        if column_formulas:
+            for column_name, formula in column_formulas:
+                created_columns.append({
+                    "column_name": column_name,
+                    "formula": formula,
+                    "type": "calculated"
+                })
+
+        # Create comprehensive structured metadata
         try:
-            with open(metadata_path, 'w') as f:
-                f.write(f"--- Data Augmentation Process --- Job ID: {self.job_manager.get_job_id()} ---\n")
-                f.write(f'Augmentation Run Date: {pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}\n\n')
-
-                if filter_configs:
-                    f.write("--- Applied Filters ---\n")
-                    for config in filter_configs:
-                        f.write(f"  - Column: {config.get('column', 'N/A')}\n")
-                        f.write(f"    Type: Butterworth\n")
-                        f.write(f"    Order: {config.get('filter_order', 'N/A')}\n")
-                        f.write(f"    Corner Frequency: {config.get('corner_frequency', 'N/A')} Hz\n")
-                        f.write(f"    Sampling Rate: {config.get('sampling_rate', 'N/A')} Hz\n\n")
-                
-                if normalization_info and normalization_info.get('applied'):
-                    f.write("--- Normalization ---\n")
-                    f.write(f"  Status: Applied\n")
-                    f.write(f"  Scaler Path: {normalization_info.get('scaler_path', 'N/A')}\n")
-                    columns = normalization_info.get('normalized_columns', [])
-                    f.write(f"  Normalized Columns ({len(columns)}): {', '.join(columns)}\n\n")
-                else:
-                    f.write("--- Normalization ---\n")
-                    f.write(f"  Status: Not Applied\n\n")
-
-                f.write(f'Total files processed: {len(processed_files_info)}\n\n')
-                f.write("--- Processed File Details ---\n")
-                
-                for i, file_info in enumerate(processed_files_info):
-                    f.write(f"File {i+1}:\n")
-                    f.write(f"  Path: {file_info.get('filepath', 'N/A')}\n")
-                    f.write(f"  Original Shape (rows, cols): {file_info.get('original_shape', 'N/A')}\n")
-                    f.write(f"  Augmented Shape (rows, cols): {file_info.get('augmented_shape', 'N/A')}\n")
-                    columns_str = ", ".join(file_info.get('columns', []))
-                    f.write(f"  Final Columns: {columns_str}\n\n")
+            structured_metadata = {
+                "job_id": self.job_manager.get_job_id(),
+                "augmentation_run_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "applied_filters": filter_configs if filter_configs else [],
+                "created_columns": created_columns,
+                "resampling": resampling_info if resampling_info else {"applied": False},
+                "padding": padding_info if padding_info else {"applied": False},
+                "normalization": normalization_info if normalization_info else {"applied": False},
+                "processed_files": processed_files_info,
+                "total_files_processed": len(processed_files_info),
+                "metadata_version": "2.0"  # Version for future compatibility
+            }
             
-            self.logger.info(f"Successfully updated augmentation metadata at {metadata_path}")
+            import json
+            with open(json_metadata_path, 'w') as f:
+                json.dump(structured_metadata, f, indent=2, default=str)
+            
+            self.logger.info(f"Successfully saved comprehensive augmentation metadata at {json_metadata_path}")
         except Exception as e:
-            self.logger.error(f"Could not update augmentation metadata file at {metadata_path}: {e}", exc_info=True)
+            self.logger.error(f"Could not save structured metadata file at {json_metadata_path}: {e}", exc_info=True)
     
     def get_column_info(self, df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
         self.logger.info(f"Getting column info for DataFrame with shape {df.shape}")

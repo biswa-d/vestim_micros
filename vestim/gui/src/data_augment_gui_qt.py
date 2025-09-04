@@ -4,13 +4,9 @@
 # Version: 1.0.0
 # Description: 
 # GUI for data augmentation - allows users to:
-# 1. Resample data to desired frequency (functionality moved from data_import_gui_qt_test.py)
+# 1. Resample data to desired frequency
 # 2. Create new columns from existing columns using custom formulas
 # 3. Pad data by prepending rows with specific values.
-# 
-# Next Steps:
-# 1. Create data visualization to preview augmented data
-# 2. Add more predefined formula templates
 # ---------------------------------------------------------------------------------
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, 
@@ -24,8 +20,6 @@ import os
 import sys
 import pandas as pd
 import numpy as np
-# import matplotlib.pyplot as plt # PreviewDialog removed, so this might not be needed
-# from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas # PreviewDialog removed
 
 from vestim.gui.src.hyper_param_gui_qt import VEstimHyperParamGUI
 from vestim.gateway.src.job_manager_qt import JobManager
@@ -34,15 +28,14 @@ from vestim.gateway.src.data_augment_manager_qt import DataAugmentManager
 import logging
 from vestim.logger_config import setup_logger
 
-# Set up initial logging to a default log file
 logger = setup_logger(log_file='data_augment.log')
 
 class FormulaInputDialog(QDialog):
     """Dialog for entering custom formulas to create new columns"""
-    def __init__(self, available_columns, session_created_column_names, parent=None): # Added session_created_column_names
+    def __init__(self, available_columns, session_created_column_names, parent=None):
         super().__init__(parent)
         self.available_columns = available_columns
-        self.session_created_column_names = session_created_column_names # Store it
+        self.session_created_column_names = session_created_column_names
         self.formula = ""
         self.new_column_name = ""
         self.initUI()
@@ -50,35 +43,26 @@ class FormulaInputDialog(QDialog):
     def initUI(self):
         self.setWindowTitle("Create New Column")
         self.setMinimumWidth(500)
-        
         layout = QVBoxLayout()
-        
         name_layout = QHBoxLayout()
         name_label = QLabel("New Column Name:")
         name_layout.addWidget(name_label)
-        
         self.column_name_edit = QLineEdit()
         name_layout.addWidget(self.column_name_edit)
         layout.addLayout(name_layout)
-        
         columns_group = QGroupBox("Available Columns")
         columns_layout = QVBoxLayout()
-        
         self.columns_list = QListWidget()
         self.columns_list.addItems(self.available_columns)
         self.columns_list.setSelectionMode(QListWidget.SingleSelection)
         self.columns_list.itemDoubleClicked.connect(self.add_column_to_formula)
         columns_layout.addWidget(self.columns_list)
-        
         columns_group.setLayout(columns_layout)
         layout.addWidget(columns_group)
-        
         formula_label = QLabel("Formula (Use column names, operators +,-,*,/, and functions like np.sin, np.cos, etc.):")
         layout.addWidget(formula_label)
-        
         self.formula_edit = QLineEdit()
         layout.addWidget(self.formula_edit)
-        
         examples_label = QLabel("Examples:\n"
                                "1. `column1 * 2 + column2`\n"
                                "2. `np.sin(column1) + np.log(column2)`\n"
@@ -88,18 +72,14 @@ class FormulaInputDialog(QDialog):
                                "6. Moving average: `moving_average(column1, 10)`")
         examples_label.setStyleSheet("font-style: italic; color: gray;")
         layout.addWidget(examples_label)
-        
         buttons_layout = QHBoxLayout()
-        
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
         buttons_layout.addWidget(self.cancel_button)
-        
         self.submit_button = QPushButton("Create Column")
         self.submit_button.clicked.connect(self.accept_formula)
         self.submit_button.setStyleSheet("background-color: #0b6337; color: white;")
         buttons_layout.addWidget(self.submit_button)
-        
         layout.addLayout(buttons_layout)
         self.setLayout(layout)
     
@@ -114,22 +94,17 @@ class FormulaInputDialog(QDialog):
         if not new_name:
             QMessageBox.warning(self, "Input Error", "Please enter a name for the new column.")
             return
-        
         if not self.formula_edit.text().strip():
             QMessageBox.warning(self, "Input Error", "Please enter a formula.")
             return
-
-        # Check for duplicate column names
         if new_name in self.available_columns:
             QMessageBox.warning(self, "Name Conflict", f"Column name '{new_name}' already exists in the original data. Please choose a different name.")
             return
         if new_name in self.session_created_column_names:
             QMessageBox.warning(self, "Name Conflict", f"Column name '{new_name}' has already been defined in this session. Please choose a different name.")
             return
-        
         self.new_column_name = new_name
         self.formula = self.formula_edit.text()
-        # Log before accepting
         logger.info(f"FormulaInputDialog: Accepting new column '{self.new_column_name}' with formula '{self.formula}'")
         self.accept()
 
@@ -147,54 +122,41 @@ class FilterInputDialog(QDialog):
     def initUI(self):
         self.setWindowTitle("Filter Column")
         self.setMinimumWidth(400)
-
         layout = QVBoxLayout()
-
         form_layout = QFormLayout()
-
         self.column_combo = QComboBox()
         self.column_combo.addItems(self.available_columns)
         form_layout.addRow("Select Column:", self.column_combo)
-
         self.output_column_name_edit = QLineEdit()
         form_layout.addRow("New Column Name:", self.output_column_name_edit)
-
         self.filter_type_combo = QComboBox()
         self.filter_type_combo.addItems(["Butterworth", "Savitzky-Golay", "Exponential Moving Average"])
         form_layout.addRow("Filter Type:", self.filter_type_combo)
-
         self.sampling_rate_spinbox = QDoubleSpinBox()
         self.sampling_rate_spinbox.setRange(0.01, 10000.0)
         self.sampling_rate_spinbox.setValue(1.0)
         self.sampling_rate_spinbox.setSingleStep(1.0)
         form_layout.addRow("Sampling Rate (Hz):", self.sampling_rate_spinbox)
-
         self.filter_order_spinbox = QSpinBox()
         self.filter_order_spinbox.setRange(1, 10)
         self.filter_order_spinbox.setValue(4)
         self.filter_order_spinbox.setSingleStep(1)
         form_layout.addRow("Filter Order:", self.filter_order_spinbox)
-
         self.corner_frequency_spinbox = QDoubleSpinBox()
-        self.corner_frequency_spinbox.setRange(0.0000001, 0.5)  # Allow frequencies between 1e-7 and 0.5 Hz
+        self.corner_frequency_spinbox.setRange(0.0000001, 0.5)
         self.corner_frequency_spinbox.setValue(0.01)
-        self.corner_frequency_spinbox.setSingleStep(0.0000001)  # Very small step for precision
-        self.corner_frequency_spinbox.setDecimals(7)  # More decimal places for precision
+        self.corner_frequency_spinbox.setSingleStep(0.0000001)
+        self.corner_frequency_spinbox.setDecimals(7)
         form_layout.addRow("Corner Frequency (Hz):", self.corner_frequency_spinbox)
-            
         layout.addLayout(form_layout)
-        
         buttons_layout = QHBoxLayout()
-        
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
         buttons_layout.addWidget(self.cancel_button)
-        
         self.submit_button = QPushButton("Apply Filter")
         self.submit_button.clicked.connect(self.accept_filter)
         self.submit_button.setStyleSheet("background-color: #0b6337; color: white;")
         buttons_layout.addWidget(self.submit_button)
-        
         layout.addLayout(buttons_layout)
         self.setLayout(layout)
         
@@ -204,7 +166,6 @@ class FilterInputDialog(QDialog):
         self.corner_frequency = self.corner_frequency_spinbox.value()
         self.sampling_rate = self.sampling_rate_spinbox.value()
         self.filter_order = self.filter_order_spinbox.value()
-        # Validate frequency range
         if not (1e-7 <= self.corner_frequency <= 0.5):
             QMessageBox.warning(self, "Input Error", "Corner frequency must be between 1e-7 Hz and 0.5 Hz.")
             return
@@ -215,100 +176,83 @@ class FilterInputDialog(QDialog):
 
 class AugmentationWorker(QObject):
     """Worker class for running data augmentation in a separate thread."""
-    # Removed progress and finished signals, manager handles these.
-    # Keep an error signal for critical failures within the worker's run method itself.
     criticalError = pyqtSignal(str) 
 
-    def __init__(self, data_augment_manager, job_folder, padding_length, resampling_frequency, column_formulas, normalize_data=False, filter_configs=None): # Added normalize_data and filter_configs
+    def __init__(self, data_augment_manager, job_folder, padding_length, resampling_frequency, column_formulas, normalize_data=False, filter_configs=None):
         super().__init__()
         self.data_augment_manager = data_augment_manager
         self.job_folder = job_folder
         self.padding_length = padding_length
         self.resampling_frequency = resampling_frequency
         self.column_formulas = column_formulas
-        self.normalize_data = normalize_data # Store normalization flag
+        self.normalize_data = normalize_data
         self.filter_configs = filter_configs
         self.logger = logging.getLogger(__name__ + ".AugmentationWorker")
 
     def run(self):
         self.logger.info(f"AugmentationWorker started for job: {self.job_folder}")
         try:
-            # Call the manager's method. It will emit its own progress/finished/formulaError signals.
-            # We don't need the progress_callback here anymore.
-            # The return value (folder_path, metadata) is handled by the manager's finished signal.
             self.data_augment_manager.apply_augmentations(
                 job_folder=self.job_folder,
                 padding_length=self.padding_length,
                 resampling_frequency=self.resampling_frequency,
                 column_formulas=self.column_formulas,
-                normalize_data=self.normalize_data, # Pass to manager
+                normalize_data=self.normalize_data,
                 filter_configs=self.filter_configs
-                # The manager will handle feature/exclude columns for now
-                # normalization_feature_columns=None,
-                # normalization_exclude_columns=None
             )
-            # If apply_augmentations completes without raising an exception, the worker's job is done.
-            # The manager's 'augmentationFinished' signal will notify the GUI.
         except Exception as e:
-            # This catches critical errors if apply_augmentations itself fails badly.
             self.logger.error(f"Critical error during augmentation task execution: {e}", exc_info=True)
             self.criticalError.emit(f"Critical augmentation failure: {e}")
 
 class DataAugmentGUI(QMainWindow):
-    def __init__(self, job_manager=None):
+    augmentation_complete = pyqtSignal(pd.DataFrame)
+
+    def __init__(self, job_manager=None, testing_mode=False, test_df=None, filter_configs=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.job_manager = job_manager
-        self.job_folder = self.job_manager.get_job_folder() if self.job_manager else None
+        self.testing_mode = testing_mode
+        self.test_df_for_augmentation = test_df
+        self.preloaded_filter_configs = filter_configs
+
         self.data_augment_manager = DataAugmentManager(job_manager=self.job_manager)
         self.augmentation_thread = None
         self.augmentation_worker = None
-        self.hyper_param_gui = None 
-        
-        if self.job_folder:
-            self.logger.info(f"DataAugmentGUI initialized with job_folder: {self.job_folder}. Loading sample data.")
-            try:
-                sample_train_df = self.data_augment_manager.get_sample_train_dataframe(self.job_folder)
-                if sample_train_df is not None and not sample_train_df.empty:
-                    self.train_df = sample_train_df
-                    self.test_df = None 
-                    self.logger.info("Sample train data loaded successfully in __init__.")
-                else:
-                    self.train_df = None
-                    self.test_df = None
-                    self.logger.warning(f"Could not load sample train data in __init__ for {self.job_folder}.")
-            except Exception as e:
-                self.logger.error(f"Error loading sample data in __init__ for {self.job_folder}: {e}", exc_info=True)
-                self.train_df = None
-                self.test_df = None
+        self.hyper_param_gui = None
+
+        if self.testing_mode:
+            self.job_folder = None
+            self.train_df = self.test_df_for_augmentation
         else:
-            self.train_df = None
-            self.test_df = None
+            self.job_folder = self.job_manager.get_job_folder() if self.job_manager else None
+            if self.job_folder:
+                self.train_df = self.data_augment_manager.get_sample_train_dataframe(self.job_folder)
+            else:
+                self.train_df = None
         
         self.created_columns = []
         self.filter_configs = []
         self.settings_file = os.path.join(self.job_folder, "filter_settings.json") if self.job_folder else None
-        # Use a fixed path in the defaults_templates directory for last used settings
         self.last_used_settings_file = "defaults_templates/filter_settings_last_used.json"
+        
         self.initUI()
-        if self.job_folder:
+
+        if self.testing_mode:
+            self.prepopulate_for_testing()
+        elif self.job_folder:
             self.load_filter_settings_last_used()
 
     def save_filter_settings(self):
-        """Save the current filter settings to a JSON file."""
         if self.settings_file and self.filter_configs:
             try:
-                import json
                 with open(self.settings_file, "w") as f:
                     json.dump(self.filter_configs, f)
             except Exception as e:
                 self.logger.error(f"Error saving filter settings: {e}", exc_info=True)
 
     def save_filter_settings_last_used(self):
-        """Save the current filter settings to the last used file."""
         if self.last_used_settings_file and self.filter_configs:
             try:
-                import json
                 os.makedirs(os.path.dirname(self.last_used_settings_file), exist_ok=True)
                 with open(self.last_used_settings_file, "w") as f:
                     json.dump(self.filter_configs, f)
@@ -317,45 +261,33 @@ class DataAugmentGUI(QMainWindow):
                 self.logger.error(f"Error saving last used filter settings: {e}", exc_info=True)
 
     def load_filter_settings(self):
-        """Load filter settings from a JSON file."""
         if self.settings_file and os.path.exists(self.settings_file):
             try:
-                import json
                 with open(self.settings_file, "r") as f:
                     self.filter_configs = json.load(f)
-                # Update the GUI with the loaded settings
                 for config in self.filter_configs:
-                    column_name = config["column"]
-                    corner_frequency = config["corner_frequency"]
-                    sampling_rate = config["sampling_rate"]
-                    self.filter_list.addItem(f"Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz)")
+                    self.filter_list.addItem(f"Filter '{config['column']}' at {config['corner_frequency']}Hz (Fs={config['sampling_rate']}Hz)")
                     self.remove_filter_button.setEnabled(True)
             except Exception as e:
                 self.logger.error(f"Error loading filter settings: {e}", exc_info=True)
 
     def initUI(self):
         self.setWindowTitle("VEstim Data Augmentation")
-        self.setGeometry(100, 100, 1200, 800) # Adjusted for wider layout
-        self.setMouseTracking(True)  # Enable mouse tracking for hover effects
+        self.setGeometry(100, 100, 1200, 800)
+        self.setMouseTracking(True)
 
         self.central_widget = QWidget(self)
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
 
-        # Add a global stylesheet for disabled buttons
-        self.setStyleSheet("""
-            QPushButton:disabled {
-                background-color: #d3d3d3 !important;
-                color: #a9a9a9 !important;
-            }
-        """)
+        self.setStyleSheet("QPushButton:disabled { background-color: #d3d3d3 !important; color: #a9a9a9 !important; }")
 
         self.header_label = QLabel("Data Augmentation, Padding, and Resampling", self)
         self.header_label.setAlignment(Qt.AlignCenter)
         self.header_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
         self.main_layout.addWidget(self.header_label)
 
-        if not self.job_folder:
+        if not self.job_folder and not self.testing_mode:
             job_folder_layout = QHBoxLayout()
             self.job_folder_label = QLabel("Select Job Folder:", self)
             job_folder_layout.addWidget(self.job_folder_label)
@@ -366,12 +298,9 @@ class DataAugmentGUI(QMainWindow):
             job_folder_layout.addWidget(self.job_folder_path_label)
             self.main_layout.addLayout(job_folder_layout)
 
-        # --- Top Row Layout ---
         top_row_layout = QHBoxLayout()
-
         group_box_style = "QGroupBox { font-size: 10pt; font-weight: bold; }"
 
-        # Filtering Group
         filtering_group = QGroupBox("Data Filtering")
         filtering_group.setStyleSheet(group_box_style)
         filtering_layout = QVBoxLayout()
@@ -397,12 +326,11 @@ class DataAugmentGUI(QMainWindow):
         filtering_group.setLayout(filtering_layout)
         top_row_layout.addWidget(filtering_group)
 
-        # Augmentation Group (Column Creation)
         augmentation_group = QGroupBox("Column Creation")
         augmentation_group.setStyleSheet(group_box_style)
         augmentation_layout = QVBoxLayout()
         self.column_creation_checkbox = QCheckBox("Create new columns from existing data")
-        self.column_creation_checkbox.setToolTip("Create derived features using mathematical formulas applied to existing columns. Useful for feature engineering and creating non-linear transformations.")
+        self.column_creation_checkbox.setToolTip("Create derived features using mathematical formulas.")
         self.column_creation_checkbox.stateChanged.connect(self.toggle_column_creation)
         augmentation_layout.addWidget(self.column_creation_checkbox)
         self.add_formula_button = QPushButton("Add Column Formula")
@@ -412,7 +340,7 @@ class DataAugmentGUI(QMainWindow):
         self.formula_list_label = QLabel("Created Columns:")
         augmentation_layout.addWidget(self.formula_list_label)
         self.formula_list = QListWidget()
-        self.formula_list.setMinimumHeight(80) # Reduced height
+        self.formula_list.setMinimumHeight(80)
         augmentation_layout.addWidget(self.formula_list)
         self.remove_formula_button = QPushButton("Remove Selected Column")
         self.remove_formula_button.clicked.connect(self.remove_formula)
@@ -423,16 +351,14 @@ class DataAugmentGUI(QMainWindow):
         
         self.main_layout.addLayout(top_row_layout)
 
-        # --- Bottom Row Layout ---
         bottom_row_layout = QHBoxLayout()
 
-        # Resampling Group
         resampling_group = QGroupBox("Data Resampling")
         resampling_group.setStyleSheet(group_box_style)
-        resampling_group.setMinimumHeight(120)  # 20% increase from typical height
+        resampling_group.setMinimumHeight(120)
         resampling_layout = QVBoxLayout()
         self.resampling_checkbox = QCheckBox("Enable data resampling")
-        self.resampling_checkbox.setToolTip("Resamples time series data to a different frequency. Useful for standardizing data collection rates or reducing data size.")
+        self.resampling_checkbox.setToolTip("Resamples time series data to a different frequency.")
         self.resampling_checkbox.stateChanged.connect(self.toggle_resampling_options)
         resampling_layout.addWidget(self.resampling_checkbox)
         frequency_layout = QHBoxLayout()
@@ -446,21 +372,20 @@ class DataAugmentGUI(QMainWindow):
         resampling_group.setLayout(resampling_layout)
         bottom_row_layout.addWidget(resampling_group)
 
-        # Padding Group
         padding_group = QGroupBox("Data Padding (Prepend)")
         padding_group.setStyleSheet(group_box_style)
-        padding_group.setMinimumHeight(120)  # 20% increase from typical height
+        padding_group.setMinimumHeight(120)
         padding_layout = QVBoxLayout()
         self.padding_checkbox = QCheckBox("Enable data padding")
-        self.padding_checkbox.setToolTip("Prepends rows with zeros to the beginning of the dataset. Useful for creating lead-in data for time series models.")
+        self.padding_checkbox.setToolTip("Prepends rows with zeros to the beginning of the dataset.")
         self.padding_checkbox.stateChanged.connect(self.toggle_padding_options)
         padding_layout.addWidget(self.padding_checkbox)
         padding_length_layout = QHBoxLayout()
         padding_length_label = QLabel("Padding Length (rows):")
         padding_length_layout.addWidget(padding_length_label)
         self.padding_length_spinbox = QSpinBox()
-        self.padding_length_spinbox.setRange(0, 10000) # Increased range
-        self.padding_length_spinbox.setValue(10)      # Default value
+        self.padding_length_spinbox.setRange(0, 10000)
+        self.padding_length_spinbox.setValue(10)
         self.padding_length_spinbox.setEnabled(False)
         padding_length_layout.addWidget(self.padding_length_spinbox)
         padding_layout.addLayout(padding_length_layout)
@@ -469,18 +394,15 @@ class DataAugmentGUI(QMainWindow):
 
         self.main_layout.addLayout(bottom_row_layout)
 
-        # Normalization Group (Full Width)
         normalization_group = QGroupBox("Data Normalization")
         normalization_group.setStyleSheet(group_box_style)
-        normalization_group.setMinimumHeight(120)  # 20% increase from typical height
+        normalization_group.setMinimumHeight(120)
         normalization_layout = QVBoxLayout()
         self.normalization_checkbox = QCheckBox("Enable data normalization (Min-Max scaling)")
-        self.normalization_checkbox.setChecked(True)  # Set as checked by default
-        self.normalization_checkbox.setToolTip("Applies Min-Max scaling (0-1 range) to numeric columns. Automatically excludes time-related and ID columns. Essential for neural networks and improves training stability.")
-        # self.normalization_checkbox.stateChanged.connect(self.toggle_normalization_options) # Placeholder if options are added later
+        self.normalization_checkbox.setChecked(True)
+        self.normalization_checkbox.setToolTip("Applies Min-Max scaling (0-1 range) to numeric columns.")
         normalization_layout.addWidget(self.normalization_checkbox)
         
-        # Optional: Display a note about automatic column handling
         normalization_note_label = QLabel("Note: Numeric columns will be scaled. Time-related and ID-like columns are typically excluded automatically.")
         normalization_note_label.setStyleSheet("font-style: italic; color: gray;")
         normalization_note_label.setWordWrap(True)
@@ -497,73 +419,45 @@ class DataAugmentGUI(QMainWindow):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setMinimumHeight(35)
         self.cancel_button.setStyleSheet("""
-            QPushButton {
-                font-size: 10pt !important;
-                background-color: #f0f0f0 !important;
-                border: 2px solid #cccccc !important;
-                border-radius: 6px !important;
-                padding: 8px 16px !important;
-                color: #333333 !important;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0 !important;
-                border: 2px solid #999999 !important;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0 !important;
-                border: 2px solid #777777 !important;
-            }
+            QPushButton { font-size: 10pt !important; background-color: #f0f0f0 !important; border: 2px solid #cccccc !important; border-radius: 6px !important; padding: 8px 16px !important; color: #333333 !important; }
+            QPushButton:hover { background-color: #e0e0e0 !important; border: 2px solid #999999 !important; }
+            QPushButton:pressed { background-color: #d0d0d0 !important; border: 2px solid #777777 !important; }
         """)
-        self.cancel_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
+        self.cancel_button.setAttribute(Qt.WA_Hover, True)
         self.cancel_button.clicked.connect(self.close_gui)
         buttons_layout.addWidget(self.cancel_button)
         self.apply_button = QPushButton("Apply Changes and Continue")
         self.apply_button.setMinimumHeight(35)
         self.apply_button.clicked.connect(self.apply_changes)
         self.apply_button.setStyleSheet("""
-            QPushButton {
-                background-color: #0b6337 !important; 
-                color: white !important; 
-                font-size: 10pt !important;
-                border: 2px solid #0b6337 !important;
-                border-radius: 6px !important;
-                font-weight: bold !important;
-                padding: 8px 16px !important;
-            }
-            QPushButton:hover {
-                background-color: #094D2A !important;
-                border: 2px solid #094D2A !important;
-            }
-            QPushButton:pressed {
-                background-color: #073A20 !important;
-                border: 2px solid #073A20 !important;
-            }
+            QPushButton { background-color: #0b6337 !important; color: white !important; font-size: 10pt !important; border: 2px solid #0b6337 !important; border-radius: 6px !important; font-weight: bold !important; padding: 8px 16px !important; }
+            QPushButton:hover { background-color: #094D2A !important; border: 2px solid #094D2A !important; }
+            QPushButton:pressed { background-color: #073A20 !important; border: 2px solid #073A20 !important; }
         """)
-        self.apply_button.setAttribute(Qt.WA_Hover, True)  # Explicitly enable hover events
+        self.apply_button.setAttribute(Qt.WA_Hover, True)
         self.apply_button.setEnabled(self.train_df is not None)
         buttons_layout.addWidget(self.apply_button)
         self.main_layout.addLayout(buttons_layout)
 
         if self.train_df is not None:
-            self.padding_checkbox.setEnabled(True) # Enable padding checkbox
+            self.padding_checkbox.setEnabled(True)
             self.resampling_checkbox.setEnabled(True)
             self.column_creation_checkbox.setEnabled(True)
             self.filtering_checkbox.setEnabled(True)
-            self.normalization_checkbox.setEnabled(True) # Enable normalization checkbox
+            self.normalization_checkbox.setEnabled(True)
         else:
-            self.padding_checkbox.setEnabled(False) # Disable padding checkbox
+            self.padding_checkbox.setEnabled(False)
             self.resampling_checkbox.setEnabled(False)
             self.column_creation_checkbox.setEnabled(False)
             self.filtering_checkbox.setEnabled(False)
-            self.normalization_checkbox.setEnabled(False) # Disable normalization checkbox
+            self.normalization_checkbox.setEnabled(False)
         
-        # Load filter settings when the GUI is initialized
         if self.job_folder:
             self.load_filter_settings()
     
     def close_gui(self):
-        """Save filter settings before closing the GUI."""
-        self.save_filter_settings()
+        if not self.testing_mode:
+            self.save_filter_settings()
         self.close()
     
     def select_job_folder(self):
@@ -576,45 +470,27 @@ class DataAugmentGUI(QMainWindow):
                 sample_train_df = self.data_augment_manager.get_sample_train_dataframe(self.job_folder)
                 if sample_train_df is not None and not sample_train_df.empty:
                     self.train_df = sample_train_df
-                    self.test_df = None
                     self.apply_button.setEnabled(True)
                     QMessageBox.information(self, "Success", "Job folder selected and sample data schema loaded successfully!")
-                    self.padding_checkbox.setEnabled(True) # Enable padding
+                    self.padding_checkbox.setEnabled(True)
                     self.resampling_checkbox.setEnabled(True)
                     self.column_creation_checkbox.setEnabled(True)
                     self.filtering_checkbox.setEnabled(True)
-                    self.normalization_checkbox.setEnabled(True) # Enable normalization
+                    self.normalization_checkbox.setEnabled(True)
                 else:
                     self.train_df = None
-                    self.test_df = None
                     self.apply_button.setEnabled(False)
-                    self.padding_checkbox.setEnabled(False) # Disable padding
+                    self.padding_checkbox.setEnabled(False)
                     self.resampling_checkbox.setEnabled(False)
                     self.column_creation_checkbox.setEnabled(False)
                     self.filtering_checkbox.setEnabled(False)
-                    self.normalization_checkbox.setEnabled(False) # Disable normalization
-                    QMessageBox.warning(self, "Warning", "Could not load a sample data file from the train/processed_data directory. Ensure CSV files exist there.")
-                    self.logger.warning(f"No sample train data loaded from {self.job_folder}")
+                    self.normalization_checkbox.setEnabled(False)
+                    QMessageBox.warning(self, "Warning", "Could not load a sample data file from the train/processed_data directory.")
             except Exception as e:
                 self.logger.error(f"Error loading sample data for GUI: {e}", exc_info=True)
-                self.train_df = None; self.test_df = None
-                self.apply_button.setEnabled(False); self.padding_checkbox.setEnabled(False); self.resampling_checkbox.setEnabled(False); self.column_creation_checkbox.setEnabled(False); self.filtering_checkbox.setEnabled(False); self.normalization_checkbox.setEnabled(False)
+                self.train_df = None
+                self.apply_button.setEnabled(False)
                 QMessageBox.critical(self, "Error", f"Could not load sample data schema: {e}")
-
-                # Prefill Voltage and Current filters if available
-                if self.train_df is not None:
-                    if "Voltage" in self.train_df.columns:
-                        self.filter_configs.append({"column": "Voltage", "corner_frequency": 0.001, "sampling_rate": 1.0})
-                        # Check if filter_list is initialized before adding items
-                        if hasattr(self, 'filter_list'):
-                            self.filter_list.addItem("Filter 'Voltage' at 0.001Hz (Fs=1.0Hz)")
-                        self.remove_filter_button.setEnabled(True)
-                    if "Current" in self.train_df.columns:
-                        self.filter_configs.append({"column": "Current", "corner_frequency": 0.001, "sampling_rate": 1.0})
-                        # Check if filter_list is initialized before adding items
-                        if hasattr(self, 'filter_list'):
-                            self.filter_list.addItem("Filter 'Current' at 0.001Hz (Fs=1.0Hz)")
-                        self.remove_filter_button.setEnabled(True)
 
     def toggle_padding_options(self, state):
         self.padding_length_spinbox.setEnabled(state == Qt.Checked)
@@ -632,10 +508,8 @@ class DataAugmentGUI(QMainWindow):
 
     def show_formula_dialog(self):
         if self.train_df is None:
-            # Attempt to load the dataframe if it's missing
             if self.job_folder:
                 self.train_df = self.data_augment_manager.get_sample_train_dataframe(self.job_folder)
-            
             if self.train_df is None:
                 QMessageBox.warning(self, "Warning", "Please select a valid job folder with data to see available columns.")
                 return
@@ -646,10 +520,8 @@ class DataAugmentGUI(QMainWindow):
         dialog = FormulaInputDialog(available_columns, session_created_names, self)
         if dialog.exec_() == QDialog.Accepted:
             new_column, formula = dialog.new_column_name, dialog.formula
-            logger.info(f"DataAugmentGUI: Formula dialog accepted. New column: '{new_column}', Formula: '{formula}'")
             self.formula_list.addItem(f"{new_column} = {formula}")
             self.created_columns.append((new_column, formula))
-            logger.info(f"DataAugmentGUI: self.created_columns is now: {self.created_columns}")
             self.remove_formula_button.setEnabled(True)
 
     def remove_formula(self):
@@ -662,11 +534,9 @@ class DataAugmentGUI(QMainWindow):
     
     def show_filter_dialog(self):
         if self.train_df is None:
-            QMessageBox.warning(self, "Warning", "Please load data first (select a valid job folder).")
+            QMessageBox.warning(self, "Warning", "Please load data first.")
             return
-        # First, get all columns that are numerically typed.
         numeric_columns = list(self.train_df.select_dtypes(include=np.number).columns)
-        # Then, explicitly exclude columns that are not suitable for filtering, regardless of type.
         exclude_names = ['time', 'timestamp', 'status']
         columns_for_filter = [col for col in numeric_columns if col.lower() not in exclude_names]
 
@@ -678,358 +548,243 @@ class DataAugmentGUI(QMainWindow):
         if dialog.exec_() == QDialog.Accepted:
             column_name, output_column_name, corner_frequency, sampling_rate, filter_order = dialog.column_name, dialog.output_column_name, dialog.corner_frequency, dialog.sampling_rate, dialog.filter_order
 
-            # Apply the filter immediately to the sample dataframe
             try:
                 self.train_df = self.data_augment_manager.service.apply_butterworth_filter(
-                    self.train_df,
-                    column_name,
-                    corner_frequency,
-                    sampling_rate,
-                    filter_order,
-                    output_column_name
+                    self.train_df, column_name, corner_frequency, sampling_rate, filter_order, output_column_name
                 )
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Could not apply filter: {e}")
             else:
-                filter_type = "Butterworth"
-                log_message = f"{filter_order}th order {filter_type} filter with corner frequency of {corner_frequency}Hz applied to column '{column_name}' (Fs={sampling_rate}Hz) -> {output_column_name}"
-                logger.info(log_message)
                 self.filter_list.addItem(f"Order {filter_order} Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz) -> {output_column_name}")
                 self.filter_configs.append({"column": column_name, "output_column_name": output_column_name, "corner_frequency": corner_frequency, "sampling_rate": sampling_rate, "filter_order": filter_order})
                 self.remove_filter_button.setEnabled(True)
 
     def remove_filter(self):
         selected_items = self.filter_list.selectedItems()
-        if not selected_items:
-            return
+        if not selected_items: return
         row = self.filter_list.row(selected_items[0])
         self.filter_list.takeItem(row)
         self.filter_configs.pop(row)
-        if self.filter_list.count() == 0:
-            self.remove_filter_button.setEnabled(False)
+        if self.filter_list.count() == 0: self.remove_filter_button.setEnabled(False)
 
     def edit_filter(self, item):
-        """Edit the selected filter."""
         row = self.filter_list.row(item)
-        if row < 0 or row >= len(self.filter_configs):
-            self.logger.warning(f"Invalid row index: {row}")
-            return
+        if row < 0 or row >= len(self.filter_configs): return
 
         config = self.filter_configs[row]
-        column_name = config["column"]
-        output_column_name = config.get("output_column_name", "")
-        corner_frequency = config["corner_frequency"]
-        sampling_rate = config["sampling_rate"]
-
-        # First, get all columns that are numerically typed.
         numeric_columns = list(self.train_df.select_dtypes(include=np.number).columns)
-        # Then, explicitly exclude columns that are not suitable for filtering, regardless of type.
         exclude_names = ['time', 'timestamp', 'status']
         columns_for_filter = [col for col in numeric_columns if col.lower() not in exclude_names]
 
         dialog = FilterInputDialog(columns_for_filter, self)
-        dialog.column_combo.setCurrentText(column_name)
-        dialog.output_column_name_edit.setText(output_column_name)
-        dialog.corner_frequency_spinbox.setValue(corner_frequency)
-        dialog.sampling_rate_spinbox.setValue(sampling_rate)
-        dialog.filter_order_spinbox.setValue(config.get("filter_order", 4)) # Use get for safety
+        dialog.column_combo.setCurrentText(config["column"])
+        dialog.output_column_name_edit.setText(config.get("output_column_name", ""))
+        dialog.corner_frequency_spinbox.setValue(config["corner_frequency"])
+        dialog.sampling_rate_spinbox.setValue(config["sampling_rate"])
+        dialog.filter_order_spinbox.setValue(config.get("filter_order", 4))
 
         if dialog.exec_() == QDialog.Accepted:
-            new_column_name = dialog.column_name
-            new_output_column_name = dialog.output_column_name
-            new_corner_frequency = dialog.corner_frequency
-            new_sampling_rate = dialog.sampling_rate
-            new_filter_order = dialog.filter_order
-
-            # Update the filter configuration
-            self.filter_configs[row]["column"] = new_column_name
-            self.filter_configs[row]["output_column_name"] = new_output_column_name
-            self.filter_configs[row]["corner_frequency"] = new_corner_frequency
-            self.filter_configs[row]["sampling_rate"] = new_sampling_rate
-            self.filter_configs[row]["filter_order"] = new_filter_order
-
-            # Update the display in the list
-            self.filter_list.item(row).setText(f"Order {new_filter_order} Filter '{new_column_name}' at {new_corner_frequency}Hz (Fs={new_sampling_rate}Hz) -> {new_output_column_name}")
-
-            # Apply the filter immediately to the sample dataframe
+            self.filter_configs[row] = {
+                "column": dialog.column_name,
+                "output_column_name": dialog.output_column_name,
+                "corner_frequency": dialog.corner_frequency,
+                "sampling_rate": dialog.sampling_rate,
+                "filter_order": dialog.filter_order
+            }
+            self.filter_list.item(row).setText(f"Order {dialog.filter_order} Filter '{dialog.column_name}' at {dialog.corner_frequency}Hz (Fs={dialog.sampling_rate}Hz) -> {dialog.output_column_name}")
             try:
                 self.train_df = self.data_augment_manager.service.apply_butterworth_filter(
-                    self.train_df,
-                    new_column_name,
-                    new_corner_frequency,
-                    new_sampling_rate,
-                    new_filter_order,
-                    new_output_column_name
+                    self.train_df, dialog.column_name, dialog.corner_frequency, dialog.sampling_rate, dialog.filter_order, dialog.output_column_name
                 )
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Could not apply filter: {e}")
 
-
     def apply_changes(self):
-        self.logger.info("apply_changes method entered.")
+        if self.testing_mode:
+            self.apply_changes_for_testing()
+        else:
+            self.apply_changes_for_training()
+
+    def apply_changes_for_testing(self):
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        df = self.test_df_for_augmentation.copy()
+        if self.filter_configs:
+            for config in self.filter_configs:
+                df = self.data_augment_manager.service.apply_butterworth_filter(
+                    df,
+                    column_name=config['column'],
+                    corner_frequency=config['corner_frequency'],
+                    sampling_rate=config['sampling_rate'],
+                    filter_order=config.get('filter_order', 4),
+                    output_column_name=config.get('output_column_name')
+                )
+        self.augmentation_complete.emit(df)
+        self.close()
+
+    def apply_changes_for_training(self):
         if self.job_folder is None:
             QMessageBox.warning(self, "Warning", "Please select a job folder first.")
             return
-        
-        # Save the current settings as the last used for the next session
         self.save_filter_settings_last_used()
-
-        self.logger.info(f"Job folder in apply_changes: {self.job_folder}")
-
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
-        self.progress_bar.setStyleSheet("") # Ensure progress bar is not red
         self.apply_button.setEnabled(False)
         self.cancel_button.setEnabled(False)
         
         if hasattr(self, 'status_label') and self.status_label is not None:
             self.status_label.deleteLater()
-            self.status_label = None
-        
         self.status_label = QLabel("Processing data... Please wait.")
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setStyleSheet("color: blue; font-weight: bold; font-size: 14px;")
-        idx = self.main_layout.indexOf(self.progress_bar)
-        if idx != -1:
-            self.main_layout.insertWidget(idx, self.status_label)
-        else: 
-             self.main_layout.insertWidget(self.main_layout.count() -1 if self.main_layout.count() > 1 else 0, self.status_label)
+        self.main_layout.insertWidget(self.main_layout.indexOf(self.progress_bar), self.status_label)
 
-        self.logger.info("Starting data augmentation process via worker thread...")
-        
-        padding_enabled = self.padding_checkbox.isChecked()
-        padding_length = self.padding_length_spinbox.value() if padding_enabled else 0
-        
-        resampling_enabled = self.resampling_checkbox.isChecked()
-        resampling_frequency = self.frequency_combo.currentText() if resampling_enabled else None
-        
+        padding_length = self.padding_length_spinbox.value() if self.padding_checkbox.isChecked() else 0
+        resampling_frequency = self.frequency_combo.currentText() if self.resampling_checkbox.isChecked() else None
         column_formulas = self.created_columns if self.column_creation_checkbox.isChecked() else None
-        
-        # This line is now redundant as the checkbox was removed.
-        # The presence of filter_configs is now the sole indicator.
         filter_configs = self.filter_configs if self.filter_configs else None
-
         normalize_data_flag = self.normalization_checkbox.isChecked()
-        # For now, feature_columns and exclude_columns will be handled by the manager based on this flag
-        # If more specific GUI controls are added later, they would be gathered here.
-        # default_exclude_columns = ['time', 'Time', 'timestamp', 'Timestamp', 'datetime'] # Example, manager handles this
-
-        self.logger.info(f"Worker - Padding enabled: {padding_enabled}, length: {padding_length}")
-        self.logger.info(f"Worker - Resampling enabled: {resampling_enabled}, frequency: {resampling_frequency}")
-        self.logger.info(f"Worker - Column formulas: {column_formulas}")
-        self.logger.info(f"Worker - Filter configs: {filter_configs}")
-        self.logger.info(f"Worker - Normalization enabled: {normalize_data_flag}")
 
         self.augmentation_thread = QThread()
         self.augmentation_worker = AugmentationWorker(
-            data_augment_manager=self.data_augment_manager,
-            job_folder=self.job_folder,
-            padding_length=padding_length, # Pass padding length
-            resampling_frequency=resampling_frequency,
-            column_formulas=column_formulas,
-            normalize_data=normalize_data_flag, # Pass normalization flag
-            filter_configs=filter_configs
-            # normalization_feature_columns=None, # Let manager infer or use defaults
-            # normalization_exclude_columns=default_exclude_columns # Or let manager use its defaults
+            self.data_augment_manager, self.job_folder, padding_length, resampling_frequency,
+            column_formulas, normalize_data_flag, filter_configs
         )
         self.augmentation_worker.moveToThread(self.augmentation_thread)
-
-        # Connect MANAGER signals to GUI slots
         self.data_augment_manager.augmentationProgress.connect(self.handle_augmentation_progress)
         self.data_augment_manager.augmentationFinished.connect(self.handle_augmentation_finished)
-        self.data_augment_manager.formulaErrorOccurred.connect(self.handle_formula_error) # New connection
-
-        # Connect WORKER's critical error signal
-        self.augmentation_worker.criticalError.connect(self.handle_critical_error) # Renamed handler
-
-        # Standard thread management
+        self.data_augment_manager.formulaErrorOccurred.connect(self.handle_formula_error)
+        self.augmentation_worker.criticalError.connect(self.handle_critical_error)
         self.augmentation_thread.started.connect(self.augmentation_worker.run)
-        self.augmentation_thread.finished.connect(self.augmentation_thread.deleteLater) 
-        
-        # Ensure thread quits on manager signals or worker critical error
+        self.augmentation_thread.finished.connect(self.augmentation_thread.deleteLater)
         self.data_augment_manager.augmentationFinished.connect(self.augmentation_thread.quit)
         self.data_augment_manager.formulaErrorOccurred.connect(self.augmentation_thread.quit)
         self.augmentation_worker.criticalError.connect(self.augmentation_thread.quit)
-        
         self.augmentation_thread.start()
 
     def handle_augmentation_progress(self, value):
         self.progress_bar.setValue(value)
 
-    # Modified to accept metadata list from manager signal
     def handle_augmentation_finished(self, job_folder, processed_files_metadata):
-        self.logger.info(f"Augmentation finished (manager signal) for job: {job_folder}")
-        # Check metadata for overall success/failure
         failures = [f for f in processed_files_metadata if f.get('status') == 'Failed']
         if not failures:
-            self.logger.info("Augmentation completed successfully for all files.")
             self.progress_bar.setValue(100)
-            if hasattr(self, 'status_label') and self.status_label is not None:
-                self.status_label.setText("Processing complete!")
+            if hasattr(self, 'status_label'): self.status_label.setText("Processing complete!")
             QMessageBox.information(self, "Success", "Data augmentation completed successfully!")
-            
-            # --- Transition logic ---
             self.apply_button.setText("Continue to Hyperparameter Selection")
-            try:
-                self.apply_button.clicked.disconnect(self.apply_changes)
-            except TypeError:
-                self.logger.warning("Could not disconnect apply_changes.")
-            try:
-                self.apply_button.clicked.disconnect(self.go_to_hyperparameter_gui) 
+            try: self.apply_button.clicked.disconnect(self.apply_changes)
+            except TypeError: pass
+            try: self.apply_button.clicked.disconnect(self.go_to_hyperparameter_gui) 
             except TypeError: pass 
             self.apply_button.clicked.connect(self.go_to_hyperparameter_gui)
-            # --- End Transition logic ---
-
         else:
-            # Handle cases where processing finished but some files failed (e.g., resampling errors)
-            # Note: Formula errors should have been caught by handle_formula_error and stopped the process earlier.
-            error_summary = f"Augmentation finished, but {len(failures)} file(s) failed (non-formula errors):\n"
-            for fail in failures[:5]: # Show details for first few failures
+            error_summary = f"Augmentation finished, but {len(failures)} file(s) failed:\n"
+            for fail in failures[:5]:
                  error_summary += f"- {os.path.basename(fail.get('filepath','Unknown'))}: {fail.get('error', 'Unknown error')}\n"
             if len(failures) > 5: error_summary += "- ... (see logs for more details)"
-            
-            self.logger.warning(f"Augmentation finished with non-formula errors: {error_summary}")
             self.progress_bar.setValue(100) 
-            self.progress_bar.setStyleSheet("") # Reset progress bar style (remove red)
-            if hasattr(self, 'status_label') and self.status_label is not None:
-                self.status_label.setText("Processing finished with some errors (see logs).")
+            if hasattr(self, 'status_label'): self.status_label.setText("Processing finished with some errors.")
             QMessageBox.warning(self, "Processing Finished with Errors", error_summary)
-            # Do not transition if there were errors
-            self.apply_button.setText("Apply Changes and Continue") # Reset button text
-
-        # Re-enable buttons regardless of success/failure
+            self.apply_button.setText("Apply Changes and Continue")
         self.apply_button.setEnabled(True)
         self.cancel_button.setEnabled(True)
 
-    # Renamed from handle_augmentation_error and now handles critical worker errors
     def handle_critical_error(self, error_msg):
-        self.logger.error(f"Critical augmentation worker error: {error_msg}")
-        self.progress_bar.setValue(0) # Reset progress
-        self.progress_bar.setStyleSheet("") # Reset style
         self.progress_bar.setVisible(False) 
-        
-        if hasattr(self, 'status_label') and self.status_label is not None:
-            self.status_label.setText(f"Critical Error: {error_msg}")
-
-        QMessageBox.critical(self, "Critical Error", f"A critical error occurred during processing: {error_msg}")
-        
-        # Re-enable buttons
+        if hasattr(self, 'status_label'): self.status_label.setText(f"Critical Error: {error_msg}")
+        QMessageBox.critical(self, "Critical Error", f"A critical error occurred: {error_msg}")
         self.apply_button.setEnabled(True)
         self.cancel_button.setEnabled(True)
 
     def handle_formula_error(self, error_msg):
-        """Handles formula errors emitted by the manager."""
-        self.logger.error(f"Formula error reported by manager: {error_msg}")
-        # Reset progress bar appearance and hide it
-        self.progress_bar.setValue(0) 
-        self.progress_bar.setStyleSheet("") 
         self.progress_bar.setVisible(False) 
-
-        if hasattr(self, 'status_label') and self.status_label is not None:
-            self.status_label.setText(f"Formula Error: Processing stopped.")
-        
-        # Display the concise formula error message from the manager/service
+        if hasattr(self, 'status_label'): self.status_label.setText("Formula Error: Processing stopped.")
         QMessageBox.critical(self, "Formula Error", error_msg) 
-        
-        # Re-enable buttons
         self.apply_button.setEnabled(True)
         self.cancel_button.setEnabled(True)
     
     def go_to_hyperparameter_gui(self):
-        self.logger.info("Scheduling transition to hyperparameter GUI...")
         try:
-            # Create the new window instance but don't show it immediately.
-            # Store it on self temporarily so the slot can access it.
             self._next_hyper_param_gui = VEstimHyperParamGUI(job_manager=self.job_manager)
-
-            # Schedule the actual show and close operations to allow current events to process.
             QTimer.singleShot(0, self._execute_gui_transition)
-
         except Exception as e:
-            self.logger.error(f"Error preparing transition to hyperparameter GUI: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Could not prepare hyperparameter selection: {e}")
-            # Re-enable buttons if preparation fails
             self.apply_button.setEnabled(True)
             self.cancel_button.setEnabled(True)
 
     def _execute_gui_transition(self):
-        """Helper method to actually show the new GUI and close the old one."""
-        self.logger.info("Executing GUI transition now...")
         try:
             if hasattr(self, '_next_hyper_param_gui') and self._next_hyper_param_gui:
                 self._next_hyper_param_gui.show()
-                # If DataAugmentGUI needs to keep a reference to the new GUI after transition,
-                # assign it to self.hyper_param_gui. Otherwise, this can be omitted
-                # if hyper_param_gui is only for launching.
                 self.hyper_param_gui = self._next_hyper_param_gui
-                # del self._next_hyper_param_gui # Clean up temporary attribute
-
-            self.close() # Close the current DataAugmentGUI window
+            self.close()
         except Exception as e:
-            self.logger.error(f"Error during actual GUI transition execution: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"Could not complete transition to hyperparameter selection: {e}")
-            # Consider re-enabling buttons on the (now likely still visible) DataAugmentGUI if transition fails badly
+            QMessageBox.critical(self, "Error", f"Could not complete transition: {e}")
             self.apply_button.setEnabled(True)
             self.cancel_button.setEnabled(True)
 
     def load_filter_settings_last_used(self):
-        """Load filter settings from the last used JSON file."""
-        import json
-        self.logger.info(f"Attempting to load last used filter settings from: {self.last_used_settings_file}")
-
         if not (self.last_used_settings_file and os.path.exists(self.last_used_settings_file)):
-            self.logger.info("Last used filter settings file not found. No settings will be loaded.")
             return
-
         try:
             with open(self.last_used_settings_file, "r") as f:
                 loaded_settings = json.load(f)
         except Exception as e:
-            self.logger.error(f"Error reading or parsing last used filter settings file: {e}", exc_info=True)
+            self.logger.error(f"Error reading last used filter settings file: {e}")
             return
 
         if not self.train_df is None:
             available_columns = self.train_df.columns.tolist()
             self.filter_list.clear()
             self.filter_configs.clear()
-
             for setting in loaded_settings:
-                column_name = setting.get("column")
-                if column_name in available_columns:
-                    output_column_name = setting.get("output_column_name")
-                    corner_frequency = setting.get("corner_frequency", 0.01)
-                    sampling_rate = setting.get("sampling_rate", 1.0)
-                    filter_order = setting.get("filter_order", 4)
-                    
+                if setting.get("column") in available_columns:
                     try:
                         self.train_df = self.data_augment_manager.service.apply_butterworth_filter(
-                            self.train_df,
-                            column_name,
-                            corner_frequency,
-                            sampling_rate,
-                            filter_order,
-                            output_column_name
+                            self.train_df, **setting
                         )
                         self.filter_configs.append(setting)
-                        self.filter_list.addItem(f"Order {filter_order} Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz) -> {output_column_name}")
-                        self.logger.info(f"Loaded and applied filter setting for column '{column_name}'.")
+                        self.filter_list.addItem(f"Order {setting['filter_order']} Filter '{setting['column']}' at {setting['corner_frequency']}Hz (Fs={setting['sampling_rate']}Hz) -> {setting['output_column_name']}")
                     except Exception as e:
-                        self.logger.error(f"Error applying loaded filter for column '{column_name}': {e}")
-
-                else:
-                    self.logger.warning(f"Skipping loaded filter for column '{column_name}' as it is not present in the current dataset.")
-            
+                        self.logger.error(f"Error applying loaded filter for column '{setting['column']}': {e}")
             if self.filter_list.count() > 0:
                 self.remove_filter_button.setEnabled(True)
-        else:
-            self.logger.warning("Cannot load filter settings as no sample dataframe is loaded.")
 
+    def prepopulate_for_testing(self):
+        self.setWindowTitle("VEstim Data Augmentation (Testing Mode)")
+        self.apply_button.setText("Apply Required Augmentations and Continue Test")
+
+        # Disable all augmentation options except the mandatory filtering
+        self.resampling_checkbox.setChecked(False)
+        self.resampling_checkbox.setEnabled(False)
+        self.padding_checkbox.setChecked(False)
+        self.padding_checkbox.setEnabled(False)
+        self.column_creation_checkbox.setChecked(False)
+        self.column_creation_checkbox.setEnabled(False)
+        self.normalization_checkbox.setChecked(False)
+        self.normalization_checkbox.setEnabled(False)
+        self.add_formula_button.setEnabled(False)
+        self.remove_formula_button.setEnabled(False)
+
+        # The filtering is required, so check the box but disable it so the user can't change it.
+        self.filtering_checkbox.setChecked(True)
+        self.filtering_checkbox.setEnabled(False)
+
+        # The user cannot add or remove the required filters.
+        self.add_filter_button.setEnabled(False)
+        self.remove_filter_button.setEnabled(False)
+
+        # Populate the list with the required filters from the original job.
+        self.filter_configs = self.preloaded_filter_configs if self.preloaded_filter_configs is not None else []
+        self.filter_list.clear()
+        if not self.filter_configs:
+            self.logger.warning("DataAugmentGUI launched in testing mode but no filter configs were provided.")
+        
+        for config in self.filter_configs:
+            self.filter_list.addItem(f"Order {config['filter_order']} Filter '{config['column']}' at {config['corner_frequency']}Hz (Fs={config['sampling_rate']}Hz) -> {config['output_column_name']}")
 
 def main():
     app = QApplication(sys.argv)
-    # Example: Launch with a specific job folder if available (e.g., from command line or previous step)
-    # job_folder_to_pass = "path/to/your/job_folder" # Replace with actual logic if needed
-    # ex = DataAugmentGUI(job_folder=job_folder_to_pass)
     ex = DataAugmentGUI()
     ex.show()
     sys.exit(app.exec_())

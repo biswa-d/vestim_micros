@@ -444,9 +444,14 @@ class VEstimTrainingSetupManager:
     def save_tasks_to_files(self, task_list):
         """Saves task information to JSON files."""
         for task_info in task_list:
-            task_dir = task_info['model_dir']
+            # Save task_info.json in the individual task directory, not the model architecture directory
+            task_dir = task_info['task_dir']  # Use task_dir instead of model_dir
             task_info_file = os.path.join(task_dir, 'task_info.json')
             serializable_info = {k: v for k, v in task_info.items() if k != 'model'}
+            
+            # Ensure the task directory exists before saving
+            os.makedirs(task_dir, exist_ok=True)
+            
             with open(task_info_file, 'w') as f:
                 json.dump(serializable_info, f, indent=4)
 

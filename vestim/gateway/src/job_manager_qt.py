@@ -157,3 +157,26 @@ class JobManager:
             f.write("\n".join(summary_content))
         
         logging.info(f"Data cleanup summary saved to {summary_path}")
+    
+    def load_existing_job(self, job_folder_path):
+        """Load an existing job from a job folder path."""
+        if not os.path.isdir(job_folder_path):
+            raise ValueError(f"Job folder does not exist: {job_folder_path}")
+        
+        # Extract job_id from folder name
+        self.job_id = os.path.basename(job_folder_path)
+        
+        # Verify this is a valid job folder by checking for essential files
+        essential_files = ['hyperparams.json', 'job_metadata.json']
+        for file in essential_files:
+            if not os.path.exists(os.path.join(job_folder_path, file)):
+                raise ValueError(f"Invalid job folder: missing {file}")
+        
+        # Configure logging for this job
+        try:
+            configure_job_specific_logging(job_folder_path)
+            logging.info(f"Loaded existing job: {self.job_id} from folder: {job_folder_path}")
+        except Exception as e:
+            logging.error(f"Failed to configure logging for loaded job {self.job_id}: {e}", exc_info=True)
+        
+        return self.job_id, job_folder_path
