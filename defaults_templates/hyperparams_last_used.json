@@ -1,9 +1,8 @@
 {
     "FEATURE_COLUMNS": [
-        "Power",
         "Battery_Temp_degC",
         "SOC",
-        "Power_fltr_3e-3"
+        "Power"
     ],
     "TARGET_COLUMN": "Voltage",
     "DEVICE_SELECTION": "cuda:0",
@@ -18,9 +17,9 @@
     "LOOKBACK": "90",
     "BATCH_TRAINING": true,
     "BATCH_SIZE": "4096",
-    "VALID_PATIENCE": "50",
+    "VALID_PATIENCE": "90",
     "VALID_FREQUENCY": "1",
-    "MAX_EPOCHS": "250",
+    "MAX_EPOCHS": "500",
     "REPETITIONS": 2,
     "MAX_TRAIN_HOURS": "0",
     "MAX_TRAIN_MINUTES": "0",
@@ -28,7 +27,7 @@
     "SCHEDULER_TYPE": "StepLR",
     "INITIAL_LR": "0.001",
     "LR_PARAM": "0.8",
-    "LR_PERIOD": "8",
+    "LR_PERIOD": "15",
     "PLATEAU_PATIENCE": "10",
     "PLATEAU_FACTOR": "0.1",
     "COSINE_T0": "10",
@@ -36,7 +35,7 @@
     "COSINE_ETA_MIN": "1e-6",
     "EXPLOIT_LR": "5e-6",
     "EXPLOIT_EPOCHS": "20",
-    "EXPLOIT_REPETITIONS": "0",
+    "EXPLOIT_REPETITIONS": "2",
     "FINAL_LR": "1e-7",
     "INFERENCE_FILTER_TYPE": "None",
     "FNN_ACTIVATION": "ReLU",

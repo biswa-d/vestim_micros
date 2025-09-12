@@ -86,7 +86,8 @@ class DataAugmentManager(QObject): # Inherit from QObject
                            normalization_feature_columns: Optional[List[str]] = None,
                            normalization_exclude_columns: Optional[List[str]] = None,
                            scaler_filename: str = "augmentation_scaler.joblib",
-                           filter_configs: Optional[List[Dict[str, Any]]] = None) -> Tuple[str, List[Dict[str, Any]]]:
+                           filter_configs: Optional[List[Dict[str, Any]]] = None,
+                           noise_configs: Optional[List[Dict[str, Any]]] = None) -> Tuple[str, List[Dict[str, Any]]]:
        """
        Apply data augmentations (resampling, column creation, padding) to each file
        in the processed_data directories and saves them back, overwriting originals.
@@ -197,7 +198,9 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                 if stats:
                                     global_scaler = normalization_service.create_scaler_from_stats(stats, actual_columns_to_normalize)
                                     if global_scaler:
-                                        saved_scaler_path = normalization_service.save_scaler(global_scaler, scaler_output_dir, filename=scaler_filename)
+                                        # Extract job_id from job_folder for metadata
+                                        job_id = os.path.basename(job_folder)
+                                        saved_scaler_path = normalization_service.save_scaler(global_scaler, scaler_output_dir, filename=scaler_filename, job_id=job_id)
                                         if not saved_scaler_path:
                                             self.logger.error("Failed to save global scaler. Normalization will be skipped.")
                                             normalize_data = False
@@ -258,6 +261,27 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             file_metadata['status'] = 'Failed'
                             file_metadata['error'] = error_msg
                             formula_error_occurred = True 
+                    
+                    # Apply noise injection if configured
+                    if not formula_error_occurred and noise_configs and df is not None and not df.empty:
+                        # Determine if this is a training/validation file for apply_to filtering
+                        is_train_or_val = 'train' in file_path.lower() or 'val' in file_path.lower()
+                        
+                        for noise_config in noise_configs:
+                            try:
+                                # Check if we should apply noise to this file type
+                                apply_to = noise_config.get('apply_to', 'train_val')
+                                if apply_to == 'train_val' and not is_train_or_val:
+                                    continue  # Skip test files when apply_to is train_val
+                                    
+                                df = self.service.apply_noise_injection(
+                                    df,
+                                    column_name=noise_config['column'],
+                                    noise_type=noise_config['noise_type'],
+                                    noise_level_percent=noise_config['noise_level']
+                                )
+                            except Exception as e_noise:
+                                self.logger.error(f"Error applying noise injection for {file_path}: {e_noise}", exc_info=True)
                     
                     if not formula_error_occurred and padding_length and padding_length > 0 and df is not None and not df.empty:
                         df = self.service.pad_data(df, padding_length, resample_freq_for_time_padding=actual_resampling_frequency_for_padding)

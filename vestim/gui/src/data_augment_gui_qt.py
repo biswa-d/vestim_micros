@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout
                             QFormLayout, QGroupBox, QSpinBox, QDoubleSpinBox)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject, QTimer
 
-import os
+import os, json
 import sys
 import pandas as pd
 import numpy as np
@@ -63,15 +63,19 @@ class FormulaInputDialog(QDialog):
         layout.addWidget(formula_label)
         self.formula_edit = QLineEdit()
         layout.addWidget(self.formula_edit)
-        examples_label = QLabel("Examples:\n"
-                               "1. `column1 * 2 + column2`\n"
-                               "2. `np.sin(column1) + np.log(column2)`\n"
-                               "3. Lagged feature: `shift(column1, -1)`\n"
-                               "4. Additive noise: `column1 + noise(0.0, 0.02)`\n"
-                               "5. Multiplicative noise: `column1 * (1 + noise(0.0, 0.02))`\n"
-                               "6. Moving average: `moving_average(column1, 10)`")
-        examples_label.setStyleSheet("font-style: italic; color: gray;")
-        layout.addWidget(examples_label)
+        examples_label = QLabel(
+            "Examples:\n"
+            "1. `column1 * 2 + column2`\n"
+            "2. `np.sin(column1) + np.log(column2)`\n"
+            "3. Lagged feature: `shift(column1, -1)`\n"
+            "4. Additive noise: `column1 + noise(0.0, 0.02)`\n"
+            "5. Multiplicative noise: `column1 * (1 + noise(0.0, 0.02))`\n"
+            "6. Moving average: `moving_average(column1, 10)`\n"
+            "7. Delta T (change in temperature): shift(Battery_Temp_degC, 1) - Battery_Temp_degC"
+        )
+                                   "7. Delta T (change in temperature): shift(Battery_Temp_degC, 1) - Battery_Temp_degC")
+            examples_label.setStyleSheet("font-style: italic; color: gray;")
+            layout.addWidget(examples_label)
         buttons_layout = QHBoxLayout()
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
@@ -174,11 +178,165 @@ class FilterInputDialog(QDialog):
             return
         self.accept()
 
+class NoiseConfigDialog(QDialog):
+    """Dialog for configuring noise injection parameters."""
+    def __init__(self, available_columns, parent=None):
+        super().__init__(parent)
+        self.available_columns = available_columns
+        self.column_name = ""
+        self.noise_type = "gaussian"
+        self.noise_level = 0.1
+        self.apply_to = "train_val"
+        self.initUI()
+        
+    def initUI(self):
+        self.setWindowTitle("Configure Noise Injection")
+        self.setMinimumWidth(450)
+        layout = QVBoxLayout()
+        
+        # Form layout for parameters
+        form_layout = QFormLayout()
+        
+        # Column selection
+        self.column_combo = QComboBox()
+        self.column_combo.addItems(self.available_columns)
+        form_layout.addRow("Select Column:", self.column_combo)
+        
+        # Noise type selection
+        self.noise_type_combo = QComboBox()
+        self.noise_type_combo.addItems(["gaussian", "uniform"])
+        self.noise_type_combo.setCurrentText("gaussian")
+        form_layout.addRow("Noise Type:", self.noise_type_combo)
+        
+        # Noise level (percentage)
+        self.noise_level_spinbox = QDoubleSpinBox()
+        self.noise_level_spinbox.setRange(0.01, 50.0)
+        self.noise_level_spinbox.setValue(5.0)
+        self.noise_level_spinbox.setSingleStep(0.1)
+        self.noise_level_spinbox.setDecimals(2)
+        self.noise_level_spinbox.setSuffix("%")
+        form_layout.addRow("Noise Level (% of std dev):", self.noise_level_spinbox)
+        
+        # Apply to selection
+        self.apply_to_combo = QComboBox()
+        self.apply_to_combo.addItems(["train_val", "all_data"])
+        self.apply_to_combo.setCurrentText("train_val")
+        form_layout.addRow("Apply To:", self.apply_to_combo)
+        
+        layout.addLayout(form_layout)
+        
+        # Column preview button
+        preview_layout = QHBoxLayout()
+        self.preview_button = QPushButton("Preview Available Columns")
+        self.preview_button.clicked.connect(self.preview_columns)
+        preview_layout.addWidget(self.preview_button)
+        preview_layout.addStretch()
+        layout.addLayout(preview_layout)
+        
+        # Help text
+        help_text = QLabel("""
+Noise Injection adds random noise to improve model robustness:
+• Noise Level: Percentage of column's standard deviation
+• Gaussian: Normal distribution N(0, level% × std_dev)
+• Uniform: Random values in ±(level% × std_dev) interval
+• Train/Val: Applied only to training and validation data
+• All Data: Applied to training, validation, and test data
+
+Tip: Use "Preview Available Columns" to see filtered column names.
+        """)
+        help_text.setStyleSheet("color: #666; font-size: 10px; padding: 5px;")
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
+        
+        # Buttons
+        buttons_layout = QHBoxLayout()
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.reject)
+        buttons_layout.addWidget(self.cancel_button)
+        
+        self.add_button = QPushButton("Add Noise Config")
+        self.add_button.clicked.connect(self.accept_config)
+        self.add_button.setStyleSheet("background-color: #0b6337; color: white;")
+        buttons_layout.addWidget(self.add_button)
+        
+        layout.addLayout(buttons_layout)
+        self.setLayout(layout)
+        
+    def accept_config(self):
+        """Validate and accept the noise configuration."""
+        self.column_name = self.column_combo.currentText()
+        self.noise_type = self.noise_type_combo.currentText()
+        self.noise_level = self.noise_level_spinbox.value()
+        self.apply_to = self.apply_to_combo.currentText()
+        
+        if not self.column_name:
+            QMessageBox.warning(self, "Input Error", "Please select a column.")
+            return
+            
+        if self.noise_level <= 0:
+            QMessageBox.warning(self, "Input Error", "Noise level must be greater than 0.")
+            return
+            
+        logger.info(f"NoiseConfigDialog: Adding noise config for '{self.column_name}' - Type: {self.noise_type}, Level: {self.noise_level}, Apply to: {self.apply_to}")
+        self.accept()
+        
+    def preview_columns(self):
+        """Show a preview of columns that will be available after applying current filters."""
+        if hasattr(self.parent(), 'train_df') and self.parent().train_df is not None:
+            # Get the preview DataFrame from parent
+            preview_df = self.parent().train_df.copy()
+            
+            # Apply current filters to show what columns will exist
+            filter_configs = getattr(self.parent(), 'filter_configs', [])
+            applied_filters = []
+            
+            for config in filter_configs:
+                try:
+                    preview_df = self.parent().data_augment_manager.service.apply_butterworth_filter(
+                        preview_df, 
+                        column_name=config['column'],
+                        corner_frequency=config['corner_frequency'],
+                        sampling_rate=config['sampling_rate'],
+                        filter_order=config['filter_order'],
+                        output_column_name=config['output_column_name']
+                    )
+                    applied_filters.append(config['output_column_name'])
+                except Exception as e:
+                    logger.warning(f"Could not preview filter: {e}")
+                    
+            numeric_columns = list(preview_df.select_dtypes(include=np.number).columns)
+            exclude_names = ['time', 'timestamp', 'status']
+            available_columns = [col for col in numeric_columns if col.lower() not in exclude_names]
+            
+            # Show preview dialog
+            preview_text = f"Available columns after applying {len(filter_configs)} filters:\n\n"
+            preview_text += "Original columns:\n"
+            original_cols = [col for col in available_columns if col not in applied_filters]
+            for col in original_cols:
+                preview_text += f"  • {col}\n"
+            
+            if applied_filters:
+                preview_text += f"\nNew filtered columns:\n"
+                for col in applied_filters:
+                    if col in available_columns:
+                        preview_text += f"  • {col}\n"
+            
+            # Update the combo box with new columns
+            current_selection = self.column_combo.currentText()
+            self.column_combo.clear()
+            self.column_combo.addItems(available_columns)
+            if current_selection in available_columns:
+                self.column_combo.setCurrentText(current_selection)
+            
+            QMessageBox.information(self, "Column Preview", preview_text)
+        else:
+            QMessageBox.warning(self, "Preview Error", "No data available for preview. Please select a job folder first.")
+
 class AugmentationWorker(QObject):
     """Worker class for running data augmentation in a separate thread."""
     criticalError = pyqtSignal(str) 
 
-    def __init__(self, data_augment_manager, job_folder, padding_length, resampling_frequency, column_formulas, normalize_data=False, filter_configs=None):
+    def __init__(self, data_augment_manager, job_folder, padding_length, resampling_frequency, column_formulas, normalize_data=False, filter_configs=None, noise_configs=None):
         super().__init__()
         self.data_augment_manager = data_augment_manager
         self.job_folder = job_folder
@@ -187,6 +345,7 @@ class AugmentationWorker(QObject):
         self.column_formulas = column_formulas
         self.normalize_data = normalize_data
         self.filter_configs = filter_configs
+        self.noise_configs = noise_configs
         self.logger = logging.getLogger(__name__ + ".AugmentationWorker")
 
     def run(self):
@@ -198,7 +357,8 @@ class AugmentationWorker(QObject):
                 resampling_frequency=self.resampling_frequency,
                 column_formulas=self.column_formulas,
                 normalize_data=self.normalize_data,
-                filter_configs=self.filter_configs
+                filter_configs=self.filter_configs,
+                noise_configs=self.noise_configs
             )
         except Exception as e:
             self.logger.error(f"Critical error during augmentation task execution: {e}", exc_info=True)
@@ -232,6 +392,7 @@ class DataAugmentGUI(QMainWindow):
         
         self.created_columns = []
         self.filter_configs = []
+        self.noise_configs = []  # Store noise injection configurations
         self.settings_file = os.path.join(self.job_folder, "filter_settings.json") if self.job_folder else None
         self.last_used_settings_file = "defaults_templates/filter_settings_last_used.json"
         
@@ -298,9 +459,12 @@ class DataAugmentGUI(QMainWindow):
             job_folder_layout.addWidget(self.job_folder_path_label)
             self.main_layout.addLayout(job_folder_layout)
 
-        top_row_layout = QHBoxLayout()
+        
+        # Middle section with three columns: Filtering, Column Creation, Noise Injection
+        middle_row_layout = QHBoxLayout()
         group_box_style = "QGroupBox { font-size: 10pt; font-weight: bold; }"
 
+        # Data Filtering Group (Column 1)
         filtering_group = QGroupBox("Data Filtering")
         filtering_group.setStyleSheet(group_box_style)
         filtering_layout = QVBoxLayout()
@@ -324,8 +488,9 @@ class DataAugmentGUI(QMainWindow):
         self.remove_filter_button.setEnabled(False)
         filtering_layout.addWidget(self.remove_filter_button)
         filtering_group.setLayout(filtering_layout)
-        top_row_layout.addWidget(filtering_group)
+        middle_row_layout.addWidget(filtering_group)
 
+        # Column Creation Group (Column 2)
         augmentation_group = QGroupBox("Column Creation")
         augmentation_group.setStyleSheet(group_box_style)
         augmentation_layout = QVBoxLayout()
@@ -347,9 +512,39 @@ class DataAugmentGUI(QMainWindow):
         self.remove_formula_button.setEnabled(False)
         augmentation_layout.addWidget(self.remove_formula_button)
         augmentation_group.setLayout(augmentation_layout)
-        top_row_layout.addWidget(augmentation_group)
+        middle_row_layout.addWidget(augmentation_group)
+
+        # Training Noise Injection Group (Column 3)
+        noise_group = QGroupBox("Training Noise Injection")
+        noise_group.setStyleSheet(group_box_style)
+        noise_layout = QVBoxLayout()
+        self.noise_injection_checkbox = QCheckBox("Add noise to training/validation data")
+        self.noise_injection_checkbox.setToolTip("Add noise to specified columns during training to improve model robustness. Test data remains clean.")
+        self.noise_injection_checkbox.stateChanged.connect(self.toggle_noise_injection)
+        noise_layout.addWidget(self.noise_injection_checkbox)
         
-        self.main_layout.addLayout(top_row_layout)
+        # Noise configuration button
+        self.configure_noise_button = QPushButton("Configure Noise Settings")
+        self.configure_noise_button.clicked.connect(self.show_noise_config_dialog)
+        self.configure_noise_button.setEnabled(False)
+        noise_layout.addWidget(self.configure_noise_button)
+        
+        # Applied noise list
+        self.noise_list_label = QLabel("Noise Configurations:")
+        noise_layout.addWidget(self.noise_list_label)
+        self.noise_list = QListWidget()
+        self.noise_list.setMinimumHeight(80)
+        noise_layout.addWidget(self.noise_list)
+        
+        # Remove noise button
+        self.remove_noise_button = QPushButton("Remove Selected Noise")
+        self.remove_noise_button.clicked.connect(self.remove_noise_config)
+        self.remove_noise_button.setEnabled(False)
+        noise_layout.addWidget(self.remove_noise_button)
+        noise_group.setLayout(noise_layout)
+        middle_row_layout.addWidget(noise_group)
+        
+        self.main_layout.addLayout(middle_row_layout)
 
         bottom_row_layout = QHBoxLayout()
 
@@ -506,6 +701,19 @@ class DataAugmentGUI(QMainWindow):
         self.add_filter_button.setEnabled(state == Qt.Checked)
         self.remove_filter_button.setEnabled(state == Qt.Checked and self.filter_list.count() > 0)
 
+    def toggle_noise_injection(self, state):
+        enabled = state == Qt.Checked
+        self.configure_noise_button.setEnabled(enabled)
+        self.remove_noise_button.setEnabled(enabled and self.noise_list.count() > 0)
+        
+        if enabled and hasattr(self, 'filter_configs') and len(self.filter_configs) > 0:
+            # Show helpful message when enabling noise injection with existing filters
+            filter_count = len(self.filter_configs)
+            QMessageBox.information(self, "Noise Injection Tip", 
+                f"You have {filter_count} filter(s) configured. When adding noise, "
+                f"use the 'Preview Available Columns' button to see both original "
+                f"and filtered column names that will be available for noise injection.")
+
     def show_formula_dialog(self):
         if self.train_df is None:
             if self.job_folder:
@@ -599,6 +807,61 @@ class DataAugmentGUI(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Could not apply filter: {e}")
 
+    # Noise Injection Methods
+    def show_noise_config_dialog(self):
+        if self.train_df is None:
+            if self.job_folder:
+                self.train_df = self.data_augment_manager.get_sample_train_dataframe(self.job_folder)
+            if self.train_df is None:
+                QMessageBox.warning(self, "Warning", "Please select a valid job folder with data to see available columns.")
+                return
+
+        # Apply current filters to get the preview of columns after filtering
+        preview_df = self.train_df.copy()
+        
+        # Apply existing filters to preview what columns will be available
+        for config in self.filter_configs:
+            try:
+                preview_df = self.data_augment_manager.service.apply_butterworth_filter(
+                    preview_df, 
+                    column_name=config['column'],
+                    corner_frequency=config['corner_frequency'],
+                    sampling_rate=config['sampling_rate'],
+                    filter_order=config['filter_order'],
+                    output_column_name=config['output_column_name']
+                )
+            except Exception as e:
+                self.logger.warning(f"Could not preview filter for noise config: {e}")
+                
+        numeric_columns = list(preview_df.select_dtypes(include=np.number).columns)
+        exclude_names = ['time', 'timestamp', 'status']
+        available_columns = [col for col in numeric_columns if col.lower() not in exclude_names]
+
+        dialog = NoiseConfigDialog(available_columns, self)
+        if dialog.exec_() == QDialog.Accepted:
+            noise_config = {
+                "column": dialog.column_name,
+                "noise_type": dialog.noise_type,
+                "noise_level": dialog.noise_level,
+                "apply_to": dialog.apply_to  # 'train_val' or 'all'
+            }
+            self.noise_configs.append(noise_config)
+            
+            # Add to list widget
+            noise_desc = f"{noise_config['noise_type']} noise on '{noise_config['column']}' (level: {noise_config['noise_level']}, apply to: {noise_config['apply_to']})"
+            self.noise_list.addItem(noise_desc)
+            self.remove_noise_button.setEnabled(True)
+
+    def remove_noise_config(self):
+        selected_items = self.noise_list.selectedItems()
+        if not selected_items: 
+            return
+        row = self.noise_list.row(selected_items[0])
+        self.noise_list.takeItem(row)
+        self.noise_configs.pop(row)
+        if self.noise_list.count() == 0: 
+            self.remove_noise_button.setEnabled(False)
+
     def apply_changes(self):
         if self.testing_mode:
             self.apply_changes_for_testing()
@@ -643,12 +906,13 @@ class DataAugmentGUI(QMainWindow):
         resampling_frequency = self.frequency_combo.currentText() if self.resampling_checkbox.isChecked() else None
         column_formulas = self.created_columns if self.column_creation_checkbox.isChecked() else None
         filter_configs = self.filter_configs if self.filter_configs else None
+        noise_configs = self.noise_configs if self.noise_configs else None
         normalize_data_flag = self.normalization_checkbox.isChecked()
 
         self.augmentation_thread = QThread()
         self.augmentation_worker = AugmentationWorker(
             self.data_augment_manager, self.job_folder, padding_length, resampling_frequency,
-            column_formulas, normalize_data_flag, filter_configs
+            column_formulas, normalize_data_flag, filter_configs, noise_configs
         )
         self.augmentation_worker.moveToThread(self.augmentation_thread)
         self.data_augment_manager.augmentationProgress.connect(self.handle_augmentation_progress)
@@ -741,7 +1005,12 @@ class DataAugmentGUI(QMainWindow):
                 if setting.get("column") in available_columns:
                     try:
                         self.train_df = self.data_augment_manager.service.apply_butterworth_filter(
-                            self.train_df, **setting
+                            self.train_df, 
+                            column_name=setting['column'],
+                            corner_frequency=setting['corner_frequency'],
+                            sampling_rate=setting['sampling_rate'],
+                            filter_order=setting['filter_order'],
+                            output_column_name=setting['output_column_name']
                         )
                         self.filter_configs.append(setting)
                         self.filter_list.addItem(f"Order {setting['filter_order']} Filter '{setting['column']}' at {setting['corner_frequency']}Hz (Fs={setting['sampling_rate']}Hz) -> {setting['output_column_name']}")

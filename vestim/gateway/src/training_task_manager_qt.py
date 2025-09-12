@@ -563,7 +563,7 @@ class TrainingTaskManager:
         """Run the training process for a single task."""
         try:
             self._run_training_loop(task, update_progress_callback, train_loader, val_loader, device)
-        except torch.AcceleratorError as e:
+        except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
             self.logger.warning(f"CUDA Graphs training failed for task {task.get('task_id', 'N/A')}: {e}. Attempting to fall back to standard training.")
             if isinstance(self.training_service, CUDAGraphsTrainingService):
                 self.training_service = TrainingTaskService(device=self.device)
@@ -1530,7 +1530,7 @@ class TrainingTaskManager:
         """Run the training process for a single Optuna trial."""
         try:
             self._run_optuna_training_loop(task, update_progress_callback, train_loader, val_loader, device)
-        except torch.AcceleratorError as e:
+        except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
             self.logger.warning(f"CUDA Graphs training failed for Optuna trial {task.get('task_id', 'N/A')}: {e}. Attempting to fall back to standard training.")
             if isinstance(self.training_service, CUDAGraphsTrainingService):
                 self.training_service = TrainingTaskService(device=self.device)

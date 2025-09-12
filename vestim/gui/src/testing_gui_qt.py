@@ -149,8 +149,8 @@ class VEstimTestingGUI(QMainWindow):
         self.main_layout.addWidget(result_summary_label)
 
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(13)
-        self.tree.setHeaderLabels(["Sl.No", "Model", "Task", "File Name", "#W&Bs", "Best Train Loss", "Best Valid Loss", "Epochs Trained", "Test RMSE", "Test MAXE", "MASE", "R²", "Plot"])
+        self.tree.setColumnCount(12)
+        self.tree.setHeaderLabels(["Sl.No", "Model", "Task", "File Name", "#W&Bs", "Best Train Loss", "Best Valid Loss", "Epochs Trained", "Test RMSE", "Test MAXE", "R²", "Plot"])
         self.tree.setColumnWidth(0, 50)
         self.tree.setColumnWidth(1, 120)
         self.tree.setColumnWidth(2, 220)
@@ -162,8 +162,7 @@ class VEstimTestingGUI(QMainWindow):
         self.tree.setColumnWidth(8, 100)
         self.tree.setColumnWidth(9, 100)
         self.tree.setColumnWidth(10, 70)
-        self.tree.setColumnWidth(11, 60)
-        self.tree.setColumnWidth(12, 100)
+        self.tree.setColumnWidth(11, 100)
         self.main_layout.addWidget(self.tree)
 
         self.status_label = QLabel("Preparing test data...")
@@ -266,7 +265,6 @@ class VEstimTestingGUI(QMainWindow):
             
             rms_error_val = task_data.get(rms_key, 'N/A')
             max_error_val = task_data.get(max_error_key, task_data.get('max_error_mv', 'N/A'))
-            mape = task_data.get('mase', 'N/A') # Use MASE now
             r2 = task_data.get('r2', 'N/A')
 
             try:
@@ -274,17 +272,16 @@ class VEstimTestingGUI(QMainWindow):
                 best_valid_loss = f"{float(best_valid_loss):.4f}" if best_valid_loss != 'N/A' else 'N/A'
                 rms_error_str = f"{float(rms_error_val):.2f}" if rms_error_val != 'N/A' else 'N/A'
                 max_error_str = f"{float(max_error_val):.2f}" if max_error_val != 'N/A' else 'N/A'
-                mape_str = f"{float(mape):.2f}" if mape != 'N/A' else 'N/A'
                 r2_str = f"{float(r2):.4f}" if r2 != 'N/A' else 'N/A'
             except (ValueError, TypeError) as e:
                 print(f"Error converting metrics to float: {e}")
-                rms_error_str, max_error_str, mape_str, r2_str = 'N/A', 'N/A', 'N/A', 'N/A'
+                rms_error_str, max_error_str, r2_str = 'N/A', 'N/A', 'N/A'
 
             row = QTreeWidgetItem([
                 str(self.sl_no_counter), str(model_name), str(task_name), str(file_name),
                 str(num_learnable_params), str(best_train_loss), str(best_valid_loss),
                 str(completed_epochs), str(rms_error_str), str(max_error_str),
-                str(mape_str), str(r2_str)
+                str(r2_str)
             ])
             self.sl_no_counter += 1
 
@@ -303,7 +300,7 @@ class VEstimTestingGUI(QMainWindow):
             button_layout.addWidget(plot_button)
 
             self.tree.addTopLevelItem(row)
-            self.tree.setItemWidget(row, 12, button_widget)
+            self.tree.setItemWidget(row, 11, button_widget)
 
             training_history_path = os.path.join(save_dir, f'training_history_{task_id}.png')
             if os.path.exists(training_history_path):

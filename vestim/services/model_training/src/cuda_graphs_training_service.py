@@ -154,7 +154,7 @@ class CUDAGraphsTrainingService:
                 torch.cuda.synchronize() # Ensure warmup is complete
                 self._capture_training_graph(model, optimizer, device, 
                                            sample_input.shape, sample_target.shape)
-            except torch.cuda.AcceleratorError as e:
+            except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
                 self.logger.warning(f"CUDA graph capture failed: {e}. Attempting to clear cache and fall back to standard training.")
                 self.graphs_enabled = False  # Disable graphs for the rest of the training
                 torch.cuda.empty_cache()  # Attempt to clear the corrupted state
@@ -226,8 +226,14 @@ class CUDAGraphsTrainingService:
                 if verbose and batch_idx % 100 == 0:
                     self.logger.info(f"Epoch {epoch}, Batch {batch_idx}/{len(train_loader)}, "
                                    f"Loss: {loss.item():.6f}, Time: {batch_times[-1]*1000:.1f}ms")
-        except torch.cuda.AcceleratorError as e:
-            self.logger.warning(f"CUDA graph replay failed: {e}. Falling back to standard training for this epoch.")
+        except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
+            error_msg = str(e)
+            # Check if this is a CUDA compatibility issue with newer GPUs
+            if "no kernel image is available for execution on the device" in error_msg:
+                self.logger.warning(f"CUDA kernel compatibility issue detected (likely unsupported GPU architecture): {e}. "
+                                  f"Falling back to standard training for the entire session.")
+            else:
+                self.logger.warning(f"CUDA graph replay failed: {e}. Falling back to standard training for this epoch.")
             self.graphs_enabled = False # Disable graphs for the rest of the training
             return self._train_epoch_standard(model, train_loader, optimizer, epoch, device, 
                                               stop_requested, task, verbose)

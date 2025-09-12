@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import logging
 from typing import List, Tuple, Dict, Optional, Union, Any
-from scipy.signal import butter, filtfilt
+from scipy.signal import butter, filtfilt, lfilter
 
 from vestim.logger_config import setup_logger
 from vestim.gateway.src.job_manager_qt import JobManager # Import JobManager
@@ -565,9 +565,13 @@ class DataAugmentService:
         self.logger.info(f"Collected info for {len(column_info)} columns")
         return column_info
 
-    def apply_butterworth_filter(self, df: pd.DataFrame, column_name: str, corner_frequency: float, sampling_rate: float, filter_order: int = 4, output_column_name: str = None) -> pd.DataFrame:
+    def apply_butterworth_filter_non_causal(self, df: pd.DataFrame, column_name: str, corner_frequency: float, sampling_rate: float, filter_order: int = 4, output_column_name: str = None) -> pd.DataFrame:
         """
-        Apply a Butterworth filter to a specific column.
+        Apply a NON-CAUSAL Butterworth filter to a specific column using filtfilt (zero-phase filtering).
+        
+        WARNING: This method uses future data points and is NOT suitable for real-time applications.
+        Use apply_butterworth_filter() for causal filtering in real-time systems.
+        
         If output_column_name is provided, a new column is created. Otherwise, the original column is overwritten.
         
         Args:
@@ -593,9 +597,105 @@ class DataAugmentService:
         normal_corner = corner_frequency / nyquist
         b, a = butter(filter_order, normal_corner, btype='low', analog=False)
         
+        # NON-CAUSAL: Uses future data points (zero-phase filtering)
         filtered_data = filtfilt(b, a, data)
         
         target_column = output_column_name if output_column_name else column_name
         df[target_column] = filtered_data
         
         return df
+
+    def apply_butterworth_filter(self, df: pd.DataFrame, column_name: str, corner_frequency: float, sampling_rate: float, filter_order: int = 4, output_column_name: str = None) -> pd.DataFrame:
+        """
+        Apply a CAUSAL Butterworth filter to a specific column using lfilter.
+        
+        This method is suitable for real-time applications as it only uses past and current data points.
+        The filtering matches what would happen during real-time inference.
+        
+        If output_column_name is provided, a new column is created. Otherwise, the original column is overwritten.
+        
+        Args:
+            df: The input DataFrame.
+            column_name: The name of the column to filter.
+            corner_frequency: The corner frequency for the filter.
+            sampling_rate: The sampling rate of the data in Hz.
+            filter_order: The order of the Butterworth filter.
+            output_column_name: The name of the new column for the filtered data.
+            
+        Returns:
+            The DataFrame with the filtered column.
+        """
+        if column_name not in df.columns:
+            raise ValueError(f"Column '{column_name}' not found in DataFrame.")
+            
+        data = df[column_name].values
+        
+        nyquist = 0.5 * sampling_rate
+        if corner_frequency >= nyquist:
+            raise ValueError(f"Corner frequency ({corner_frequency}Hz) must be less than the Nyquist frequency ({nyquist}Hz).")
+        
+        normal_corner = corner_frequency / nyquist
+        b, a = butter(filter_order, normal_corner, btype='low', analog=False)
+        
+        # CAUSAL: Only uses past and current data points (suitable for real-time)
+        filtered_data = lfilter(b, a, data)
+        
+        target_column = output_column_name if output_column_name else column_name
+        df[target_column] = filtered_data
+        
+        self.logger.info(f"Applied CAUSAL Butterworth filter (order={filter_order}, fc={corner_frequency}Hz) to column '{column_name}'")
+        
+        return df
+
+    def apply_noise_injection(self, df: pd.DataFrame, column_name: str, noise_type: str, noise_level_percent: float) -> pd.DataFrame:
+        """
+        Apply noise injection to a specific column for training robustness.
+        
+        Args:
+            df: The input DataFrame.
+            column_name: The name of the column to add noise to.
+            noise_type: Type of noise ('gaussian' or 'uniform').
+            noise_level_percent: Percentage of column's standard deviation to use as noise level.
+            
+        Returns:
+            pd.DataFrame: DataFrame with noise added to the specified column.
+        """
+        if column_name not in df.columns:
+            self.logger.warning(f"Column '{column_name}' not found in DataFrame. Skipping noise injection.")
+            return df
+            
+        if df[column_name].dtype not in ['float64', 'float32', 'int64', 'int32']:
+            self.logger.warning(f"Column '{column_name}' is not numeric. Skipping noise injection.")
+            return df
+            
+        try:
+            column_data = df[column_name].values
+            
+            # Calculate noise scale based on column's standard deviation
+            column_std = np.std(column_data)
+            if column_std == 0:
+                self.logger.warning(f"Column '{column_name}' has zero variance. Skipping noise injection.")
+                return df
+                
+            # Convert percentage to actual noise level
+            noise_scale = column_std * (noise_level_percent / 100.0)
+            
+            if noise_type == 'gaussian':
+                # Add Gaussian noise with specified standard deviation
+                noise = np.random.normal(0, noise_scale, len(column_data))
+            elif noise_type == 'uniform':
+                # Add uniform noise in [-noise_scale, +noise_scale] range
+                noise = np.random.uniform(-noise_scale, noise_scale, len(column_data))
+            else:
+                self.logger.error(f"Unknown noise type '{noise_type}'. Supported types: 'gaussian', 'uniform'")
+                return df
+                
+            # Add noise to the column
+            df[column_name] = column_data + noise
+            
+            self.logger.info(f"Applied {noise_type} noise ({noise_level_percent}% of std dev = {noise_scale:.6f}) to column '{column_name}'")
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Error applying noise injection to column '{column_name}': {e}", exc_info=True)
+            return df

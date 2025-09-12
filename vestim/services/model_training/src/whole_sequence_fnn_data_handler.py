@@ -15,6 +15,17 @@ class WholeSequenceFNNDataHandler(BaseDataHandler):
 
     def __init__(self, feature_cols, target_col):
         super().__init__(feature_cols, target_col)
+        
+        # Check for data leakage: target column in features
+        if target_col in feature_cols:
+            if hasattr(self, 'logger') and self.logger:
+                self.logger.warning(f"DATA LEAKAGE WARNING: Target column '{target_col}' is also in feature columns. "
+                                  f"This may cause data leakage where the model learns to predict using the actual target values. "
+                                  f"Consider removing '{target_col}' from features or using a different target column.")
+            else:
+                print(f"DATA LEAKAGE WARNING: Target column '{target_col}' is also in feature columns. "
+                     f"This may cause data leakage where the model learns to predict using the actual target values. "
+                     f"Consider removing '{target_col}' from features or using a different target column.")
         self.logger = logging.getLogger(__name__) # Or get it passed in
 
 
@@ -52,9 +63,28 @@ class WholeSequenceFNNDataHandler(BaseDataHandler):
             
             # Convert to numpy arrays
             # Features are expected to be [timesteps, num_features]
+            
+            # Debug: Check column availability before extraction
+            missing_feature_cols = [col for col in self.feature_cols if col not in df_selected.columns]
+            if missing_feature_cols:
+                error_msg = f"Missing feature columns in data: {missing_feature_cols}. Available columns: {list(df_selected.columns)}. Feature columns requested: {self.feature_cols}"
+                if hasattr(self, 'logger') and self.logger:
+                    self.logger.error(error_msg)
+                else:
+                    print(f"ERROR: {error_msg}")
+                raise ValueError(error_msg)
+            
             X_data_file = df_selected[self.feature_cols].values
             # Target is expected to be [timesteps, 1] or [timesteps, num_output_features]
             Y_data_file = df_selected[[self.target_col]].values # Ensure Y_data_file is 2D
+
+            # Debug: Check the actual shapes
+            if hasattr(self, 'logger') and self.logger:
+                self.logger.info(f"DEBUG: feature_cols = {self.feature_cols}")
+                self.logger.info(f"DEBUG: target_col = {self.target_col}")
+                self.logger.info(f"DEBUG: df_selected.columns = {list(df_selected.columns)}")
+                self.logger.info(f"DEBUG: X_data_file.shape = {X_data_file.shape}")
+                self.logger.info(f"DEBUG: Y_data_file.shape = {Y_data_file.shape}")
 
             all_X_data_list.append(X_data_file)
             all_Y_data_list.append(Y_data_file)
