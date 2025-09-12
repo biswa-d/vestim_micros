@@ -63,7 +63,7 @@ class FormulaInputDialog(QDialog):
         layout.addWidget(formula_label)
         self.formula_edit = QLineEdit()
         layout.addWidget(self.formula_edit)
-        examples_label = QLabel(
+        examples_text = (
             "Examples:\n"
             "1. `column1 * 2 + column2`\n"
             "2. `np.sin(column1) + np.log(column2)`\n"
@@ -73,9 +73,9 @@ class FormulaInputDialog(QDialog):
             "6. Moving average: `moving_average(column1, 10)`\n"
             "7. Delta T (change in temperature): shift(Battery_Temp_degC, 1) - Battery_Temp_degC"
         )
-                                   "7. Delta T (change in temperature): shift(Battery_Temp_degC, 1) - Battery_Temp_degC")
-            examples_label.setStyleSheet("font-style: italic; color: gray;")
-            layout.addWidget(examples_label)
+        examples_label = QLabel(examples_text)
+        examples_label.setStyleSheet("font-style: italic; color: gray;")
+        layout.addWidget(examples_label)
         buttons_layout = QHBoxLayout()
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
