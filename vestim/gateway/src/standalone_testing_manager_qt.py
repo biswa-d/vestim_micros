@@ -39,20 +39,11 @@ class VEstimStandaloneTestingManager(QObject):
 
     def run_test(self):
         try:
-            print(f"[DEBUG] Standalone testing manager starting...")
-            print(f"[DEBUG] Job folder: {self.job_folder_path}")
-            print(f"[DEBUG] Test file: {self.test_data_path}")
-            
             self.progress.emit("Starting test...")
             self.progress.emit("Loading configurations...")
             job_metadata_path = os.path.join(self.job_folder_path, 'job_metadata.json')
             self.aug_metadata_path = os.path.join(self.job_folder_path, 'augmentation_metadata.json')
             
-            print(f"[DEBUG] Looking for job_metadata.json at: {job_metadata_path}")
-            print(f"[DEBUG] Job metadata exists: {os.path.exists(job_metadata_path)}")
-            print(f"[DEBUG] Looking for augmentation_metadata.json at: {self.aug_metadata_path}")
-            print(f"[DEBUG] Aug metadata exists: {os.path.exists(self.aug_metadata_path)}")
-
             with open(job_metadata_path, 'r') as f:
                 self.job_metadata = json.load(f)
 
@@ -134,32 +125,32 @@ class VEstimStandaloneTestingManager(QObject):
             self.test_df = augmented_df
             self.progress.emit("Resuming test with augmented data...")
             
-            print(f"[DEBUG] Test DataFrame shape: {augmented_df.shape}")
-            print(f"[DEBUG] Job metadata: {self.job_metadata}")
+
+
 
             scaler = None
             if self.job_metadata.get('normalization_applied', False):
-                print(f"[DEBUG] Normalization was applied, loading scaler...")
+
                 self.progress.emit("Loading scaler for denormalization...")
                 scaler_path = os.path.normpath(os.path.join(self.job_folder_path, 'scalers', 'augmentation_scaler.joblib'))
-                print(f"[DEBUG] Scaler path: {scaler_path}")
-                print(f"[DEBUG] Scaler exists: {os.path.exists(scaler_path)}")
+
+
                 scaler = norm_svc.load_scaler(scaler_path)
                 if scaler:
                     self.progress.emit("✓ Scaler loaded successfully")
                     normalized_columns = self.job_metadata.get('normalized_columns')
-                    print(f"[DEBUG] Normalized columns: {normalized_columns}")
+
                     self.test_df[normalized_columns] = scaler.transform(self.test_df[normalized_columns])
                     self.progress.emit("Normalization applied successfully.")
                 else:
                     self.progress.emit("⚠ Warning: Failed to load scaler, predictions will be on normalized scale")
             else:
-                print(f"[DEBUG] Normalization was not applied during training")
+
                 self.progress.emit("Normalization was not applied during training. Skipping.")
 
             models_dir = os.path.join(self.job_folder_path, 'models')
-            print(f"[DEBUG] Models directory: {models_dir}")
-            print(f"[DEBUG] Models directory exists: {os.path.exists(models_dir)}")
+
+
             if not os.path.exists(models_dir):
                 self.progress.emit("No models directory found in job folder.")
                 self.finished.emit()
@@ -167,22 +158,22 @@ class VEstimStandaloneTestingManager(QObject):
                 
             # Scan all task directories in all model architecture folders
             self.progress.emit("Scanning for trained models...")
-            print(f"[DEBUG] Scanning models directory: {models_dir}")
+
             task_directories = self._scan_task_directories(models_dir)
-            print(f"[DEBUG] Found task directories: {len(task_directories) if task_directories else 0}")
+
             
             if not task_directories:
                 self.progress.emit("No trained models found.")
-                print(f"[DEBUG] No task directories found - finishing early")
+
                 self.finished.emit()
                 return
                 
             self.progress.emit(f"Found {len(task_directories)} trained models:")
-            print(f"[DEBUG] Task directories found:")
+
             for i, task_info in enumerate(task_directories):
                 arch_name = task_info.get('architecture_name', 'Unknown')
                 task_name = task_info.get('task_name', 'Unknown')
-                print(f"[DEBUG] {i+1}. {arch_name}/{task_name}")
+
                 self.progress.emit(f"  - {arch_name}/{task_name}")
                 model_type = task_info.get('model_type', 'Unknown')
                 self.progress.emit(f"  - {arch_name}/{task_name} ({model_type})")
@@ -190,23 +181,23 @@ class VEstimStandaloneTestingManager(QObject):
             # Create timestamp for this standalone test session
             test_timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
             self.progress.emit(f"\nStandalone test session: {test_timestamp}")
-            print(f"[DEBUG] Starting testing loop with timestamp: {test_timestamp}")
+
             
             # Test each model using existing task structure
             self.progress.emit(f"\n{'='*60}")
             self.progress.emit("STARTING STANDALONE TESTING")
             self.progress.emit(f"{'='*60}")
-            print(f"[DEBUG] About to start testing {len(task_directories)} models")
+
             
             successful_tests = 0
             failed_tests = 0
             
             for i, task_info in enumerate(task_directories):
                 try:
-                    print(f"[DEBUG] Testing model {i+1}/{len(task_directories)}: {task_info['architecture_name']}/{task_info['task_name']}")
+
                     self.progress.emit(f"\n--- Testing {i+1}/{len(task_directories)}: {task_info['architecture_name']}/{task_info['task_name']} ---")
                     success = self._test_task_model(task_info, self.test_df.copy(), scaler, self.job_metadata, test_timestamp)
-                    print(f"[DEBUG] Model {i+1} testing result: {'SUCCESS' if success else 'FAILED'}")
+
                     if success:
                         successful_tests += 1
                     else:

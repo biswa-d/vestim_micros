@@ -1,7 +1,7 @@
 {
     "last_used": {
-        "train_folder": "C:/Users/dehuryb/code/E66_All_Temp/train_data",
-        "val_folder": "C:/Users/dehuryb/code/E66_All_Temp/valid_data",
+        "train_folder": "C:/Users/dehuryb/code/SD60/train",
+        "val_folder": "C:/Users/dehuryb/code/SD60/valid",
         "test_folder": "C:/Users/dehuryb/code/E66_All_Temp/test_data",
         "file_format": "csv",
         "hyperparams": {

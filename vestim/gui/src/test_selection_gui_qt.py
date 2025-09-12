@@ -11,6 +11,7 @@ class TestSelectionGUI(QMainWindow):
         self.setWindowTitle("Test a Trained Model")
         self.job_folder_path = ""
         self.test_files = []
+        self.current_file_index = 0
         self.initUI()
 
     def initUI(self):
@@ -204,9 +205,27 @@ class TestSelectionGUI(QMainWindow):
         self.run_test_button.setText("Testing in Progress...")
         self.log_widget.clear()
         
-        # For now, start with the first file (we can enhance for multiple files later)
-        test_file = self.test_files[0]
-        self.log_widget.append(f"🚀 Starting testing with file: {os.path.basename(test_file)}")
+        # Process all selected files with a single GUI
+        self.log_widget.append(f"🚀 Starting testing with {len(self.test_files)} file(s)")
+        
+        # Launch the testing GUI ONCE to show results from all files
+        self.log_widget.append("🎯 Launching standalone testing GUI...")
+        self.launch_testing_gui()
+        
+        # Process files sequentially
+        self.current_file_index = 0
+        self.start_next_file_testing()
+    
+    def start_next_file_testing(self):
+        """Start testing for the next file in the list"""
+        if self.current_file_index >= len(self.test_files):
+            # All files processed
+            self.all_testing_completed()
+            return
+            
+        test_file = self.test_files[self.current_file_index]
+        file_name = os.path.basename(test_file)
+        self.log_widget.append(f"� Processing file {self.current_file_index + 1}/{len(self.test_files)}: {file_name}")
         self.log_widget.append("📋 Checking augmentation requirements...")
         
         # Start the testing manager in background and then launch GUI
@@ -219,7 +238,7 @@ class TestSelectionGUI(QMainWindow):
             self.log_widget.append("🔧 Initializing testing manager...")
             QApplication.processEvents()
             
-            # The manager will handle augmentation and testing, then we launch GUI
+            # The manager will handle augmentation and testing for this file
             self.testing_manager = VEstimStandaloneTestingManager(self.job_folder_path, test_file)
             
             # Connect to manager signals for progress updates
@@ -228,17 +247,12 @@ class TestSelectionGUI(QMainWindow):
             self.testing_manager.finished.connect(self.testing_completed)
             self.testing_manager.error.connect(self.testing_error)
             
-            # Store reference to GUI for result sharing
-            self.results_gui = None
-            
-            self.log_widget.append("🔗 Connected to testing manager signals")
-            
-            # Launch the testing GUI BEFORE starting the testing manager
-            # so it can receive results as they come in
-            self.log_widget.append("🎯 Launching standalone testing GUI...")
-            self.launch_testing_gui()
-            
-            QApplication.processEvents()
+            # Connect results to the existing GUI (created once)
+            if hasattr(self, 'testing_gui') and self.testing_gui:
+                self.testing_manager.results_ready.connect(self.testing_gui.add_result_row)
+                self.log_widget.append("🔗 Connected results to existing GUI")
+            else:
+                self.log_widget.append("⚠️ Warning: No testing GUI available for results")
             
             # Start the testing process
             self.log_widget.append("▶️ Starting testing manager...")
@@ -247,8 +261,7 @@ class TestSelectionGUI(QMainWindow):
             
         except Exception as e:
             self.log_widget.append(f"❌ Error initializing testing: {str(e)}")
-            self.run_test_button.setEnabled(True)
-            self.run_test_button.setText("Start Testing")
+            self.testing_error(str(e))
     
     def update_log(self, message):
         """Update the log with progress messages - send to terminal for debugging"""
@@ -303,13 +316,27 @@ class TestSelectionGUI(QMainWindow):
             self.run_test_button.setText("Start Testing")
     
     def testing_completed(self):
-        """Handle when testing is completed"""
-        self.log_widget.append("✅ Backend testing completed!")
-        self.log_widget.append("📊 Check the testing results window for all model results!")
+        """Handle when testing is completed for current file"""
+        current_file = os.path.basename(self.test_files[self.current_file_index])
+        self.log_widget.append(f"✅ Testing completed for: {current_file}")
+        
+        # Move to next file
+        self.current_file_index += 1
+        if self.current_file_index < len(self.test_files):
+            self.log_widget.append(f"🔄 Moving to next file...")
+            QApplication.processEvents()
+            self.start_next_file_testing()
+        else:
+            self.all_testing_completed()
+    
+    def all_testing_completed(self):
+        """Handle when all files have been tested"""
+        self.log_widget.append("🎉 All files tested successfully!")
+        self.log_widget.append("📊 Check the testing results windows for model results!")
         QApplication.processEvents()
         
         # Keep button disabled after completion to prevent re-running
-        self.run_test_button.setText("Testing Complete")
+        self.run_test_button.setText("All Testing Complete")
         self.run_test_button.setEnabled(False)
         self.run_test_button.setStyleSheet("""
             QPushButton {
@@ -325,39 +352,33 @@ class TestSelectionGUI(QMainWindow):
     
     def testing_error(self, error_msg):
         """Handle testing errors"""
-        self.log_widget.append(f"❌ Testing error: {error_msg}")
-        self.run_test_button.setEnabled(True)
-        self.run_test_button.setText("Start Testing")
+        current_file = os.path.basename(self.test_files[self.current_file_index])
+        self.log_widget.append(f"❌ Testing error for {current_file}: {error_msg}")
+        
+        # Move to next file even after error
+        self.current_file_index += 1
+        if self.current_file_index < len(self.test_files):
+            self.log_widget.append(f"🔄 Continuing with next file...")
+            QApplication.processEvents()
+            self.start_next_file_testing()
+        else:
+            self.log_widget.append("⚠️ All files processed (some with errors)")
+            self.run_test_button.setEnabled(True)
+            self.run_test_button.setText("Start Testing")
 
     def launch_testing_gui(self):
-        """Launch the standalone testing GUI before testing starts"""
+        """Launch the standalone testing GUI once to show results from all files"""
         try:
             from vestim.gui.src.standalone_testing_gui_qt import VEstimStandaloneTestingGUI
             
-            # Launch the GUI - it will show results as they come in
+            # Create the GUI only once to show results from all files
             self.testing_gui = VEstimStandaloneTestingGUI(self.job_folder_path)
             self.results_gui = self.testing_gui
             
-            # Connect the results_ready signal from manager to GUI
-            if hasattr(self.testing_manager, 'results_ready'):
-                self.testing_manager.results_ready.connect(self.testing_gui.add_result_row)
-                print("[DEBUG] Connected results signal to testing GUI")
-            else:
-                print("[DEBUG] Warning: testing_manager has no results_ready signal")
-            
-            # Connect progress and completion signals for better user experience
-            if hasattr(self.testing_manager, 'progress'):
-                self.testing_manager.progress.connect(self.testing_gui.update_progress_log)
-            if hasattr(self.testing_manager, 'finished'):
-                self.testing_manager.finished.connect(self.testing_gui.show_completion_message)
-            
+            # Show the GUI - it will receive results as testing progresses
             self.testing_gui.show()
             
-            print("[DEBUG] Standalone Testing GUI opened and ready to receive results!")
-            
-            # Close this selection GUI after launching testing GUI
-            self.close()
-            print("[DEBUG] Test selection GUI closed - testing GUI is now active")
+            print("[DEBUG] Standalone Testing GUI opened and ready to receive results from all files!")
             
         except Exception as e:
             self.log_widget.append(f"❌ Failed to launch testing GUI: {str(e)}")

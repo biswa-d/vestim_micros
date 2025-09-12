@@ -73,6 +73,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             'PIN_MEMORY': 'Pin Memory'
         }
         
+        self.headers_updated = False  # Track if headers have been updated for target type
         self.initUI()
 
     def initUI(self):
@@ -243,7 +244,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 else:  # Linux
                     subprocess.Popen(['xdg-open', self.job_folder_path])
                     
-                print(f"[DEBUG] Opened job folder: {self.job_folder_path}")
+
             else:
                 print(f"[ERROR] Job folder not found or not set: {self.job_folder_path}")
                 
@@ -303,9 +304,30 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         """)
         self.results_table.setItemWidget(placeholder_item, 8, plot_button)
     
+    def update_table_headers_for_target(self, target_column):
+        """Update table headers based on target column type"""
+        # Determine unit for headers
+        if "voltage" in target_column.lower():
+            loss_unit = "mV"
+            rmse_unit = "mV"
+        elif "soc" in target_column.lower():
+            loss_unit = "%SOC"
+            rmse_unit = "%SOC"
+        elif "temperature" in target_column.lower() or "temp" in target_column.lower():
+            loss_unit = "°C"
+            rmse_unit = "°C"
+        else:
+            loss_unit = "units"
+            rmse_unit = "units"
+            
+        # Update headers with correct units
+        self.results_table.setHeaderLabels([
+            "Model", "Architecture", "Task ID", "File", "#Params", 
+            f"Best Train Loss ({loss_unit})", f"Best Val Loss ({loss_unit})", "Epochs Trained", f"RMSE ({rmse_unit})", "Plot"
+        ])
+    
     def add_result_row(self, result):
         """Add result row matching main testing GUI format exactly"""
-        print(f"[DEBUG] Received result data: {list(result.keys()) if isinstance(result, dict) else type(result)}")
         
         # Clear placeholder items first
         if self.results_table.topLevelItemCount() > 0:
@@ -320,6 +342,11 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             task = result.get('task', 'N/A')
             target_column = result.get('target_column', 'voltage')  # Default to voltage
             model_file_path = result.get('model_file_path', '')
+            
+            # Update headers dynamically based on target type (first result only)
+            if not self.headers_updated:
+                self.update_table_headers_for_target(target_column)
+                self.headers_updated = True
             
             # Get RMSE in proper units (main testing loop logic)
             rmse = result.get('RMSE', 'N/A')
@@ -371,10 +398,6 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                         file_name = "Test Data"
                 else:
                     file_name = "Test Data"
-            
-            print(f"[DEBUG] Adding result row: {model_type}/{architecture}/{task}")
-            print(f"[DEBUG] Training metrics: Train={train_loss} {train_unit}, Val={val_loss} {val_unit}, Epochs={epochs_trained}")
-            print(f"[DEBUG] RMSE: {rmse} {error_unit}, Params: {model_params}")
             
             # Create tree widget item with exact main GUI columns
             item = QTreeWidgetItem(self.results_table)
@@ -428,13 +451,12 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             plot_button.clicked.connect(lambda: self.show_model_plot(plot_data))
             self.results_table.setItemWidget(item, 9, plot_button)  # Column 9 for Plot
             
-            print(f"[DEBUG] Successfully added result row to table")
+
             
             # Save results to CSV (like main testing loop)
             self.save_result_to_csv(result, rmse, error_unit, train_loss, val_loss, epochs_trained, model_params)
             
         except Exception as e:
-            print(f"[DEBUG] Error adding result row: {e}")
             import traceback
             traceback.print_exc()
     
@@ -480,15 +502,14 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             df = pd.DataFrame([result_data])
             df.to_csv(csv_path, index=False)
             
-            print(f"[DEBUG] Results saved to CSV: {csv_filename}")
+
             
         except Exception as e:
-            print(f"[DEBUG] Error saving results to CSV: {e}")
+
             import traceback
             traceback.print_exc()
             
         except Exception as e:
-            print(f"[DEBUG] Error adding result row: {e}")
             import traceback
             traceback.print_exc()
     
@@ -516,18 +537,28 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             # Read the predictions file (EXACTLY like main testing GUI)
             try:
                 df = pd.read_csv(predictions_file)
-                print(f"[DEBUG] Loaded predictions file: {predictions_file}")
-                print(f"[DEBUG] Columns: {list(df.columns)}")
+
+
             except Exception as e:
                 print(f"[ERROR] Error reading predictions file: {str(e)}")
                 return
             
-            # Find columns EXACTLY like main testing GUI
+            # Determine target display name (same logic as prediction generation)
+            if "voltage" in target_column.lower():
+                target_display = "voltage"
+            elif "soc" in target_column.lower():
+                target_display = "soc"
+            elif "temperature" in target_column.lower() or "temp" in target_column.lower():
+                target_display = "temperature"
+            else:
+                target_display = target_column.lower()
+            
+            # Find columns using target_display instead of original target_column
             true_col, pred_col, error_col, timestamp_col = None, None, None, None
             for col in df.columns:
                 col_lower = col.lower()
-                if 'true' in col_lower and target_column.lower() in col_lower: true_col = col
-                elif 'predicted' in col_lower and target_column.lower() in col_lower: pred_col = col
+                if 'true' in col_lower and target_display in col_lower: true_col = col
+                elif 'predicted' in col_lower and target_display in col_lower: pred_col = col
                 elif 'error' in col_lower: error_col = col
                 elif 'timestamp' in col_lower or 'time' in col_lower: timestamp_col = col
             
@@ -688,7 +719,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             # Store reference to prevent garbage collection
             self._plot_window = plot_window
             
-            print(f"[DEBUG] Plot displayed successfully for {model_info}")
+
             
         except ImportError:
             print("[ERROR] Matplotlib is required for plotting. Please install it with: pip install matplotlib")
@@ -726,7 +757,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             try:
                 import tensorflow as tf
             except ImportError:
-                print("[DEBUG] TensorFlow not available, cannot count parameters")
+
                 return "N/A"
             
             if not os.path.exists(model_file_path):
@@ -745,7 +776,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 return str(total_params)
                 
         except Exception as e:
-            print(f"[DEBUG] Error getting model parameters: {e}")
+
             return "N/A"
     
     def get_training_metrics(self, model_file_path, target_column="voltage"):
@@ -763,12 +794,12 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 training_csv_path = os.path.join(model_dir, 'training_progress.csv')
             
             if not os.path.exists(training_csv_path):
-                print(f"[DEBUG] No training_progress.csv found at {training_csv_path}")
+
                 return None
             
             # Read the training progress CSV
             df = pd.read_csv(training_csv_path, comment='#')  # Handle comment lines
-            print(f"[DEBUG] Loaded training progress CSV with columns: {list(df.columns)}")
+
             
             if len(df) > 0:
                 training_metrics = {}
@@ -811,13 +842,13 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                     training_metrics['Best Val Loss'] = best_val_loss * unit_multiplier
                     training_metrics['Best Val Loss Unit'] = unit_suffix
                 
-                print(f"[DEBUG] Training metrics in proper units ({unit_suffix}): {training_metrics}")
+
                 return training_metrics if training_metrics else None
             
             return None
             
         except Exception as e:
-            print(f"[DEBUG] Error reading training metrics: {e}")
+
             import traceback
             traceback.print_exc()
             return None

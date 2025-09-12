@@ -643,7 +643,7 @@ class DataAugmentService:
         target_column = output_column_name if output_column_name else column_name
         df[target_column] = filtered_data
         
-        self.logger.info(f"Applied CAUSAL Butterworth filter (order={filter_order}, fc={corner_frequency}Hz) to column '{column_name}'")
+        # Filter applied successfully
         
         return df
 

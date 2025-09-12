@@ -78,13 +78,7 @@ class WholeSequenceFNNDataHandler(BaseDataHandler):
             # Target is expected to be [timesteps, 1] or [timesteps, num_output_features]
             Y_data_file = df_selected[[self.target_col]].values # Ensure Y_data_file is 2D
 
-            # Debug: Check the actual shapes
-            if hasattr(self, 'logger') and self.logger:
-                self.logger.info(f"DEBUG: feature_cols = {self.feature_cols}")
-                self.logger.info(f"DEBUG: target_col = {self.target_col}")
-                self.logger.info(f"DEBUG: df_selected.columns = {list(df_selected.columns)}")
-                self.logger.info(f"DEBUG: X_data_file.shape = {X_data_file.shape}")
-                self.logger.info(f"DEBUG: Y_data_file.shape = {Y_data_file.shape}")
+            # Data shapes validated
 
             all_X_data_list.append(X_data_file)
             all_Y_data_list.append(Y_data_file)
