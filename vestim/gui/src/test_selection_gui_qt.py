@@ -1,9 +1,14 @@
 import sys
 import os
+import datetime
+import traceback
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QFileDialog, QWidget, QListWidget, QListWidgetItem, QMessageBox, QTextEdit)
 from PyQt5.QtCore import Qt
 from vestim.gui.src.adaptive_gui_utils import get_adaptive_stylesheet, scale_widget_size
+from vestim.gateway.src.standalone_testing_manager_qt import VEstimStandaloneTestingManager
+from vestim.gui.src.standalone_augmentation_gui_qt import StandaloneAugmentationGUI
+from vestim.gui.src.standalone_testing_gui_qt import VEstimStandaloneTestingGUI
 
 class TestSelectionGUI(QMainWindow):
     def __init__(self):
@@ -12,6 +17,7 @@ class TestSelectionGUI(QMainWindow):
         self.job_folder_path = ""
         self.test_files = []
         self.current_file_index = 0
+        self.session_timestamp = None  # Will be set when testing starts
         self.initUI()
 
     def initUI(self):
@@ -200,6 +206,9 @@ class TestSelectionGUI(QMainWindow):
             QMessageBox.warning(self, "No Files", "Please select at least one test file.")
             return
         
+        # Generate session timestamp for consistent folder organization
+        self.session_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        
         # Disable the button and clear log
         self.run_test_button.setEnabled(False)
         self.run_test_button.setText("Testing in Progress...")
@@ -232,14 +241,12 @@ class TestSelectionGUI(QMainWindow):
         QApplication.processEvents()  # Update UI
         
         try:
-            # Import and start the standalone testing manager
-            from vestim.gateway.src.standalone_testing_manager_qt import VEstimStandaloneTestingManager
-            
+            # Use the imported standalone testing manager
             self.log_widget.append("🔧 Initializing testing manager...")
             QApplication.processEvents()
             
             # The manager will handle augmentation and testing for this file
-            self.testing_manager = VEstimStandaloneTestingManager(self.job_folder_path, test_file)
+            self.testing_manager = VEstimStandaloneTestingManager(self.job_folder_path, test_file, self.session_timestamp)
             
             # Connect to manager signals for progress updates
             self.testing_manager.progress.connect(self.update_log)
@@ -277,9 +284,7 @@ class TestSelectionGUI(QMainWindow):
         QApplication.processEvents()
         
         try:
-            # Import the standalone augmentation GUI
-            from vestim.gui.src.standalone_augmentation_gui_qt import StandaloneAugmentationGUI
-            
+            # Use the imported standalone augmentation GUI
             self.log_widget.append("🔧 Launching standalone augmentation interface...")
             QApplication.processEvents()
             
@@ -333,6 +338,36 @@ class TestSelectionGUI(QMainWindow):
         """Handle when all files have been tested"""
         self.log_widget.append("🎉 All files tested successfully!")
         self.log_widget.append("📊 Check the testing results windows for model results!")
+        
+        # Create consolidated summary CSV in main job folder
+        if hasattr(self, 'testing_gui') and self.testing_gui:
+            print(f"[DEBUG] testing_gui type: {type(self.testing_gui)}")
+            print(f"[DEBUG] Has create_consolidated_summary_csv: {hasattr(self.testing_gui, 'create_consolidated_summary_csv')}")
+            
+            # Notify testing GUI that all testing is complete
+            if hasattr(self.testing_gui, 'show_completion_message'):
+                try:
+                    self.testing_gui.show_completion_message()
+                    print("[DEBUG] Called show_completion_message on testing GUI")
+                except Exception as e:
+                    print(f"[ERROR] Failed to call show_completion_message: {e}")
+            
+            if hasattr(self.testing_gui, 'create_consolidated_summary_csv'):
+                try:
+                    self.testing_gui.create_consolidated_summary_csv()
+                    self.log_widget.append(f"📁 Standalone testing summary saved: standalone_testing_summary_{self.session_timestamp}.csv")
+                except Exception as e:
+                    print(f"[ERROR] Failed to call create_consolidated_summary_csv: {e}")
+                    traceback.print_exc()
+                    self.log_widget.append(f"⚠️ Warning: Could not create consolidated summary: {e}")
+            else:
+                print(f"[ERROR] testing_gui object does not have create_consolidated_summary_csv method")
+                print(f"[DEBUG] Available methods: {[m for m in dir(self.testing_gui) if not m.startswith('_')][:10]}")
+                self.log_widget.append("⚠️ Warning: Could not create consolidated summary - method not found")
+        else:
+            print(f"[DEBUG] No testing_gui available: hasattr={hasattr(self, 'testing_gui')}, value={getattr(self, 'testing_gui', None)}")
+            self.log_widget.append("⚠️ Warning: No testing GUI available for consolidated summary")
+        
         QApplication.processEvents()
         
         # Keep button disabled after completion to prevent re-running
@@ -369,11 +404,14 @@ class TestSelectionGUI(QMainWindow):
     def launch_testing_gui(self):
         """Launch the standalone testing GUI once to show results from all files"""
         try:
-            from vestim.gui.src.standalone_testing_gui_qt import VEstimStandaloneTestingGUI
+            print(f"[DEBUG] Creating VEstimStandaloneTestingGUI with job_folder_path={self.job_folder_path}, session_timestamp={self.session_timestamp}")
             
-            # Create the GUI only once to show results from all files
-            self.testing_gui = VEstimStandaloneTestingGUI(self.job_folder_path)
+            # Create the GUI only once to show results from all files - pass session timestamp
+            self.testing_gui = VEstimStandaloneTestingGUI(self.job_folder_path, self.session_timestamp)
             self.results_gui = self.testing_gui
+            
+            print(f"[DEBUG] VEstimStandaloneTestingGUI created successfully: {type(self.testing_gui)}")
+            print(f"[DEBUG] Has create_consolidated_summary_csv: {hasattr(self.testing_gui, 'create_consolidated_summary_csv')}")
             
             # Show the GUI - it will receive results as testing progresses
             self.testing_gui.show()
@@ -382,8 +420,8 @@ class TestSelectionGUI(QMainWindow):
             
         except Exception as e:
             self.log_widget.append(f"❌ Failed to launch testing GUI: {str(e)}")
-            import traceback
             traceback.print_exc()
+            print(f"[ERROR] Exception during testing GUI creation: {e}")
             self.run_test_button.setEnabled(True)
             self.run_test_button.setText("Start Testing")
 

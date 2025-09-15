@@ -18,17 +18,37 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
-import os, sys, json
+import datetime
+import os
+import sys
+import json
 import logging
+import traceback
+import subprocess
+import platform
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from vestim.gui.src.adaptive_gui_utils import display_hyperparameters
+
+try:
+    import tensorflow as tf
+except ImportError:
+    tf = None
 
 class VEstimStandaloneTestingGUI(QMainWindow):
-    def __init__(self, job_folder_path):
+    def __init__(self, job_folder_path, session_timestamp=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         
         # Initialize variables
         self.job_folder_path = job_folder_path
+        self.session_timestamp = session_timestamp or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.results_list = []
+        self.results_data = []  # Store all results for consolidated summary
         
         # Add param_labels needed for hyperparameter display
         self.param_labels = {
@@ -180,6 +200,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         # Add Open Job Folder button
         button_layout = QHBoxLayout()
         self.open_folder_button = QPushButton("📁 Open Job Folder")
+        self.open_folder_button.setEnabled(False)  # Disabled initially until testing completes
         self.open_folder_button.setStyleSheet("""
             QPushButton {
                 background-color: #4CAF50;
@@ -192,6 +213,10 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             }
             QPushButton:hover {
                 background-color: #45a049;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
             }
         """)
         self.open_folder_button.clicked.connect(self.open_job_folder)
@@ -218,38 +243,64 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             self.progress_bar.show()
         elif "STANDALONE TESTING COMPLETE" in message or "Testing failed" in message:
             self.progress_bar.hide()
+            # Enable Open Job Folder button when testing completes
+            self.show_completion_message()
     
     def show_completion_message(self):
         """Show completion message when testing is finished"""
         # Hide progress bar
         self.progress_bar.hide()
         
+        # Enable Open Job Folder button now that testing is complete
+        self.open_folder_button.setEnabled(True)
+        print("[DEBUG] Open Job Folder button enabled after testing completion")
+        
         # Just print completion message instead of showing popup
         print("[TESTING COMPLETE] All models have been tested successfully!")
         print("[TESTING COMPLETE] Results are displayed in the table above")
         print("[TESTING COMPLETE] Click 'Plot' buttons to view detailed visualizations")
         print("[TESTING COMPLETE] Results saved to job folder")
+        print("[TESTING COMPLETE] Open Job Folder button is now enabled")
 
     def open_job_folder(self):
         """Open the job folder in file explorer"""
         try:
-            import subprocess
-            import platform
+            print(f"[DEBUG] Current job_folder_path: '{self.job_folder_path}'")
+            print(f"[DEBUG] Type: {type(self.job_folder_path)}")
+            print(f"[DEBUG] Attempting to open job folder: {self.job_folder_path}")
             
             if self.job_folder_path and os.path.exists(self.job_folder_path):
+                print(f"[DEBUG] Job folder exists, opening with explorer...")
                 if platform.system() == 'Windows':
                     subprocess.Popen(['explorer', self.job_folder_path])
                 elif platform.system() == 'Darwin':  # macOS
                     subprocess.Popen(['open', self.job_folder_path])
                 else:  # Linux
                     subprocess.Popen(['xdg-open', self.job_folder_path])
-                    
-
+                print(f"[DEBUG] Successfully opened: {self.job_folder_path}")
             else:
-                print(f"[ERROR] Job folder not found or not set: {self.job_folder_path}")
+                print(f"[ERROR] Job folder not found or not set: '{self.job_folder_path}'")
+                print(f"[DEBUG] job_folder_path exists: {os.path.exists(self.job_folder_path) if self.job_folder_path else 'N/A'}")
+                
+                # Fallback: try to open the output directory if job folder is not set
+                if not self.job_folder_path or not os.path.exists(self.job_folder_path):
+                    output_dir = os.path.join(os.getcwd(), 'output')
+                    print(f"[DEBUG] Attempting fallback to output directory: {output_dir}")
+                    if os.path.exists(output_dir):
+                        if platform.system() == 'Windows':
+                            subprocess.Popen(['explorer', output_dir])
+                        elif platform.system() == 'Darwin':  # macOS
+                            subprocess.Popen(['open', output_dir])
+                        else:  # Linux
+                            subprocess.Popen(['xdg-open', output_dir])
+                        print(f"[DEBUG] Opened fallback directory: {output_dir}")
+                    else:
+                        print(f"[ERROR] Fallback directory also doesn't exist: {output_dir}")
                 
         except Exception as e:
             print(f"[ERROR] Could not open job folder: {e}")
+            import traceback
+            traceback.print_exc()
 
     def load_job_hyperparameters(self):
         """Load and display hyperparameters EXACTLY like main testing GUI"""
@@ -364,9 +415,14 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             elif "temperature" in target_column.lower():
                 error_unit = "°C"
             
-            # Get model parameters count (try from task info first)
-            task_info = result.get('task_info', None)
-            model_params = self.get_model_parameters(model_file_path, task_info)
+            # Get model parameters count - prioritize exact count from result data
+            exact_params = result.get('num_params', None)
+            if exact_params and exact_params != 'N/A':
+                model_params = str(exact_params)  # Use exact parameter count from testing manager
+            else:
+                # Fallback: calculate from model file if not available in result
+                task_info = result.get('task_info', None)
+                model_params = self.get_model_parameters(model_file_path, task_info)
             
             # Get training metrics in proper units (using target column for unit conversion)
             training_metrics = self.get_training_metrics(model_file_path, target_column)
@@ -453,66 +509,51 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             
 
             
-            # Save results to CSV (like main testing loop)
-            self.save_result_to_csv(result, rmse, error_unit, train_loss, val_loss, epochs_trained, model_params)
+            # Store result data for consolidated summary (no individual CSV files needed)
+            self.store_result_for_summary(result, rmse, error_unit, train_loss, val_loss, epochs_trained, model_params)
             
         except Exception as e:
             import traceback
             traceback.print_exc()
     
-    def save_result_to_csv(self, result, rmse, error_unit, train_loss, val_loss, epochs_trained, model_params):
-        """Save testing results to CSV file in standalone_test_results directory"""
+    def store_result_for_summary(self, result, rmse, error_unit, train_loss, val_loss, epochs_trained, model_params):
+        """Store result data for consolidated summary CSV"""
         try:
-            import pandas as pd
-            import datetime
+            # Extract test file name from the test data file path
+            test_data_file = result.get('test_data_file', '')
+            if test_data_file:
+                test_file_name = os.path.basename(test_data_file)
+            else:
+                test_file_name = 'Unknown Test File'
             
-            # Get job folder from model file path
-            model_file_path = result.get('model_file_path', '')
-            if not model_file_path:
-                return
-                
-            job_folder = os.path.dirname(os.path.dirname(os.path.dirname(model_file_path)))
-            standalone_results_dir = os.path.join(job_folder, 'standalone_test_results')
-            os.makedirs(standalone_results_dir, exist_ok=True)
-            
-            # Create timestamped CSV filename
-            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            architecture = result.get('architecture', 'unknown')
-            task = result.get('task', 'unknown')
-            csv_filename = f"standalone_test_results_{architecture}_{task}_{timestamp}.csv"
-            csv_path = os.path.join(standalone_results_dir, csv_filename)
-            
-            # Prepare data row exactly like main testing GUI
+            # Prepare data row for consolidated summary - match EXACT format expected by create_consolidated_summary_csv
             result_data = {
-                'Timestamp': datetime.datetime.now().isoformat(),
-                'Model': result.get('model_type', 'N/A'),
-                'Architecture': result.get('architecture', 'N/A'),
-                'Task_ID': result.get('task', 'N/A'),
-                'File': 'Test Data',
-                'Model_Parameters': model_params,
-                f'Best_Train_Loss_{error_unit}': train_loss if isinstance(train_loss, (int, float)) else 'N/A',
-                f'Best_Val_Loss_{error_unit}': val_loss if isinstance(val_loss, (int, float)) else 'N/A',
-                'Epochs_Trained': epochs_trained if epochs_trained != 'N/A' else 'N/A',
-                f'RMSE_{error_unit}': rmse if isinstance(rmse, (int, float)) else 'N/A',
-                'Target_Column': result.get('target_column', 'N/A'),
-                'Predictions_File': os.path.basename(result.get('predictions_file', ''))
+                'model_type': result.get('model_type', 'N/A'),
+                'architecture': result.get('architecture', 'N/A'),
+                'task': result.get('task', 'N/A'),
+                'target_column': result.get('target_column', 'voltage'),
+                'file_name': test_file_name,  # Use actual test file name
+                'num_params': model_params if model_params != 'N/A' else result.get('num_params', 'N/A'),  # Use exact parameter count
+                'training_metrics': {
+                    'best_train_loss': train_loss if isinstance(train_loss, (int, float)) else 'N/A',
+                    'best_val_loss': val_loss if isinstance(val_loss, (int, float)) else 'N/A',
+                    'epochs_trained': epochs_trained if epochs_trained != 'N/A' else 'N/A'
+                },
+                'mae': result.get('MAE', float('nan')),
+                'mse': result.get('MSE', float('nan')),
+                'rmse': result.get('RMSE', float('nan')),
+                'mape': result.get('MAPE', float('nan')),
+                'r2': result.get('R²', float('nan')),
+                'max_error': result.get('max_error', float('nan')),  # Need to add this
+                'predictions_file': os.path.basename(result.get('predictions_file', ''))
             }
             
-            # Create DataFrame and save
-            df = pd.DataFrame([result_data])
-            df.to_csv(csv_path, index=False)
-            
-
+            # Add to consolidated results data
+            self.results_data.append(result_data)
             
         except Exception as e:
+            print(f"[ERROR] Failed to store result for summary: {e}")
 
-            import traceback
-            traceback.print_exc()
-            
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-    
     def show_model_plot(self, plot_data):
         """Show plot for the model results by reading from saved predictions file - EXACTLY like main testing GUI"""
         try:
@@ -733,25 +774,24 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         try:
             # First try to get from task info if available
             if task_info and isinstance(task_info, dict):
-                # Check if parameters are stored in hyperparams or task info
-                hyperparams = task_info.get('hyperparams', {})
-                if 'model_parameters' in hyperparams:
-                    total_params = hyperparams['model_parameters']
-                elif 'MODEL_PARAMETERS' in hyperparams:
-                    total_params = hyperparams['MODEL_PARAMETERS']
+                # Check if parameters are stored in task_info directly or in hyperparams
+                if 'model_parameters' in task_info:
+                    total_params = task_info['model_parameters']
                 elif 'total_params' in task_info:
                     total_params = task_info['total_params']
                 else:
-                    total_params = None
+                    # Check if parameters are stored in hyperparams
+                    hyperparams = task_info.get('hyperparams', {})
+                    if 'model_parameters' in hyperparams:
+                        total_params = hyperparams['model_parameters']
+                    elif 'MODEL_PARAMETERS' in hyperparams:
+                        total_params = hyperparams['MODEL_PARAMETERS']
+                    else:
+                        total_params = None
                 
                 if total_params:
-                    # Format in K/M notation like main testing GUI
-                    if total_params >= 1_000_000:
-                        return f"{total_params / 1_000_000:.1f}M"
-                    elif total_params >= 1_000:
-                        return f"{total_params / 1_000:.1f}K"
-                    else:
-                        return str(total_params)
+                    # Return exact parameter count (not abbreviated)
+                    return str(total_params)
             
             # Fallback: Calculate from model file
             try:
@@ -767,22 +807,19 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             model = tf.keras.models.load_model(model_file_path, compile=False)
             total_params = model.count_params()
             
-            # Format in K/M notation like main testing GUI
-            if total_params >= 1_000_000:
-                return f"{total_params / 1_000_000:.1f}M"
-            elif total_params >= 1_000:
-                return f"{total_params / 1_000:.1f}K"
-            else:
-                return str(total_params)
+            # Return exact parameter count (not abbreviated)
+            return str(total_params)
                 
         except Exception as e:
 
             return "N/A"
     
     def get_training_metrics(self, model_file_path, target_column="voltage"):
-        """Get training metrics from training_progress.csv in proper units (mV, %SOC, etc.)"""
+        """Get training metrics from training_progress.csv and properly denormalize using scaler"""
         try:
             import pandas as pd
+            import joblib
+            import numpy as np
             
             # Look for training_progress.csv in the logs subdirectory (task structure)
             model_dir = os.path.dirname(model_file_path)
@@ -794,41 +831,152 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 training_csv_path = os.path.join(model_dir, 'training_progress.csv')
             
             if not os.path.exists(training_csv_path):
-
+                print(f"[DEBUG] Training progress CSV not found: {training_csv_path}")
                 return None
             
             # Read the training progress CSV
             df = pd.read_csv(training_csv_path, comment='#')  # Handle comment lines
-
+            print(f"[DEBUG] Training progress CSV loaded with {len(df)} rows")
             
             if len(df) > 0:
                 training_metrics = {}
                 
-                # Determine unit conversion factor based on target column (like main testing loop)
-                unit_multiplier = 1.0
-                unit_suffix = ""
+                # Try to load the scaler for proper denormalization
+                scaler = None
+                scaler_path = None
                 
+                # Look for scaler in job folder structure
+                job_folder = None
+                current_path = model_dir
+                for _ in range(5):  # Search up to 5 levels up
+                    if os.path.exists(os.path.join(current_path, 'scalers')):
+                        job_folder = current_path
+                        break
+                    current_path = os.path.dirname(current_path)
+                
+                if job_folder:
+                    scaler_path = os.path.join(job_folder, 'scalers', 'augmentation_scaler.joblib')
+                    if os.path.exists(scaler_path):
+                        try:
+                            scaler = joblib.load(scaler_path)
+                            print(f"[DEBUG] Scaler loaded from: {scaler_path}")
+                        except Exception as e:
+                            print(f"[DEBUG] Failed to load scaler: {e}")
+                            scaler = None
+                    else:
+                        print(f"[DEBUG] Scaler not found at: {scaler_path}")
+                
+                # Determine unit suffix for display
+                unit_suffix = ""
                 if "voltage" in target_column.lower():
-                    unit_multiplier = 1000.0  # Convert to mV
                     unit_suffix = "mV"
                 elif "soc" in target_column.lower():
-                    unit_multiplier = 100.0   # Convert to %SOC 
                     unit_suffix = "%SOC"
                 elif "temperature" in target_column.lower():
-                    unit_multiplier = 1.0     # Keep as °C
                     unit_suffix = "°C"
+                
+                # Function to denormalize loss values properly
+                def denormalize_loss(loss_value, target_col, scaler_obj):
+                    """Properly denormalize a loss value using the scaler"""
+                    if scaler_obj is None:
+                        # Fallback to simple multiplication (incorrect but better than nothing)
+                        print(f"[WARNING] No scaler available, using fallback multiplication")
+                        if "voltage" in target_col.lower():
+                            return loss_value * 1000.0  # Rough conversion to mV
+                        elif "soc" in target_col.lower():
+                            return loss_value * 100.0   # Rough conversion to %SOC
+                        else:
+                            return loss_value
+                    
+                    try:
+                        # IMPORTANT: Convert MSE to RMSE first before denormalization
+                        rmse_norm = np.sqrt(max(0, loss_value))  # Convert MSE to RMSE, ensure non-negative
+                        print(f"[DEBUG] MSE norm: {loss_value} -> RMSE norm: {rmse_norm}")
+                        
+                        # Create a dummy input array with the RMSE value in the target column position
+                        # We need to know the feature structure to use the scaler properly
+                        dummy_input = np.zeros((1, scaler_obj.n_features_in_))
+                        
+                        # Find target column index in scaler features
+                        target_idx = -1  # Default to unknown
+                        if hasattr(scaler_obj, 'feature_names_in_'):
+                            feature_names = list(scaler_obj.feature_names_in_)
+                            print(f"[DEBUG] Available features: {feature_names}")
+                            
+                            # Look for target column name variations
+                            target_variations = [
+                                target_col.lower(), target_col.upper(), target_col.capitalize(),
+                                'Voltage', 'voltage', 'VOLTAGE',  # Common voltage variations
+                                'SOC', 'soc', 'Soc',              # Common SOC variations  
+                                'Temperature', 'temperature', 'TEMPERATURE', 'Temp', 'temp'  # Temperature variations
+                            ]
+                            
+                            for variation in target_variations:
+                                if variation in feature_names:
+                                    target_idx = feature_names.index(variation)
+                                    print(f"[DEBUG] Found target column '{variation}' at index {target_idx}")
+                                    break
+                        
+                        if target_idx == -1:
+                            # Fallback: assume target is the voltage column (index 2 based on scaler output)
+                            if "voltage" in target_col.lower():
+                                target_idx = 2  # From scaler inspection: Voltage is at index 2
+                            elif "soc" in target_col.lower():
+                                target_idx = 10  # From scaler inspection: SOC is at index 10
+                            elif "temperature" in target_col.lower():
+                                target_idx = 4   # From scaler inspection: Temperature is at index 4
+                            else:
+                                target_idx = 2   # Default to voltage
+                            print(f"[DEBUG] Using fallback target index {target_idx} for {target_col}")
+                        
+                        print(f"[DEBUG] Final target index: {target_idx}, target column: {target_col}")
+                        
+                        # Set the normalized RMSE value at the target column position
+                        dummy_input[0, target_idx] = rmse_norm
+                        
+                        # For RMSE, we need to scale by the feature range rather than using inverse_transform
+                        # because RMSE represents error magnitude, not absolute values
+                        if hasattr(scaler_obj, 'data_min_') and hasattr(scaler_obj, 'data_max_'):
+                            # Get the feature range for proper RMSE scaling
+                            feature_min = scaler_obj.data_min_[0, target_idx]
+                            feature_max = scaler_obj.data_max_[0, target_idx]
+                            feature_range = feature_max - feature_min
+                            
+                            # Scale normalized RMSE by the feature range
+                            denormalized_rmse = rmse_norm * feature_range
+                            print(f"[DEBUG] RMSE range scaling: {rmse_norm} * {feature_range} = {denormalized_rmse}")
+                        else:
+                            # Fallback to inverse transform if range attributes not available
+                            denormalized = scaler_obj.inverse_transform(dummy_input)
+                            denormalized_rmse = denormalized[0, target_idx]
+                            print(f"[DEBUG] RMSE inverse transform: {rmse_norm} -> {denormalized_rmse}")
+                        
+                        print(f"[DEBUG] Final denormalized RMSE: {denormalized_rmse}")
+                        return denormalized_rmse
+                        
+                    except Exception as e:
+                        print(f"[DEBUG] Error during scaler denormalization: {e}")
+                        # Fallback to simple multiplication
+                        rmse_norm = np.sqrt(max(0, loss_value))
+                        if "voltage" in target_col.lower():
+                            return rmse_norm * 1000.0
+                        elif "soc" in target_col.lower():
+                            return rmse_norm * 100.0
+                        else:
+                            return rmse_norm
                 
                 # Get best training loss (minimum value from train_loss_norm column)
                 if 'train_loss_norm' in df.columns:
-                    best_train_loss = df['train_loss_norm'].min()
-                    # Convert to proper units (assuming losses are in normalized/raw units)
-                    training_metrics['Best Train Loss'] = best_train_loss * unit_multiplier
+                    best_train_loss_norm = df['train_loss_norm'].min()
+                    best_train_loss = denormalize_loss(best_train_loss_norm, target_column, scaler)
+                    training_metrics['Best Train Loss'] = best_train_loss
                     training_metrics['Best Train Loss Unit'] = unit_suffix
                 
                 # Get best validation loss (minimum value from val_loss_norm column)  
                 if 'val_loss_norm' in df.columns:
-                    best_val_loss = df['val_loss_norm'].min()
-                    training_metrics['Best Val Loss'] = best_val_loss * unit_multiplier
+                    best_val_loss_norm = df['val_loss_norm'].min()
+                    best_val_loss = denormalize_loss(best_val_loss_norm, target_column, scaler)
+                    training_metrics['Best Val Loss'] = best_val_loss
                     training_metrics['Best Val Loss Unit'] = unit_suffix
                 
                 # Get epochs trained (maximum epoch number)
@@ -838,11 +986,11 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 
                 # Alternative column names if the above don't exist
                 if 'best_val_loss_norm' in df.columns and 'Best Val Loss' not in training_metrics:
-                    best_val_loss = df['best_val_loss_norm'].min()
-                    training_metrics['Best Val Loss'] = best_val_loss * unit_multiplier
+                    best_val_loss_norm = df['best_val_loss_norm'].min()
+                    best_val_loss = denormalize_loss(best_val_loss_norm, target_column, scaler)
+                    training_metrics['Best Val Loss'] = best_val_loss
                     training_metrics['Best Val Loss Unit'] = unit_suffix
                 
-
                 return training_metrics if training_metrics else None
             
             return None
@@ -897,6 +1045,84 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         except Exception as e:
             print(f"[ERROR] Could not save plot: {e}")
             import traceback
+            traceback.print_exc()
+
+    def create_consolidated_summary_csv(self):
+        """Create a consolidated standalone_testing_summary.csv using the EXACT same format as main testing manager"""
+        try:
+            if not self.results_data:
+                print("[WARNING] No results data available for consolidated summary")
+                return
+                
+            # Create standalone testing summary CSV in main job folder
+            summary_filename = f"standalone_testing_summary_{self.session_timestamp}.csv"
+            summary_path = os.path.join(self.job_folder_path, summary_filename)
+            
+            # Convert results data to match EXACT main testing manager format
+            summary_data = []
+            
+            for idx, result in enumerate(self.results_data):
+                # Extract data with exact same structure as main testing manager
+                model_type = result.get('model_type', 'N/A')
+                architecture = result.get('architecture', 'N/A')
+                task = result.get('task', 'N/A')
+                target_column = result.get('target_column', 'voltage')
+                file_name = result.get('file_name', 'N/A')
+                
+                # Get training metrics (if available)
+                training_metrics = result.get('training_metrics', {})
+                best_train_loss = training_metrics.get('best_train_loss', 'N/A')
+                best_val_loss = training_metrics.get('best_val_loss', 'N/A')
+                epochs_trained = training_metrics.get('epochs_trained', 'N/A')
+                
+                # Get testing metrics
+                mae = result.get('mae', float('nan'))
+                mse = result.get('mse', float('nan'))
+                rmse = result.get('rmse', float('nan'))
+                mape = result.get('mape', float('nan'))
+                r2 = result.get('r2', float('nan'))
+                max_error = result.get('max_error', float('nan'))
+                
+                # Get parameter count - ensure it's exact number, not abbreviated
+                num_params = result.get('num_params', 'N/A')
+                if isinstance(num_params, (int, float)):
+                    num_params = int(num_params)  # Convert to exact integer
+                elif isinstance(num_params, str) and num_params.replace('.', '').replace('k', '').replace('K', '').replace('m', '').replace('M', '').isdigit():
+                    # Convert abbreviated format (e.g., "1.8k") to exact number
+                    if 'k' in num_params.lower():
+                        num_params = int(float(num_params.lower().replace('k', '')) * 1000)
+                    elif 'm' in num_params.lower():
+                        num_params = int(float(num_params.lower().replace('m', '')) * 1000000)
+                    else:
+                        num_params = int(float(num_params))
+                
+                # Determine error unit for display
+                error_unit_display = 'mV' if 'voltage' in target_column.lower() else '%' if 'soc' in target_column.lower() else '°C' if ('temperature' in target_column.lower() or 'temp' in target_column.lower()) else ''
+                
+                # Create summary row with EXACT same format as main testing manager
+                summary_row = {
+                    "Sl.No": f"{idx + 1}",
+                    "Task ID": f"{architecture}_{task}",  # Use descriptive task name
+                    "Model": model_type,  # Use model type as display name
+                    "File Name": file_name,
+                    "#W&Bs": num_params,  # Exact parameter count, not abbreviated
+                    "Best Train Loss": best_train_loss,
+                    "Best Valid Loss": best_val_loss,
+                    "Epochs Trained": epochs_trained,
+                    f"Test RMSE {error_unit_display}": f"{rmse:.2f}" if not pd.isna(rmse) else "N/A",
+                    f"Test MAXE {error_unit_display}": f"{max_error:.2f}" if not pd.isna(max_error) else "N/A",
+                    "R2": f"{r2:.4f}" if not pd.isna(r2) else "N/A"
+                }
+                summary_data.append(summary_row)
+            
+            # Save to CSV using pandas (same as main testing manager)
+            df = pd.DataFrame(summary_data)
+            df.to_csv(summary_path, index=False)
+            print(f"[INFO] Standalone testing summary saved to: {summary_path}")
+            print(f"[INFO] Summary contains {len(summary_data)} test results")
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to create standalone testing summary CSV: {e}")
             traceback.print_exc()
 
 class PlotWindow(QMainWindow):

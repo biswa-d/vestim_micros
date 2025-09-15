@@ -21,10 +21,11 @@ class VEstimStandaloneTestingManager(QObject):
     results_ready = pyqtSignal(dict)
     augmentation_required = pyqtSignal(pd.DataFrame, list)
 
-    def __init__(self, job_folder_path, test_data_path):
+    def __init__(self, job_folder_path, test_data_path, session_timestamp=None):
         super().__init__()
         self.job_folder_path = job_folder_path
         self.test_data_path = test_data_path
+        self.session_timestamp = session_timestamp or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.data_augment_service = DataAugmentService()
         self.test_df = None
         self.overall_results = {}
@@ -87,12 +88,11 @@ class VEstimStandaloneTestingManager(QObject):
 
     def resume_test_with_augmented_data(self, augmented_df):
         try:
-            # Create the EXACT directory structure you want
-            test_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Create consolidated test files directory using session timestamp
             test_file_basename = os.path.splitext(os.path.basename(self.test_data_path))[0]
             
-            # Main job folder level: new_tests_{timestamp}
-            new_tests_dir = os.path.join(self.job_folder_path, f'new_tests_{test_timestamp}')
+            # Main job folder level: new_test_timestamp_files (single directory for all test files)
+            new_tests_dir = os.path.join(self.job_folder_path, f'new_test_{self.session_timestamp}_files')
             os.makedirs(new_tests_dir, exist_ok=True)
             
             # Save raw test data for reference
@@ -119,7 +119,7 @@ class VEstimStandaloneTestingManager(QObject):
             augmented_df.to_csv(augmented_test_file, index=False)
             
             # Store test session metadata
-            self.test_session_id = test_timestamp  
+            self.test_session_id = self.session_timestamp
             self.session_dir = new_tests_dir
             
             self.test_df = augmented_df
@@ -178,9 +178,8 @@ class VEstimStandaloneTestingManager(QObject):
                 model_type = task_info.get('model_type', 'Unknown')
                 self.progress.emit(f"  - {arch_name}/{task_name} ({model_type})")
             
-            # Create timestamp for this standalone test session
-            test_timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-            self.progress.emit(f"\nStandalone test session: {test_timestamp}")
+            # Use the session timestamp that was passed to constructor
+            self.progress.emit(f"\nStandalone test session: {self.session_timestamp}")
 
             
             # Test each model using existing task structure
@@ -196,7 +195,7 @@ class VEstimStandaloneTestingManager(QObject):
                 try:
 
                     self.progress.emit(f"\n--- Testing {i+1}/{len(task_directories)}: {task_info['architecture_name']}/{task_info['task_name']} ---")
-                    success = self._test_task_model(task_info, self.test_df.copy(), scaler, self.job_metadata, test_timestamp)
+                    success = self._test_task_model(task_info, self.test_df.copy(), scaler, self.job_metadata)
 
                     if success:
                         successful_tests += 1
@@ -213,7 +212,7 @@ class VEstimStandaloneTestingManager(QObject):
             self.progress.emit(f"Total models tested: {len(task_directories)}")
             self.progress.emit(f"Successful: {successful_tests}")
             self.progress.emit(f"Failed: {failed_tests}")
-            self.progress.emit(f"Test session: {test_timestamp}")
+            self.progress.emit(f"Test session: {self.session_timestamp}")
             
             self.finished.emit()
 
@@ -362,7 +361,7 @@ class VEstimStandaloneTestingManager(QObject):
         
         return task_directories
 
-    def _test_task_model(self, task_info, test_df, scaler, job_metadata, test_timestamp):
+    def _test_task_model(self, task_info, test_df, scaler, job_metadata):
         """Test a single model using the existing task structure."""
         try:
             arch_name = task_info['architecture_name']
@@ -467,6 +466,10 @@ class VEstimStandaloneTestingManager(QObject):
             model.load_state_dict(checkpoint.get('model_state_dict', checkpoint))
             model.eval()
             
+            # Count model parameters and store in task_info
+            total_params = sum(p.numel() for p in model.parameters())
+            task_info['model_parameters'] = total_params
+            
             # Run inference
             self.progress.emit(f"  Running inference on {effective_samples} samples...")
             start_time = time.time()
@@ -492,9 +495,8 @@ class VEstimStandaloneTestingManager(QObject):
             else:
                 predictions_final = predictions_normalized.flatten()
             
-            # Create individual task result directory: new_test_result_{timestamp}
-            test_result_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            test_result_dir = os.path.join(task_path, f'new_test_result_{test_result_timestamp}')
+            # Create individual task result directory using session timestamp: new_test_result_{session_timestamp}
+            test_result_dir = os.path.join(task_path, f'new_test_result_{self.session_timestamp}')
             os.makedirs(test_result_dir, exist_ok=True)
             
             test_file_name = os.path.splitext(os.path.basename(self.test_data_path))[0]
@@ -594,9 +596,15 @@ class VEstimStandaloneTestingManager(QObject):
                 rmse = np.sqrt(mse)
                 mape = np.mean(np.abs((actual_values - predicted_values) / np.maximum(1e-10, np.abs(actual_values)))) * 100
                 r2 = 1 - (np.sum((actual_values - predicted_values) ** 2) / np.sum((actual_values - np.mean(actual_values)) ** 2))
+                max_error = np.max(np.abs(predicted_values - actual_values))  # Add max absolute error
                 
                 # Extract training metrics for GUI display
                 training_metrics = self._extract_training_metrics(task_path, task_info)
+                
+                # Get parameter count (exact number, not abbreviated)
+                num_params = hyperparams.get('NUM_LEARNABLE_PARAMS', 'N/A')
+                if isinstance(num_params, (int, float)):
+                    num_params = int(num_params)  # Ensure exact integer
                 
                 # Emit results for GUI display
                 results_data = {
@@ -607,6 +615,7 @@ class VEstimStandaloneTestingManager(QObject):
                     'RMSE': rmse,
                     'MAPE': mape,
                     'R²': r2,
+                    'max_error': max_error,  # Add max error for summary
                     'model_type': model_type,
                     'architecture': arch_name,
                     'task': task_name,
@@ -618,7 +627,8 @@ class VEstimStandaloneTestingManager(QObject):
                     'task_info': task_info,  # Add task info for model parameters
                     'predictions_file': predictions_file,  # Add file path for plotting
                     'inference_time': inference_time,
-                    'training_info': training_metrics  # Include training metrics for GUI
+                    'training_info': training_metrics,  # Include training metrics for GUI
+                    'num_params': num_params  # Add exact parameter count
                 }
                 self.results_ready.emit(results_data)
                 self.progress.emit(f"  ✓ Results: MAE={mae:.4f}, RMSE={rmse:.4f}, R²={r2:.4f}")
@@ -674,7 +684,7 @@ class VEstimStandaloneTestingManager(QObject):
             
             test_metadata = {
                 'test_type': 'standalone_test',
-                'test_timestamp': test_timestamp,
+                'test_timestamp': self.session_timestamp,
                 'test_file': os.path.basename(self.test_data_path),
                 'architecture': arch_name,
                 'task': task_name,
@@ -693,16 +703,7 @@ class VEstimStandaloneTestingManager(QObject):
                 }
             }
             
-            # Add error statistics if available
-            if 'error_stats' in locals():
-                test_metadata['error_metrics'] = error_stats
-            
-            metadata_file = os.path.join(test_result_dir, 'test_metadata.json')
-            with open(metadata_file, 'w') as f:
-                json.dump(test_metadata, f, indent=2, default=str)
-            
-            # Also save a comprehensive results summary at job level for future reference
-            self._save_job_level_results_summary(test_metadata, task_info, arch_name, task_name, test_timestamp)
+            # No individual metadata files needed - consolidated summary will be created by GUI
             
             # Display training metrics (like normal tool run)
             training_history = task_info.get('training_history', {})
@@ -767,92 +768,6 @@ class VEstimStandaloneTestingManager(QObject):
             self.progress.emit(f"    Warning: Could not extract training metrics: {e}")
             return training_metrics
     
-    def _save_job_level_results_summary(self, test_metadata, task_info, arch_name, task_name, test_timestamp):
-        """Save comprehensive results summary at job level for future GUI access"""
-        try:
-            # Create results summary directory at job level
-            job_results_dir = os.path.join(self.job_folder_path, 'standalone_test_results')
-            os.makedirs(job_results_dir, exist_ok=True)
-            
-            # Create comprehensive summary file
-            summary_filename = f"test_summary_{arch_name}_{task_name}_{test_timestamp}.json"
-            summary_file = os.path.join(job_results_dir, summary_filename)
-            
-            # Comprehensive summary including all metrics for future GUI access
-            comprehensive_summary = {
-                'test_metadata': test_metadata,
-                'test_file_info': {
-                    'test_file_path': self.test_data_path,
-                    'test_file_name': os.path.basename(self.test_data_path)
-                },
-                'job_info': {
-                    'job_folder': self.job_folder_path,
-                    'architecture': arch_name,
-                    'task': task_name,
-                    'test_timestamp': test_timestamp
-                },
-                'gui_display_ready': True,  # Flag for GUI to know this is display-ready
-                'version': '1.0'  # For future compatibility
-            }
-            
-            with open(summary_file, 'w') as f:
-                json.dump(comprehensive_summary, f, indent=2, default=str)
-            
-            self.progress.emit(f"  ✓ Job-level results summary saved: {summary_filename}")
-            
-            # Also update/create a master results index
-            self._update_master_results_index(comprehensive_summary)
-            
-        except Exception as e:
-            self.progress.emit(f"    Warning: Could not save job-level results summary: {e}")
-    
-    def _update_master_results_index(self, summary_data):
-        """Update master index of all standalone test results for easy GUI access"""
-        try:
-            master_index_file = os.path.join(self.job_folder_path, 'standalone_test_results', 'master_index.json')
-            
-            # Load existing index or create new
-            if os.path.exists(master_index_file):
-                with open(master_index_file, 'r') as f:
-                    master_index = json.load(f)
-            else:
-                master_index = {
-                    'created': datetime.datetime.now().isoformat(),
-                    'last_updated': datetime.datetime.now().isoformat(),
-                    'results': []
-                }
-            
-            # Add this test result
-            result_entry = {
-                'timestamp': summary_data['job_info']['test_timestamp'],
-                'architecture': summary_data['job_info']['architecture'],
-                'task': summary_data['job_info']['task'],
-                'test_file': summary_data['test_file_info']['test_file_name'],
-                'training_metrics': summary_data['test_metadata']['training_info'],
-                'testing_metrics': summary_data['test_metadata'].get('error_metrics', {}),
-                'model_type': summary_data['test_metadata']['model_type'],
-                'target_column': summary_data['test_metadata']['target_column']
-            }
-            
-            # Remove any previous results for the same architecture/task/test_file combination
-            master_index['results'] = [r for r in master_index['results'] 
-                                     if not (r['architecture'] == result_entry['architecture'] and 
-                                           r['task'] == result_entry['task'] and 
-                                           r['test_file'] == result_entry['test_file'])]
-            
-            # Add new result
-            master_index['results'].append(result_entry)
-            master_index['last_updated'] = datetime.datetime.now().isoformat()
-            
-            # Save updated index
-            with open(master_index_file, 'w') as f:
-                json.dump(master_index, f, indent=2, default=str)
-                
-            self.progress.emit(f"  ✓ Master results index updated")
-            
-        except Exception as e:
-            self.progress.emit(f"    Warning: Could not update master results index: {e}")
-
     def _create_sequences(self, data, lookback):
         X = []
         for i in range(len(data) - lookback + 1):
