@@ -264,6 +264,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
 
     def open_job_folder(self):
         """Open the job folder in file explorer"""
+        print(f"[DEBUG] *** open_job_folder() method called! ***")
         try:
             print(f"[DEBUG] Current job_folder_path: '{self.job_folder_path}'")
             print(f"[DEBUG] Type: {type(self.job_folder_path)}")
@@ -271,8 +272,23 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             
             if self.job_folder_path and os.path.exists(self.job_folder_path):
                 print(f"[DEBUG] Job folder exists, opening with explorer...")
+                
+                # Normalize the path for Windows
+                normalized_path = os.path.normpath(self.job_folder_path)
+                print(f"[DEBUG] Normalized path: '{normalized_path}'")
+                
                 if platform.system() == 'Windows':
-                    subprocess.Popen(['explorer', self.job_folder_path])
+                    print(f"[DEBUG] Running command: explorer '{normalized_path}'")
+                    try:
+                        # Try os.startfile first (Windows native method)
+                        print(f"[DEBUG] Trying os.startfile...")
+                        os.startfile(normalized_path)
+                        print(f"[DEBUG] os.startfile successful")
+                    except Exception as startfile_error:
+                        print(f"[DEBUG] os.startfile failed: {startfile_error}, trying subprocess...")
+                        # Fallback to subprocess with normalized path
+                        result = subprocess.Popen(['explorer', normalized_path])
+                        print(f"[DEBUG] Subprocess created: PID={result.pid}")
                 elif platform.system() == 'Darwin':  # macOS
                     subprocess.Popen(['open', self.job_folder_path])
                 else:  # Linux
@@ -952,7 +968,14 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                             print(f"[DEBUG] RMSE inverse transform: {rmse_norm} -> {denormalized_rmse}")
                         
                         print(f"[DEBUG] Final denormalized RMSE: {denormalized_rmse}")
-                        return denormalized_rmse
+                        
+                        # Convert to appropriate units based on target column
+                        if "voltage" in target_col.lower():
+                            return denormalized_rmse * 1000.0  # Convert V to mV
+                        elif "soc" in target_col.lower():
+                            return denormalized_rmse * 100.0   # Convert fraction to %
+                        else:
+                            return denormalized_rmse
                         
                     except Exception as e:
                         print(f"[DEBUG] Error during scaler denormalization: {e}")
