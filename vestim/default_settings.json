@@ -1,7 +1,7 @@
 {
     "last_used": {
         "train_folder": "C:/Users/dehuryb/code/SD60/train",
-        "val_folder": "C:/Users/dehuryb/code/SD60/valid",
+        "val_folder": "C:/Users/dehuryb/code/SD60/valid_ro1",
         "test_folder": "C:/Users/dehuryb/code/SD60/test",
         "file_format": "csv",
         "hyperparams": {

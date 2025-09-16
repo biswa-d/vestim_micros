@@ -200,90 +200,17 @@ def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
         joblib.dump(scaler, scaler_path)
         print(f"Scaler saved to {scaler_path}")
         
-        # Debug scaler structure before text stats
-        print(f"[DEBUG] About to create text stats...")
-        print(f"[DEBUG] Scaler type: {type(scaler)}")
-        if hasattr(scaler, 'data_min_'):
-            print(f"[DEBUG] data_min_ type: {type(scaler.data_min_)}, shape: {scaler.data_min_.shape if hasattr(scaler.data_min_, 'shape') else 'no shape'}")
-        if hasattr(scaler, 'data_max_'):
-            print(f"[DEBUG] data_max_ type: {type(scaler.data_max_)}, shape: {scaler.data_max_.shape if hasattr(scaler.data_max_, 'shape') else 'no shape'}")
-        if hasattr(scaler, 'scale_'):
-            print(f"[DEBUG] scale_ type: {type(scaler.scale_)}, shape: {scaler.scale_.shape if hasattr(scaler.scale_, 'shape') else 'no shape'}")
+        # Create a human-readable text file for scaler statistics
+        text_stats_filename = filename.replace('.joblib', '_statistics.txt')
+        text_stats_path = os.path.join(directory, text_stats_filename)
         
-        # Create JSON statistics file with global min/max values
-        # Use the expected format: scaler_global_stats.txt
-        base_name = filename.replace('.joblib', '')
-        stats_filename = f"{base_name}_global_stats.txt"
-        stats_path = os.path.join(directory, stats_filename)
-        
-        # Extract feature names and statistics
+        # Extract feature names 
         feature_names = []
-        global_min = {}
-        global_max = {}
-        
         if hasattr(scaler, 'feature_names_in_'):
             feature_names = list(scaler.feature_names_in_)
         elif hasattr(scaler, 'n_features_in_'):
             feature_names = [f"feature_{i}" for i in range(scaler.n_features_in_)]
-        
-        # Extract min/max values from scaler (these are the global stats used for fitting)
-        if hasattr(scaler, 'data_min_') and hasattr(scaler, 'data_max_'):
-            # MinMaxScaler - use data_min_ and data_max_ as global statistics
-            print(f"[DEBUG] scaler.data_min_ shape: {scaler.data_min_.shape}")
-            print(f"[DEBUG] scaler.data_max_ shape: {scaler.data_max_.shape}")
-            print(f"[DEBUG] feature_names length: {len(feature_names)}")
-            
-            for i, feature_name in enumerate(feature_names):
-                try:
-                    # Simple array access - let numpy handle the conversion
-                    min_val = float(scaler.data_min_[i])
-                    max_val = float(scaler.data_max_[i])
-                    
-                    global_min[feature_name] = min_val
-                    global_max[feature_name] = max_val
-                except Exception as e:
-                    print(f"[ERROR] Failed to extract stats for feature {i} ({feature_name}): {e}")
-                    # Set fallback values
-                    global_min[feature_name] = 0.0
-                    global_max[feature_name] = 1.0
-        elif hasattr(scaler, 'mean_') and hasattr(scaler, 'scale_'):
-            # StandardScaler - estimate min/max using mean +/- 3*std as approximation
-            for i, feature_name in enumerate(feature_names):
-                mean_val = float(scaler.mean_[i])
-                std_val = float(scaler.scale_[i])
-                # Approximate range using 3-sigma rule
-                global_min[feature_name] = mean_val - 3 * std_val
-                global_max[feature_name] = mean_val + 3 * std_val
-        
-        # Determine job ID for comment
-        if job_id is None:
-            # Try to extract from directory path
-            dir_parts = directory.replace('\\', '/').split('/')
-            for part in dir_parts:
-                if part.startswith('job_'):
-                    job_id = part
-                    break
-            if job_id is None:
-                job_id = "unknown"
-        
-        # Create JSON structure matching the requested format
-        stats_data = {
-            "comment": f"Global min/max statistics used for scaler '{filename}' on job '{job_id}'",
-            "normalized_columns_for_stats": feature_names,
-            "global_min": global_min,
-            "global_max": global_max
-        }
-        
-        # Save as JSON with proper formatting
-        with open(stats_path, 'w') as f:
-            json.dump(stats_data, f, indent=4)
-        
-        print(f"Scaler global statistics saved to {stats_path}")
-        
-        # Also create a human-readable text file for backward compatibility
-        text_stats_filename = filename.replace('.joblib', '_statistics.txt')
-        text_stats_path = os.path.join(directory, text_stats_filename)
-        
+
         with open(text_stats_path, 'w') as f:
             f.write("=" * 60 + "\n")
             f.write("SCALER STATISTICS\n")
@@ -291,7 +218,7 @@ def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
             f.write(f"Scaler Type: {type(scaler).__name__}\n")
             f.write(f"Generated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Scaler File: {filename}\n")
-            f.write(f"Job ID: {job_id}\n")
+            f.write(f"Job ID: {job_id if job_id else 'unknown'}\n")
             f.write("-" * 60 + "\n\n")
             
             # Extract and display scaler statistics
@@ -339,7 +266,7 @@ def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
             f.write("- Use the same scaler for inference to maintain consistency\n")
             f.write("- Load scaler with: joblib.load('{}')".format(filename))
         
-        print(f"Scaler text statistics saved to {text_stats_path}")
+        print(f"Scaler statistics saved to {text_stats_path}")
         return scaler_path
         
     except Exception as e:

@@ -3,7 +3,7 @@
         "Temperature",
         "Watts",
         "SOC",
-        "P_filtr_0p08"
+        "P_filtr_0p02"
     ],
     "TARGET_COLUMN": "Voltage",
     "DEVICE_SELECTION": "cuda:0",
