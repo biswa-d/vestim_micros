@@ -417,17 +417,21 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             
             # Get RMSE in proper units (main testing loop logic)
             rmse = result.get('RMSE', 'N/A')
+            print(f"[DEBUG] RMSE conversion: original={rmse}, target_column='{target_column}'")
             
             # Determine error unit and convert RMSE (like main testing loop)
             error_unit = ""
             if "voltage" in target_column.lower():
                 error_unit = "mV"
                 if isinstance(rmse, (int, float)):
+                    rmse_before = rmse
                     rmse = rmse * 1000  # Convert to mV
+                    print(f"[DEBUG] RMSE voltage conversion: {rmse_before} V -> {rmse} mV")
             elif "soc" in target_column.lower():
                 error_unit = "%SOC"
                 if isinstance(rmse, (int, float)):
                     rmse = rmse * 100  # Convert to %SOC
+                    print(f"[DEBUG] RMSE SOC conversion: {rmse/100} -> {rmse} %SOC")
             elif "temperature" in target_column.lower():
                 error_unit = "°C"
             
@@ -480,16 +484,16 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             item.setText(4, str(model_params))                       # #Params
             
             # Training metrics with proper units
-            train_display = f"{train_loss:.6f} {train_unit}" if isinstance(train_loss, (int, float)) else "N/A"
-            val_display = f"{val_loss:.6f} {val_unit}" if isinstance(val_loss, (int, float)) else "N/A"
+            train_display = f"{train_loss:.2f} {train_unit}" if isinstance(train_loss, (int, float)) else "N/A"
+            val_display = f"{val_loss:.2f} {val_unit}" if isinstance(val_loss, (int, float)) else "N/A"
             epochs_display = str(epochs_trained) if epochs_trained != 'N/A' else "N/A"
             
             item.setText(5, train_display)                           # Best Train Loss (mV)
             item.setText(6, val_display)                             # Best Val Loss (mV)
             item.setText(7, epochs_display)                          # Epochs Trained
             
-            # RMSE in proper units
-            rmse_display = f"{rmse:.4f} {error_unit}" if isinstance(rmse, (int, float)) else "N/A"
+            # RMSE in proper units with reasonable precision for GUI display
+            rmse_display = f"{rmse:.2f} {error_unit}" if isinstance(rmse, (int, float)) else "N/A"
             item.setText(8, rmse_display)                            # RMSE (mV)
             
             # Create plot button with result data
@@ -1096,6 +1100,12 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 training_metrics = result.get('training_metrics', {})
                 best_train_loss = training_metrics.get('best_train_loss', 'N/A')
                 best_val_loss = training_metrics.get('best_val_loss', 'N/A')
+                
+                # Format training losses with 5 decimal places for better precision
+                if isinstance(best_train_loss, (int, float)):
+                    best_train_loss = f"{best_train_loss:.5f}"
+                if isinstance(best_val_loss, (int, float)):
+                    best_val_loss = f"{best_val_loss:.5f}"
                 epochs_trained = training_metrics.get('epochs_trained', 'N/A')
                 
                 # Get testing metrics
@@ -1105,6 +1115,18 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 mape = result.get('mape', float('nan'))
                 r2 = result.get('r2', float('nan'))
                 max_error = result.get('max_error', float('nan'))
+                
+                # Apply unit conversion to test metrics (same as GUI logic)
+                if "voltage" in target_column.lower():
+                    if isinstance(rmse, (int, float)) and not pd.isna(rmse):
+                        rmse = rmse * 1000  # Convert V to mV
+                    if isinstance(max_error, (int, float)) and not pd.isna(max_error):
+                        max_error = max_error * 1000  # Convert V to mV
+                elif "soc" in target_column.lower():
+                    if isinstance(rmse, (int, float)) and not pd.isna(rmse):
+                        rmse = rmse * 100  # Convert fraction to %SOC
+                    if isinstance(max_error, (int, float)) and not pd.isna(max_error):
+                        max_error = max_error * 100  # Convert fraction to %SOC
                 
                 # Get parameter count - ensure it's exact number, not abbreviated
                 num_params = result.get('num_params', 'N/A')
@@ -1122,19 +1144,20 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 # Determine error unit for display
                 error_unit_display = 'mV' if 'voltage' in target_column.lower() else '%' if 'soc' in target_column.lower() else '°C' if ('temperature' in target_column.lower() or 'temp' in target_column.lower()) else ''
                 
-                # Create summary row with EXACT same format as main testing manager
+                # Create summary row with EXACT same columns as GUI table
                 summary_row = {
                     "Sl.No": f"{idx + 1}",
-                    "Task ID": f"{architecture}_{task}",  # Use descriptive task name
-                    "Model": model_type,  # Use model type as display name
-                    "File Name": file_name,
-                    "#W&Bs": num_params,  # Exact parameter count, not abbreviated
-                    "Best Train Loss": best_train_loss,
-                    "Best Valid Loss": best_val_loss,
+                    "Model": model_type,  # Same as GUI "Model" column
+                    "Architecture": architecture,  # Same as GUI "Architecture" column  
+                    "Task ID": task,  # Same as GUI "Task ID" column (not combined)
+                    "File Name": file_name,  # Same as GUI "File" column
+                    "#Params": num_params,  # Same as GUI "#Params" column
+                    f"Best Train Loss ({error_unit_display})": best_train_loss,  # Match GUI units
+                    f"Best Val Loss ({error_unit_display})": best_val_loss,  # Match GUI units
                     "Epochs Trained": epochs_trained,
-                    f"Test RMSE {error_unit_display}": f"{rmse:.2f}" if not pd.isna(rmse) else "N/A",
-                    f"Test MAXE {error_unit_display}": f"{max_error:.2f}" if not pd.isna(max_error) else "N/A",
-                    "R2": f"{r2:.4f}" if not pd.isna(r2) else "N/A"
+                    f"Test RMSE ({error_unit_display})": f"{rmse:.5f}" if not pd.isna(rmse) else "N/A",
+                    f"Test MAXE ({error_unit_display})": f"{max_error:.5f}" if not pd.isna(max_error) else "N/A",
+                    "R2": f"{r2:.5f}" if not pd.isna(r2) else "N/A"
                 }
                 summary_data.append(summary_row)
             

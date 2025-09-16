@@ -146,6 +146,14 @@ def create_scaler_from_stats(global_stats, feature_columns, scaler_type='min_max
         # Handle cases where min or max might be NaN (e.g., all-NaN column)
         # scale and min_val will become NaN automatically, which is fine.
         
+        # Ensure arrays are 1D to avoid shape issues
+        scale = np.asarray(scale).flatten()
+        min_val = np.asarray(min_val).flatten()
+        stats_min = np.asarray(stats_min).flatten()
+        stats_max = np.asarray(stats_max).flatten()
+        
+        print(f"[DEBUG] Final array shapes - scale: {scale.shape}, min_val: {min_val.shape}, stats_min: {stats_min.shape}, stats_max: {stats_max.shape}")
+        
         scaler.scale_ = scale
         scaler.min_ = min_val
         scaler.data_min_ = stats_min
@@ -200,6 +208,16 @@ def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
         joblib.dump(scaler, scaler_path)
         print(f"Scaler saved to {scaler_path}")
         
+        # Debug scaler structure before text stats
+        print(f"[DEBUG] About to create text stats...")
+        print(f"[DEBUG] Scaler type: {type(scaler)}")
+        if hasattr(scaler, 'data_min_'):
+            print(f"[DEBUG] data_min_ type: {type(scaler.data_min_)}, shape: {scaler.data_min_.shape if hasattr(scaler.data_min_, 'shape') else 'no shape'}")
+        if hasattr(scaler, 'data_max_'):
+            print(f"[DEBUG] data_max_ type: {type(scaler.data_max_)}, shape: {scaler.data_max_.shape if hasattr(scaler.data_max_, 'shape') else 'no shape'}")
+        if hasattr(scaler, 'scale_'):
+            print(f"[DEBUG] scale_ type: {type(scaler.scale_)}, shape: {scaler.scale_.shape if hasattr(scaler.scale_, 'shape') else 'no shape'}")
+        
         # Create JSON statistics file with global min/max values
         # Use the expected format: scaler_global_stats.txt
         base_name = filename.replace('.joblib', '')
@@ -219,9 +237,30 @@ def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
         # Extract min/max values from scaler (these are the global stats used for fitting)
         if hasattr(scaler, 'data_min_') and hasattr(scaler, 'data_max_'):
             # MinMaxScaler - use data_min_ and data_max_ as global statistics
+            print(f"[DEBUG] scaler.data_min_ shape: {scaler.data_min_.shape}")
+            print(f"[DEBUG] scaler.data_max_ shape: {scaler.data_max_.shape}")
+            print(f"[DEBUG] feature_names length: {len(feature_names)}")
+            
             for i, feature_name in enumerate(feature_names):
-                global_min[feature_name] = float(scaler.data_min_[i])
-                global_max[feature_name] = float(scaler.data_max_[i])
+                try:
+                    # Handle both 1D and 2D array cases
+                    if scaler.data_min_.ndim == 1:
+                        min_val = float(scaler.data_min_[i])
+                        max_val = float(scaler.data_max_[i])
+                    else:
+                        # If 2D, assume shape is (1, n_features) or (n_samples, n_features)
+                        min_val = float(scaler.data_min_[0, i] if scaler.data_min_.shape[0] > 0 else scaler.data_min_[i, 0])
+                        max_val = float(scaler.data_max_[0, i] if scaler.data_max_.shape[0] > 0 else scaler.data_max_[i, 0])
+                    
+                    global_min[feature_name] = min_val
+                    global_max[feature_name] = max_val
+                except Exception as e:
+                    print(f"[ERROR] Failed to extract stats for feature {i} ({feature_name}): {e}")
+                    print(f"[DEBUG] data_min_[{i}]: {scaler.data_min_[i] if scaler.data_min_.ndim == 1 else scaler.data_min_[:, i]}")
+                    print(f"[DEBUG] data_max_[{i}]: {scaler.data_max_[i] if scaler.data_max_.ndim == 1 else scaler.data_max_[:, i]}")
+                    # Set fallback values
+                    global_min[feature_name] = 0.0
+                    global_max[feature_name] = 1.0
         elif hasattr(scaler, 'mean_') and hasattr(scaler, 'scale_'):
             # StandardScaler - estimate min/max using mean +/- 3*std as approximation
             for i, feature_name in enumerate(feature_names):
@@ -282,14 +321,27 @@ def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
                 f.write("COLUMN STATISTICS (MinMaxScaler)\n")
                 f.write("-" * 40 + "\n")
                 for i, feature_name in enumerate(feature_names):
-                    min_val = scaler.data_min_[i]
-                    max_val = scaler.data_max_[i]
-                    data_range = max_val - min_val
-                    f.write(f"{feature_name}:\n")
-                    f.write(f"  Min: {min_val:.6f}\n")
-                    f.write(f"  Max: {max_val:.6f}\n")
-                    f.write(f"  Range: {data_range:.6f}\n")
-                    f.write(f"  Scale Factor: {scaler.scale_[i]:.6f}\n\n")
+                    try:
+                        # Handle both 1D and 2D array cases safely
+                        if scaler.data_min_.ndim == 1:
+                            min_val = float(scaler.data_min_[i])
+                            max_val = float(scaler.data_max_[i])
+                            scale_val = float(scaler.scale_[i])
+                        else:
+                            # If 2D, take first row
+                            min_val = float(scaler.data_min_[0, i])
+                            max_val = float(scaler.data_max_[0, i])
+                            scale_val = float(scaler.scale_[0, i])
+                        
+                        data_range = max_val - min_val
+                        f.write(f"{feature_name}:\n")
+                        f.write(f"  Min: {min_val:.6f}\n")
+                        f.write(f"  Max: {max_val:.6f}\n")
+                        f.write(f"  Range: {data_range:.6f}\n")
+                        f.write(f"  Scale Factor: {scale_val:.6f}\n\n")
+                    except Exception as e:
+                        f.write(f"{feature_name}: ERROR - {str(e)}\n\n")
+                        print(f"[ERROR] Failed to write stats for feature {feature_name}: {e}")
             
             # StandardScaler statistics
             elif hasattr(scaler, 'mean_') and hasattr(scaler, 'scale_'):
