@@ -146,14 +146,6 @@ def create_scaler_from_stats(global_stats, feature_columns, scaler_type='min_max
         # Handle cases where min or max might be NaN (e.g., all-NaN column)
         # scale and min_val will become NaN automatically, which is fine.
         
-        # Ensure arrays are 1D to avoid shape issues
-        scale = np.asarray(scale).flatten()
-        min_val = np.asarray(min_val).flatten()
-        stats_min = np.asarray(stats_min).flatten()
-        stats_max = np.asarray(stats_max).flatten()
-        
-        print(f"[DEBUG] Final array shapes - scale: {scale.shape}, min_val: {min_val.shape}, stats_min: {stats_min.shape}, stats_max: {stats_max.shape}")
-        
         scaler.scale_ = scale
         scaler.min_ = min_val
         scaler.data_min_ = stats_min
@@ -243,31 +235,14 @@ def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
             
             for i, feature_name in enumerate(feature_names):
                 try:
-                    # Handle both 1D and 2D array cases
-                    if scaler.data_min_.ndim == 1:
-                        min_val = float(scaler.data_min_[i])
-                        max_val = float(scaler.data_max_[i])
-                    else:
-                        # If 2D, handle different possible shapes more carefully
-                        if scaler.data_min_.shape[0] == 1:
-                            # Shape is (1, n_features)
-                            min_val = float(scaler.data_min_[0, i])
-                            max_val = float(scaler.data_max_[0, i])
-                        elif len(scaler.data_min_.shape) == 2 and scaler.data_min_.shape[1] == 1:
-                            # Shape is (n_features, 1)  
-                            min_val = float(scaler.data_min_[i, 0])
-                            max_val = float(scaler.data_max_[i, 0])
-                        else:
-                            # Fallback: try first element
-                            min_val = float(scaler.data_min_.flat[i])
-                            max_val = float(scaler.data_max_.flat[i])
+                    # Simple array access - let numpy handle the conversion
+                    min_val = float(scaler.data_min_[i])
+                    max_val = float(scaler.data_max_[i])
                     
                     global_min[feature_name] = min_val
                     global_max[feature_name] = max_val
                 except Exception as e:
                     print(f"[ERROR] Failed to extract stats for feature {i} ({feature_name}): {e}")
-                    print(f"[DEBUG] data_min_[{i}]: {scaler.data_min_[i] if scaler.data_min_.ndim == 1 else scaler.data_min_[:, i]}")
-                    print(f"[DEBUG] data_max_[{i}]: {scaler.data_max_[i] if scaler.data_max_.ndim == 1 else scaler.data_max_[:, i]}")
                     # Set fallback values
                     global_min[feature_name] = 0.0
                     global_max[feature_name] = 1.0
@@ -332,16 +307,9 @@ def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
                 f.write("-" * 40 + "\n")
                 for i, feature_name in enumerate(feature_names):
                     try:
-                        # Handle both 1D and 2D array cases safely
-                        if scaler.data_min_.ndim == 1:
-                            min_val = float(scaler.data_min_[i])
-                            max_val = float(scaler.data_max_[i])
-                            scale_val = float(scaler.scale_[i])
-                        else:
-                            # If 2D, take first row
-                            min_val = float(scaler.data_min_[0, i])
-                            max_val = float(scaler.data_max_[0, i])
-                            scale_val = float(scaler.scale_[0, i])
+                        min_val = float(scaler.data_min_[i])
+                        max_val = float(scaler.data_max_[i])
+                        scale_val = float(scaler.scale_[i])
                         
                         data_range = max_val - min_val
                         f.write(f"{feature_name}:\n")
@@ -351,7 +319,6 @@ def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
                         f.write(f"  Scale Factor: {scale_val:.6f}\n\n")
                     except Exception as e:
                         f.write(f"{feature_name}: ERROR - {str(e)}\n\n")
-                        print(f"[ERROR] Failed to write stats for feature {feature_name}: {e}")
             
             # StandardScaler statistics
             elif hasattr(scaler, 'mean_') and hasattr(scaler, 'scale_'):
