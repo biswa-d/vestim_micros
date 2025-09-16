@@ -248,9 +248,19 @@ def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
                         min_val = float(scaler.data_min_[i])
                         max_val = float(scaler.data_max_[i])
                     else:
-                        # If 2D, assume shape is (1, n_features) or (n_samples, n_features)
-                        min_val = float(scaler.data_min_[0, i] if scaler.data_min_.shape[0] > 0 else scaler.data_min_[i, 0])
-                        max_val = float(scaler.data_max_[0, i] if scaler.data_max_.shape[0] > 0 else scaler.data_max_[i, 0])
+                        # If 2D, handle different possible shapes more carefully
+                        if scaler.data_min_.shape[0] == 1:
+                            # Shape is (1, n_features)
+                            min_val = float(scaler.data_min_[0, i])
+                            max_val = float(scaler.data_max_[0, i])
+                        elif len(scaler.data_min_.shape) == 2 and scaler.data_min_.shape[1] == 1:
+                            # Shape is (n_features, 1)  
+                            min_val = float(scaler.data_min_[i, 0])
+                            max_val = float(scaler.data_max_[i, 0])
+                        else:
+                            # Fallback: try first element
+                            min_val = float(scaler.data_min_.flat[i])
+                            max_val = float(scaler.data_max_.flat[i])
                     
                     global_min[feature_name] = min_val
                     global_max[feature_name] = max_val
