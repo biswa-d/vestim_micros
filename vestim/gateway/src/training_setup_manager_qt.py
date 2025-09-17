@@ -588,6 +588,30 @@ class VEstimTrainingSetupManager:
         # Debug log to confirm device selection is included
         self.logger.info(f"TrainingSetupManager._create_task_info: final_hyperparams DEVICE_SELECTION = {final_hyperparams.get('DEVICE_SELECTION')}")
 
+        # Enhance device name with actual GPU model name for display in GUI
+        device_selection = final_hyperparams['DEVICE_SELECTION']
+        if device_selection and 'cuda' in device_selection.lower():
+            try:
+                if torch.cuda.is_available():
+                    # Parse GPU index from device string
+                    gpu_idx = int(device_selection.split(':')[1]) if ':' in device_selection else 0
+                    gpu_name = torch.cuda.get_device_name(gpu_idx)
+                    current_device = f"{device_selection.upper()} ({gpu_name})"
+                    self.logger.info(f"TrainingSetupManager: Enhanced device name: {device_selection} -> {current_device}")
+                else:
+                    current_device = device_selection.upper()
+                    self.logger.warning(f"TrainingSetupManager: CUDA device {device_selection} selected but CUDA not available")
+            except Exception as e:
+                current_device = device_selection.upper()
+                self.logger.warning(f"TrainingSetupManager: Could not enhance device name {device_selection}: {e}")
+        elif device_selection and device_selection.upper() == 'CPU':
+            current_device = 'CPU'
+        else:
+            current_device = device_selection or 'Device'
+        
+        # Add the enhanced device name to hyperparams for GUI display
+        final_hyperparams['CURRENT_DEVICE'] = current_device
+
         # Add scheduler-specific params
         if final_hyperparams['SCHEDULER_TYPE'] == 'StepLR':
             final_hyperparams['LR_PERIOD'] = hyperparams.get('LR_PERIOD')

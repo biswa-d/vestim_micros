@@ -2,10 +2,10 @@
 ; This creates a professional Windows installer
 
 #define MyAppName "Vestim"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "2.0.1"
 #define MyAppPublisher "B Dehury (battery.mcmaster.ca)"
 #define MyAppURL "https://github.com/biswa-d/vestim_micros"
-#define MyAppExeName "Vestim_2.0.0_2025_August_21_tvo_199_pack.exe"
+#define MyAppExeName "Vestim_2.0.1_2025_August_21_gpu_device_names.exe"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application.

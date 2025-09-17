@@ -132,12 +132,16 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Title Label with dynamic model type
         model_type = self.params.get("MODEL_TYPE", "Model")  # Get model type from params
         
-        # Use the detailed device name if available
-        device_name = task['hyperparams'].get('CURRENT_DEVICE', self.params.get("DEVICE_SELECTION", "Device"))
+        # Use the enhanced device name from task creation (CURRENT_DEVICE) or fallback to DEVICE_SELECTION
+        device_name = task['hyperparams'].get('CURRENT_DEVICE', task['hyperparams'].get('DEVICE_SELECTION', "Device"))
         title_label = QLabel(f"Training {model_type} on {device_name} with Hyperparameters")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
         self.main_layout.addWidget(title_label)
+        
+        # Update window title to also include the actual device name
+        window_title = f"VEstim - Training Task {self.current_task_index + 1} ({device_name})"
+        self.setWindowTitle(window_title)
 
         # Display hyperparameters
         # Initialize the hyperparameter frame
