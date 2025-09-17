@@ -46,6 +46,8 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "vestim\gui\resources\*"; DestDir: "{app}\resources"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "packaging\USER_README.md"; DestDir: "{app}"; DestName: "USER_README.md"; Flags: ignoreversion
+Source: "packaging\MODEL_DEPLOYMENT_GUIDE.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "hyperparams.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -324,6 +326,10 @@ begin
       FileCopy(AppDir + '\USER_README.md', ProjectsFullPath + '\README.md', False)
     else if FileExists(AppDir + '\README.md') then
       FileCopy(AppDir + '\README.md', ProjectsFullPath + '\README.md', False);
+    
+    // Copy the Model Deployment Guide to projects directory
+    if FileExists(AppDir + '\MODEL_DEPLOYMENT_GUIDE.md') then
+      FileCopy(AppDir + '\MODEL_DEPLOYMENT_GUIDE.md', ProjectsFullPath + '\MODEL_DEPLOYMENT_GUIDE.md', False);
   end;
 end;
 

@@ -179,6 +179,11 @@ def display_hyperparameters(gui, params):
                 value_str = str(value)
         except (ValueError, TypeError):
             value_str = str(value)
+        
+        # Truncate very long parameter values to prevent GUI distortion
+        MAX_DISPLAY_LENGTH = 60
+        if len(value_str) > MAX_DISPLAY_LENGTH:
+            value_str = value_str[:MAX_DISPLAY_LENGTH-3] + "..."
 
         param_label = QLabel(f"{label_text}:")
         param_label.setStyleSheet("font-size: 9pt; color: #333;")

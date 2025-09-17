@@ -132,6 +132,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
                 else:
                     self.logger.info("Preparing for normalization: performing preliminary processing on training files to gather data for stats.")
                     dataframes_for_stats = []
+                    file_stats_data = []  # Track file-wise data for detailed statistics
                     for train_file_path_for_stats in train_files_for_stats_calc:
                         try:
                             df_temp_for_stats = pd.read_csv(train_file_path_for_stats)
@@ -155,6 +156,11 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             
                             if df_temp_for_stats is not None and not df_temp_for_stats.empty:
                                 dataframes_for_stats.append(df_temp_for_stats)
+                                # Store file-wise data for detailed statistics
+                                file_stats_data.append({
+                                    'filename': os.path.basename(train_file_path_for_stats),
+                                    'dataframe': df_temp_for_stats.copy()
+                                })
                         except Exception as e_preproc:
                             self.logger.error(f"Error during preliminary processing of {train_file_path_for_stats} for stats: {e_preproc}. Skipping.")
                             continue
@@ -200,7 +206,13 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                     if global_scaler:
                                         # Extract job_id from job_folder for metadata
                                         job_id = os.path.basename(job_folder)
-                                        saved_scaler_path = normalization_service.save_scaler(global_scaler, scaler_output_dir, filename=scaler_filename, job_id=job_id)
+                                        saved_scaler_path = normalization_service.save_scaler(
+                                            global_scaler, 
+                                            scaler_output_dir, 
+                                            filename=scaler_filename, 
+                                            job_id=job_id,
+                                            file_stats_data=file_stats_data
+                                        )
                                         if not saved_scaler_path:
                                             self.logger.error("Failed to save global scaler. Normalization will be skipped.")
                                             normalize_data = False
@@ -518,36 +530,12 @@ class DataAugmentManager(QObject): # Inherit from QObject
                         except:
                             data_reference['test_files'].append({'filename': filename, 'samples': 'unknown'})
             
-            reference_file = os.path.join(job_folder, 'data_files_reference.txt')
-            with open(reference_file, 'w') as f:
-                f.write("DATA FILES REFERENCE\n")
-                f.write("=" * 50 + "\n")
-                f.write(f"Job: {os.path.basename(job_folder)}\n")
-                f.write(f"Created: {data_reference['timestamp']}\n\n")
-                
-                f.write(f"TRAINING FILES ({len(data_reference['train_files'])} files, {data_reference['total_train_samples']:,} total samples):\n")
-                for file_info in data_reference['train_files']:
-                    f.write(f"  • {file_info['filename']} - {file_info['samples']:,} samples\n")
-                f.write("\n")
-                
-                f.write(f"VALIDATION FILES ({len(data_reference['validation_files'])} files, {data_reference['total_validation_samples']:,} total samples):\n")
-                for file_info in data_reference['validation_files']:
-                    f.write(f"  • {file_info['filename']} - {file_info['samples']:,} samples\n")
-                f.write("\n")
-                
-                f.write(f"TEST FILES ({len(data_reference['test_files'])} files, {data_reference['total_test_samples']:,} total samples):\n")
-                for file_info in data_reference['test_files']:
-                    f.write(f"  • {file_info['filename']} - {file_info['samples']:,} samples\n")
-                f.write("\n")
-                
-                f.write("NOTE: Original data files remain in their source locations.\n")
-                f.write("Scaler statistics (min/max values) are saved separately in scalers/ folder.\n")
-            
+            # Save only JSON file (which is actually used by training system)
             json_file = os.path.join(job_folder, 'data_files_reference.json')
             with open(json_file, 'w') as f:
                 json.dump(data_reference, f, indent=2)
             
-            self.logger.info(f"Saved simple data reference to: {reference_file}")
+            self.logger.info(f"Saved data reference to: {json_file}")
             
         except Exception as e:
             self.logger.error(f"Error saving simple data reference: {e}", exc_info=True)

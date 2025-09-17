@@ -172,15 +172,17 @@ def create_scaler_from_stats(global_stats, feature_columns, scaler_type='min_max
     print(f"Scaler ({scaler_type}) created and configured for features: {feature_columns}")
     return scaler
 
-def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
+def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None, file_stats_data=None):
     """
-    Saves a scaler object to a file using joblib and creates a JSON statistics file with global min/max values.
+    Saves a scaler object to a file using joblib and creates a comprehensive statistics file.
 
     Args:
         scaler: The scaler object to save.
         directory (str): The directory to save the scaler in.
         filename (str): The name of the file for the scaler.
         job_id (str, optional): The job ID for metadata context.
+        file_stats_data (list, optional): List of dicts with file-wise statistics for detailed analysis.
+                                         Each dict should have 'filename', 'dataframe' keys.
 
     Returns:
         str: Full path to the saved scaler file, or None if error.
@@ -231,33 +233,67 @@ def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
             # MinMaxScaler statistics
             if hasattr(scaler, 'data_min_') and hasattr(scaler, 'data_max_'):
                 f.write("COLUMN STATISTICS (MinMaxScaler)\n")
-                f.write("-" * 40 + "\n")
+                f.write("-" * 90 + "\n")
+                f.write(f"{'Feature Name':<20} {'Min Value':<12} {'Max Value':<12} {'Range':<12} {'Scale Factor':<15}\n")
+                f.write("-" * 90 + "\n")
+                
                 for i, feature_name in enumerate(feature_names):
                     try:
-                        min_val = float(scaler.data_min_[i])
-                        max_val = float(scaler.data_max_[i])
-                        scale_val = float(scaler.scale_[i])
+                        # Handle both 1D and 2D array shapes
+                        data_min = scaler.data_min_
+                        data_max = scaler.data_max_
+                        scale_arr = scaler.scale_
+                        
+                        # Check if arrays are 2D with shape (1, n_features)
+                        if hasattr(data_min, 'shape') and len(data_min.shape) > 1 and data_min.shape[0] == 1:
+                            min_val = float(data_min[0, i])
+                            max_val = float(data_max[0, i])
+                            scale_val = float(scale_arr[0, i])
+                        else:
+                            # Standard 1D array access
+                            min_val = float(data_min[i])
+                            max_val = float(data_max[i])
+                            scale_val = float(scale_arr[i])
                         
                         data_range = max_val - min_val
-                        f.write(f"{feature_name}:\n")
-                        f.write(f"  Min: {min_val:.6f}\n")
-                        f.write(f"  Max: {max_val:.6f}\n")
-                        f.write(f"  Range: {data_range:.6f}\n")
-                        f.write(f"  Scale Factor: {scale_val:.6f}\n\n")
+                        f.write(f"{feature_name:<20} {min_val:<12.6f} {max_val:<12.6f} {data_range:<12.6f} {scale_val:<15.8f}\n")
+                        
                     except Exception as e:
-                        f.write(f"{feature_name}: ERROR - {str(e)}\n\n")
+                        f.write(f"{feature_name:<20} ERROR: {str(e)}\n")
+                
+                f.write("-" * 90 + "\n")
+                f.write("\nNOTE: Scale Factor = 1/(Max-Min), used for normalization: norm_value = (value-min)*scale_factor\n\n")
             
             # StandardScaler statistics
             elif hasattr(scaler, 'mean_') and hasattr(scaler, 'scale_'):
                 f.write("COLUMN STATISTICS (StandardScaler)\n")
-                f.write("-" * 40 + "\n")
+                f.write("-" * 80 + "\n")
+                f.write(f"{'Feature Name':<20} {'Mean':<15} {'Std Dev':<15} {'Scale Factor':<15}\n")
+                f.write("-" * 80 + "\n")
+                
                 for i, feature_name in enumerate(feature_names):
-                    mean_val = scaler.mean_[i]
-                    scale_val = scaler.scale_[i]
-                    f.write(f"{feature_name}:\n")
-                    f.write(f"  Mean: {mean_val:.6f}\n")
-                    f.write(f"  Std Dev: {scale_val:.6f}\n")
-                    f.write(f"  Scale Factor: {1/scale_val:.6f}\n\n")
+                    try:
+                        # Handle both 1D and 2D array shapes
+                        mean_arr = scaler.mean_
+                        scale_arr = scaler.scale_
+                        
+                        # Check if arrays are 2D with shape (1, n_features)
+                        if hasattr(mean_arr, 'shape') and len(mean_arr.shape) > 1 and mean_arr.shape[0] == 1:
+                            mean_val = float(mean_arr[0, i])
+                            scale_val = float(scale_arr[0, i])
+                        else:
+                            # Standard 1D array access
+                            mean_val = float(mean_arr[i])
+                            scale_val = float(scale_arr[i])
+                        
+                        inverse_scale = 1/scale_val if scale_val != 0 else float('inf')
+                        f.write(f"{feature_name:<20} {mean_val:<15.6f} {scale_val:<15.6f} {inverse_scale:<15.6f}\n")
+                        
+                    except Exception as e:
+                        f.write(f"{feature_name:<20} ERROR: {str(e)}\n")
+                
+                f.write("-" * 80 + "\n")
+                f.write("\nNOTE: Scale Factor = 1/std_dev, used for standardization: norm_value = (value-mean)*scale_factor\n\n")
             
             f.write("-" * 60 + "\n")
             f.write("USAGE NOTES:\n")
@@ -265,6 +301,65 @@ def save_scaler(scaler, directory, filename="scaler.joblib", job_id=None):
             f.write("- This scaler standardizes data to mean=0, std=1 for StandardScaler\n")
             f.write("- Use the same scaler for inference to maintain consistency\n")
             f.write("- Load scaler with: joblib.load('{}')".format(filename))
+            
+            # Add file-wise statistics if provided
+            if file_stats_data and len(file_stats_data) > 0:
+                f.write("\n\n")
+                f.write("=" * 100 + "\n")
+                f.write("FILE-WISE COLUMN STATISTICS (for data quality analysis)\n")
+                f.write("=" * 100 + "\n")
+                f.write("This section shows min/max values for each column in each individual file.\n")
+                f.write("Use this to identify data quality issues, outliers, or unexpected ranges.\n\n")
+                
+                # Get feature names from scaler
+                if hasattr(scaler, 'feature_names_in_'):
+                    stats_features = list(scaler.feature_names_in_)
+                elif hasattr(scaler, 'n_features_in_'):
+                    stats_features = [f"feature_{i}" for i in range(scaler.n_features_in_)]
+                else:
+                    stats_features = []
+                
+                for file_data in file_stats_data:
+                    filename_only = file_data.get('filename', 'Unknown')
+                    df = file_data.get('dataframe')
+                    
+                    if df is None or df.empty:
+                        continue
+                    
+                    f.write(f"\nFILE: {filename_only}\n")
+                    f.write("-" * (len(filename_only) + 6) + "\n")
+                    f.write(f"Samples: {len(df):,}\n")
+                    
+                    # Check which features are available in this file
+                    available_features = [col for col in stats_features if col in df.columns]
+                    
+                    if available_features:
+                        f.write(f"{'Column':<20} {'Min':<15} {'Max':<15} {'Range':<15} {'Mean':<15}\n")
+                        f.write("-" * 80 + "\n")
+                        
+                        for col in available_features:
+                            try:
+                                col_data = df[col].dropna()  # Remove NaN values
+                                if len(col_data) > 0:
+                                    min_val = float(col_data.min())
+                                    max_val = float(col_data.max())
+                                    range_val = max_val - min_val
+                                    mean_val = float(col_data.mean())
+                                    
+                                    f.write(f"{col:<20} {min_val:<15.6f} {max_val:<15.6f} {range_val:<15.6f} {mean_val:<15.6f}\n")
+                                else:
+                                    f.write(f"{col:<20} NO DATA (all NaN)\n")
+                            except Exception as e:
+                                f.write(f"{col:<20} ERROR: {str(e)}\n")
+                    else:
+                        f.write("No normalized columns found in this file.\n")
+                
+                f.write("\n" + "=" * 100 + "\n")
+                f.write("NOTES ON FILE-WISE STATISTICS:\n")
+                f.write("- Check for unexpected min/max values (e.g., SOC going to 0% at high temps)\n")
+                f.write("- Look for files with very different ranges (potential data quality issues)\n")
+                f.write("- Mean values can help identify systematic biases in individual files\n")
+                f.write("- Files with very small ranges might not contribute much to model learning\n")
         
         print(f"Scaler statistics saved to {text_stats_path}")
         return scaler_path

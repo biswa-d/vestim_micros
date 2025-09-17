@@ -74,6 +74,8 @@ Section "Main Application" SecMain
     SetOutPath "$INSTDIR"
     File "dist\${APP_EXE}"
     File "README.md"
+    File "packaging\USER_README.md"
+    File "packaging\MODEL_DEPLOYMENT_GUIDE.md"
     File "LICENSE"
     File "hyperparams.json"
     
@@ -113,6 +115,8 @@ SectionEnd
 Section "Uninstall"
     Delete "$INSTDIR\${APP_EXE}"
     Delete "$INSTDIR\README.md"
+    Delete "$INSTDIR\USER_README.md"
+    Delete "$INSTDIR\MODEL_DEPLOYMENT_GUIDE.md"
     Delete "$INSTDIR\LICENSE"
     Delete "$INSTDIR\hyperparams.json"
     Delete "$INSTDIR\Uninstall.exe"

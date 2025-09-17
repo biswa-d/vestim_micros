@@ -134,6 +134,8 @@ This directory contains the default data files and settings that will be bundled
   - `test_data/demo_combined_test_data.csv` - Additional test data option
 
 - `default_settings_template.json` - Template for default settings (${DATA_DIR} will be replaced with actual data directory during installation)
+- `USER_README.md` - User documentation that will be copied to project directory
+- `MODEL_DEPLOYMENT_GUIDE.md` - Comprehensive model deployment guide for BMS integration
 
 ## Usage:
 1. Run `prepare_installer_assets.py` to update these files from the current data directory
@@ -150,12 +152,28 @@ Just ensure the column names match the default hyperparameters (SOC, Current, Te
         f.write(readme_content)
     print(f"✓ Created README: {readme_path}")
     
+    # Copy documentation files to installer assets
+    packaging_dir = repo_root
+    user_readme_source = packaging_dir / "USER_README.md"
+    deployment_guide_source = packaging_dir / "MODEL_DEPLOYMENT_GUIDE.md"
+    
+    if user_readme_source.exists():
+        user_readme_target = assets_dir / "USER_README.md"
+        shutil.copy2(user_readme_source, user_readme_target)
+        print(f"✓ Copied user documentation: {user_readme_target}")
+    
+    if deployment_guide_source.exists():
+        deployment_guide_target = assets_dir / "MODEL_DEPLOYMENT_GUIDE.md"
+        shutil.copy2(deployment_guide_source, deployment_guide_target)
+        print(f"✓ Copied deployment guide: {deployment_guide_target}")
+    
     print(f"\n✅ Installer assets prepared successfully in: {assets_dir}")
     print("\nNext steps:")
     print("1. Review the demo data files in installer_assets/default_data/")
     print("2. Replace with different demo files if desired")
     print("3. Include installer_assets/default_data/ in your build process")
     print("4. Update your installer script to copy these files to the user's chosen data directory")
+    print("5. Documentation files (USER_README.md, MODEL_DEPLOYMENT_GUIDE.md) will be copied to project directory")
 
 if __name__ == "__main__":
     prepare_installer_assets()
