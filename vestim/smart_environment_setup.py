@@ -549,13 +549,23 @@ export VESTIM_PROJECT_DIR="{self.project_dir}"
                     self.log("Launcher script not found, cannot create shortcut", "ERROR")
                     return False
                 
+                # Get icon path
+                icon_path = self.install_config.get("icon_path", "")
+                
                 # Create desktop shortcut using PowerShell
                 ps_command = f'''
 $WshShell = New-Object -comObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut("{shortcut_path}")
 $Shortcut.TargetPath = "{launcher_path}"
 $Shortcut.WorkingDirectory = "{self.install_dir}"
-$Shortcut.Description = "PyBattML - Python Battery Modeling Library"
+$Shortcut.Description = "PyBattML - Python Battery Modeling Library"'''
+                
+                # Add icon if available
+                if icon_path and Path(icon_path).exists():
+                    ps_command += f'''
+$Shortcut.IconLocation = "{icon_path}"'''
+                
+                ps_command += '''
 $Shortcut.Save()
 '''
                 
@@ -574,7 +584,14 @@ $WshShell = New-Object -comObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut("{start_menu_shortcut}")
 $Shortcut.TargetPath = "{launcher_path}"
 $Shortcut.WorkingDirectory = "{self.install_dir}"
-$Shortcut.Description = "PyBattML - Python Battery Modeling Library"
+$Shortcut.Description = "PyBattML - Python Battery Modeling Library"'''
+                    
+                    # Add icon if available
+                    if icon_path and Path(icon_path).exists():
+                        ps_command_start += f'''
+$Shortcut.IconLocation = "{icon_path}"'''
+                    
+                    ps_command_start += '''
 $Shortcut.Save()
 '''
                     
@@ -864,6 +881,17 @@ reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML
                 if readme_source.exists():
                     shutil.copy2(readme_source, readme_dest)
                     self.log(f"Copied user readme to installation: {readme_dest}")
+                
+                # Copy PyBattML icon to installation directory for shortcuts
+                icon_source = bundle_dir / "vestim" / "gui" / "resources" / "PyBattML_icon.ico"
+                icon_dest = self.install_dir / "PyBattML_icon.ico"
+                
+                if icon_source.exists():
+                    shutil.copy2(icon_source, icon_dest)
+                    self.log(f"Copied icon to installation: {icon_dest}")
+                    self.install_config["icon_path"] = str(icon_dest)
+                else:
+                    self.log("Warning: PyBattML icon not found in bundle", "WARNING")
                 
                 # PROJECT DIRECTORY: User data and templates (separate location)
                 self.project_dir.mkdir(parents=True, exist_ok=True)
