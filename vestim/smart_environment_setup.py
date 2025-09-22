@@ -549,7 +549,7 @@ export VESTIM_PROJECT_DIR="{self.project_dir}"
                     self.log("Launcher script not found, cannot create shortcut", "ERROR")
                     return False
                 
-                # Create shortcut using PowerShell
+                # Create desktop shortcut using PowerShell
                 ps_command = f'''
 $WshShell = New-Object -comObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut("{shortcut_path}")
@@ -564,10 +564,31 @@ $Shortcut.Save()
                 
                 if result.returncode == 0:
                     self.log(f"Desktop shortcut created: {shortcut_path}")
-                    self.install_config["desktop_shortcut"] = str(shortcut_path)
+                    
+                    # Also create Start Menu shortcut
+                    start_menu_path = Path(os.path.expanduser("~/AppData/Roaming/Microsoft/Windows/Start Menu/Programs"))
+                    start_menu_shortcut = start_menu_path / "PyBattML.lnk"
+                    
+                    ps_command_start = f'''
+$WshShell = New-Object -comObject WScript.Shell
+$Shortcut = $WshShell.CreateShortcut("{start_menu_shortcut}")
+$Shortcut.TargetPath = "{launcher_path}"
+$Shortcut.WorkingDirectory = "{self.install_dir}"
+$Shortcut.Description = "PyBattML - Python Battery Modeling Library"
+$Shortcut.Save()
+'''
+                    
+                    result_start = subprocess.run(['powershell', '-Command', ps_command_start], 
+                                                capture_output=True, text=True)
+                    
+                    if result_start.returncode == 0:
+                        self.log(f"Start Menu shortcut created: {start_menu_shortcut}")
+                    else:
+                        self.log(f"Start Menu shortcut creation failed: {result_start.stderr}", "WARNING")
+                        
                     return True
                 else:
-                    self.log(f"Failed to create shortcut: {result.stderr}", "ERROR")
+                    self.log(f"Desktop shortcut creation failed: {result.stderr}", "ERROR")
                     return False
             else:
                 # Linux/Mac desktop shortcut creation would go here
@@ -577,6 +598,48 @@ $Shortcut.Save()
         except Exception as e:
             self.log(f"Failed to create desktop shortcut: {e}", "ERROR")
             return False
+
+    def cleanup_old_start_menu_entries(self) -> bool:
+        """Clean up old PyBattML Start Menu entries"""
+        self.log("=== Cleaning Up Old Start Menu Entries ===")
+        
+        try:
+            if sys.platform == "win32":
+                import os
+                import shutil
+                
+                # Check both user and common start menu locations
+                start_menu_locations = [
+                    Path(os.path.expanduser("~/AppData/Roaming/Microsoft/Windows/Start Menu/Programs")),
+                    Path("C:/ProgramData/Microsoft/Windows/Start Menu/Programs")
+                ]
+                
+                cleaned_count = 0
+                for start_menu_path in start_menu_locations:
+                    if start_menu_path.exists():
+                        # Look for PyBattML-related items
+                        for item in start_menu_path.rglob("*PyBattML*"):
+                            try:
+                                if item.is_file():
+                                    item.unlink()
+                                    cleaned_count += 1
+                                    self.log(f"Removed old start menu file: {item}")
+                                elif item.is_dir():
+                                    shutil.rmtree(item)
+                                    cleaned_count += 1
+                                    self.log(f"Removed old start menu folder: {item}")
+                            except Exception as e:
+                                self.log(f"Could not remove {item}: {e}", "WARNING")
+                
+                self.log(f"Cleaned up {cleaned_count} old Start Menu entries")
+                return True
+            else:
+                self.log("Start Menu cleanup not implemented for this platform")
+                return True
+                
+        except Exception as e:
+            self.log(f"Failed to clean up old Start Menu entries: {e}", "WARNING")
+            return True  # Don't fail installation for this
 
     def create_uninstaller(self) -> bool:
         """Create uninstaller script and registry entry"""
@@ -657,8 +720,8 @@ pause
                 except:
                     estimated_size = 500000  # Default 500MB estimate
                 
-                # Registry command
-                reg_commands = f'''
+                # Registry command - try HKLM first, fallback to HKCU
+                reg_commands_hklm = f'''
 reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /v "DisplayName" /t REG_SZ /d "{app_name}" /f
 reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /v "DisplayVersion" /t REG_SZ /d "{version}" /f
 reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /v "Publisher" /t REG_SZ /d "PyBattML Team" /f
@@ -669,14 +732,33 @@ reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML
 reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /v "NoRepair" /t REG_DWORD /d 1 /f
 '''
                 
-                # Try to add registry entries (might fail if not admin)
+                reg_commands_hkcu = f'''
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /v "DisplayName" /t REG_SZ /d "{app_name}" /f
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /v "DisplayVersion" /t REG_SZ /d "{version}" /f
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /v "Publisher" /t REG_SZ /d "PyBattML Team" /f
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /v "UninstallString" /t REG_SZ /d "\\"{uninstaller_path}\\"" /f
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /v "InstallLocation" /t REG_SZ /d "{self.install_dir}" /f
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /v "EstimatedSize" /t REG_DWORD /d {estimated_size} /f
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /v "NoModify" /t REG_DWORD /d 1 /f
+reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /v "NoRepair" /t REG_DWORD /d 1 /f
+'''
+                
+                # Try to add registry entries (try HKLM first, fallback to HKCU)
                 try:
-                    result = subprocess.run(['powershell', '-Command', reg_commands], 
+                    # Try system-wide registration first (requires admin)
+                    result = subprocess.run(['powershell', '-Command', reg_commands_hklm], 
                                           capture_output=True, text=True)
                     if result.returncode == 0:
-                        self.log("Registry uninstall entry created successfully")
+                        self.log("System-wide uninstall registry entry created successfully")
                     else:
-                        self.log(f"Registry entry creation failed (non-admin?): {result.stderr}", "WARNING")
+                        # Fallback to user-specific registration
+                        self.log("System-wide registration failed, trying user-specific...", "WARNING")
+                        result = subprocess.run(['powershell', '-Command', reg_commands_hkcu], 
+                                              capture_output=True, text=True)
+                        if result.returncode == 0:
+                            self.log("User-specific uninstall registry entry created successfully")
+                        else:
+                            self.log(f"Both registry entry attempts failed: {result.stderr}", "WARNING")
                 except Exception as e:
                     self.log(f"Registry entry creation failed: {e}", "WARNING")
                 
@@ -928,6 +1010,9 @@ reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML
             # Create launcher
             if not self.create_launcher_script():
                 return False
+                
+            # Clean up old Start Menu entries
+            self.cleanup_old_start_menu_entries()
                 
             # Create desktop shortcut
             if not self.create_desktop_shortcut():
