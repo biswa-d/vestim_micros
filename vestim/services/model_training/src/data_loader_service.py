@@ -129,9 +129,16 @@ class DataLoaderService:
         optimized_num_workers = num_workers
         pin_memory_flag = torch.cuda.is_available()
         prefetch_factor_value = 2 if optimized_num_workers > 0 else None
-
-        self.logger.info(f"DataLoader settings: num_workers={optimized_num_workers}, pin_memory={pin_memory_flag}")
-
+        
+        # Configure persistent workers - disable on Linux to prevent process accumulation
+        import platform
+        persistent_workers_enabled = (
+            optimized_num_workers > 0 and 
+            platform.system() == 'Windows'  # Only enable persistent workers on Windows
+        )
+        
+        self.logger.info(f"DataLoader settings: num_workers={optimized_num_workers}, pin_memory={pin_memory_flag}, persistent_workers={persistent_workers_enabled} (OS: {platform.system()})")
+        
         train_loader = DataLoader(
             dataset,
             batch_size=batch_size,
@@ -140,7 +147,7 @@ class DataLoaderService:
             num_workers=optimized_num_workers,
             pin_memory=pin_memory_flag,
             prefetch_factor=prefetch_factor_value,
-            persistent_workers=False if optimized_num_workers == 0 else True
+            persistent_workers=persistent_workers_enabled
         )
         val_loader = DataLoader(
             dataset,
@@ -150,7 +157,7 @@ class DataLoaderService:
             num_workers=optimized_num_workers,
             pin_memory=pin_memory_flag,
             prefetch_factor=prefetch_factor_value,
-            persistent_workers=False if optimized_num_workers == 0 else True
+            persistent_workers=persistent_workers_enabled
         )
 
         # Clean up cache variables after DataLoaders are created

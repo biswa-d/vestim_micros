@@ -1374,6 +1374,12 @@ class VEstimHyperParamGUI(QWidget):
             if new_params is None:
                 return
 
+            # SAFEGUARD: Validate that feature and target columns are not the same
+            feature_target_valid, feature_target_error = self._validate_feature_target_columns(new_params)
+            if not feature_target_valid:
+                QMessageBox.critical(self, "Configuration Error", feature_target_error)
+                return
+
             # FIXED:Perform all validations
             is_valid_optuna, error_optuna = self.hyper_param_manager.validate_for_optuna(new_params)
             is_valid_gui, error_gui = self.hyper_param_manager.validate_hyperparameters_for_gui(new_params, search_mode='optuna')
@@ -1411,6 +1417,12 @@ class VEstimHyperParamGUI(QWidget):
         try:
             new_params = self._collect_basic_params()
             if new_params is None:
+                return
+
+            # SAFEGUARD: Validate that feature and target columns are not the same
+            feature_target_valid, feature_target_error = self._validate_feature_target_columns(new_params)
+            if not feature_target_valid:
+                QMessageBox.critical(self, "Configuration Error", feature_target_error)
                 return
 
             # FIXED:Perform all validations
@@ -1665,3 +1677,43 @@ class VEstimHyperParamGUI(QWidget):
             if key in self.param_entries and isinstance(self.param_entries[key], QLineEdit):
                 self.param_entries[key].setStyleSheet("border: 1px solid red;")
                 self.error_fields.add(self.param_entries[key])
+
+    def _validate_feature_target_columns(self, params):
+        """
+        Validate that feature and target columns are properly configured and not overlapping.
+        
+        Returns:
+            tuple: (is_valid, error_message)
+        """
+        try:
+            feature_columns = params.get('FEATURE_COLUMNS', [])
+            target_column = params.get('TARGET_COLUMN', '')
+            
+            # Check if target column is selected
+            if not target_column or target_column.strip() == '':
+                return False, "❌ No target column selected.\n\nPlease select a target column before starting training."
+            
+            # Check if feature columns are selected
+            if not feature_columns or len(feature_columns) == 0:
+                return False, "❌ No feature columns selected.\n\nPlease select at least one feature column before starting training."
+            
+            # SAFEGUARD: Check if target column is in feature columns
+            if target_column in feature_columns:
+                return False, (
+                    f"❌ Configuration Error: Target column '{target_column}' cannot be used as a feature column.\n\n"
+                    f"The target column is what the model tries to predict, so it cannot also be used as input.\n\n"
+                    f"Please:\n"
+                    f"• Remove '{target_column}' from the feature columns, OR\n"
+                    f"• Select a different target column\n\n"
+                    f"Current feature columns: {', '.join(feature_columns)}"
+                )
+            
+            # Check for empty feature columns
+            empty_features = [col for col in feature_columns if not col or col.strip() == '']
+            if empty_features:
+                return False, "❌ Some feature columns are empty.\n\nPlease remove empty entries from the feature columns list."
+            
+            return True, ""
+            
+        except Exception as e:
+            return False, f"❌ Error validating columns: {str(e)}"

@@ -255,8 +255,24 @@ class DataAugmentService:
     @staticmethod
     def _shift_series(data_series, periods):
         shifted_series = data_series.shift(periods=int(periods))
-        # Use forward fill to handle NaNs created by the shift
-        return shifted_series.ffill()
+        
+        # For delta calculations (like delta_t), we want to handle the first value properly
+        # Instead of forward fill which corrupts the shift, fill first NaN with 0
+        # This makes delta_t start from 0 (no change from previous) which is logical
+        if periods > 0:  # Positive shift (looking backward)
+            # Fill the first NaN values with the first actual value to make delta = 0
+            first_valid_idx = shifted_series.first_valid_index()
+            if first_valid_idx is not None:
+                fill_value = data_series.iloc[0]  # Use first actual value
+                shifted_series.iloc[:periods] = fill_value
+        elif periods < 0:  # Negative shift (looking forward)
+            # Fill the last NaN values with the last actual value to make delta = 0
+            last_valid_idx = shifted_series.last_valid_index()
+            if last_valid_idx is not None:
+                fill_value = data_series.iloc[-1]  # Use last actual value
+                shifted_series.iloc[periods:] = fill_value
+        
+        return shifted_series
 
     def validate_formula(self, formula: str, df: pd.DataFrame, log_details: bool = True) -> Tuple[bool, Optional[str]]:
         if log_details:

@@ -139,9 +139,8 @@ class VEstimTrainingTaskGUI(QMainWindow):
         title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
         self.main_layout.addWidget(title_label)
         
-        # Update window title to also include the actual device name
-        window_title = f"VEstim - Training Task {self.current_task_index + 1} ({device_name})"
-        self.setWindowTitle(window_title)
+        # Keep the original window title format
+        # (The device name is already shown in the title label above)
 
         # Display hyperparameters
         # Initialize the hyperparameter frame
@@ -783,6 +782,56 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.testing_gui = VEstimTestingGUI(job_manager=self.job_manager, params=final_params, task_list=self.task_list, training_results=training_results)
         self.testing_gui.show()
         self.close()
+
+    def closeEvent(self, event):
+        """Handle window close event - cleanup DataLoader processes."""
+        try:
+            # Stop any running training
+            if hasattr(self, 'training_thread') and self.training_thread and self.training_thread.isRunning():
+                self.logger.info("Stopping training thread on window close...")
+                self.stop_training()
+                self.training_thread.wait(3000)  # Wait up to 3 seconds
+            
+            # Cleanup DataLoader processes
+            self._cleanup_dataloader_processes()
+            
+            # Accept the close event
+            event.accept()
+            
+        except Exception as e:
+            self.logger.error(f"Error during window close cleanup: {e}")
+            event.accept()  # Still close the window
+    
+    def _cleanup_dataloader_processes(self):
+        """Clean up any DataLoader worker processes."""
+        try:
+            import platform
+            if platform.system() != 'Linux':
+                return  # Windows handles this automatically
+                
+            import psutil
+            current_process = psutil.Process()
+            
+            # Find and terminate DataLoader worker processes
+            terminated_count = 0
+            for child in current_process.children(recursive=True):
+                try:
+                    cmdline = child.cmdline()
+                    if cmdline and any('python' in str(arg).lower() for arg in cmdline):
+                        # This could be a DataLoader worker - terminate it
+                        self.logger.debug(f"Terminating DataLoader worker: PID {child.pid}")
+                        child.terminate()
+                        terminated_count += 1
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            
+            if terminated_count > 0:
+                self.logger.info(f"Terminated {terminated_count} DataLoader worker processes")
+                
+        except ImportError:
+            self.logger.warning("psutil not available - cannot cleanup DataLoader processes")
+        except Exception as e:
+            self.logger.error(f"Error during DataLoader cleanup: {e}")
 
 
 if __name__ == "__main__":

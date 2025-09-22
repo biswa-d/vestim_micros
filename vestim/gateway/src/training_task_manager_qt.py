@@ -462,6 +462,41 @@ class TrainingTaskManager:
             self.logger.warning(f"Error determining optimal workers, using default: {e}")
             return 4
 
+    def _cleanup_orphaned_workers(self):
+        """Clean up orphaned DataLoader worker processes on Linux systems."""
+        try:
+            import platform
+            if platform.system() != 'Linux':
+                return  # Windows handles this automatically
+                
+            import psutil
+            current_process = psutil.Process()
+            
+            # Find potential DataLoader worker processes
+            worker_count = 0
+            for child in current_process.children(recursive=False):  # Direct children only
+                try:
+                    cmdline = child.cmdline()
+                    if (cmdline and len(cmdline) > 1 and 
+                        'python' in cmdline[0].lower() and 
+                        any('dataloader' in str(arg).lower() or 'worker' in str(arg).lower() for arg in cmdline[1:])):
+                        
+                        self.logger.debug(f"Terminating DataLoader worker process: PID {child.pid}")
+                        child.terminate()
+                        worker_count += 1
+                        
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            
+            if worker_count > 0:
+                self.logger.info(f"Cleaned up {worker_count} orphaned DataLoader worker processes")
+                
+        except ImportError:
+            # psutil not available - skip cleanup
+            pass
+        except Exception as e:
+            self.logger.warning(f"Error during orphaned worker cleanup: {e}")
+
 
     def create_data_loaders(self, task):
         """Create data loaders for the current task using separate train, val, test folders."""
@@ -563,15 +598,64 @@ class TrainingTaskManager:
         """Run the training process for a single task."""
         try:
             self._run_training_loop(task, update_progress_callback, train_loader, val_loader, device)
-        except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
-            self.logger.warning(f"CUDA Graphs training failed for task {task.get('task_id', 'N/A')}: {e}. Attempting to fall back to standard training.")
+        except Exception as e:
+            # Check if we're using CUDA Graphs and this is any CUDA-related error
             if isinstance(self.training_service, CUDAGraphsTrainingService):
-                self.training_service = TrainingTaskService(device=self.device)
-                self.logger.info("Switched to standard TrainingTaskService.")
-                update_progress_callback.emit({'status': 'CUDA Graphs failed. Falling back to standard training...'})
-                self._run_training_loop(task, update_progress_callback, train_loader, val_loader, device)
+                error_msg = str(e).lower()
+                
+                # Check for any CUDA-related error that suggests CUDA Graphs incompatibility
+                cuda_related_errors = [
+                    'cuda', 'gpu', 'device', 'graph', 'capture', 'memory', 'invalid_value', 
+                    'synchronize', 'stream', 'kernel', 'driver', 'runtime'
+                ]
+                
+                is_cuda_error = (
+                    isinstance(e, (RuntimeError, torch.cuda.OutOfMemoryError)) or
+                    any(cuda_term in error_msg for cuda_term in cuda_related_errors) or
+                    'torch' in error_msg
+                )
+                
+                if is_cuda_error:
+                    self.logger.warning(f"CUDA Graphs training failed for task {task.get('task_id', 'N/A')}: {str(e)}")
+                    self.logger.info("Attempting to fall back to standard training with CUDA state reset.")
+                    
+                    try:
+                        # Complete CUDA state cleanup
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                        if hasattr(torch.cuda, 'reset_peak_memory_stats'):
+                            torch.cuda.reset_peak_memory_stats()
+                        
+                        # Force garbage collection
+                        import gc
+                        gc.collect()
+                        
+                        # Switch to standard training service
+                        self.training_service = TrainingTaskService(device=self.device)
+                        self.logger.info("Switched to standard TrainingTaskService with CUDA state reset.")
+                        
+                        update_progress_callback.emit({'status': 'CUDA Graphs failed. Falling back to standard training...'})
+                        
+                        # Reload the untrained model from the saved template
+                        untrained_model_path = task.get('untrained_model_path')
+                        if untrained_model_path and os.path.exists(untrained_model_path):
+                            task['model'].load_state_dict(torch.load(untrained_model_path, map_location=device))
+                            self.logger.info(f"Reloaded untrained model state from {untrained_model_path} for fallback training")
+                        else:
+                            self.logger.warning("Untrained model template not found. Continuing with current model state.")
+                        
+                        # Retry with standard training
+                        self._run_training_loop(task, update_progress_callback, train_loader, val_loader, device)
+                        
+                    except Exception as fallback_error:
+                        self.logger.error(f"Fallback to standard training also failed: {fallback_error}")
+                        raise fallback_error
+                else:
+                    # Non-CUDA error with CUDA Graphs - re-raise original error
+                    self.logger.error(f"Non-CUDA error occurred during CUDA Graphs training: {str(e)}")
+                    raise e
             else:
-                self.logger.error("CUDA error occurred even with standard training service. Cannot recover.")
+                # Not using CUDA Graphs or different training service - re-raise original error
                 raise e
         except Exception as e:
             self.logger.error(f"Error during training for task {task.get('task_id', 'N/A')}: {str(e)}", exc_info=True)
@@ -586,13 +670,27 @@ class TrainingTaskManager:
             update_progress_callback.emit({'task_error': str(e)})
         finally:
             try:
+                # Enhanced DataLoader cleanup
                 if 'train_loader' in locals() and train_loader is not None:
+                    # Force cleanup of DataLoader workers
+                    if hasattr(train_loader, '_shutdown_workers'):
+                        train_loader._shutdown_workers()
                     del train_loader
+                    
                 if 'val_loader' in locals() and val_loader is not None:
+                    # Force cleanup of DataLoader workers  
+                    if hasattr(val_loader, '_shutdown_workers'):
+                        val_loader._shutdown_workers()
                     del val_loader
+                
+                # Force garbage collection
                 import gc
                 gc.collect()
-                self.logger.info("Cleaned up dataloaders and performed garbage collection")
+                
+                # Additional cleanup for Linux systems
+                self._cleanup_orphaned_workers()
+                
+                self.logger.info("Enhanced dataloader cleanup and garbage collection completed")
             except Exception as cleanup_error:
                 self.logger.warning(f"Error during dataloader cleanup: {cleanup_error}")
             

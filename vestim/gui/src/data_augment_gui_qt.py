@@ -941,6 +941,10 @@ class DataAugmentGUI(QMainWindow):
             try: self.apply_button.clicked.disconnect(self.go_to_hyperparameter_gui) 
             except TypeError: pass 
             self.apply_button.clicked.connect(self.go_to_hyperparameter_gui)
+            
+            # SAFEGUARD: Disable all editing controls after successful augmentation
+            self._disable_editing_controls_after_success()
+            
         else:
             error_summary = f"Augmentation finished, but {len(failures)} file(s) failed:\n"
             for fail in failures[:5]:
@@ -966,6 +970,71 @@ class DataAugmentGUI(QMainWindow):
         QMessageBox.critical(self, "Formula Error", error_msg) 
         self.apply_button.setEnabled(True)
         self.cancel_button.setEnabled(True)
+    
+    def _disable_editing_controls_after_success(self):
+        """
+        SAFEGUARD: Disable all editing controls after successful augmentation 
+        to prevent users from modifying settings when augmentation cannot be re-run.
+        """
+        try:
+            # Disable filter controls
+            if hasattr(self, 'add_filter_button'):
+                self.add_filter_button.setEnabled(False)
+                self.add_filter_button.setToolTip("Augmentation complete - filter settings locked")
+            if hasattr(self, 'remove_filter_button'):
+                self.remove_filter_button.setEnabled(False)
+                self.remove_filter_button.setToolTip("Augmentation complete - filter settings locked")
+            if hasattr(self, 'filter_list'):
+                self.filter_list.setEnabled(False)
+            
+            # Disable formula controls
+            if hasattr(self, 'add_formula_button'):
+                self.add_formula_button.setEnabled(False)
+                self.add_formula_button.setToolTip("Augmentation complete - formula settings locked")
+            if hasattr(self, 'remove_formula_button'):
+                self.remove_formula_button.setEnabled(False)
+                self.remove_formula_button.setToolTip("Augmentation complete - formula settings locked")
+            if hasattr(self, 'formulas_list'):
+                self.formulas_list.setEnabled(False)
+                
+            # Disable noise controls
+            if hasattr(self, 'configure_noise_button'):
+                self.configure_noise_button.setEnabled(False)
+                self.configure_noise_button.setToolTip("Augmentation complete - noise settings locked")
+            if hasattr(self, 'remove_noise_button'):
+                self.remove_noise_button.setEnabled(False)
+                self.remove_noise_button.setToolTip("Augmentation complete - noise settings locked")
+            if hasattr(self, 'noise_list'):
+                self.noise_list.setEnabled(False)
+                
+            # Disable checkboxes and settings
+            if hasattr(self, 'filter_checkbox'):
+                self.filter_checkbox.setEnabled(False)
+            if hasattr(self, 'column_creation_checkbox'):
+                self.column_creation_checkbox.setEnabled(False)
+            if hasattr(self, 'noise_checkbox'):
+                self.noise_checkbox.setEnabled(False)
+            if hasattr(self, 'padding_checkbox'):
+                self.padding_checkbox.setEnabled(False)
+            if hasattr(self, 'padding_length_spinbox'):
+                self.padding_length_spinbox.setEnabled(False)
+            if hasattr(self, 'resampling_checkbox'):
+                self.resampling_checkbox.setEnabled(False)
+            if hasattr(self, 'frequency_combo'):
+                self.frequency_combo.setEnabled(False)
+            if hasattr(self, 'normalization_checkbox'):
+                self.normalization_checkbox.setEnabled(False)
+                
+            # Add informational tooltip to apply button
+            self.apply_button.setToolTip("Augmentation completed successfully - proceed to hyperparameter selection")
+            
+            # Update status to show editing is locked
+            if hasattr(self, 'status_label') and self.status_label:
+                self.status_label.setText("✅ Processing complete - Settings locked, ready to continue")
+                self.status_label.setStyleSheet("color: green; font-weight: bold; font-size: 14px;")
+                
+        except Exception as e:
+            print(f"Warning: Could not disable some editing controls: {e}")
     
     def go_to_hyperparameter_gui(self):
         try:
