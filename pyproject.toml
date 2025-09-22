@@ -26,4 +26,4 @@ find = {where=["."], include=["vestim", "vestim.*"]}  # Discovery includes vesti
 "vestim" = ["*"]  # Ensure all files under vestim are included
 
 [project.scripts]
-vestim = "vestim.gui.src.data_import_gui_qt:main"  # Entry point for launching via CLI
+vestim = "launch_gui_qt:main"  # Entry point for launching via CLI

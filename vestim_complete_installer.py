@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 PyBattML Complete Installer
 User-friendly installer that guides users through choosing installation and project directories
@@ -50,7 +50,8 @@ class SetupWorker(QThread):
             self.finished.emit(success, result_msg)
             
         except Exception as e:
-            error_msg = f"Setup failed: {e}"
+            import traceback
+            error_msg = f"Setup failed: {e}\n\nFull traceback:\n{traceback.format_exc()}"
             self.progress.emit(error_msg)
             self.finished.emit(False, error_msg)
 
@@ -135,11 +136,11 @@ class PyBattMLInstaller(QMainWindow):
         info_text = QTextEdit()
         info_text.setMaximumHeight(100)
         info_text.setPlainText(
-            "ÔÇó RTX 5070 GPU detection and CUDA 12.9 support\n"
-            "ÔÇó PyTorch cu128 for optimal performance\n"
-            "ÔÇó Complete Python environment with all dependencies\n"
-            "ÔÇó Sample data and hyperparameter templates\n"
-            "ÔÇó Desktop launcher for easy access"
+            "Complete Python environment with all dependencies\n"
+            "GPU detection and CUDA support (if available)\n"
+            "PyTorch with appropriate hardware optimization\n"
+            "Sample data and hyperparameter templates\n"
+            "Desktop launcher for easy access"
         )
         info_text.setReadOnly(True)
         info_layout.addWidget(info_text)
@@ -220,9 +221,10 @@ class PyBattMLInstaller(QMainWindow):
                 f"You can now launch PyBattML using the desktop shortcut or launcher scripts.")
             self.close()
         else:
+            # Show the actual error details in the dialog
+            error_details = full_output if full_output else "Unknown error occurred"
             QMessageBox.critical(self, "Installation Failed",
-                f"Installation failed. Please check the error details and try again.\n\n"
-                f"Error details available in setup.log in the installation directory.")
+                f"Installation failed. Error details:\n\n{error_details}")
 
 
 def main():

@@ -1,11 +1,11 @@
 ; Inno Setup Script for Vestim
 ; This creates a professional Windows installer
 
-#define MyAppName "Vestim"
+#define MyAppName "PyBattML"
 #define MyAppVersion "2.0.1"
 #define MyAppPublisher "B Dehury (battery.mcmaster.ca)"
 #define MyAppURL "https://github.com/biswa-d/vestim_micros"
-#define MyAppExeName "Vestim_2.0.1_2025_August_21_gpu_device_names.exe"
+#define MyAppExeName "PyBattML_2.0.1_2025_September_22_tvo_199_standalone_test.exe"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application.
@@ -33,6 +33,7 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
+DiskSpanning=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -64,7 +65,6 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Fil
 [Run]
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Microsoft Visual C++ 2015-2022 Redistributable..."; Tasks: vc2019redist; Check: VCRedistNeedsInstallAndDownload
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\python\python.exe"; Parameters: """{app}\gpu_setup.py"""; StatusMsg: "Checking for GPU..."; Flags: runhidden
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

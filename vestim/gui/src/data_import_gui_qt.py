@@ -26,7 +26,8 @@ sys.path.insert(0, str(project_root))
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QFileDialog, QProgressBar, QWidget, QMessageBox, QComboBox, QSizePolicy
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
 
-import multiprocessing, torch, subprocess
+import multiprocessing, subprocess
+# torch will be imported later after environment setup
 from vestim.utils import gpu_setup
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI  # Import the new data augmentation GUI

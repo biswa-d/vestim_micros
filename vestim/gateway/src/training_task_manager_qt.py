@@ -377,7 +377,7 @@ class TrainingTaskManager:
                     
                     if scaler_path_relative and normalized_columns:
                         scaler_path_absolute = os.path.join(job_folder, scaler_path_relative)
-                        from vestim.services import normalization_service # Local import
+                        from vestim.services.data_processor.src import normalization_service # Local import
                         self.loaded_scaler = normalization_service.load_scaler(scaler_path_absolute)
                         if self.loaded_scaler:
                             self.scaler_metadata = {
@@ -1131,7 +1131,7 @@ class TrainingTaskManager:
                 target_col_for_scaler = task['data_loader_params']['target_column']
 
                 if self.loaded_scaler and target_col_for_scaler in self.scaler_metadata.get('normalized_columns', []):
-                    from vestim.services import normalization_service # Local import
+                    from vestim.services.data_processor.src import normalization_service # Local import
                     import pandas as pd # Local import for DataFrame
                     import numpy as np # Ensure numpy is imported
 
@@ -1456,7 +1456,7 @@ class TrainingTaskManager:
                             try:
                                 import pandas as pd 
                                 import numpy as np
-                                from vestim.services import normalization_service 
+                                from vestim.services.data_processor.src import normalization_service 
                                 e_t_p_n_cpu_no_val = epoch_train_preds_norm.cpu().numpy() if epoch_train_preds_norm.is_cuda else epoch_train_preds_norm.numpy()
                                 e_t_t_n_cpu_no_val = epoch_train_trues_norm.cpu().numpy() if epoch_train_trues_norm.is_cuda else epoch_train_trues_norm.numpy()
                                 temp_df_train_pred_no_val = pd.DataFrame(0, index=np.arange(len(e_t_p_n_cpu_no_val)), columns=self.scaler_metadata['normalized_columns'])

@@ -7,7 +7,7 @@ from scipy.signal import savgol_filter
 from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN # Keep imports for type hinting if model object is used
 from vestim.services.model_training.src.GRU_model import GRUModel # Add GRU model import
 from vestim.services.model_training.src.FNN_model import FNNModel # Add FNN model import
-from vestim.services import normalization_service as norm_svc # Added for normalization
+from vestim.services.data_processor.src import normalization_service as norm_svc # Added for normalization
 import json # For potentially loading metadata
 
 # Removed torch.serialization.add_safe_globals as we are reverting to weights_only=False

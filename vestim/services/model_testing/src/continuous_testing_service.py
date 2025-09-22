@@ -375,7 +375,7 @@ class ContinuousTestingService:
                 return y_pred, y_true
             
             # Use the standardized denormalization function from normalization_service
-            from vestim.services import normalization_service
+            from vestim.services.data_processor.src import normalization_service
             
             # Get normalized columns list
             if hasattr(self.scaler, 'feature_names_in_'):

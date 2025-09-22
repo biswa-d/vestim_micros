@@ -14,7 +14,14 @@ import subprocess
 import torch
 
 def prepare_demo_data():
-    """Prepare demo data files and documentation for inclusion in the executable"""
+    """Prepare demo d    StringStruct(u'CompanyName', u'Biswanath Dehury'),
+    StringStruct(u'FileDescription', u'PyBattML - Advanced battery modeling with separate train/valid/test datasets and Optuna optimization.'),
+    StringStruct(u'FileVersion', u'2.0.1'),
+    StringStruct(u'InternalName', u'PyBattML'),
+    StringStruct(u'LegalCopyright', u'Copyright (c) 2025 Biswanath Dehury'),
+    StringStruct(u'OriginalFilename', u'PyBattML.exe'),
+    StringStruct(u'ProductName', u'PyBattML'),
+    StringStruct(u'ProductVersion', u'2.0.1')])s and documentation for inclusion in the executable"""
     print("Preparing installer assets...")
     
     # Create installer assets directory
@@ -191,7 +198,7 @@ def build_executable():
     assets_dir = prepare_demo_data()
     
     # Get the main script path
-    main_script = "vestim/gui/src/data_import_gui_qt.py"
+    main_script = "launch_gui_qt.py"
     
     # Get icon path if it exists
     icon_path = "vestim/gui/resources/icon.ico"
@@ -199,13 +206,13 @@ def build_executable():
         icon_path = None
     
     # Get version, date, and branch for unique naming
-    version = "2.0.0"
+    version = "2.0.1"
     build_date = datetime.datetime.now().strftime("%Y_%B_%d")
     try:
         branch_name = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD']).strip().decode('utf-8')
     except Exception:
         branch_name = "unknown"
-    exe_name = f"Vestim_{version}_{build_date}_{branch_name}"
+    exe_name = f"PyBattML_{version}_{build_date}_{branch_name}"
 
     # Find torch libs path and add it to binaries
     torch_lib_path = os.path.join(os.path.dirname(torch.__file__), "lib")
@@ -219,6 +226,7 @@ def build_executable():
         '--add-data=vestim;vestim',  # Include entire vestim package
         '--add-data=hyperparams.json;.',  # Include config files
         '--add-data=USER_README.md;.',  # Include comprehensive user README
+        '--add-data=packaging/MODEL_DEPLOYMENT_GUIDE.md;.',  # Include deployment guide
         '--add-data=requirements_cpu.txt;.', # Include requirements_cpu.txt
         f'--add-data={assets_dir};installer_assets',  # Include all installer assets
         '--hidden-import=PyQt5.QtCore',

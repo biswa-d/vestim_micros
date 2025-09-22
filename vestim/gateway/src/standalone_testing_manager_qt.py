@@ -12,7 +12,7 @@ from vestim.services.model_training.src.FNN_model import FNNModel
 from vestim.services.model_training.src.LSTM_model import LSTMModel
 from vestim.services.model_training.src.GRU_model import GRUModel
 from vestim.services.model_testing.src.testing_service import apply_inference_filter
-from vestim.services import normalization_service as norm_svc
+from vestim.services.data_processor.src import normalization_service as norm_svc
 
 class VEstimStandaloneTestingManager(QObject):
     progress = pyqtSignal(str)

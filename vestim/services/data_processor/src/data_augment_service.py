@@ -25,7 +25,7 @@ from scipy.signal import butter, filtfilt, lfilter
 
 from vestim.logger_config import setup_logger
 from vestim.gateway.src.job_manager_qt import JobManager # Import JobManager
-from vestim.services import normalization_service as norm_svc # For normalization
+from vestim.services.data_processor.src import normalization_service as norm_svc # For normalization
 
 # Set up logging
 logger = setup_logger(log_file='data_augment_service.log')
