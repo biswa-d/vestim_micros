@@ -139,6 +139,22 @@ class VEstimStandaloneTestingManager(QObject):
                 if scaler:
                     self.progress.emit("✓ Scaler loaded successfully")
                     normalized_columns = self.job_metadata.get('normalized_columns')
+                    
+                    # Pre-process columns before scaling to handle non-numeric types like timedelta
+                    for col in normalized_columns:
+                        if col in self.test_df.columns and self.test_df[col].dtype == 'object':
+                            try:
+                                # Attempt to convert timedelta-like strings to total seconds
+                                self.test_df[col] = pd.to_timedelta(self.test_df[col]).dt.total_seconds()
+                                self.progress.emit(f"Converted timedelta column '{col}' to seconds before scaling.")
+                            except (ValueError, TypeError):
+                                try:
+                                    # Fallback for other non-numeric objects
+                                    self.test_df[col] = pd.to_numeric(self.test_df[col], errors='coerce')
+                                    self.progress.emit(f"Coerced object column '{col}' to numeric before scaling.")
+                                except (ValueError, TypeError):
+                                    self.error.emit(f"Column '{col}' could not be converted to a numeric type for scaling.")
+                                    return
 
                     self.test_df[normalized_columns] = scaler.transform(self.test_df[normalized_columns])
                     self.progress.emit("Normalization applied successfully.")

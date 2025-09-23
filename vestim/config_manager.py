@@ -19,38 +19,47 @@ class ConfigManager:
         self._load_default_settings()
     
     def _load_config(self):
-        """Load configuration from installer config file"""
+        """
+        Load configuration for Vestim.
+        Priority order:
+        1. VESTIM_PROJECT_DIR environment variable (set by launcher).
+        2. vestim_config.json file (for direct execution or fallback).
+        3. Default directories (as a last resort).
+        """
+        # 1. Check for environment variable from launcher
+        project_dir_env = os.environ.get('VESTIM_PROJECT_DIR')
+        if project_dir_env and Path(project_dir_env).exists():
+            self._projects_dir = project_dir_env
+            self._data_dir = str(Path(project_dir_env) / 'data')
+            self._defaults_dir = str(Path(project_dir_env) / 'defaults_templates')
+            print(f"Loaded configuration from VESTIM_PROJECT_DIR: {self._projects_dir}")
+            return
+
+        # 2. Check for vestim_config.json
         try:
-            # Look for config file in application directory
             if getattr(sys, 'frozen', False):
-                # Running as compiled executable
-                app_dir = Path(sys.executable).parent
+                app_root = Path(sys.executable).parent
             else:
-                # Running as script - look in script directory
-                app_dir = Path(__file__).parent
-            
-            config_path = app_dir / "vestim_config.json"
-            
+                app_root = Path(__file__).parent.parent
+
+            config_path = app_root / "vestim_config.json"
+
             if config_path.exists():
                 with open(config_path, 'r') as f:
                     config = json.load(f)
-                    self._projects_dir = config.get('projects_directory')
+                
+                projects_dir = config.get('projects_directory')
+                if projects_dir and Path(projects_dir).exists():
+                    self._projects_dir = projects_dir
                     self._data_dir = config.get('data_directory')
-                    
-                    if self._projects_dir and os.path.exists(self._projects_dir):
-                        print(f"Using projects directory from installer: {self._projects_dir}")
-                    
-                    if self._data_dir and os.path.exists(self._data_dir):
-                        print(f"Using data directory from installer: {self._data_dir}")
-                        
-                    if self._projects_dir:  # At least projects dir was configured
-                        return
+                    self._defaults_dir = config.get('defaults_directory')
+                    print(f"Loaded configuration from {config_path}")
+                    return
         except Exception as e:
-            # Only show error for compiled executable, not during development
-            if getattr(sys, 'frozen', False):
-                print(f"Could not load installer config: {e}")
-        
-        # Fallback to default locations
+            print(f"Error loading vestim_config.json: {e}")
+
+        # 3. Fallback to default locations
+        print("Using default directory configuration.")
         self._projects_dir = self._get_default_projects_dir()
         self._data_dir = self._get_default_data_dir()
         self._defaults_dir = self._get_default_defaults_dir()
@@ -77,9 +86,14 @@ class ConfigManager:
     def _get_default_data_dir(self):
         """Get default data directory"""
         if getattr(sys, 'frozen', False):
-            # Running as compiled executable - use projects folder/data
-            projects_dir = self._get_default_projects_dir()
-            return os.path.join(projects_dir, "data")
+            # Running as compiled executable - use configured projects folder/data
+            # This should prefer the installed config over hardcoded paths
+            if self._projects_dir:
+                return os.path.join(self._projects_dir, "data")
+            else:
+                # Only fallback to default if no config was loaded
+                projects_dir = self._get_default_projects_dir()
+                return os.path.join(projects_dir, "data")
         else:
             # Running as Python script - use repository's data directory
             script_dir = Path(__file__).parent  # vestim/
@@ -166,8 +180,13 @@ class ConfigManager:
             if settings_path.exists():
                 with open(settings_path, 'r') as f:
                     self._default_settings = json.load(f)
+                    if getattr(sys, 'frozen', False):
+                        print(f"Loaded default settings from: {settings_path}")
             else:
                 # Create default settings with fallback folder paths
+                if getattr(sys, 'frozen', False):
+                    print(f"Default settings not found at: {settings_path}")
+                    print(f"Creating fallback settings using data directory: {self.get_data_directory()}")
                 self._default_settings = self._get_initial_default_settings()
                 self._save_default_settings()
                 

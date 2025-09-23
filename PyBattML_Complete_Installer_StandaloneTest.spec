@@ -13,7 +13,6 @@ a = Analysis(
         # Include default settings and templates
         ('defaults_templates', 'defaults_templates'),
         # Include sample data for testing and training (will be copied to project dir during install)
-        ('data', 'data'),
         # Include standalone test data file
         ('119_ReorderedUS06_n20C.csv', '.'),
         # Include documentation
