@@ -1,0 +1,67 @@
+# PyBattML/Vestim Packaging and Distribution Guide (Corrected)
+
+This document provides a detailed, accurate guide for developers on how to build the PyBattML standalone installer and understand its internal workings.
+
+## 1. Packaging Philosophy
+
+The packaging process creates a smart **Installer Application**. This is a self-contained executable that, when run by the end-user, performs a complete, hardware-aware setup of the application and its environment on their machine.
+
+The workflow is:
+1.  **Developer:** Uses PyInstaller with a pre-configured `.spec` file to build the `Installer.exe`.
+2.  **End-User:** Runs the `Installer.exe` to install the full application and its dependencies.
+
+## 2. How the Installer Works (End-User Experience)
+
+When a user runs the generated installer (`PyBattML_..._standalone_test.exe`):
+
+1.  **GUI Launch:** A PyQt5 GUI (`vestim_complete_installer.py`) starts, asking the user for an **Installation Directory** and a **Project Directory**.
+
+2.  **Smart Setup:** The installer then runs the `vestim/smart_environment_setup.py` script, which performs these key actions on the user's machine:
+    *   **GPU Detection:** Checks for an NVIDIA GPU and its CUDA driver version.
+    *   **PyTorch Variant Selection:** Selects the correct PyTorch package (`cu121`, `cu118`, or `cpu`) based on the detected hardware.
+    *   **Virtual Environment Creation:** Creates a new Python virtual environment (`venv`) in the installation directory.
+    *   **Dynamic Dependency Installation:** Installs all necessary libraries (like pandas, scikit-learn, etc.) from a hardcoded list within the script. It then installs the hardware-specific version of PyTorch. **These libraries are NOT bundled in the installer.**
+    *   **Application File Extraction:** Extracts the core `vestim` application code, launcher scripts, and user documentation from itself into the installation directory.
+    *   **Launcher & Shortcut Creation:** Creates `.bat` launcher scripts and shortcuts that use the Python executable from the newly created `venv`.
+    *   **Uninstaller Creation:** Generates an uninstaller and adds an entry to Windows' "Add or remove programs".
+
+## 3. How to Build the Installer (Developer Workflow)
+
+### Prerequisites
+
+*   **Python 3.8+**
+*   A virtual environment is highly recommended for the build process.
+
+### Step-by-Step Build Process
+
+1.  **Setup Developer Environment:**
+    Create and activate a virtual environment, then install the packages needed to run the build.
+    ```cmd
+    python -m venv build_env
+    build_env\Scripts\activate
+    pip install -r requirements.txt
+    ```
+    *Note: `requirements.txt` in the project root contains packages like `PyInstaller` and `PyQt5` which are necessary for the developer to build the installer executable.*
+
+2.  **The `.spec` File is Key:**
+    The build is controlled by the static file `PyBattML_Complete_Installer_StandaloneTest.spec`. **You do not need to generate this file.** It is already configured to:
+    *   **Entry Point:** Use `vestim_complete_installer.py` as the main script for the installer.
+    *   **Bundle Application Code:** Include the entire `vestim` source folder and other assets like `USER_README.md` inside the installer `.exe`.
+    *   **EXCLUDE Heavy Libraries:** It explicitly **excludes** libraries like `torch`, `pandas`, and `numpy`. This is intentional. It keeps the installer small, and these libraries are downloaded and installed by the smart setup script on the end-user's machine.
+
+3.  **Run PyInstaller to Build the Installer:**
+    Execute PyInstaller, pointing it directly to the `.spec` file. This is the single command needed to create the distributable installer.
+    ```cmd
+    pyinstaller PyBattML_Complete_Installer_StandaloneTest.spec --clean
+    ```
+    *   `--clean`: Clears PyInstaller's cache before building, which is recommended.
+
+4.  **Locate the Final Installer:**
+    The distributable installer is created in the `dist/` directory. The filename is defined within the `.spec` file (e.g., `PyBattML_2.0.1_2025_September_22_tvo_199_standalone_test.exe`).
+
+## 4. How to Package an Update
+
+1.  **Update Application Code:** Make changes to the `vestim` source code as needed.
+2.  **Update Version Info (Optional):** If you need to change the installer's filename or the version in "Add or remove programs", you can edit `PyBattML_Complete_Installer_StandaloneTest.spec` and `vestim/smart_environment_setup.py` respectively.
+3.  **Re-run the Build:** Follow the build process in **Section 3** to generate the new installer `.exe` with the updated code.
+4.  **Distribute:** Share the new `.exe` from the `dist/` folder. The installer is designed to handle upgrades by cleaning up old Start Menu entries.
