@@ -175,24 +175,27 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         # Create results table with exact main testing GUI columns
         self.results_table = QTreeWidget()
         self.results_table.setHeaderLabels([
-            "Model", "Architecture", "Task ID", "File", "#Params", 
-            "Best Train Loss (mV)", "Best Val Loss (mV)", "Epochs Trained", "RMSE (mV)", "Plot"
+            "Sl.No", "Task ID", "Model", "File Name", "#W&Bs",
+            "Best Train Loss", "Best Valid Loss", "Epochs Trained",
+            "Test RMSE (mV)", "Test MAXE (mV)", "R2", "Plot"
         ])
         self.results_table.setRootIsDecorated(False)
         self.results_table.setAlternatingRowColors(True)
         
-        # Set column widths to match main testing GUI
+        # Set column widths
         header = self.results_table.header()
-        header.resizeSection(0, 80)   # Model
-        header.resizeSection(1, 120)  # Architecture  
-        header.resizeSection(2, 150)  # Task ID
-        header.resizeSection(3, 100)  # File
-        header.resizeSection(4, 80)   # #Params
-        header.resizeSection(5, 130)  # Best Train Loss (mV)
-        header.resizeSection(6, 130)  # Best Val Loss (mV)
+        header.resizeSection(0, 50)   # Sl.No
+        header.resizeSection(1, 150)  # Task ID
+        header.resizeSection(2, 120)  # Model (Architecture)
+        header.resizeSection(3, 100)  # File Name
+        header.resizeSection(4, 80)   # #W&Bs
+        header.resizeSection(5, 130)  # Best Train Loss
+        header.resizeSection(6, 130)  # Best Valid Loss
         header.resizeSection(7, 110)  # Epochs Trained
-        header.resizeSection(8, 100)  # RMSE (mV)
-        header.resizeSection(9, 80)   # Plot
+        header.resizeSection(8, 110)  # Test RMSE (mV)
+        header.resizeSection(9, 110)  # Test MAXE (mV)
+        header.resizeSection(10, 80)  # R2
+        header.resizeSection(11, 80)  # Plot
         
         results_layout.addWidget(self.results_table)
         self.main_layout.addWidget(results_group)
@@ -389,12 +392,13 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             
         # Update headers with correct units
         self.results_table.setHeaderLabels([
-            "Model", "Architecture", "Task ID", "File", "#Params", 
-            f"Best Train Loss ({loss_unit})", f"Best Val Loss ({loss_unit})", "Epochs Trained", f"RMSE ({rmse_unit})", "Plot"
+            "Sl.No", "Task ID", "Model", "File Name", "#W&Bs",
+            f"Best Train Loss ({loss_unit})", f"Best Valid Loss ({loss_unit})", "Epochs Trained",
+            f"Test RMSE ({rmse_unit})", f"Test MAXE ({rmse_unit})", "R2", "Plot"
         ])
     
     def add_result_row(self, result):
-        """Add result row matching main testing GUI format exactly"""
+        """Add result row matching the desired main testing GUI format"""
         
         # Clear placeholder items first
         if self.results_table.topLevelItemCount() > 0:
@@ -404,10 +408,9 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         
         try:
             # Extract data from the testing manager result structure
-            model_type = result.get('model_type', 'N/A')
             architecture = result.get('architecture', 'N/A')
             task = result.get('task', 'N/A')
-            target_column = result.get('target_column', 'voltage')  # Default to voltage
+            target_column = result.get('target_column', 'voltage')
             model_file_path = result.get('model_file_path', '')
             
             # Update headers dynamically based on target type (first result only)
@@ -415,162 +418,106 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 self.update_table_headers_for_target(target_column)
                 self.headers_updated = True
             
-            # Get RMSE in proper units (main testing loop logic)
+            # Get all metrics
             rmse = result.get('RMSE', 'N/A')
-            print(f"[DEBUG] RMSE conversion: original={rmse}, target_column='{target_column}'")
+            max_error = result.get('max_error', 'N/A')
+            r2 = result.get('R²', 'N/A')
             
-            # Determine error unit and convert RMSE (like main testing loop)
+            # Determine error unit and convert metrics
             error_unit = ""
             if "voltage" in target_column.lower():
                 error_unit = "mV"
-                if isinstance(rmse, (int, float)):
-                    rmse_before = rmse
-                    rmse = rmse * 1000  # Convert to mV
-                    print(f"[DEBUG] RMSE voltage conversion: {rmse_before} V -> {rmse} mV")
+                if isinstance(rmse, (int, float)): rmse *= 1000
+                if isinstance(max_error, (int, float)): max_error *= 1000
             elif "soc" in target_column.lower():
                 error_unit = "%SOC"
-                if isinstance(rmse, (int, float)):
-                    rmse = rmse * 100  # Convert to %SOC
-                    print(f"[DEBUG] RMSE SOC conversion: {rmse/100} -> {rmse} %SOC")
+                if isinstance(rmse, (int, float)): rmse *= 100
+                if isinstance(max_error, (int, float)): max_error *= 100
             elif "temperature" in target_column.lower():
                 error_unit = "°C"
-            
-            # Get model parameters count - prioritize exact count from result data
+
+            # Get model parameters count
             exact_params = result.get('num_params', None)
-            if exact_params and exact_params != 'N/A':
-                model_params = str(exact_params)  # Use exact parameter count from testing manager
-            else:
-                # Fallback: calculate from model file if not available in result
-                task_info = result.get('task_info', None)
-                model_params = self.get_model_parameters(model_file_path, task_info)
+            model_params = str(exact_params) if exact_params and exact_params != 'N/A' else self.get_model_parameters(model_file_path, result.get('task_info', None))
             
-            # Get training metrics in proper units (using target column for unit conversion)
+            # Get training metrics
             training_metrics = self.get_training_metrics(model_file_path, target_column)
-            if training_metrics:
-                train_loss = training_metrics.get('Best Train Loss', 'N/A')
-                val_loss = training_metrics.get('Best Val Loss', 'N/A') 
-                epochs_trained = training_metrics.get('Epochs Trained', 'N/A')
-                train_unit = training_metrics.get('Best Train Loss Unit', error_unit)
-                val_unit = training_metrics.get('Best Val Loss Unit', error_unit)
-            else:
-                train_loss = val_loss = epochs_trained = 'N/A'
-                train_unit = val_unit = error_unit
-            
-            # Get prediction data for plotting
-            predictions_file = result.get('predictions_file', '')
-            
-            # Get actual test file name instead of "Test Data"
+            train_loss = training_metrics.get('Best Train Loss', 'N/A') if training_metrics else 'N/A'
+            val_loss = training_metrics.get('Best Val Loss', 'N/A') if training_metrics else 'N/A'
+            epochs_trained = training_metrics.get('Epochs Trained', 'N/A') if training_metrics else 'N/A'
+            train_unit = training_metrics.get('Best Train Loss Unit', error_unit) if training_metrics else error_unit
+            val_unit = training_metrics.get('Best Val Loss Unit', error_unit) if training_metrics else error_unit
+
+            # Get test file name
             test_data_file = result.get('test_data_file', '')
-            if test_data_file and os.path.exists(test_data_file):
-                file_name = os.path.basename(test_data_file)
-            else:
-                # Fallback to predictions file directory structure
-                if predictions_file:
-                    # Extract test file name from predictions file path pattern
-                    pred_basename = os.path.basename(predictions_file)
-                    if '_predictions.csv' in pred_basename:
-                        file_name = pred_basename.replace('_predictions.csv', '.csv')
-                    else:
-                        file_name = "Test Data"
-                else:
-                    file_name = "Test Data"
-            
-            # Create tree widget item with exact main GUI columns
+            file_name = os.path.basename(test_data_file) if test_data_file and os.path.exists(test_data_file) else "Test Data"
+
+            # Create tree widget item with the new column order
             item = QTreeWidgetItem(self.results_table)
-            item.setText(0, model_type)                                # Model
-            item.setText(1, architecture)                             # Architecture
-            item.setText(2, task)                                     # Task ID
-            item.setText(3, file_name)                                # File
-            item.setText(4, str(model_params))                       # #Params
+            sl_no = str(self.results_table.topLevelItemCount())
+            item.setText(0, sl_no)                                     # Sl.No
+            item.setText(1, task)                                      # Task ID
+            item.setText(2, architecture)                              # Model (from architecture)
+            item.setText(3, file_name)                                 # File Name
+            item.setText(4, str(model_params))                         # #W&Bs
             
-            # Training metrics with proper units
+            # Format and set metrics
             train_display = f"{train_loss:.2f} {train_unit}" if isinstance(train_loss, (int, float)) else "N/A"
             val_display = f"{val_loss:.2f} {val_unit}" if isinstance(val_loss, (int, float)) else "N/A"
             epochs_display = str(epochs_trained) if epochs_trained != 'N/A' else "N/A"
+            item.setText(5, train_display)                             # Best Train Loss
+            item.setText(6, val_display)                               # Best Valid Loss
+            item.setText(7, epochs_display)                            # Epochs Trained
             
-            item.setText(5, train_display)                           # Best Train Loss (mV)
-            item.setText(6, val_display)                             # Best Val Loss (mV)
-            item.setText(7, epochs_display)                          # Epochs Trained
-            
-            # RMSE in proper units with reasonable precision for GUI display
-            rmse_display = f"{rmse:.2f} {error_unit}" if isinstance(rmse, (int, float)) else "N/A"
-            item.setText(8, rmse_display)                            # RMSE (mV)
-            
-            # Create plot button with result data
-            plot_button = QPushButton("Plot")
-            plot_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #663399;
-                    color: white;
-                    font-weight: bold;
-                    padding: 5px 15px;
-                    border-radius: 3px;
-                    border: none;
-                }
-                QPushButton:hover {
-                    background-color: #7d4db3;
-                }
-            """)
-            
-            # Store result data for plotting
-            plot_data = {
-                'predictions_file': predictions_file,
-                'model_info': f"{model_type} - {architecture}/{task}",
-                'target_column': target_column,
-                'target_display': target_column,  # Use target_column directly
-                'error_unit': error_unit,
-                'metrics': {
-                    'RMSE': rmse
-                }
-            }
-            
-            plot_button.clicked.connect(lambda: self.show_model_plot(plot_data))
-            self.results_table.setItemWidget(item, 9, plot_button)  # Column 9 for Plot
-            
+            rmse_display = f"{rmse:.2f}" if isinstance(rmse, (int, float)) else "N/A"
+            max_error_display = f"{max_error:.2f}" if isinstance(max_error, (int, float)) else "N/A"
+            r2_display = f"{r2:.4f}" if isinstance(r2, (int, float)) else "N/A"
+            item.setText(8, rmse_display)                              # Test RMSE (mV)
+            item.setText(9, max_error_display)                         # Test MAXE (mV)
+            item.setText(10, r2_display)                               # R2
 
+            # Create and set plot button
+            plot_button = QPushButton("Plot")
+            plot_button.setStyleSheet("background-color: #663399; color: white; font-weight: bold; padding: 5px 15px; border-radius: 3px; border: none;")
+            plot_data = {
+                'predictions_file': result.get('predictions_file', ''),
+                'model_info': f"{architecture}/{task}",
+                'target_column': target_column,
+                'error_unit': error_unit,
+                'metrics': {'RMSE': rmse, 'MAXE': max_error, 'R2': r2}
+            }
+            plot_button.clicked.connect(lambda: self.show_model_plot(plot_data))
+            self.results_table.setItemWidget(item, 11, plot_button)  # Column 11 for Plot
             
-            # Store result data for consolidated summary (no individual CSV files needed)
-            self.store_result_for_summary(result, rmse, error_unit, train_loss, val_loss, epochs_trained, model_params)
+            # Store result for consolidated summary
+            self.store_result_for_summary(result, rmse, max_error, r2, error_unit, train_loss, val_loss, epochs_trained, model_params)
             
         except Exception as e:
             import traceback
             traceback.print_exc()
     
-    def store_result_for_summary(self, result, rmse, error_unit, train_loss, val_loss, epochs_trained, model_params):
+    def store_result_for_summary(self, result, rmse, max_error, r2, error_unit, train_loss, val_loss, epochs_trained, model_params):
         """Store result data for consolidated summary CSV"""
         try:
-            # Extract test file name from the test data file path
             test_data_file = result.get('test_data_file', '')
-            if test_data_file:
-                test_file_name = os.path.basename(test_data_file)
-            else:
-                test_file_name = 'Unknown Test File'
+            test_file_name = os.path.basename(test_data_file) if test_data_file else 'Unknown Test File'
             
-            # Prepare data row for consolidated summary - match EXACT format expected by create_consolidated_summary_csv
             result_data = {
-                'model_type': result.get('model_type', 'N/A'),
                 'architecture': result.get('architecture', 'N/A'),
                 'task': result.get('task', 'N/A'),
                 'target_column': result.get('target_column', 'voltage'),
-                'file_name': test_file_name,  # Use actual test file name
-                'num_params': model_params if model_params != 'N/A' else result.get('num_params', 'N/A'),  # Use exact parameter count
+                'file_name': test_file_name,
+                'num_params': model_params,
                 'training_metrics': {
-                    'best_train_loss': train_loss if isinstance(train_loss, (int, float)) else 'N/A',
-                    'best_val_loss': val_loss if isinstance(val_loss, (int, float)) else 'N/A',
-                    'epochs_trained': epochs_trained if epochs_trained != 'N/A' else 'N/A'
+                    'best_train_loss': train_loss,
+                    'best_val_loss': val_loss,
+                    'epochs_trained': epochs_trained
                 },
-                'mae': result.get('MAE', float('nan')),
-                'mse': result.get('MSE', float('nan')),
-                'rmse': result.get('RMSE', float('nan')),
-                'mape': result.get('MAPE', float('nan')),
+                'rmse_unconverted': result.get('RMSE', float('nan')),
+                'max_error_unconverted': result.get('max_error', float('nan')),
                 'r2': result.get('R²', float('nan')),
-                'max_error': result.get('max_error', float('nan')),  # Need to add this
-                'predictions_file': os.path.basename(result.get('predictions_file', ''))
             }
-            
-            # Add to consolidated results data
             self.results_data.append(result_data)
-            
         except Exception as e:
             print(f"[ERROR] Failed to store result for summary: {e}")
 
@@ -1144,16 +1091,15 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 # Determine error unit for display
                 error_unit_display = 'mV' if 'voltage' in target_column.lower() else '%' if 'soc' in target_column.lower() else '°C' if ('temperature' in target_column.lower() or 'temp' in target_column.lower()) else ''
                 
-                # Create summary row with EXACT same columns as GUI table
+                # Create summary row with the new, corrected column format
                 summary_row = {
                     "Sl.No": f"{idx + 1}",
-                    "Model": model_type,  # Same as GUI "Model" column
-                    "Architecture": architecture,  # Same as GUI "Architecture" column  
-                    "Task ID": task,  # Same as GUI "Task ID" column (not combined)
-                    "File Name": file_name,  # Same as GUI "File" column
-                    "#Params": num_params,  # Same as GUI "#Params" column
-                    f"Best Train Loss ({error_unit_display})": best_train_loss,  # Match GUI units
-                    f"Best Val Loss ({error_unit_display})": best_val_loss,  # Match GUI units
+                    "Task ID": task,
+                    "Model": architecture,
+                    "File Name": file_name,
+                    "#W&Bs": num_params,
+                    f"Best Train Loss ({error_unit_display})": best_train_loss,
+                    f"Best Valid Loss ({error_unit_display})": best_val_loss,
                     "Epochs Trained": epochs_trained,
                     f"Test RMSE ({error_unit_display})": f"{rmse:.5f}" if not pd.isna(rmse) else "N/A",
                     f"Test MAXE ({error_unit_display})": f"{max_error:.5f}" if not pd.isna(max_error) else "N/A",

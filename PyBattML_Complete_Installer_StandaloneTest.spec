@@ -17,7 +17,7 @@ a = Analysis(
         ('119_ReorderedUS06_n20C.csv', '.'),
         # Include documentation
         ('USER_README.md', '.'),
-        ('packaging/MODEL_DEPLOYMENT_GUIDE.md', '.'),
+        ('packaging/NEW_PACKAGING_INSTRUCTIONS.txt', 'packaging'),
     ],
     hiddenimports=[
         'vestim.config_manager',
