@@ -4,6 +4,7 @@ import os
 import signal
 import atexit
 import platform
+import shutil
 from PyQt5.QtWidgets import QApplication
 from vestim.gui.src.welcome_gui_qt import WelcomeGUI
 from vestim.utils import gpu_setup
@@ -94,8 +95,24 @@ def setup_multiprocessing():
     except Exception as e:
         logger.warning(f"Could not configure multiprocessing: {e}")
 
+def clear_pycache():
+    """Recursively find and remove __pycache__ directories."""
+    try:
+        # Start from the directory of the launch script
+        start_dir = os.path.dirname(os.path.abspath(__file__))
+        for root, dirs, files in os.walk(start_dir):
+            if '__pycache__' in dirs:
+                pycache_path = os.path.join(root, '__pycache__')
+                logger.info(f"Removing pycache directory: {pycache_path}")
+                shutil.rmtree(pycache_path)
+    except Exception as e:
+        logger.warning(f"Could not clear __pycache__: {e}")
+
 def main():
     global _qt_application
+    
+    # Clean up __pycache__ directories on startup
+    clear_pycache()
     
     # Configure multiprocessing first
     setup_multiprocessing()
