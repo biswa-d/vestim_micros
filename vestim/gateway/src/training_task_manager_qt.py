@@ -2,6 +2,7 @@ import time, os, sys, math, json
 import csv
 import sqlite3
 import torch
+import gc
 try:
     import fireducks.pandas as pd
 except ImportError:
@@ -255,18 +256,21 @@ class TrainingTaskManager:
             self.logger.error(f"Error during task processing: {str(e)}", exc_info=True)
             update_progress_callback.emit({'task_error': str(e)})
         finally:
-            # Explicitly delete DataLoaders and call garbage collector to free memory after each trial
-            self.logger.info(f"Cleaning up resources for task {task.get('task_id', 'N/A')}")
+            # Explicitly shut down DataLoader workers and clean up resources to prevent file descriptor leaks on Linux.
+            self.logger.info(f"Cleaning up DataLoader resources for task {task.get('task_id', 'N/A')}")
             try:
                 if train_loader:
+                    if hasattr(train_loader, '_shutdown_workers'):
+                        train_loader._shutdown_workers()
                     del train_loader
                 if val_loader:
+                    if hasattr(val_loader, '_shutdown_workers'):
+                        val_loader._shutdown_workers()
                     del val_loader
-                import gc
                 gc.collect()
-                self.logger.info("Successfully cleaned up DataLoaders and performed garbage collection.")
+                self.logger.info("Successfully cleaned up DataLoader resources and performed garbage collection.")
             except Exception as cleanup_error:
-                self.logger.error(f"Error during resource cleanup: {cleanup_error}")
+                self.logger.error(f"Error during DataLoader resource cleanup: {cleanup_error}")
 
     def setup_job_logging(self, task):
         """
