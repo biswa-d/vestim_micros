@@ -3,11 +3,9 @@
 
 a = Analysis(
     ['vestim_complete_installer.py'],
-    pathex=[],
+    pathex=['.'],
     binaries=[],
     datas=[
-        # Include core PyBattML modules
-        ('vestim', 'vestim'),
         # Include main launch script
         ('launch_gui_qt.py', '.'),
         # Include default settings and templates
@@ -20,8 +18,9 @@ a = Analysis(
         ('packaging/NEW_PACKAGING_INSTRUCTIONS.txt', 'packaging'),
     ],
     hiddenimports=[
+        'vestim',
         'vestim.config_manager',
-        'vestim.logger_config', 
+        'vestim.logger_config',
         'vestim.gpu_setup',
         'vestim.smart_environment_setup',
         'PyQt5.QtWidgets',
