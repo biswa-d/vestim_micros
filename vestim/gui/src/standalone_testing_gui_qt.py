@@ -526,6 +526,11 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         """Show plot for the model results by reading from saved predictions file - EXACTLY like main testing GUI"""
         try:
             import matplotlib.pyplot as plt
+            
+            # Set font to Times New Roman for all plot elements
+            plt.rcParams['font.family'] = 'serif'
+            plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
+            
             from matplotlib.figure import Figure
             from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
             from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar

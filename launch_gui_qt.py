@@ -98,13 +98,17 @@ def setup_multiprocessing():
 def clear_pycache():
     """Recursively find and remove __pycache__ directories."""
     try:
+        logger.info("Starting __pycache__ cleanup...")
+        count = 0
         # Start from the directory of the launch script
         start_dir = os.path.dirname(os.path.abspath(__file__))
         for root, dirs, files in os.walk(start_dir):
             if '__pycache__' in dirs:
                 pycache_path = os.path.join(root, '__pycache__')
-                logger.info(f"Removing pycache directory: {pycache_path}")
                 shutil.rmtree(pycache_path)
+                count += 1
+        if count > 0:
+            logger.info(f"Removed {count} __pycache__ directories.")
     except Exception as e:
         logger.warning(f"Could not clear __pycache__: {e}")
 
