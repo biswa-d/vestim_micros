@@ -483,6 +483,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 'predictions_file': result.get('predictions_file', ''),
                 'model_info': f"{architecture}/{task}",
                 'target_column': target_column,
+                'target_display': target_column,
                 'error_unit': error_unit,
                 'metrics': {'RMSE': rmse, 'MAXE': max_error, 'R2': r2}
             }
