@@ -294,7 +294,7 @@ class VEstimHyperParamManager:
                             self.logger.error(f"Invalid float value for {key}: {value}")
                             raise ValueError(f"Invalid value for {key}: Expected floats, got {value}")
 
-                # ✅ Ensure boolean conversion for checkboxes (if applicable)
+                # Ensure boolean conversion for checkboxes (if applicable)
                 elif key in ['BATCH_TRAINING']:
                     validated_params[key] = value.lower() in ['true', '1', 'yes']
 
@@ -302,13 +302,13 @@ class VEstimHyperParamManager:
                     validated_params[key] = value
 
             elif isinstance(value, list):
-                # ✅ Ensure lists retain proper types
+                # Ensure lists retain proper types
                 validated_params[key] = value
 
             else:
                 validated_params[key] = value  # Keep as-is for other data types
 
-        # ✅ Feature & Target Columns (No validation needed, comes from UI dropdowns)
+        # Feature and Target Columns (no validation needed, comes from UI dropdowns)
         validated_params["FEATURE_COLUMNS"] = params.get("FEATURE_COLUMNS", [])
         validated_params["TARGET_COLUMN"] = params.get("TARGET_COLUMN", "")
         validated_params["MODEL_TYPE"] = params.get("MODEL_TYPE", "")

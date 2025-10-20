@@ -96,8 +96,8 @@ class VEstimStandaloneTestingManager(QObject):
             self.progress.emit(f"Loading test data from {os.path.basename(self.test_data_path)}...")
             
             # Check if augmentation is required
-            print("📋 Checking augmentation requirements...")
-            self.progress.emit("📋 Checking augmentation requirements...")
+            print("Checking augmentation requirements...")
+            self.progress.emit("Checking augmentation requirements...")
             
             # Check for existing augmentation metadata
             augmentation_configs = self._load_augmentation_configs()

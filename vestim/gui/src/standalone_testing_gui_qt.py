@@ -202,7 +202,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         
         # Add Open Job Folder button
         button_layout = QHBoxLayout()
-        self.open_folder_button = QPushButton("📁 Open Job Folder")
+        self.open_folder_button = QPushButton("Open Job Folder")
         self.open_folder_button.setEnabled(False)  # Disabled initially until testing completes
         self.open_folder_button.setStyleSheet("""
             QPushButton {

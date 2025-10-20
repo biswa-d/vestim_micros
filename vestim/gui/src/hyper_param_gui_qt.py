@@ -1,9 +1,9 @@
-# FIXED:---------------------------------------------------------------------------------
-# FIXED:Author: Biswanath Dehury
-# FIXED:Date: `{{date:YYYY-MM-DD}}`
-# FIXED:Version: 1.0.0
-# FIXED:Description: Description of the script
-# FIXED:---------------------------------------------------------------------------------
+"""
+Hyperparameter selection GUI for VEstim.
+
+Provides controls to select model, training, and data-related parameters.
+Comments are concise and professional; unnecessary markers removed.
+"""
 
 
 import os
@@ -26,23 +26,23 @@ from vestim.gui.src.training_setup_gui_qt import VEstimTrainSetupGUI
 from vestim.config_manager import get_default_hyperparams, update_last_used_hyperparams, load_hyperparams_from_root
 from vestim.gui.src.adaptive_gui_utils import scale_font, scale_widget_size, get_adaptive_stylesheet
 
-# FIXED:Initialize the JobManager
+# Initialize the JobManager
 import logging
 class VEstimHyperParamGUI(QWidget):
     def __init__(self, job_manager=None):
-        self.logger = logging.getLogger(__name__)  # FIXED:Initialize the logger within the instance
+        self.logger = logging.getLogger(__name__)  # Initialize the module logger
         self.logger.info("Initializing Hyperparameter GUI")
         super().__init__()
-        self.params = {}  # FIXED:Initialize an empty params dictionary
+        self.params = {}  # Parameters loaded from defaults or user selection
         self.job_manager = job_manager if job_manager else JobManager()
         self.hyper_param_manager = VEstimHyperParamManager(job_manager=self.job_manager)
-        self.param_entries = {}  # FIXED:To store the entry widgets for parameters
-        self.error_fields = set() # FIXED:To track fields with validation errors
+        self.param_entries = {}  # Mapping of parameter names to input widgets
+        self.error_fields = set() # Track fields with validation errors
 
         self.setup_window()
         self.build_gui()
         
-        # FIXED:Load default hyperparameters after UI is built
+        # Load default hyperparameters after UI is built
         self.load_default_hyperparameters()
 
     def setup_window(self):
@@ -57,7 +57,7 @@ class VEstimHyperParamGUI(QWidget):
         self.setAttribute(Qt.WA_AcceptTouchEvents)
         self.setMouseTracking(True)  # Enable mouse tracking for hover effects
         
-        # FIXED:Load the application icon
+        # Load the application icon
         resources_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
         icon_path = os.path.join(resources_path, 'icon.ico')
         
@@ -78,30 +78,30 @@ class VEstimHyperParamGUI(QWidget):
         """)
 
     def load_default_hyperparameters(self):
-        """Auto-load default hyperparameters and populate the GUI with column validation"""
+        """Load default hyperparameters and populate the GUI with column validation."""
         import traceback
         try:
-            # FIXED:Get default hyperparameters from config (includes last used params with features/targets)
+            # Get default hyperparameters from config (includes last used params with features/targets)
             default_params = get_default_hyperparams()
             self.logger.info(f"DEBUG: Type of default_params: {type(default_params)}")
             self.logger.info(f"DEBUG: Contents of default_params: {default_params}")
 
-            # FIXED:Validate feature/target columns against current dataset
+            # Validate feature/target columns against current dataset
             validated_params = self.validate_columns_against_dataset(default_params)
             self.logger.info(f"DEBUG: Type of validated_params: {type(validated_params)}")
             self.logger.info(f"DEBUG: Contents of validated_params: {validated_params}")
 
-            # FIXED:Load and validate parameters using the manager (same as load_params_from_json)
+            # Load and validate parameters using the manager (same as load_params_from_json)
             self.params = self.hyper_param_manager.validate_and_normalize_params(validated_params)
             self.logger.info("Successfully loaded default hyperparameters automatically")
 
-            # FIXED:Update GUI elements with loaded parameters (same as load_params_from_json)
+            # Update GUI elements with loaded parameters (same as load_params_from_json)
             self.update_gui_with_loaded_params()
 
         except Exception as e:
             self.logger.error(f"Failed to auto-load default hyperparameters: {type(e).__name__}: {e}")
             self.logger.error(traceback.format_exc())
-            # FIXED:If auto-load fails, just continue with empty params - user can manually load
+            # If auto-load fails, continue with empty params; user can load manually
 
     def validate_columns_against_dataset(self, params):
         """Validate that feature and target columns exist in the current dataset"""
@@ -142,7 +142,7 @@ class VEstimHyperParamGUI(QWidget):
             
         except Exception as e:
             self.logger.error(f"Error validating columns against dataset: {e}")
-            return params  # FIXED:Return original params if validation fails
+            return params  # Return original params if validation fails
 
     def build_gui(self):
         """Build the main UI layout with categorized sections for parameters."""
@@ -161,7 +161,7 @@ class VEstimHyperParamGUI(QWidget):
         content_layout = QVBoxLayout()
         content_layout.setContentsMargins(10, 10, 10, 10)
 
-        # FIXED:Title & Guide Section
+        # Title and guidance section
         title_label = QLabel("Select Hyperparameters for Model Training")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet(get_adaptive_stylesheet("font-size: 20pt; font-weight: bold; color: #0b6337; margin-bottom: 15px;"))
@@ -207,7 +207,7 @@ class VEstimHyperParamGUI(QWidget):
         instructions_label.setWordWrap(True)  # Allow text wrapping
         content_layout.addWidget(instructions_label)
 
-        # FIXED:Hyperparameter Selection Section
+        # Hyperparameter selection section
         hyperparam_section = QGridLayout()
         hyperparam_section.setSpacing(scale_widget_size(10))  # Add spacing between grid items
         group_box_style = get_adaptive_stylesheet("QGroupBox { font-size: 10pt; font-weight: bold; }")
@@ -408,7 +408,7 @@ class VEstimHyperParamGUI(QWidget):
         self.target_combo.addItems(valid_target_columns)  # Only valid targets
         self.target_combo.setToolTip("Select a single target column (timestamp columns excluded).")
 
-        # FIXED:✅ Store references in self.param_entries for easy parameter collection
+        # Store references in self.param_entries for parameter collection
         self.param_entries["FEATURE_COLUMNS"] = self.feature_list
         self.param_entries["TARGET_COLUMN"] = self.target_combo
 
@@ -461,7 +461,7 @@ class VEstimHyperParamGUI(QWidget):
         self.batch_size_entry.textChanged.connect(self.on_param_text_changed)
         self.batch_size_entry.setEnabled(True)  # FIXED:Initially enabled
 
-        # FIXED:✅ Store references in self.param_entries for easy parameter collection
+        # Store references in self.param_entries for parameter collection
         self.param_entries["TRAINING_METHOD"] = self.training_method_combo
         self.param_entries["LOOKBACK"] = self.lookback_entry
         self.param_entries["BATCH_TRAINING"] = self.batch_training_checkbox
@@ -627,7 +627,7 @@ class VEstimHyperParamGUI(QWidget):
             self.model_param_container.addWidget(hidden_units_label)
             self.model_param_container.addWidget(self.hidden_units_entry)
 
-            # FIXED:✅ Store in param_entries
+            # Store in param_entries
             model_params["LAYERS"] = self.lstm_layers_entry
             model_params["HIDDEN_UNITS"] = self.hidden_units_entry
 
@@ -654,7 +654,7 @@ class VEstimHyperParamGUI(QWidget):
             self.model_param_container.addWidget(gru_hidden_units_label)
             self.model_param_container.addWidget(self.gru_hidden_units_entry)
 
-            # FIXED:✅ Store in param_entries
+            # Store in param_entries
             model_params["GRU_LAYERS"] = self.gru_layers_entry
             model_params["GRU_HIDDEN_UNITS"] = self.gru_hidden_units_entry
 
@@ -687,12 +687,12 @@ class VEstimHyperParamGUI(QWidget):
             self.model_param_container.addWidget(fnn_activation_label)
             self.model_param_container.addWidget(self.fnn_activation_combo)
 
-            # FIXED:✅ Store in model_params for later update to self.param_entries
+            # Store in model_params for later update to self.param_entries
             model_params["FNN_HIDDEN_LAYERS"] = self.fnn_hidden_layers_entry
             model_params["FNN_DROPOUT_PROB"] = self.fnn_dropout_entry
             model_params["FNN_ACTIVATION"] = self.fnn_activation_combo
 
-        # FIXED:✅ Register current model-specific QLineEdit parameters in self.param_entries
+        # Register current model-specific QLineEdit parameters in self.param_entries
         # FIXED:This ensures self.param_entries only contains widgets relevant to the *current* model type
         self.param_entries.update(model_params)
 
@@ -969,7 +969,7 @@ class VEstimHyperParamGUI(QWidget):
         self.repetitions_entry.textChanged.connect(self.on_param_text_changed)
         validation_form_layout.addRow(repetitions_label, self.repetitions_entry)
 
-        # FIXED:✅ Store references in self.param_entries for parameter collection
+        # Store references in self.param_entries for parameter collection
         self.param_entries["VALID_PATIENCE"] = self.patience_entry
         self.param_entries["VALID_FREQUENCY"] = self.freq_entry
         self.param_entries["MAX_EPOCHS"] = self.max_epochs_entry
@@ -1271,12 +1271,12 @@ class VEstimHyperParamGUI(QWidget):
             self.logger.warning("No parameters found to update the GUI.")
             return
 
-        # FIXED:✅ Update standard hyperparameters (Text Fields, Dropdowns, Checkboxes)
+        # Update standard hyperparameters (text fields, dropdowns, checkboxes)
         for param_name, entry in list(self.param_entries.items()):
             if param_name in self.params:
                 value = self.params[param_name]
 
-                # FIXED:✅ Handle different widget types correctly
+                # Handle different widget types correctly
                 if isinstance(entry, QLineEdit):
                     entry.setText(str(value))  # FIXED:Convert value to string for text fields
 
@@ -1294,19 +1294,19 @@ class VEstimHyperParamGUI(QWidget):
                         item = entry.item(i)
                         item.setSelected(item.text() in selected_items)
 
-        # FIXED:✅ Update Model Parameters (Ensure proper model-specific param refresh)
+        # Update model parameters (ensure proper model-specific parameter refresh)
         if "MODEL_TYPE" in self.params:
             model_index = self.model_combo.findText(self.params["MODEL_TYPE"])
             if model_index != -1:
                 self.model_combo.setCurrentIndex(model_index)
 
-        # FIXED:✅ Ensure Scheduler Parameters Update Correctly
+        # Ensure scheduler parameters update correctly
         if "SCHEDULER_TYPE" in self.params:
             scheduler_index = self.scheduler_combo.findText(self.params["SCHEDULER_TYPE"])
             if scheduler_index != -1:
                 self.scheduler_combo.setCurrentIndex(scheduler_index)
 
-        # FIXED:✅ Ensure Training Method and dependent fields update correctly
+        # Ensure training method and dependent fields update correctly
         if "TRAINING_METHOD" in self.params:
             method_index = self.training_method_combo.findText(self.params["TRAINING_METHOD"])
             if method_index != -1:
@@ -1691,16 +1691,16 @@ class VEstimHyperParamGUI(QWidget):
             
             # Check if target column is selected
             if not target_column or target_column.strip() == '':
-                return False, "❌ No target column selected.\n\nPlease select a target column before starting training."
+                return False, "No target column selected.\n\nPlease select a target column before starting training."
             
             # Check if feature columns are selected
             if not feature_columns or len(feature_columns) == 0:
-                return False, "❌ No feature columns selected.\n\nPlease select at least one feature column before starting training."
+                return False, "No feature columns selected.\n\nPlease select at least one feature column before starting training."
             
             # SAFEGUARD: Check if target column is in feature columns
             if target_column in feature_columns:
                 return False, (
-                    f"❌ Configuration Error: Target column '{target_column}' cannot be used as a feature column.\n\n"
+                    f"Configuration error: Target column '{target_column}' cannot be used as a feature column.\n\n"
                     f"The target column is what the model tries to predict, so it cannot also be used as input.\n\n"
                     f"Please:\n"
                     f"• Remove '{target_column}' from the feature columns, OR\n"
@@ -1711,9 +1711,9 @@ class VEstimHyperParamGUI(QWidget):
             # Check for empty feature columns
             empty_features = [col for col in feature_columns if not col or col.strip() == '']
             if empty_features:
-                return False, "❌ Some feature columns are empty.\n\nPlease remove empty entries from the feature columns list."
+                return False, "Some feature columns are empty.\n\nPlease remove empty entries from the feature columns list."
             
             return True, ""
             
         except Exception as e:
-            return False, f"❌ Error validating columns: {str(e)}"
+            return False, f"Error validating columns: {str(e)}"

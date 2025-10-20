@@ -215,10 +215,10 @@ class TestSelectionGUI(QMainWindow):
         self.log_widget.clear()
         
         # Process all selected files with a single GUI
-        self.log_widget.append(f"🚀 Starting testing with {len(self.test_files)} file(s)")
+        self.log_widget.append(f"Starting testing with {len(self.test_files)} file(s)")
         
         # Launch the testing GUI ONCE to show results from all files
-        self.log_widget.append("🎯 Launching standalone testing GUI...")
+        self.log_widget.append("Launching standalone testing GUI...")
         self.launch_testing_gui()
         
         # Process files sequentially
@@ -234,15 +234,15 @@ class TestSelectionGUI(QMainWindow):
             
         test_file = self.test_files[self.current_file_index]
         file_name = os.path.basename(test_file)
-        self.log_widget.append(f"� Processing file {self.current_file_index + 1}/{len(self.test_files)}: {file_name}")
-        self.log_widget.append("📋 Checking augmentation requirements...")
+        self.log_widget.append(f"Processing file {self.current_file_index + 1}/{len(self.test_files)}: {file_name}")
+        self.log_widget.append("Checking augmentation requirements...")
         
         # Start the testing manager in background and then launch GUI
         QApplication.processEvents()  # Update UI
         
         try:
             # Use the imported standalone testing manager
-            self.log_widget.append("🔧 Initializing testing manager...")
+            self.log_widget.append("Initializing testing manager...")
             QApplication.processEvents()
             
             # The manager will handle augmentation and testing for this file
@@ -257,35 +257,35 @@ class TestSelectionGUI(QMainWindow):
             # Connect results to the existing GUI (created once)
             if hasattr(self, 'testing_gui') and self.testing_gui:
                 self.testing_manager.results_ready.connect(self.testing_gui.add_result_row)
-                self.log_widget.append("🔗 Connected results to existing GUI")
+                self.log_widget.append("Connected results to existing GUI")
             else:
-                self.log_widget.append("⚠️ Warning: No testing GUI available for results")
+                self.log_widget.append("Warning: No testing GUI available for results")
             
             # Start the testing process
-            self.log_widget.append("▶️ Starting testing manager...")
+            self.log_widget.append("Starting testing manager...")
             QApplication.processEvents()
             self.testing_manager.start()
             
         except Exception as e:
-            self.log_widget.append(f"❌ Error initializing testing: {str(e)}")
+            self.log_widget.append(f"Error initializing testing: {str(e)}")
             self.testing_error(str(e))
     
     def update_log(self, message):
         """Update the log with progress messages - send to terminal for debugging"""
         print(f"[TESTING] {message}")
         # Also keep GUI log for critical messages only
-        if "❌" in message or "✅" in message:
+        if ("Error" in message) or ("completed" in message):
             self.log_widget.append(message)
         QApplication.processEvents()
     
     def handle_augmentation_required(self, test_df, filter_configs):
         """Handle when manual augmentation is required - launch augmentation GUI"""
-        self.log_widget.append("⚠️ Manual augmentation required - opening augmentation GUI...")
+        self.log_widget.append("Manual augmentation required - opening augmentation GUI...")
         QApplication.processEvents()
         
         try:
             # Use the imported standalone augmentation GUI
-            self.log_widget.append("🔧 Launching standalone augmentation interface...")
+            self.log_widget.append("Launching standalone augmentation interface...")
             QApplication.processEvents()
             
             # Create and show the augmentation GUI with the test data and filter configs
@@ -296,39 +296,39 @@ class TestSelectionGUI(QMainWindow):
             
             self.augmentation_gui.show()
             
-            self.log_widget.append("🔧 Augmentation GUI opened. Apply required filters and click 'Continue with Testing'")
+            self.log_widget.append("Augmentation GUI opened. Apply required filters and click 'Continue with Testing'")
             
         except ImportError as e:
-            self.log_widget.append(f"❌ Could not import augmentation GUI: {e}")
-            self.log_widget.append("⚠️ Continuing with original data (may cause normalization errors)")
+            self.log_widget.append(f"Could not import augmentation GUI: {e}")
+            self.log_widget.append("Continuing with original data (may cause normalization errors)")
             if hasattr(self, 'testing_manager'):
                 self.testing_manager.resume_test_with_augmented_data(test_df)
         except Exception as e:
-            self.log_widget.append(f"❌ Error launching augmentation GUI: {e}")
+            self.log_widget.append(f"Error launching augmentation GUI: {e}")
             self.run_test_button.setEnabled(True)
             self.run_test_button.setText("Start Testing")
     
     def continue_testing_after_augmentation(self, augmented_df):
         """Continue testing with the augmented data"""
-        self.log_widget.append("✅ Augmentation completed! Continuing with testing...")
+        self.log_widget.append("Augmentation completed. Continuing with testing...")
         QApplication.processEvents()
         
         if hasattr(self, 'testing_manager'):
             self.testing_manager.resume_test_with_augmented_data(augmented_df)
         else:
-            self.log_widget.append("❌ Error: Testing manager not available")
+            self.log_widget.append("Error: Testing manager not available")
             self.run_test_button.setEnabled(True)
             self.run_test_button.setText("Start Testing")
     
     def testing_completed(self):
         """Handle when testing is completed for current file"""
         current_file = os.path.basename(self.test_files[self.current_file_index])
-        self.log_widget.append(f"✅ Testing completed for: {current_file}")
+        self.log_widget.append(f"Testing completed for: {current_file}")
         
         # Move to next file
         self.current_file_index += 1
         if self.current_file_index < len(self.test_files):
-            self.log_widget.append(f"🔄 Moving to next file...")
+            self.log_widget.append(f"Moving to next file...")
             QApplication.processEvents()
             self.start_next_file_testing()
         else:
@@ -336,8 +336,8 @@ class TestSelectionGUI(QMainWindow):
     
     def all_testing_completed(self):
         """Handle when all files have been tested"""
-        self.log_widget.append("🎉 All files tested successfully!")
-        self.log_widget.append("📊 Check the testing results windows for model results!")
+        self.log_widget.append("All files tested successfully.")
+        self.log_widget.append("Check the testing results windows for model results.")
         
         # Create consolidated summary CSV in main job folder
         if hasattr(self, 'testing_gui') and self.testing_gui:
@@ -355,18 +355,18 @@ class TestSelectionGUI(QMainWindow):
             if hasattr(self.testing_gui, 'create_consolidated_summary_csv'):
                 try:
                     self.testing_gui.create_consolidated_summary_csv()
-                    self.log_widget.append(f"📁 Standalone testing summary saved: standalone_testing_summary_{self.session_timestamp}.csv")
+                    self.log_widget.append(f"Standalone testing summary saved: standalone_testing_summary_{self.session_timestamp}.csv")
                 except Exception as e:
                     print(f"[ERROR] Failed to call create_consolidated_summary_csv: {e}")
                     traceback.print_exc()
-                    self.log_widget.append(f"⚠️ Warning: Could not create consolidated summary: {e}")
+                    self.log_widget.append(f"Warning: Could not create consolidated summary: {e}")
             else:
                 print(f"[ERROR] testing_gui object does not have create_consolidated_summary_csv method")
                 print(f"[DEBUG] Available methods: {[m for m in dir(self.testing_gui) if not m.startswith('_')][:10]}")
-                self.log_widget.append("⚠️ Warning: Could not create consolidated summary - method not found")
+                self.log_widget.append("Warning: Could not create consolidated summary - method not found")
         else:
             print(f"[DEBUG] No testing_gui available: hasattr={hasattr(self, 'testing_gui')}, value={getattr(self, 'testing_gui', None)}")
-            self.log_widget.append("⚠️ Warning: No testing GUI available for consolidated summary")
+            self.log_widget.append("Warning: No testing GUI available for consolidated summary")
         
         QApplication.processEvents()
         
@@ -388,16 +388,16 @@ class TestSelectionGUI(QMainWindow):
     def testing_error(self, error_msg):
         """Handle testing errors"""
         current_file = os.path.basename(self.test_files[self.current_file_index])
-        self.log_widget.append(f"❌ Testing error for {current_file}: {error_msg}")
+        self.log_widget.append(f"Testing error for {current_file}: {error_msg}")
         
         # Move to next file even after error
         self.current_file_index += 1
         if self.current_file_index < len(self.test_files):
-            self.log_widget.append(f"🔄 Continuing with next file...")
+            self.log_widget.append(f"Continuing with next file...")
             QApplication.processEvents()
             self.start_next_file_testing()
         else:
-            self.log_widget.append("⚠️ All files processed (some with errors)")
+            self.log_widget.append("All files processed (some with errors)")
             self.run_test_button.setEnabled(True)
             self.run_test_button.setText("Start Testing")
 
@@ -419,7 +419,7 @@ class TestSelectionGUI(QMainWindow):
             print("[DEBUG] Standalone Testing GUI opened and ready to receive results from all files!")
             
         except Exception as e:
-            self.log_widget.append(f"❌ Failed to launch testing GUI: {str(e)}")
+            self.log_widget.append(f"Failed to launch testing GUI: {str(e)}")
             traceback.print_exc()
             print(f"[ERROR] Exception during testing GUI creation: {e}")
             self.run_test_button.setEnabled(True)

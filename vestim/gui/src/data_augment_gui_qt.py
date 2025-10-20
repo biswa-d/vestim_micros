@@ -1030,7 +1030,7 @@ class DataAugmentGUI(QMainWindow):
             
             # Update status to show editing is locked
             if hasattr(self, 'status_label') and self.status_label:
-                self.status_label.setText("✅ Processing complete - Settings locked, ready to continue")
+                self.status_label.setText("Processing complete - Settings locked, ready to continue")
                 self.status_label.setStyleSheet("color: green; font-weight: bold; font-size: 14px;")
                 
         except Exception as e:

@@ -159,7 +159,7 @@ class VEstimStandaloneTestingManager(QObject):
                     self.test_df[normalized_columns] = scaler.transform(self.test_df[normalized_columns])
                     self.progress.emit("Normalization applied successfully.")
                 else:
-                    self.progress.emit("⚠ Warning: Failed to load scaler, predictions will be on normalized scale")
+                    self.progress.emit("Warning: Failed to load scaler, predictions will be on normalized scale")
             else:
 
                 self.progress.emit("Normalization was not applied during training. Skipping.")
