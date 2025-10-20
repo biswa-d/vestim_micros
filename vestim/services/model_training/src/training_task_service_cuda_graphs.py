@@ -24,7 +24,7 @@ class CUDAGraphsTrainingService:
     
     def __init__(self, device=None):
         self.criterion = nn.MSELoss()
-        # FIXED: Respect the passed device parameter instead of hardcoding CUDA auto-detection
+        # Respect the passed device parameter instead of hardcoding CUDA auto-detection
         if device is not None:
             self.device = device
             print(f"CUDAGraphsTrainingService: Using specified device: {device}")

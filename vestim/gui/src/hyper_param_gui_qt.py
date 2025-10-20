@@ -212,7 +212,7 @@ class VEstimHyperParamGUI(QWidget):
         hyperparam_section.setSpacing(scale_widget_size(10))  # Add spacing between grid items
         group_box_style = get_adaptive_stylesheet("QGroupBox { font-size: 10pt; font-weight: bold; }")
 
-        # FIXED:--- Row 0 ---
+        # Row 0
         data_selection_group = QGroupBox("Data Selection")
         data_selection_group.setStyleSheet(group_box_style)
         data_selection_layout = QVBoxLayout()
@@ -225,24 +225,24 @@ class VEstimHyperParamGUI(QWidget):
         self.add_device_selection(device_optimizer_layout)
         device_optimizer_group.setLayout(device_optimizer_layout)
 
-        # FIXED:--- Row 1 (Left) & Row 2 (Left) ---
+        # Row 1 (Left) and Row 2 (Left)
         model_training_group = QGroupBox("Model and Training Method")
         model_training_group.setStyleSheet(group_box_style)
-        model_training_layout = QVBoxLayout() # FIXED:Changed to QVBoxLayout
+        model_training_layout = QVBoxLayout()  # Vertical layout for training controls
 
         self.add_model_selection(model_training_layout)
         self.add_training_method_selection(model_training_layout)
         
         model_training_group.setLayout(model_training_layout)
 
-        # FIXED:--- Row 1 (Right) ---
+        # Row 1 (Right)
         validation_group = QGroupBox("Validation Training")
         validation_group.setStyleSheet(group_box_style)
         validation_criteria_layout = QVBoxLayout()
         self.add_validation_criteria(validation_criteria_layout)
         validation_group.setLayout(validation_criteria_layout)
 
-        # FIXED:--- Row 2 (Right) ---
+        # Row 2 (Right)
         lr_group = QGroupBox("Learning Rate Scheduler")
         lr_group.setStyleSheet(group_box_style)
         lr_layout = QVBoxLayout()  # Changed from QHBoxLayout to QVBoxLayout for vertical stacking
@@ -263,7 +263,7 @@ class VEstimHyperParamGUI(QWidget):
         lr_layout.addWidget(exploit_lr_group)
         lr_group.setLayout(lr_layout)
 
-        # FIXED:Add widgets to 3-column grid layout
+        # Add widgets to the 3-column grid layout
         # Column 1: Data Selection (row 0), Model and Training Method (rows 1-2)
         hyperparam_section.addWidget(data_selection_group, 0, 0)
         hyperparam_section.addWidget(model_training_group, 1, 0, 2, 1)
@@ -290,7 +290,7 @@ class VEstimHyperParamGUI(QWidget):
 
         content_layout.addLayout(hyperparam_section)
 
-        # FIXED:Bottom Buttons
+        # Bottom buttons
         button_layout = QVBoxLayout()
         load_button = QPushButton("Load Params from File")
         load_button.setFixedHeight(scale_widget_size(40))
@@ -388,7 +388,7 @@ class VEstimHyperParamGUI(QWidget):
         # Filter out timestamp/time-related columns for target selection
         valid_target_columns = self.filter_valid_target_columns(column_names)
 
-        # FIXED:**Feature Selection**
+        # Feature selection
         feature_label = QLabel("Feature Columns (Input):")
         feature_label.setStyleSheet("font-size: 9pt;")
         feature_label.setToolTip("Select one or more columns as input features for training.")
@@ -399,7 +399,7 @@ class VEstimHyperParamGUI(QWidget):
         self.feature_list.setFixedHeight(100)
         self.feature_list.setToolTip("Select multiple features.")
 
-        # FIXED:**Target Selection**
+        # Target selection
         target_label = QLabel("Target Column (Output):")
         target_label.setStyleSheet("font-size: 9pt;")
         target_label.setToolTip("<html><body><span style='font-weight: normal;'>Select the output column for the model to predict.<br><b>Note:</b> Timestamp/time columns are filtered out.</span></body></html>")
@@ -412,22 +412,22 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["FEATURE_COLUMNS"] = self.feature_list
         self.param_entries["TARGET_COLUMN"] = self.target_combo
 
-        # FIXED:**Form Layout for Alignment**
+        # Form layout for alignment
         form_layout = QFormLayout()
         form_layout.addRow(feature_label, self.feature_list)
         form_layout.addRow(target_label, self.target_combo)
 
-        # FIXED:**Apply to Parent Layout**
+        # Apply to parent layout
         layout.addLayout(form_layout)
 
     def add_training_method_selection(self, layout):
         """Adds training method selection with batch size, train-validation split, tooltips, and ensures UI alignment."""
 
-        # FIXED:**Main Layout with Top Alignment**
+        # Main layout with top alignment
         training_layout = QVBoxLayout()
-        training_layout.setAlignment(Qt.AlignTop)  # FIXED:Ensures content stays at the top
+        training_layout.setAlignment(Qt.AlignTop)  # Keep content at the top
 
-        # FIXED:**Training Method Selection Dropdown**
+        # Training method selection dropdown
         self.training_method_label = QLabel("Training Method:")
         self.training_method_label.setStyleSheet("font-size: 9pt;")
         self.training_method_label.setToolTip("Choose how training data is processed.")
@@ -440,26 +440,26 @@ class VEstimHyperParamGUI(QWidget):
             "Whole Sequence: Uses the entire sequence for training."
         )
 
-        # FIXED:**Lookback Parameter (Only for Sequence-to-Sequence)**
+        # Lookback parameter (only for sequence-to-sequence)
         self.lookback_label = QLabel("Lookback Window:")
         self.lookback_label.setStyleSheet("font-size: 9pt;")
         self.lookback_label.setToolTip("Defines how many previous time steps are used for each prediction.")
         self.lookback_entry = QLineEdit(self.params.get("LOOKBACK", "400"))
         self.lookback_entry.textChanged.connect(self.on_param_text_changed)
 
-        # FIXED:**Batch Training Option (Checkbox)**
+        # Batch training option (checkbox)
         self.batch_training_checkbox = QCheckBox("Enable Batch Training")
-        self.batch_training_checkbox.setChecked(True)  # FIXED:Default is now checked
+        self.batch_training_checkbox.setChecked(True)  # Default is checked
         self.batch_training_checkbox.setToolTip("Enable mini-batch training. This is required for FNN and recommended for sequence-based methods.")
         self.batch_training_checkbox.stateChanged.connect(self.update_batch_size_visibility)
 
-        # FIXED:**Batch Size Entry (Initially Enabled as checkbox is checked by default)**
-        self.batch_size_label = QLabel("Batch Size:") # FIXED:Made it an instance variable to hide/show
+        # Batch size entry (initially enabled as checkbox is checked by default)
+        self.batch_size_label = QLabel("Batch Size:")  # Instance variable to hide/show
         self.batch_size_label.setStyleSheet("font-size: 9pt;")
         self.batch_size_label.setToolTip("Number of samples per batch.")
-        self.batch_size_entry = QLineEdit(self.params.get("BATCH_SIZE", "100")) # FIXED:Default value 100
+        self.batch_size_entry = QLineEdit(self.params.get("BATCH_SIZE", "100"))  # Default value 100
         self.batch_size_entry.textChanged.connect(self.on_param_text_changed)
-        self.batch_size_entry.setEnabled(True)  # FIXED:Initially enabled
+        self.batch_size_entry.setEnabled(True)  # Initially enabled
 
         # Store references in self.param_entries for parameter collection
         self.param_entries["TRAINING_METHOD"] = self.training_method_combo

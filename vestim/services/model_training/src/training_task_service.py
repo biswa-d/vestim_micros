@@ -71,9 +71,9 @@ class TrainingTaskService:
         z = None # Initialize filter state for LPF models
         if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]: # Or any other RNN type needing hidden states
             if h_s_initial is not None:
-                h_s = h_s_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
+                h_s = h_s_initial.detach().clone().to(device)  # Ensure cloned states are moved to the correct device
             if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"] and h_c_initial is not None:
-                h_c = h_c_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
+                h_c = h_c_initial.detach().clone().to(device)  # Ensure cloned states are moved to the correct device
 
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
             if stop_requested:
@@ -206,10 +206,10 @@ class TrainingTaskService:
                 if z is not None:
                     z = z.detach()
             elif model_type in ["LSTM", "LSTM_EMA"]:
-                h_s = h_s.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
-                h_c = h_c.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
+                h_s = h_s.detach().to(device)  # Keep hidden states on the correct device after detach
+                h_c = h_c.detach().to(device)  # Keep hidden states on the correct device after detach
             elif model_type == "GRU":
-                h_s = h_s.detach().to(device)  # FIXED: Keep hidden state on the correct device after detach
+                h_s = h_s.detach().to(device)  # Keep hidden state on the correct device after detach
             torch.cuda.empty_cache() if device.type == 'cuda' else None
 
         avg_epoch_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0
@@ -241,9 +241,9 @@ class TrainingTaskService:
         z = None # Initialize filter state for LPF models
         if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]:
             if h_s_initial is not None:
-                h_s = h_s_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
+                h_s = h_s_initial.detach().clone().to(device)  # Ensure cloned states are moved to the correct device
             if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"] and h_c_initial is not None:
-                h_c = h_c_initial.detach().clone().to(device) # FIXED: Ensure cloned states are moved to correct device
+                h_c = h_c_initial.detach().clone().to(device)  # Ensure cloned states are moved to the correct device
 
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
@@ -347,10 +347,10 @@ class TrainingTaskService:
                     if z is not None:
                         z = z.detach()
                 elif model_type in ["LSTM", "LSTM_EMA"]:
-                    h_s = h_s.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
-                    h_c = h_c.detach().to(device)  # FIXED: Keep hidden states on the correct device after detach
+                    h_s = h_s.detach().to(device)  # Keep hidden states on the correct device after detach
+                    h_c = h_c.detach().to(device)  # Keep hidden states on the correct device after detach
                 elif model_type == "GRU":
-                    h_s = h_s.detach().to(device)  # FIXED: Keep hidden state on the correct device after detach
+                    h_s = h_s.detach().to(device)  # Keep hidden state on the correct device after detach
                 torch.cuda.empty_cache() if device.type == 'cuda' else None
         
         avg_loss = sum(total_val_loss) / len(total_val_loss) if total_val_loss else float('nan')
