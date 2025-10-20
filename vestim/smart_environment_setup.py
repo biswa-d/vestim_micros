@@ -986,12 +986,13 @@ reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML
             import json
             
             # Create configuration for the installed application
+            install_date = time.strftime("%Y-%m-%d %H:%M:%S")
             config = {
                 "projects_directory": str(self.project_dir),
                 "data_directory": str(self.project_dir / "data"),
                 "defaults_directory": str(self.project_dir / "defaults_templates"),
                 "install_directory": str(self.install_dir),
-                "install_date": self.log_timestamp,
+                "install_date": install_date,
                 "version": "2.0.1"
             }
             

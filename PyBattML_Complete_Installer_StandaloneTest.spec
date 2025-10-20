@@ -10,6 +10,10 @@ a = Analysis(
         ('launch_gui_qt.py', '.'),
         # Include default settings and templates
         ('defaults_templates', 'defaults_templates'),
+        # Include installer assets (demo data, readme, etc.) for first-run setup
+        ('installer_assets', 'installer_assets'),
+        # Include application icon so setup can copy it for shortcuts
+        ('vestim\\gui\\resources\\PyBattML_icon.ico', 'vestim\\gui\\resources'),
         # Include sample data for testing and training (will be copied to project dir during install)
         # Include standalone test data file
         ('119_ReorderedUS06_n20C.csv', '.'),
