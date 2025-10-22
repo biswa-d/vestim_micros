@@ -1,1 +1,1 @@
-[{"column": "Watts", "output_column_name": "P_filtr_0p002", "corner_frequency": 0.002, "sampling_rate": 1.0, "filter_order": 1}, {"column": "Watts", "output_column_name": "P_filter_0p02", "corner_frequency": 0.02, "sampling_rate": 1.0, "filter_order": 1}]
+[{"column": "Watts", "output_column_name": "P_filter_200", "corner_frequency": 0.2, "sampling_rate": 1.0, "filter_order": 1}]

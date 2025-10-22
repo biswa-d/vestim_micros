@@ -143,7 +143,7 @@ class FilterInputDialog(QDialog):
         form_layout.addRow("Sampling Rate (Hz):", self.sampling_rate_spinbox)
         self.filter_order_spinbox = QSpinBox()
         self.filter_order_spinbox.setRange(1, 10)
-        self.filter_order_spinbox.setValue(4)
+        self.filter_order_spinbox.setValue(1)
         self.filter_order_spinbox.setSingleStep(1)
         form_layout.addRow("Filter Order:", self.filter_order_spinbox)
         self.corner_frequency_spinbox = QDoubleSpinBox()
