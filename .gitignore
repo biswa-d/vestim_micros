@@ -8,6 +8,7 @@ installer_assets/
 
 # Demo data
 data/
+SOP/
 
 # C extensions
 *.so
