@@ -859,6 +859,8 @@ reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML
                         shutil.rmtree(vestim_dest)
                     shutil.copytree(vestim_source, vestim_dest)
                     self.log(f"Extracted Vestim modules to installation: {vestim_dest}")
+                else:
+                    self.log("Warning: 'vestim' package not found in installer bundle; application may fail to launch.", "WARNING")
                 
                 # Copy launch_gui_qt.py to installation directory
                 launch_script_source = bundle_dir / "launch_gui_qt.py"
@@ -909,6 +911,8 @@ reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML
                         shutil.rmtree(templates_dest)
                     shutil.copytree(templates_source, templates_dest)
                     self.log(f"Extracted templates to project: {templates_dest}")
+                else:
+                    self.log("Warning: 'defaults_templates' not found in installer bundle; proceeding without copying.", "WARNING")
                 
                 # Extract data directory to project directory
                 data_source = bundle_dir / "data"
@@ -919,6 +923,8 @@ reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML
                         shutil.rmtree(data_dest)
                     shutil.copytree(data_source, data_dest)
                     self.log(f"Extracted data to project: {data_dest}")
+                else:
+                    self.log("Warning: 'data' directory not found in installer bundle; proceeding without sample data.", "WARNING")
                 
                 # Save project directory location
                 self.install_config["project_dir"] = str(self.project_dir)

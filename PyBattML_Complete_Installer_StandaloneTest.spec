@@ -8,8 +8,12 @@ a = Analysis(
     datas=[
         # Include main launch script
         ('launch_gui_qt.py', '.'),
+        # Include core application source so installer can extract to install_dir
+        ('vestim', 'vestim'),
         # Include default settings and templates
         ('defaults_templates', 'defaults_templates'),
+        # Include sample data directory for first-run templates
+        ('data', 'data'),
         # Include installer assets (demo data, readme, etc.) for first-run setup
         ('installer_assets', 'installer_assets'),
         # Include application icon so setup can copy it for shortcuts
