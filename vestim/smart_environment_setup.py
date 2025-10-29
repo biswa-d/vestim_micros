@@ -311,8 +311,10 @@ class SmartEnvironmentSetup:
     def ensure_windows_prerequisites(self) -> bool:
         """Ensure system-level prerequisites exist (Windows only).
 
-        - Microsoft Visual C++ 2015–2022 Redistributable (x64): required for PyTorch DLLs.
-        Returns True if all checks pass or are not applicable.
+        - Microsoft Visual C++ 2015–2022 Redistributable (x64): REQUIRED for PyTorch DLLs
+          (both CPU and CUDA builds) on Windows.
+        Returns True if all checks pass or are not applicable; returns False if required
+        prerequisites are missing and cannot be installed automatically.
         """
         if not self._is_windows():
             return True
@@ -321,11 +323,17 @@ class SmartEnvironmentSetup:
                 self.log("Microsoft Visual C++ Redistributable (x64) not found.", "WARNING")
                 success = self._install_vc_redist()
                 if not success:
+                    # Hard fail: Without VC++ runtime, torch DLLs (c10.dll) will fail to initialize even for CPU builds.
                     self.log(
-                        "VC++ redistributable is missing and could not be installed automatically. "
-                        "PyTorch GPU build may fail to load. The installer will continue and fall back to CPU if needed.",
-                        "WARNING",
+                        (
+                            "Required prerequisite missing: Microsoft Visual C++ 2015–2022 Redistributable (x64).\n"
+                            "Unable to install it automatically (UAC cancelled, offline, or blocked).\n"
+                            "Please install it manually from: https://aka.ms/vs/17/release/vc_redist.x64.exe\n"
+                            "After installing, re-run the PyBattML installer."
+                        ),
+                        "ERROR",
                     )
+                    return False
             else:
                 self.log("All required Windows prerequisites found.")
             return True
@@ -345,7 +353,8 @@ class SmartEnvironmentSetup:
         
         if not self.system_info.get("has_nvidia_gpu", False):
             self.log("No NVIDIA GPU detected, using CPU PyTorch")
-            return "cpu", ["torch", "torchvision", "torchaudio"]
+            # Explicitly use the CPU index URL for PyTorch to avoid ambiguity
+            return "cpu", ["torch", "torchvision", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]
         
         cuda_major = self.system_info.get("cuda_major", 0)
         cuda_minor = self.system_info.get("cuda_minor", 0)
@@ -515,7 +524,8 @@ class SmartEnvironmentSetup:
                 except Exception as ue:
                     self.log(f"Uninstall warning: {ue}", "WARNING")
                 self.log("Installing CPU PyTorch packages as fallback...")
-                subprocess.run([venv_python, "-m", "pip", "install", "torch", "torchvision", "torchaudio"], check=True, timeout=600)
+                cpu_fallback_cmd = ["torch", "torchvision", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]
+                subprocess.run([venv_python, "-m", "pip", "install"] + cpu_fallback_cmd, check=True, timeout=600)
                 # Re-verify CPU install
                 cpu_verify = subprocess.run(verify_cmd, capture_output=True, text=True, timeout=45)
                 if cpu_verify.returncode == 0:
@@ -540,7 +550,8 @@ class SmartEnvironmentSetup:
             # Try to install CPU version as fallback
             try:
                 self.log("Attempting CPU PyTorch as fallback...")
-                fallback_cmd = [venv_python, "-m", "pip", "install", "torch", "torchvision", "torchaudio"]
+                cpu_fallback_cmd = ["torch", "torchvision", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]
+                fallback_cmd = [venv_python, "-m", "pip", "install"] + cpu_fallback_cmd
                 subprocess.run(fallback_cmd, check=True, timeout=600)
                 self.install_config["pytorch_variant"] = "cpu_fallback"
                 self.save_config()
@@ -579,6 +590,10 @@ class SmartEnvironmentSetup:
                 venv_python = self.install_config["venv_python"]
                 main_script = self.install_dir / "launch_gui_qt.py"
                 
+                # Get venv paths for PATH
+                venv_scripts_path = self.venv_dir / "Scripts"
+                venv_lib_bin_path = self.venv_dir / "Library" / "bin"
+
                 # Create launcher that sets project directory environment variable
                 launcher_content = f'''@echo off
 title PyBattML - Python Battery Modeling Library
@@ -586,6 +601,7 @@ echo Starting PyBattML...
 echo Installation: {self.install_dir}
 echo Project Data: {self.project_dir}
 cd /d "{self.install_dir}"
+set "PATH={venv_scripts_path};{venv_lib_bin_path};%PATH%"
 set VESTIM_PROJECT_DIR={self.project_dir}
 "{venv_python}" "{main_script}" %*
 if errorlevel 1 (
@@ -606,6 +622,7 @@ echo Starting PyBattML with this project directory...
 echo Installation: {self.install_dir}
 echo Project Data: {self.project_dir}
 cd /d "{self.project_dir}"
+set "PATH={venv_scripts_path};{venv_lib_bin_path};%PATH%"
 set VESTIM_PROJECT_DIR={self.project_dir}
 "{venv_python}" "{main_script}" %*
 if errorlevel 1 (

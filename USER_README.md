@@ -35,3 +35,21 @@ You can create new columns in your dataset using formulas. This is useful for fe
 *   Relative noise: `column1 * (1 + noise(0.0, 0.02))`
 *   Moving average: `moving_average(column1, 10)`
 *   Rolling max: `rolling_max(column1, 10)`
+
+## Troubleshooting (Windows)
+
+If PyBattML fails to start with an error mentioning `c10.dll` or `WinError 1114` when importing PyTorch, follow these steps:
+
+1) Install or Repair Microsoft Visual C++ 2015–2022 Redistributable (x64)
+- Download: https://aka.ms/vs/17/release/vc_redist.x64.exe
+- Run the installer and complete setup. Reboot if prompted.
+
+2) Ensure CPU‑only PyTorch is installed
+- If you’re on a CPU‑only machine, PyTorch should be installed from the CPU wheel index.
+- If you previously installed a CUDA wheel, uninstall `torch`, `torchvision`, and `torchaudio` and reinstall them using the CPU index URL.
+
+3) Relaunch PyBattML
+
+Notes:
+- On some systems, corporate policies or being offline may block the installer from installing VC++ automatically. Installing VC++ manually then rerunning the installer resolves the issue.
+- Very old CPUs without AVX support cannot load modern PyTorch wheels; contact support if you suspect this.
