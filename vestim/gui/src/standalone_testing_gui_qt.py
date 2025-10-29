@@ -34,11 +34,6 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from vestim.gui.src.adaptive_gui_utils import display_hyperparameters
 
-try:
-    import tensorflow as tf
-except ImportError:
-    tf = None
-
 class VEstimStandaloneTestingGUI(QMainWindow):
     def __init__(self, job_folder_path, session_timestamp=None):
         super().__init__()
@@ -766,22 +761,9 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                     # Return exact parameter count (not abbreviated)
                     return str(total_params)
             
-            # Fallback: Calculate from model file
-            try:
-                import tensorflow as tf
-            except ImportError:
-
-                return "N/A"
-            
-            if not os.path.exists(model_file_path):
-                return "N/A"
-            
-            # Load model and count parameters
-            model = tf.keras.models.load_model(model_file_path, compile=False)
-            total_params = model.count_params()
-            
-            # Return exact parameter count (not abbreviated)
-            return str(total_params)
+            # No reliable cross-framework fallback without the original architecture;
+            # return N/A when not present in task metadata.
+            return "N/A"
                 
         except Exception as e:
 
