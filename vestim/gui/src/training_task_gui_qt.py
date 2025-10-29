@@ -2,7 +2,6 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QHBoxLayout, QVBoxLayout, QPushButton, QWidget, QFrame, QTextEdit, QGridLayout, QGroupBox, QMessageBox
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-import torch
 import json, time
 import numpy as np
 from matplotlib.figure import Figure

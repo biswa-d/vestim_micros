@@ -230,6 +230,108 @@ class SmartEnvironmentSetup:
         self.system_info = capabilities
         self.save_config()
         return capabilities
+
+    def _is_windows(self) -> bool:
+        return sys.platform == "win32"
+
+    def _check_vc_redist_installed(self) -> bool:
+        """Check if Microsoft Visual C++ 2015–2022 Redistributable (x64) is installed.
+
+        Checks common registry locations for the VC runtime. Returns True if present.
+        """
+        if not self._is_windows():
+            return True
+        try:
+            import winreg
+            reg_paths = [
+                r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+                r"SOFTWARE\Microsoft\VisualStudio\VC\Runtimes\x64",
+                r"SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+            ]
+            for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                for subkey in reg_paths:
+                    try:
+                        key = winreg.OpenKey(root, subkey, 0, winreg.KEY_READ)
+                        installed, _ = winreg.QueryValueEx(key, "Installed")
+                        if int(installed) == 1:
+                            self.log(f"VC++ Redistributable found at registry: {subkey}")
+                            return True
+                    except FileNotFoundError:
+                        continue
+                    except Exception as e:
+                        self.log(f"VC++ registry check error at {subkey}: {e}", "WARNING")
+            return False
+        except Exception as e:
+            self.log(f"VC++ runtime detection failed: {e}", "WARNING")
+            return False
+
+    def _install_vc_redist(self) -> bool:
+        """Attempt to download and install the VC++ 2015–2022 x64 Redistributable.
+
+        Requires internet and will prompt for elevation via UAC. Returns True on success.
+        """
+        if not self._is_windows():
+            return True
+        try:
+            self.log("Attempting to install Microsoft Visual C++ Redistributable (x64)...")
+            vc_url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+            download_path = self.install_dir / "vc_redist.x64.exe"
+
+            # Use PowerShell to download to avoid SSL issues in some environments
+            ps_download = (
+                f"Invoke-WebRequest -Uri '{vc_url}' -OutFile '{download_path}' -UseBasicParsing"
+            )
+            result = subprocess.run(["powershell", "-Command", ps_download], capture_output=True, text=True)
+            if result.returncode != 0:
+                self.log(f"Failed to download VC++ redistributable: {result.stderr}", "ERROR")
+                return False
+
+            # Run installer silently with elevation
+            ps_install = (
+                f"Start-Process -FilePath '{download_path}' -ArgumentList '/install','/quiet','/norestart' -Verb RunAs -Wait; "
+                f"Write-Output $LASTEXITCODE"
+            )
+            result = subprocess.run(["powershell", "-Command", ps_install], capture_output=True, text=True)
+            if result.returncode != 0:
+                self.log(f"Failed to launch VC++ installer (UAC may have been cancelled): {result.stderr}", "WARNING")
+                return False
+
+            # Re-check installation
+            if self._check_vc_redist_installed():
+                self.log("VC++ Redistributable installed successfully.")
+                return True
+            else:
+                self.log("VC++ Redistributable installation verification failed.", "WARNING")
+                return False
+
+        except Exception as e:
+            self.log(f"VC++ installation step failed: {e}", "ERROR")
+            return False
+
+    def ensure_windows_prerequisites(self) -> bool:
+        """Ensure system-level prerequisites exist (Windows only).
+
+        - Microsoft Visual C++ 2015–2022 Redistributable (x64): required for PyTorch DLLs.
+        Returns True if all checks pass or are not applicable.
+        """
+        if not self._is_windows():
+            return True
+        try:
+            if not self._check_vc_redist_installed():
+                self.log("Microsoft Visual C++ Redistributable (x64) not found.", "WARNING")
+                success = self._install_vc_redist()
+                if not success:
+                    self.log(
+                        "VC++ redistributable is missing and could not be installed automatically. "
+                        "PyTorch GPU build may fail to load. The installer will continue and fall back to CPU if needed.",
+                        "WARNING",
+                    )
+            else:
+                self.log("All required Windows prerequisites found.")
+            return True
+        except Exception as e:
+            self.log(f"Prerequisite check failed: {e}", "WARNING")
+            return True
     
     def determine_pytorch_variant(self) -> Tuple[str, List[str]]:
         """Determine the best PyTorch installation command for this system"""
@@ -381,17 +483,51 @@ class SmartEnvironmentSetup:
             
             # Verify PyTorch installation
             verify_cmd = [
-                venv_python, "-c", 
-                "import torch; print(f'PyTorch {torch.__version__} installed'); print(f'CUDA available: {torch.cuda.is_available()}')"
+                venv_python, "-c",
+                (
+                    "import sys;\n"
+                    "try:\n"
+                    "    import torch\n"
+                    "    print(f'PyTorch {torch.__version__} installed')\n"
+                    "    print(f'CUDA available: {torch.cuda.is_available()}')\n"
+                    "    sys.exit(0)\n"
+                    "except Exception as e:\n"
+                    "    import traceback\n"
+                    "    print('VERIFY_IMPORT_ERROR:', e)\n"
+                    "    traceback.print_exc()\n"
+                    "    sys.exit(1)\n"
+                )
             ]
             
-            result = subprocess.run(verify_cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(verify_cmd, capture_output=True, text=True, timeout=45)
             if result.returncode == 0:
                 self.log("PyTorch verification successful:")
                 for line in result.stdout.strip().split('\n'):
                     self.log(f"  {line}")
             else:
-                self.log(f"PyTorch verification failed: {result.stderr}", "WARNING")
+                self.log("PyTorch verification failed; falling back to CPU build.", "WARNING")
+                self.log(f"  STDOUT: {result.stdout}", "WARNING")
+                self.log(f"  STDERR: {result.stderr}", "WARNING")
+                # Attempt to uninstall GPU builds and install CPU wheels
+                try:
+                    self.log("Uninstalling GPU PyTorch packages...")
+                    subprocess.run([venv_python, "-m", "pip", "uninstall", "-y", "torch", "torchvision", "torchaudio"], check=False, timeout=120)
+                except Exception as ue:
+                    self.log(f"Uninstall warning: {ue}", "WARNING")
+                self.log("Installing CPU PyTorch packages as fallback...")
+                subprocess.run([venv_python, "-m", "pip", "install", "torch", "torchvision", "torchaudio"], check=True, timeout=600)
+                # Re-verify CPU install
+                cpu_verify = subprocess.run(verify_cmd, capture_output=True, text=True, timeout=45)
+                if cpu_verify.returncode == 0:
+                    self.log("CPU PyTorch verification successful:")
+                    for line in cpu_verify.stdout.strip().split('\n'):
+                        self.log(f"  {line}")
+                    variant = "cpu_fallback"
+                else:
+                    self.log("CPU PyTorch verification still failing.", "ERROR")
+                    self.log(f"  STDOUT: {cpu_verify.stdout}", "ERROR")
+                    self.log(f"  STDERR: {cpu_verify.stderr}", "ERROR")
+                    return False
             
             self.install_config["pytorch_variant"] = variant
             self.save_config()
@@ -1033,6 +1169,9 @@ reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML
             # Setup Python environment
             if not self.setup_python_environment():
                 return False
+
+            # Ensure Windows prerequisites (VC++ runtime) before heavy installs
+            self.ensure_windows_prerequisites()
             
             # Install base requirements
             if not self.install_base_requirements():

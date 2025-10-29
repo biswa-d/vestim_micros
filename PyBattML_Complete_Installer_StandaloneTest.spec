@@ -1,5 +1,40 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import datetime
+import os
+import re
+import subprocess
+
+
+def _get_git_branch():
+    """Return current git branch or 'unknown' if not available."""
+    # Prefer an env var if provided by CI
+    branch = os.environ.get('GIT_BRANCH') or os.environ.get('BRANCH_NAME')
+    if branch:
+        return branch
+    try:
+        out = subprocess.check_output(
+            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            timeout=5,
+        ).strip()
+        return out or 'unknown'
+    except Exception:
+        return 'unknown'
+
+
+def _sanitize(s: str) -> str:
+    """Sanitize string for filesystem-friendly names."""
+    return re.sub(r'[^A-Za-z0-9._-]+', '_', s)
+
+
+# Version can be kept in sync with the app; adjust here if needed
+_version = '2.0.1'
+_date = datetime.datetime.now().strftime('%Y%m%d')
+_branch = _sanitize(_get_git_branch())
+_app_name = f'PyBattML_{_version}_{_date}_{_branch}'
+
 
 a = Analysis(
     ['vestim_complete_installer.py'],
@@ -79,7 +114,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='PyBattML_2.0.1_2025_September_22_tvo_199_standalone_test',
+    name=_app_name,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

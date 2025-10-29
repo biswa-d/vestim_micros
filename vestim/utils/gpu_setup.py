@@ -1,10 +1,34 @@
 import subprocess
 import sys
-import torch
+
+# Delay torch import to avoid crashing the app on startup if DLL deps are missing
+_torch = None
+
+
+def _safe_import_torch():
+    """Safely import torch, handling missing DLLs gracefully.
+
+    Returns the torch module or None if import fails.
+    """
+    global _torch
+    if _torch is not None:
+        return _torch
+    try:
+        import importlib
+        _torch = importlib.import_module('torch')
+        return _torch
+    except Exception as e:
+        # Avoid crashing at import time; callers decide how to handle
+        print(f"Warning: PyTorch unavailable at import time: {e}")
+        return None
 
 def check_gpu():
     """Check if a compatible NVIDIA GPU is available."""
     try:
+        torch = _safe_import_torch()
+        if not torch:
+            print("PyTorch not available; assuming no GPU for now.")
+            return False
         # Check if CUDA is available to PyTorch
         if torch.cuda.is_available():
             print("NVIDIA GPU with CUDA support detected.")

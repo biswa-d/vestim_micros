@@ -4,8 +4,7 @@
 # Version: 1.0.0
 # Description: Optuna-based hyperparameter optimization GUI for VEstim
 # ---------------------------------------------------------------------------------
-
-import torch
+from vestim.utils.gpu_setup import _safe_import_torch
 import os
 import json
 import logging
@@ -276,8 +275,14 @@ class OptunaOptimizationThread(QThread):
             model_service_class = self._get_class_from_string(model_service_map[params['MODEL_TYPE']])
             model_service = model_service_class()
 
-            device_str = self.params.get('DEVICE_SELECTION', 'cuda:0' if torch.cuda.is_available() else 'cpu')
-            device = torch.device(device_str.lower())
+            torch = _safe_import_torch()
+            try:
+                use_cuda = bool(torch and torch.cuda.is_available())
+            except Exception:
+                use_cuda = False
+            device_str = self.params.get('DEVICE_SELECTION', 'cuda:0' if use_cuda else 'cpu')
+            # Only construct torch.device if torch is importable; otherwise, use string
+            device = torch.device(device_str.lower()) if torch else device_str.lower()
             
             # Pass the trial object to create_model for dynamic model creation only for FNN
             if params['MODEL_TYPE'] == 'FNN':

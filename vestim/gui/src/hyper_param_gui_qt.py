@@ -16,7 +16,7 @@ from PyQt5.QtCore import Qt, QPropertyAnimation
 from PyQt5.QtGui import QIcon, QColor, QPalette
 
 import pandas as pd
-import torch
+from vestim.utils.gpu_setup import _safe_import_torch
 
 import logging
 
@@ -1017,12 +1017,20 @@ class VEstimHyperParamGUI(QWidget):
         
         self.device_combo = QComboBox()
         device_options = ["CPU"]
-        if torch.cuda.is_available():
-            for i in range(torch.cuda.device_count()):
-                device_options.append(f"cuda:{i}")
+        torch = _safe_import_torch()
+        try:
+            if torch and torch.cuda.is_available():
+                for i in range(torch.cuda.device_count()):
+                    device_options.append(f"cuda:{i}")
+        except Exception as _gpu_e:
+            # If querying CUDA fails (e.g., missing DLLs), silently fall back to CPU
+            pass
         self.device_combo.addItems(device_options)
         self.device_combo.setToolTip("Select CPU for compatibility, GPU for faster training.")
-        default_device = "cuda:0" if torch.cuda.is_available() else "CPU"
+        try:
+            default_device = "cuda:0" if (torch and torch.cuda.is_available()) else "CPU"
+        except Exception:
+            default_device = "CPU"
         if default_device in device_options:
             self.device_combo.setCurrentText(default_device)
         elif "CPU" in device_options:
@@ -1030,12 +1038,15 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["DEVICE_SELECTION"] = self.device_combo
         form_layout.addRow(device_label, self.device_combo)
 
-        if torch.cuda.is_available():
-            self.mixed_precision_checkbox = QCheckBox("Use Mixed Precision Training")
-            self.mixed_precision_checkbox.setChecked(True)
-            self.mixed_precision_checkbox.setToolTip("Enable automatic mixed precision (AMP) to accelerate GPU training.")
-            self.param_entries["USE_MIXED_PRECISION"] = self.mixed_precision_checkbox
-            form_layout.addRow(self.mixed_precision_checkbox)
+        try:
+            if torch and torch.cuda.is_available():
+                self.mixed_precision_checkbox = QCheckBox("Use Mixed Precision Training")
+                self.mixed_precision_checkbox.setChecked(True)
+                self.mixed_precision_checkbox.setToolTip("Enable automatic mixed precision (AMP) to accelerate GPU training.")
+                self.param_entries["USE_MIXED_PRECISION"] = self.mixed_precision_checkbox
+                form_layout.addRow(self.mixed_precision_checkbox)
+        except Exception:
+            pass
 
         optimizer_label = QLabel("Optimizer:")
         optimizer_label.setStyleSheet("font-size: 9pt;")
