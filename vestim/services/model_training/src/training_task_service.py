@@ -133,7 +133,12 @@ class TrainingTaskService:
                 # Add gradient clipping to prevent exploding gradients (especially for RNNs)
                 if model_type in ["LSTM", "GRU"]:
                     scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    # Clip gradients more aggressively with max_norm=0.5
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+                    # Check for invalid gradients after clipping
+                    if not torch.isfinite(grad_norm):
+                        logger.warning(f"Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected ({grad_norm:.4f}), skipping batch")
+                        continue  # Skip this batch update
                 
                 scaler.step(optimizer)
                 scaler.update()
@@ -181,7 +186,12 @@ class TrainingTaskService:
                 
                 # THEN clip gradients to prevent exploding gradients (especially for RNNs)
                 if model_type in ["LSTM", "GRU"]:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+                    # Check for invalid gradients after clipping
+                    if not torch.isfinite(grad_norm):
+                        logger.warning(f"Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected ({grad_norm:.4f}), skipping batch")
+                        optimizer.zero_grad()  # Clear the bad gradients
+                        continue
                 
                 # Finally update weights
                 optimizer.step()
@@ -204,15 +214,17 @@ class TrainingTaskService:
                     print(f"Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}, Input: {X_batch.shape}, Pred: {y_pred.shape}")
 
             del X_batch, y_batch, y_pred, loss
+            
+            # CRITICAL: For shuffled sequence training, RESET hidden states to None after each batch
+            # instead of carrying them over. Shuffled sequences are temporally disconnected,
+            # so carrying hidden states contaminates the next batch with irrelevant context.
+            # Detaching alone isn't enough - we need complete reset for independent sequences.
             if model_type == "LSTM_LPF":
-                h_s, h_c = h_s.detach(), h_c.detach()
-                if z is not None:
-                    z = z.detach()
+                h_s, h_c, z = None, None, None
             elif model_type in ["LSTM", "LSTM_EMA"]:
-                h_s = h_s.detach().to(device)  # Keep hidden states on the correct device after detach
-                h_c = h_c.detach().to(device)  # Keep hidden states on the correct device after detach
+                h_s, h_c = None, None
             elif model_type == "GRU":
-                h_s = h_s.detach().to(device)  # Keep hidden state on the correct device after detach
+                h_s = None
             torch.cuda.empty_cache() if device.type == 'cuda' else None
 
         avg_epoch_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0

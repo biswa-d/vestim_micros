@@ -121,6 +121,9 @@ class DataLoaderService:
 
         train_indices, valid_indices = indices[:train_size], indices[train_size:]
 
+        # Use SubsetRandomSampler for proper shuffling across epochs
+        # Each sequence is self-contained, so shuffling helps generalization
+        # Hidden states are reset between batches to prevent context contamination
         train_sampler = SubsetRandomSampler(train_indices)
         valid_sampler = SubsetRandomSampler(valid_indices)
 
