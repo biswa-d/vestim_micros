@@ -63,7 +63,8 @@ class DataLoaderService:
             if lookback is None or lookback <= 0:
                 self.logger.error("Lookback must be a positive integer for SequenceRNN training method.")
                 raise ValueError("Lookback must be a positive integer for SequenceRNN training method.")
-            handler = SequenceRNNDataHandler(feature_cols, target_col, lookback, concatenate_raw_data)
+            # Enable training-time beginning padding to mirror test-time behavior
+            handler = SequenceRNNDataHandler(feature_cols, target_col, lookback, concatenate_raw_data, pad_beginning=True)
             handler_kwargs['lookback'] = lookback # Though already in init, pass for clarity if load_and_process_data uses it
         elif training_method == "WholeSequenceFNN":
             handler = WholeSequenceFNNDataHandler(feature_cols, target_col)
@@ -438,12 +439,13 @@ class DataLoaderService:
                 y_data = df[target_col].values.astype(np.float32)
                 
                 # Check if file has enough data for sequences
+                # When padding at the beginning, allow short files (<= lookback)
                 if len(X_data) <= lookback:
-                    self.logger.warning(f"File {file_path} has insufficient data (length {len(X_data)}) for lookback {lookback}. Skipping.")
-                    continue
+                    self.logger.warning(f"File {file_path} has insufficient data (length {len(X_data)}) for lookback {lookback}. Will include only if padding is enabled.")
+                
                 
                 # Create sequences from this file
-                handler = SequenceRNNDataHandler(feature_cols, target_col, lookback, False)
+                handler = SequenceRNNDataHandler(feature_cols, target_col, lookback, False, pad_beginning=True)
                 X_file_sequences, y_file_sequences = handler._create_sequences_from_array(X_data, y_data)
                 
                 if X_file_sequences.size == 0:
@@ -567,7 +569,8 @@ class DataLoaderService:
         if training_method == "Sequence-to-Sequence":
             if lookback is None or lookback <= 0:
                 raise ValueError("Lookback must be a positive integer for Sequence-to-Sequence training.")
-            handler = SequenceRNNDataHandler(feature_cols, target_col, lookback, concatenate_raw_data)
+            # Mirror test-time behavior: include earliest targets via beginning padding
+            handler = SequenceRNNDataHandler(feature_cols, target_col, lookback, concatenate_raw_data, pad_beginning=True)
             handler_kwargs['lookback'] = lookback
         elif training_method in ["WholeSequenceFNN", "Whole Sequence"]:
             handler = WholeSequenceFNNDataHandler(feature_cols, target_col)

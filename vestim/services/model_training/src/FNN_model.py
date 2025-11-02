@@ -48,6 +48,25 @@ class FNNModel(nn.Module):
             layers.append(torch.nn.Hardtanh(min_val=0, max_val=1))
 
         self.network = nn.Sequential(*layers)
+        
+        # Apply Xavier/Glorot initialization for better stability with normalized data
+        # This is critical for regression tasks and prevents certain layer size combinations
+        # (e.g., 12->6, 16->8) from getting stuck at constant predictions
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        """
+        Initialize weights using Xavier/Glorot uniform initialization.
+        This provides more stable training for regression with normalized inputs
+        compared to PyTorch's default Kaiming initialization.
+        """
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                # Xavier uniform: weights ~ U(-sqrt(6/(fan_in + fan_out)), sqrt(6/(fan_in + fan_out)))
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    # Initialize biases to small positive values to help gradient flow
+                    nn.init.constant_(m.bias, 0.01)
 
     def forward(self, x):
         """

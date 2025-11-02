@@ -52,7 +52,30 @@ class LSTMModel(nn.Module):
             self.final_activation = torch.nn.Hardtanh(min_val=0, max_val=1)
         else:
             self.final_activation = nn.Identity()
+        
+        # Initialize weights properly to prevent gradient issues and flat loss
+        self._initialize_weights()
 
+    def _initialize_weights(self):
+        """
+        Initialize weights using Xavier/Glorot initialization to prevent gradient issues.
+        PyTorch's default Kaiming uniform can cause dead neurons with normalized data,
+        leading to probabilistic flat loss behavior (outputs stuck near dataset mean).
+        """
+        for name, param in self.named_parameters():
+            if 'weight_ih' in name:
+                # Input-hidden weights: Xavier uniform
+                nn.init.xavier_uniform_(param.data)
+            elif 'weight_hh' in name:
+                # Hidden-hidden weights: Orthogonal for RNNs (prevents vanishing/exploding gradients)
+                nn.init.orthogonal_(param.data)
+            elif 'bias' in name:
+                # Bias terms: small constant
+                nn.init.constant_(param.data, 0.0)
+        
+        # Initialize the fully connected layer
+        nn.init.xavier_uniform_(self.fc.weight)
+        nn.init.constant_(self.fc.bias, 0.01)  # Small positive bias for better gradient flow
 
     def forward(self, x, h_s=None, h_c=None):
         # Ensure the input is on the correct device

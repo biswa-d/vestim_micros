@@ -42,6 +42,11 @@ class VEstimTestDataService:
 
         # **Padding the first `lookback` rows with the first row values**
         pad_X = np.tile(X_data[0], (lookback, 1))  # Repeat first row for lookback times
+        # For physical consistency, zero out dynamic columns (current/power) in the padded rows
+        zero_cols = [i for i, name in enumerate(feature_cols) if isinstance(name, str) and (('current' in name.lower()) or ('power' in name.lower()) or name.lower() in ('i','p'))]
+        if zero_cols:
+            pad_X[:, zero_cols] = 0.0
+            print(f"Zeroed padded columns for consistency: {[feature_cols[i] for i in zero_cols]}")
         pad_Y = np.tile(Y_data[0], (lookback, 1))  # Repeat first target row
         
         # Concatenate padding with the original data

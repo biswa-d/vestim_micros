@@ -176,11 +176,14 @@ class TrainingTaskService:
 
                 loss = self.criterion(y_pred, y_batch)
                 
-                # Add gradient clipping to prevent exploding gradients (especially for RNNs)
+                # Backward pass FIRST to compute gradients
+                loss.backward()
+                
+                # THEN clip gradients to prevent exploding gradients (especially for RNNs)
                 if model_type in ["LSTM", "GRU"]:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 
-                loss.backward()
+                # Finally update weights
                 optimizer.step()
                 
             total_train_loss.append(loss.item())
