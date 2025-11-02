@@ -78,36 +78,38 @@ class ContinuousTestingService:
                 print(f"DEBUG: Model moved to device: {self.device}")
                 print(f"DEBUG: First model parameter device: {next(self.model_instance.parameters()).device}")
             
-            # Initialize hidden states only once for the first file (only for RNN models)
-            if is_first_file or self.hidden_states is None:
-                model_metadata = task.get('model_metadata', {})
-                model_type = model_metadata.get('model_type', 'LSTM')
-                
-                if model_type == 'FNN':
-                    # FNN models don't use hidden states
-                    self.hidden_states = {
-                        'model_type': 'FNN'
-                    }
-                    print(f"No hidden states needed for FNN model")
-                elif model_type == 'GRU':
-                    # GRU only has hidden state (h_s), no cell state (h_c)
-                    self.hidden_states = {
-                        'h_s': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
-                        'model_type': 'GRU'
-                    }
-                    print(f"Hidden states initialized for continuous testing ({model_type})")
-                    print(f"DEBUG: Hidden state device: {self.hidden_states['h_s'].device}")
-                    print(f"DEBUG: Service device: {self.device}")
-                else:
-                    # LSTM variants
-                    self.hidden_states = {
-                        'h_s': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
-                        'h_c': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
-                        'model_type': model_type  # Use the specific model_type
-                    }
-                    if model_type == 'LSTM_LPF':
-                        self.hidden_states['z'] = None # Initialize filter state
-                    print(f"Hidden states initialized for continuous testing ({model_type})")
+            # CRITICAL: Reset hidden states for EACH file because test files are independent drive cycles!
+            # Each file starts at ~100% SOC and ends at ~15% SOC, so carrying hidden states
+            # between files would create massive discontinuities (e.g., 15% -> 100% SOC jump).
+            # We need the model to start fresh for each independent test file.
+            model_metadata = task.get('model_metadata', {})
+            model_type = model_metadata.get('model_type', 'LSTM')
+            
+            if model_type == 'FNN':
+                # FNN models don't use hidden states
+                self.hidden_states = {
+                    'model_type': 'FNN'
+                }
+                print(f"No hidden states needed for FNN model")
+            elif model_type == 'GRU':
+                # GRU only has hidden state (h_s), no cell state (h_c)
+                self.hidden_states = {
+                    'h_s': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
+                    'model_type': 'GRU'
+                }
+                print(f"Hidden states reset for new test file ({model_type})")
+                print(f"DEBUG: Hidden state device: {self.hidden_states['h_s'].device}")
+                print(f"DEBUG: Service device: {self.device}")
+            else:
+                # LSTM variants
+                self.hidden_states = {
+                    'h_s': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
+                    'h_c': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
+                    'model_type': model_type  # Use the specific model_type
+                }
+                if model_type == 'LSTM_LPF':
+                    self.hidden_states['z'] = None # Initialize filter state
+                print(f"Hidden states reset for new test file ({model_type})")
             
             # Load scaler only once
             if self.scaler is None:
@@ -168,14 +170,13 @@ class ContinuousTestingService:
             else:
                 print("Using processed data (no normalization was applied during data augmentation)")
             
-            # Always handle warmup for first file (regardless of normalization)
-            if is_first_file:
-                print(f"Adding {warmup_samples} warmup samples for first file")
-                first_row = df_scaled.iloc[0]
-                df_warmup = pd.DataFrame([first_row] * warmup_samples, columns=df_scaled.columns)
-                df_test_full = pd.concat([df_warmup, df_scaled], ignore_index=True)
-            else:
-                df_test_full = df_scaled.copy()
+            # ALWAYS add warmup samples for EVERY file since each file is an independent drive cycle
+            # Each test file starts fresh at ~100% SOC, so the model needs to warm up its hidden states
+            # before making predictions, regardless of whether it's the first file or not.
+            print(f"Adding {warmup_samples} warmup samples for test file (independent drive cycle)")
+            first_row = df_scaled.iloc[0]
+            df_warmup = pd.DataFrame([first_row] * warmup_samples, columns=df_scaled.columns)
+            df_test_full = pd.concat([df_warmup, df_scaled], ignore_index=True)
             
             # Convert to tensor - each sample as a single timestep
             print(f"DEBUG: Creating X_all tensor on device: {self.device}")
@@ -220,12 +221,12 @@ class ContinuousTestingService:
                         self.hidden_states['h_s'] = h_s.detach()
                         self.hidden_states['h_c'] = h_c.detach()
                     
-                    # Skip predictions during warmup for first file
-                    if is_first_file and t < warmup_samples:
+                    # Skip predictions during warmup period (always applies now, not just first file)
+                    if t < warmup_samples:
                         continue
                     
                     # Store prediction
-                    y_index = t if not is_first_file else t - warmup_samples
+                    y_index = t - warmup_samples
                     if y_index < original_len:
                         y_preds[y_index] = y_pred.squeeze()
             
