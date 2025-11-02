@@ -239,21 +239,16 @@ class TrainingTaskService:
 
             del X_batch, y_batch, y_pred, loss
             
-            # CRITICAL: For shuffled sequence training, detach hidden states to prevent backprop
-            # through time across batches while reusing memory allocation.
-            # This is faster than recreating tensors from None every iteration.
+            # CRITICAL: For shuffled sequence training, RESET hidden states to None after each batch
+            # Shuffled sequences are temporally disconnected, so carrying hidden states
+            # (even detached ones) causes gradient instability and training explosions.
+            # The memory allocation cost is worth it for training stability!
             if model_type == "LSTM_LPF":
-                if h_s is not None:
-                    h_s = h_s.detach()
-                    h_c = h_c.detach()
-                    z = None  # Filter state should reset
+                h_s, h_c, z = None, None, None
             elif model_type in ["LSTM", "LSTM_EMA"]:
-                if h_s is not None:
-                    h_s = h_s.detach()
-                    h_c = h_c.detach()
+                h_s, h_c = None, None
             elif model_type == "GRU":
-                if h_s is not None:
-                    h_s = h_s.detach()
+                h_s = None
             
             # Only clear CUDA cache periodically to avoid overhead
             if device.type == 'cuda' and batch_idx % 50 == 0:
@@ -390,21 +385,15 @@ class TrainingTaskService:
 
                 del X_batch, y_batch, y_pred, loss
                 
-                # CRITICAL: For shuffled sequence validation, detach hidden states to prevent
-                # gradient contamination while reusing memory allocation.
-                # This matches the training loop optimization.
+                # CRITICAL: For shuffled sequence validation, RESET hidden states to None
+                # Shuffled sequences are temporally disconnected, so carrying hidden states
+                # causes validation instability. Reset for clean batch-to-batch evaluation.
                 if model_type == "LSTM_LPF":
-                    if h_s is not None:
-                        h_s = h_s.detach()
-                        h_c = h_c.detach()
-                        z = None  # Filter state should reset
+                    h_s, h_c, z = None, None, None
                 elif model_type in ["LSTM", "LSTM_EMA"]:
-                    if h_s is not None:
-                        h_s = h_s.detach()
-                        h_c = h_c.detach()
+                    h_s, h_c = None, None
                 elif model_type == "GRU":
-                    if h_s is not None:
-                        h_s = h_s.detach()
+                    h_s = None
                 
                 # Only clear CUDA cache periodically to avoid overhead
                 if device.type == 'cuda' and batch_idx % 50 == 0:
