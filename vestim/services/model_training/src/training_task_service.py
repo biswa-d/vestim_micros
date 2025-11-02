@@ -389,16 +389,26 @@ class TrainingTaskService:
                         print(f"Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")
 
                 del X_batch, y_batch, y_pred, loss
+                
+                # CRITICAL: For shuffled sequence validation, detach hidden states to prevent
+                # gradient contamination while reusing memory allocation.
+                # This matches the training loop optimization.
                 if model_type == "LSTM_LPF":
-                    h_s, h_c = h_s.detach(), h_c.detach()
-                    if z is not None:
-                        z = z.detach()
+                    if h_s is not None:
+                        h_s = h_s.detach()
+                        h_c = h_c.detach()
+                        z = None  # Filter state should reset
                 elif model_type in ["LSTM", "LSTM_EMA"]:
-                    h_s = h_s.detach().to(device)  # Keep hidden states on the correct device after detach
-                    h_c = h_c.detach().to(device)  # Keep hidden states on the correct device after detach
+                    if h_s is not None:
+                        h_s = h_s.detach()
+                        h_c = h_c.detach()
                 elif model_type == "GRU":
-                    h_s = h_s.detach().to(device)  # Keep hidden state on the correct device after detach
-                torch.cuda.empty_cache() if device.type == 'cuda' else None
+                    if h_s is not None:
+                        h_s = h_s.detach()
+                
+                # Only clear CUDA cache periodically to avoid overhead
+                if device.type == 'cuda' and batch_idx % 50 == 0:
+                    torch.cuda.empty_cache()
         
         avg_loss = sum(total_val_loss) / len(total_val_loss) if total_val_loss else float('nan')
         
