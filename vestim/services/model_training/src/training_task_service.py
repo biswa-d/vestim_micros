@@ -16,6 +16,30 @@ class TrainingTaskService:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             self.device = device
             print(f"TrainingTaskService: Auto-detected device: {device}")
+        
+        # Setup performance optimizations
+        self._setup_performance_optimizations()
+    
+    def _setup_performance_optimizations(self):
+        """Setup PyTorch performance optimizations that are safe and stable."""
+        # Enable cuDNN benchmark mode for faster convolutions/RNN operations
+        # This auto-tunes algorithms for your specific hardware/input size
+        if torch.cuda.is_available():
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cudnn.enabled = True
+            print("Enabled cuDNN benchmark mode for optimized CUDA operations")
+        
+        # Optimize CPU threading for PyTorch operations
+        # Prevents oversubscription when using multiple DataLoader workers
+        import os
+        cpu_count = os.cpu_count() or 4
+        # Reserve some threads for DataLoader workers
+        torch_threads = max(1, cpu_count // 2)
+        torch.set_num_threads(torch_threads)
+        # Set environment variables for BLAS libraries
+        os.environ['OMP_NUM_THREADS'] = str(torch_threads)
+        os.environ['MKL_NUM_THREADS'] = str(torch_threads)
+        print(f"Optimized CPU threading: {torch_threads} threads for PyTorch operations")
     
     def log_to_csv(self, task, epoch, batch_idx, batch_time, phase):
         """Log batch timing data to a CSV file."""
@@ -215,17 +239,25 @@ class TrainingTaskService:
 
             del X_batch, y_batch, y_pred, loss
             
-            # CRITICAL: For shuffled sequence training, RESET hidden states to None after each batch
-            # instead of carrying them over. Shuffled sequences are temporally disconnected,
-            # so carrying hidden states contaminates the next batch with irrelevant context.
-            # Detaching alone isn't enough - we need complete reset for independent sequences.
+            # CRITICAL: For shuffled sequence training, detach hidden states to prevent backprop
+            # through time across batches while reusing memory allocation.
+            # This is faster than recreating tensors from None every iteration.
             if model_type == "LSTM_LPF":
-                h_s, h_c, z = None, None, None
+                if h_s is not None:
+                    h_s = h_s.detach()
+                    h_c = h_c.detach()
+                    z = None  # Filter state should reset
             elif model_type in ["LSTM", "LSTM_EMA"]:
-                h_s, h_c = None, None
+                if h_s is not None:
+                    h_s = h_s.detach()
+                    h_c = h_c.detach()
             elif model_type == "GRU":
-                h_s = None
-            torch.cuda.empty_cache() if device.type == 'cuda' else None
+                if h_s is not None:
+                    h_s = h_s.detach()
+            
+            # Only clear CUDA cache periodically to avoid overhead
+            if device.type == 'cuda' and batch_idx % 50 == 0:
+                torch.cuda.empty_cache()
 
         avg_epoch_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0
         avg_loss = sum(total_train_loss) / len(total_train_loss) if total_train_loss else float('nan')

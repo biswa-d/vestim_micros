@@ -437,34 +437,51 @@ class TrainingTaskManager:
         else:
             self.logger.info(f"job_metadata.json not found at {metadata_file_path}. Assuming no normalization or scaler to load.")
 
-    def get_optimal_num_workers(self):
-        """Automatically determine optimal number of workers based on system specs."""
+    def get_optimal_num_workers(self, model_type="LSTM"):
+        """Automatically determine optimal number of workers based on system specs and model type.
+        
+        Args:
+            model_type: Model type (LSTM, GRU, FNN) to optimize for
+        """
         import os
         try:
             import psutil
             cpu_cores = os.cpu_count()
             available_ram_gb = psutil.virtual_memory().available / (1024**3)  # GB
             
-            # Conservative recommendation based on available resources
-            if available_ram_gb < 8:
-                recommended_workers = 2
-            elif available_ram_gb < 16:
-                recommended_workers = 4
-            else:
-                recommended_workers = min(6, cpu_cores) if cpu_cores else 4
+            # Model-specific recommendations
+            # LSTM/GRU: Lower workers due to sequence processing overhead
+            # FNN: Higher workers due to simpler data structure
+            if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]:
+                if available_ram_gb < 8:
+                    recommended_workers = 0  # Single-process for low RAM
+                elif available_ram_gb < 16:
+                    recommended_workers = 2  # Conservative for RNN
+                else:
+                    recommended_workers = min(4, cpu_cores // 2) if cpu_cores else 2
+            else:  # FNN and other models
+                if available_ram_gb < 8:
+                    recommended_workers = 2
+                elif available_ram_gb < 16:
+                    recommended_workers = 4
+                else:
+                    recommended_workers = min(8, cpu_cores) if cpu_cores else 4
             
-            self.logger.info(f"Auto-configured NUM_WORKERS: {recommended_workers} (CPU cores: {cpu_cores}, Available RAM: {available_ram_gb:.1f}GB)")
+            self.logger.info(f"Auto-configured NUM_WORKERS for {model_type}: {recommended_workers} (CPU cores: {cpu_cores}, Available RAM: {available_ram_gb:.1f}GB)")
             return recommended_workers
             
         except ImportError:
             # Fallback if psutil not available
             cpu_cores = os.cpu_count()
-            recommended_workers = min(4, cpu_cores) if cpu_cores else 4
-            self.logger.info(f"Auto-configured NUM_WORKERS: {recommended_workers} (CPU cores: {cpu_cores})")
+            if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]:
+                recommended_workers = min(2, cpu_cores // 2) if cpu_cores else 2
+            else:
+                recommended_workers = min(4, cpu_cores) if cpu_cores else 4
+            self.logger.info(f"Auto-configured NUM_WORKERS for {model_type}: {recommended_workers} (CPU cores: {cpu_cores})")
             return recommended_workers
         except Exception as e:
             self.logger.warning(f"Error determining optimal workers, using default: {e}")
-            return 4
+            return 2 if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"] else 4
 
     def _cleanup_orphaned_workers(self):
         """Clean up orphaned DataLoader worker processes on Linux systems."""
@@ -510,14 +527,19 @@ class TrainingTaskManager:
         # Consolidate parameters from both global_params and task['hyperparams']
         # Task-specific hyperparams will override global settings
         combined_params = {**self.global_params, **task['hyperparams']}
+        
+        # Get model type for optimized worker configuration
+        model_type = combined_params.get('MODEL_TYPE', 'LSTM')
 
         # Enhanced data loading configuration from combined params
-        num_workers = int(combined_params.get('NUM_WORKERS', self.get_optimal_num_workers()))
+        num_workers = int(combined_params.get('NUM_WORKERS', self.get_optimal_num_workers(model_type)))
         pin_memory = bool(combined_params.get('PIN_MEMORY', True))
-        prefetch_factor = int(combined_params.get('PREFETCH_FACTOR', 2))
+        # Adjust prefetch_factor based on model type: lower for RNN (less data per iteration)
+        default_prefetch = 2 if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"] else 4
+        prefetch_factor = int(combined_params.get('PREFETCH_FACTOR', default_prefetch))
         persistent_workers = bool(combined_params.get('PERSISTENT_WORKERS', num_workers > 0))
 
-        self.logger.info(f"Initial data loading optimization settings:")
+        self.logger.info(f"Initial data loading optimization settings for {model_type}:")
         self.logger.info(f"  - CPU Threads (NUM_WORKERS): {num_workers}")
         self.logger.info(f"  - Fast CPU-GPU Transfer (PIN_MEMORY): {pin_memory}")
         self.logger.info(f"  - Batch Pre-loading (PREFETCH_FACTOR): {prefetch_factor}")
