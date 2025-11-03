@@ -39,10 +39,16 @@ class CUDAGraphsTrainingService:
         if not torch.cuda.is_available():
             self.logger.info("CUDA not available. Falling back to standard training.")
             return False
+        
+        # IMPORTANT: CUDA graphs are incompatible with AMP GradScaler
+        # GradScaler does CPU operations during step() which cannot be captured in graph
+        if use_mixed_precision:
+            self.logger.warning("Mixed precision (AMP) is incompatible with CUDA graphs. Disabling mixed precision for CUDA graphs optimization.")
+            self.logger.warning("CUDA graphs provide ~2x speedup even without mixed precision.")
             
         self.graphs_enabled = True
-        self.scaler = torch.cuda.amp.GradScaler() if use_mixed_precision else None
-        self.logger.info(f"CUDA Graphs enabled on {device}")
+        self.scaler = None  # Always disable scaler for CUDA graphs compatibility
+        self.logger.info(f"CUDA Graphs enabled on {device} (mixed precision disabled for compatibility)")
         return True
     
     def reset_cuda_graphs(self):
@@ -67,7 +73,7 @@ class CUDAGraphsTrainingService:
             optimizer.zero_grad(set_to_none=True)
             
             if self.scaler:
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                     output = model(sample_input)
                     if output.shape != sample_target.shape:
                         if output.ndim > sample_target.ndim and output.shape[-1] == 1:
@@ -107,7 +113,7 @@ class CUDAGraphsTrainingService:
         with torch.cuda.graph(self.train_graph):
             optimizer.zero_grad(set_to_none=True)
             if self.scaler:
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                     self.static_output = model(self.static_input)
                     # Handle shape mismatch
                     if self.static_output.shape != self.static_target.shape:
@@ -187,7 +193,7 @@ class CUDAGraphsTrainingService:
                     # Fall back to standard training for this batch
                     optimizer.zero_grad()
                     if self.scaler:
-                        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                        with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                             output = model(X_batch)
                             if output.shape != y_batch.shape and output.ndim > y_batch.ndim:
                                 output = output.squeeze(-1)
@@ -270,7 +276,7 @@ class CUDAGraphsTrainingService:
             
             optimizer.zero_grad()
             if self.scaler:
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                     output = model(X_batch)
                     if output.shape != y_batch.shape and output.ndim > y_batch.ndim:
                         output = output.squeeze(-1)
@@ -322,7 +328,7 @@ class CUDAGraphsTrainingService:
                 X_batch, y_batch = X_batch.to(device, non_blocking=True), y_batch.to(device, non_blocking=True)
                 
                 if self.scaler:
-                    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                    with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                         output = model(X_batch)
                         if output.shape != y_batch.shape and output.ndim > y_batch.ndim:
                             output = output.squeeze(-1)
