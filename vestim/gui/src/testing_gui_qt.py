@@ -15,7 +15,8 @@
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, 
     QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QDialog, QMessageBox, 
-    QGridLayout, QFrame, QAction, QFileDialog, QTabWidget
+    QGridLayout, QFrame, QAction, QFileDialog, QTabWidget, QLineEdit, QComboBox,
+    QCheckBox, QGroupBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt5.QtGui import QFont, QDesktopServices, QPixmap, QImage, QClipboard
@@ -99,6 +100,7 @@ class VEstimTestingGUI(QMainWindow):
         self.results_list = []
         self.hyper_params = {}
         self.sl_no_counter = 1
+        self.all_tree_items = []  # Store all items for filtering
 
         self.initUI()
         self.start_testing()
@@ -148,9 +150,51 @@ class VEstimTestingGUI(QMainWindow):
         result_summary_label.setStyleSheet("font-size: 14px; font-weight: bold; margin-top: 10px;")
         self.main_layout.addWidget(result_summary_label)
 
+        # Add filter/sort controls
+        filter_group = QGroupBox("Filter & Sort Results")
+        filter_group.setStyleSheet("QGroupBox { font-weight: bold; padding: 10px; margin-top: 10px; }")
+        filter_layout = QHBoxLayout()
+        
+        # Search box
+        search_label = QLabel("Search:")
+        self.search_box = QLineEdit()
+        self.search_box.setPlaceholderText("Filter by model, task, or file name...")
+        self.search_box.textChanged.connect(self.apply_filters)
+        filter_layout.addWidget(search_label)
+        filter_layout.addWidget(self.search_box, 2)
+        
+        # Model type filter
+        model_label = QLabel("Model:")
+        self.model_filter = QComboBox()
+        self.model_filter.addItem("All Models")
+        self.model_filter.currentTextChanged.connect(self.apply_filters)
+        filter_layout.addWidget(model_label)
+        filter_layout.addWidget(self.model_filter, 1)
+        
+        # Sort by
+        sort_label = QLabel("Sort by:")
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems(["Sl.No", "Best Valid Loss (Low→High)", "Best Valid Loss (High→Low)",
+                                  "Test RMSE (Low→High)", "Test RMSE (High→Low)", 
+                                  "Test MAXE (Low→High)", "Test MAXE (High→Low)",
+                                  "R² (High→Low)", "R² (Low→High)", "Model Type"])
+        self.sort_combo.currentTextChanged.connect(self.apply_sort)
+        filter_layout.addWidget(sort_label)
+        filter_layout.addWidget(self.sort_combo, 1)
+        
+        # Clear filters button
+        clear_btn = QPushButton("Clear Filters")
+        clear_btn.setStyleSheet("background-color: #f0ad4e; color: white; padding: 5px; font-weight: bold;")
+        clear_btn.clicked.connect(self.clear_filters)
+        filter_layout.addWidget(clear_btn)
+        
+        filter_group.setLayout(filter_layout)
+        self.main_layout.addWidget(filter_group)
+
         self.tree = QTreeWidget()
         self.tree.setColumnCount(12)
         self.tree.setHeaderLabels(["Sl.No", "Model", "Task", "File Name", "#W&Bs", "Best Train Loss", "Best Valid Loss", "Epochs Trained", "Test RMSE", "Test MAXE", "R²", "Plot"])
+        self.tree.setSortingEnabled(False)  # We'll handle sorting manually
         self.tree.setColumnWidth(0, 50)
         self.tree.setColumnWidth(1, 120)
         self.tree.setColumnWidth(2, 220)
@@ -301,6 +345,28 @@ class VEstimTestingGUI(QMainWindow):
 
             self.tree.addTopLevelItem(row)
             self.tree.setItemWidget(row, 11, button_widget)
+            
+            # Store item with metadata for filtering/sorting
+            item_data = {
+                'item': row,
+                'button_widget': button_widget,
+                'model': str(model_name),
+                'task': str(task_name),
+                'file': str(file_name),
+                'best_valid_loss': float(best_valid_loss) if best_valid_loss != 'N/A' else float('inf'),
+                'rmse': float(rms_error_str) if rms_error_str != 'N/A' else float('inf'),
+                'maxe': float(max_error_str) if max_error_str != 'N/A' else float('inf'),
+                'r2': float(r2_str) if r2_str != 'N/A' else float('-inf'),
+                'sl_no': self.sl_no_counter - 1
+            }
+            self.all_tree_items.append(item_data)
+            
+            # Update model filter dropdown if new model type
+            if str(model_name) not in [self.model_filter.itemText(i) for i in range(self.model_filter.count())]:
+                self.model_filter.addItem(str(model_name))
+            
+            # Color-code based on performance (will be more meaningful after all results are in)
+            self.apply_performance_colors()
 
             training_history_path = os.path.join(save_dir, f'training_history_{task_id}.png')
             if os.path.exists(training_history_path):
@@ -474,6 +540,111 @@ class VEstimTestingGUI(QMainWindow):
             dialog.exec_()
         except Exception as e:
             print(f"Error showing training history plot: {e}")
+
+    def apply_filters(self):
+        """Filter results based on search box and model filter"""
+        search_text = self.search_box.text().lower()
+        model_filter = self.model_filter.currentText()
+        
+        for item_data in self.all_tree_items:
+            item = item_data['item']
+            
+            # Check search text
+            search_match = (search_text == "" or 
+                          search_text in item_data['model'].lower() or
+                          search_text in item_data['task'].lower() or
+                          search_text in item_data['file'].lower())
+            
+            # Check model filter
+            model_match = (model_filter == "All Models" or 
+                         model_filter == item_data['model'])
+            
+            # Show/hide item
+            item.setHidden(not (search_match and model_match))
+    
+    def apply_sort(self):
+        """Sort results based on selected criteria"""
+        sort_by = self.sort_combo.currentText()
+        
+        if sort_by == "Sl.No":
+            sorted_items = sorted(self.all_tree_items, key=lambda x: x['sl_no'])
+        elif sort_by == "Best Valid Loss (Low→High)":
+            sorted_items = sorted(self.all_tree_items, key=lambda x: x['best_valid_loss'])
+        elif sort_by == "Best Valid Loss (High→Low)":
+            sorted_items = sorted(self.all_tree_items, key=lambda x: x['best_valid_loss'], reverse=True)
+        elif sort_by == "Test RMSE (Low→High)":
+            sorted_items = sorted(self.all_tree_items, key=lambda x: x['rmse'])
+        elif sort_by == "Test RMSE (High→Low)":
+            sorted_items = sorted(self.all_tree_items, key=lambda x: x['rmse'], reverse=True)
+        elif sort_by == "Test MAXE (Low→High)":
+            sorted_items = sorted(self.all_tree_items, key=lambda x: x['maxe'])
+        elif sort_by == "Test MAXE (High→Low)":
+            sorted_items = sorted(self.all_tree_items, key=lambda x: x['maxe'], reverse=True)
+        elif sort_by == "R² (High→Low)":
+            sorted_items = sorted(self.all_tree_items, key=lambda x: x['r2'], reverse=True)
+        elif sort_by == "R² (Low→High)":
+            sorted_items = sorted(self.all_tree_items, key=lambda x: x['r2'])
+        elif sort_by == "Model Type":
+            sorted_items = sorted(self.all_tree_items, key=lambda x: x['model'])
+        else:
+            return
+        
+        # Re-order items in tree
+        self.tree.clear()
+        for item_data in sorted_items:
+            self.tree.addTopLevelItem(item_data['item'])
+            # Re-attach button widget
+            self.tree.setItemWidget(item_data['item'], 11, item_data['button_widget'])
+        
+        # Re-apply filters and colors after sorting
+        self.apply_filters()
+        self.apply_performance_colors()
+    
+    def clear_filters(self):
+        """Clear all filters and reset to default view"""
+        self.search_box.clear()
+        self.model_filter.setCurrentIndex(0)
+        self.sort_combo.setCurrentIndex(0)
+        self.apply_filters()
+    
+    def apply_performance_colors(self):
+        """Color-code rows based on performance (best = green, worst = red)"""
+        if len(self.all_tree_items) < 2:
+            return
+        
+        # Find best and worst RMSE
+        valid_rmse = [x['rmse'] for x in self.all_tree_items if x['rmse'] != float('inf')]
+        if not valid_rmse:
+            return
+        
+        best_rmse = min(valid_rmse)
+        worst_rmse = max(valid_rmse)
+        
+        from PyQt5.QtGui import QBrush, QColor
+        
+        for item_data in self.all_tree_items:
+            item = item_data['item']
+            rmse = item_data['rmse']
+            
+            if rmse == float('inf'):
+                continue
+            
+            # Calculate color based on performance (green for best, yellow for middle, red for worst)
+            if len(valid_rmse) == 1 or worst_rmse == best_rmse:
+                color = QColor(144, 238, 144)  # Light green for all if same
+            else:
+                # Normalize to 0-1 range
+                normalized = (rmse - best_rmse) / (worst_rmse - best_rmse)
+                
+                if normalized < 0.33:  # Top 33% - Green
+                    color = QColor(144, 238, 144)  # Light green
+                elif normalized < 0.67:  # Middle 33% - Yellow
+                    color = QColor(255, 255, 153)  # Light yellow
+                else:  # Bottom 33% - Red
+                    color = QColor(255, 182, 193)  # Light red/pink
+            
+            # Apply color to RMSE column only
+            item.setBackground(8, QBrush(color))
 
     def start_testing(self):
         self.start_time = time.time()
