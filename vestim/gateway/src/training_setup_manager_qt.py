@@ -407,11 +407,17 @@ class VEstimTrainingSetupManager:
         
         param_grid = {}
         for key in grid_keys:
-            if key in self.params and isinstance(self.params[key], str) and ',' in self.params[key]:
-                values = [v.strip() for v in self.params[key].split(',')]
+            value = self.params.get(key)
+            # Skip parameters with bracket notation (Optuna format) - they should not be in grid search
+            if value and isinstance(value, str) and ('[' in value or ']' in value):
+                self.logger.warning(f"Skipping '{key}' from grid search - contains bracket notation: {value}")
+                # Use the value as-is (single value, not a grid)
+                param_grid[key] = [value]
+            elif key in self.params and isinstance(value, str) and ',' in value:
+                values = [v.strip() for v in value.split(',')]
                 param_grid[key] = values
             else:
-                if self.params.get(key) is not None:
+                if value is not None:
                     param_grid[key] = [self.params.get(key)]
 
         grid_param_names = list(param_grid.keys())

@@ -167,6 +167,12 @@ class VEstimHyperParamManager:
             model_specific_tunable_keys.get(model_type, []) +
             scheduler_specific_tunable_keys.get(scheduler_type, [])
         )
+        
+        # Also validate ALL scheduler parameters regardless of current scheduler selection
+        # because grid search code checks all params with commas
+        all_scheduler_params = ['LR_PARAM', 'LR_PERIOD', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 
+                                'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN']
+        tunable_keys = tunable_keys + all_scheduler_params
 
         for key in tunable_keys:
             value = params.get(key)
@@ -497,11 +503,12 @@ class VEstimHyperParamManager:
         self.logger.info("New parameters successfully saved.")
 
     def update_params(self, new_params):
-        """Update the current parameters with new values."""
+        """Update the current parameters with new values - REPLACES old params completely."""
         validated_params = self.validate_and_normalize_params(new_params)
-        self.current_params.update(validated_params)
+        # Replace entirely instead of merging to prevent stale parameters from persisting
+        self.current_params = validated_params.copy()
         # self.param_sets.append(self.current_params)
-        self.logger.info("Parameters successfully updated.")
+        self.logger.info("Parameters successfully updated (replaced completely).")
 
     def get_current_params(self):
         """Load the parameters from the saved JSON file in the job folder."""

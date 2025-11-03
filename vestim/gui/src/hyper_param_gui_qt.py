@@ -1251,6 +1251,11 @@ class VEstimHyperParamGUI(QWidget):
                 
                 # FIXED:Load and validate parameters using the manager
                 self.params = self.hyper_param_manager.validate_and_normalize_params(validated_params)
+                
+                # CRITICAL: Replace manager's current_params completely instead of merging
+                # This prevents old parameters from previous runs from persisting
+                self.hyper_param_manager.current_params = self.params.copy()
+                
                 self.logger.info(f"Successfully loaded parameters from {filepath}")
 
                 # FIXED:Update GUI elements with loaded parameters
@@ -1284,6 +1289,12 @@ class VEstimHyperParamGUI(QWidget):
             self.logger.warning("No parameters found to update the GUI.")
             return
 
+        # CRITICAL: Clear all text fields that are NOT in loaded params to prevent stale values
+        for param_name, entry in list(self.param_entries.items()):
+            if param_name not in self.params:
+                if isinstance(entry, QLineEdit):
+                    entry.clear()  # Clear text fields not in loaded params
+                    
         # Update standard hyperparameters (text fields, dropdowns, checkboxes)
         for param_name, entry in list(self.param_entries.items()):
             if param_name in self.params:
@@ -1471,19 +1482,30 @@ class VEstimHyperParamGUI(QWidget):
         """Collect basic parameters that are common to both Optuna and grid search."""
         new_params = {}
 
-        # Collect values from stored param entries
+        # Collect values from stored param entries - ONLY if visible and enabled
         for param, entry in self.param_entries.items():
+            # Skip hidden or disabled fields to prevent collecting stale values
+            if not entry.isVisible():
+                continue
+                
             if isinstance(entry, QLineEdit):
-                new_params[param] = entry.text().strip()
+                if entry.isEnabled():  # Only collect from enabled text fields
+                    value = entry.text().strip()
+                    if value:  # Only add non-empty values
+                        new_params[param] = value
             elif isinstance(entry, QComboBox):
-                new_params[param] = entry.currentText()
+                if entry.isEnabled():
+                    new_params[param] = entry.currentText()
             elif isinstance(entry, QListWidget) and param == "OPTIMIZER_TYPE":
                 selected_optimizers = [item.text() for item in entry.selectedItems()]
                 new_params[param] = ",".join(selected_optimizers)
             elif isinstance(entry, QCheckBox):
-                new_params[param] = entry.isChecked()
+                if entry.isVisible():  # Checkboxes can be visible but unchecked
+                    new_params[param] = entry.isChecked()
             elif isinstance(entry, QListWidget):
-                new_params[param] = [item.text() for item in entry.selectedItems()]
+                selected_items = [item.text() for item in entry.selectedItems()]
+                if selected_items:  # Only add if items are selected
+                    new_params[param] = selected_items
 
         # Conditionally remove inference filter params if 'None' is selected
         if new_params.get("INFERENCE_FILTER_TYPE") == "None":
