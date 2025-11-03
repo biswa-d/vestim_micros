@@ -175,8 +175,15 @@ def display_hyperparameters(gui, params):
             float_val = float(value)
             if 0 < abs(float_val) < 0.01:
                 value_str = f"{float_val:.1e}"
+            elif abs(float_val) < 1.0:
+                # Format to 1 decimal place for values less than 1
+                value_str = f"{float_val:.1f}"
             else:
-                value_str = str(value)
+                # Display as integer for values >= 1
+                if float_val == int(float_val):
+                    value_str = str(int(float_val))
+                else:
+                    value_str = f"{float_val:.1f}"
         except (ValueError, TypeError):
             value_str = str(value)
         
