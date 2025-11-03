@@ -151,6 +151,23 @@ class TrainingTaskService:
 
                     loss = self.criterion(y_pred, y_batch)
                 
+                # Check for invalid loss before backpropagation
+                if not torch.isfinite(loss):
+                    print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid loss detected ({loss.item()})")
+                    print(f"  Input range: [{X_batch.min().item():.4f}, {X_batch.max().item():.4f}]")
+                    print(f"  Target range: [{y_batch.min().item():.4f}, {y_batch.max().item():.4f}]")
+                    print(f"  Prediction range: [{y_pred.min().item():.4f}, {y_pred.max().item():.4f}]")
+                    print(f"  Learning rate: {optimizer.param_groups[0]['lr']}")
+                    optimizer.zero_grad()
+                    if use_mixed_precision:
+                        scaler.update()
+                    # Detach hidden states to break computation graph
+                    if h_s is not None:
+                        h_s = h_s.detach()
+                    if h_c is not None:
+                        h_c = h_c.detach()
+                    continue
+                
                 # Mixed precision backward and optimizer step
                 scaler.scale(loss).backward()
                 
@@ -161,7 +178,17 @@ class TrainingTaskService:
                     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
                     # Check for invalid gradients after clipping
                     if not torch.isfinite(grad_norm):
-                        print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected ({grad_norm:.4f}), skipping batch")
+                        print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected ({grad_norm:.4f})")
+                        print(f"  Loss: {loss.item():.6f}")
+                        print(f"  Learning rate: {optimizer.param_groups[0]['lr']}")
+                        print(f"  This usually indicates: learning rate too high, extreme data values, or numerical instability")
+                        optimizer.zero_grad()  # Clear bad gradients before skipping
+                        scaler.update()  # Update scaler state even when skipping
+                        # Detach hidden states to break computation graph
+                        if h_s is not None:
+                            h_s = h_s.detach()
+                        if h_c is not None:
+                            h_c = h_c.detach()
                         continue  # Skip this batch update
                 
                 scaler.step(optimizer)
@@ -205,6 +232,21 @@ class TrainingTaskService:
 
                 loss = self.criterion(y_pred, y_batch)
                 
+                # Check for invalid loss before backpropagation
+                if not torch.isfinite(loss):
+                    print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid loss detected ({loss.item()})")
+                    print(f"  Input range: [{X_batch.min().item():.4f}, {X_batch.max().item():.4f}]")
+                    print(f"  Target range: [{y_batch.min().item():.4f}, {y_batch.max().item():.4f}]")
+                    print(f"  Prediction range: [{y_pred.min().item():.4f}, {y_pred.max().item():.4f}]")
+                    print(f"  Learning rate: {optimizer.param_groups[0]['lr']}")
+                    optimizer.zero_grad()
+                    # Detach hidden states to break computation graph
+                    if h_s is not None:
+                        h_s = h_s.detach()
+                    if h_c is not None:
+                        h_c = h_c.detach()
+                    continue
+                
                 # Backward pass FIRST to compute gradients
                 loss.backward()
                 
@@ -213,8 +255,16 @@ class TrainingTaskService:
                     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
                     # Check for invalid gradients after clipping
                     if not torch.isfinite(grad_norm):
-                        print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected ({grad_norm:.4f}), skipping batch")
+                        print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected ({grad_norm:.4f})")
+                        print(f"  Loss: {loss.item():.6f}")
+                        print(f"  Learning rate: {optimizer.param_groups[0]['lr']}")
+                        print(f"  This usually indicates: learning rate too high, extreme data values, or numerical instability")
                         optimizer.zero_grad()  # Clear the bad gradients
+                        # Detach hidden states to break computation graph
+                        if h_s is not None:
+                            h_s = h_s.detach()
+                        if h_c is not None:
+                            h_c = h_c.detach()
                         continue
                 
                 # Finally update weights
