@@ -1677,21 +1677,16 @@ class TrainingTaskManager:
         try:
             self.logger.info(f"--- Starting _run_optuna_training_loop for trial: {optuna_trial.number} ---")
             
-            # Check model type early to determine CUDA graph usage
+            # DISABLE CUDA Graphs for Optuna optimization
+            # Reason: Dynamic architectures and batch sizes between trials cause persistent CUDA errors
+            # "operation failed due to a previous error during capture" cannot be reliably recovered
+            # Optuna trials change model architecture/batch size, which breaks CUDA graph assumptions
+            # Standard training is fast enough for Optuna's short trial runs
+            use_cuda_graphs = False
             model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM')
-            use_cuda_graphs = (
-                hasattr(self.training_service, 'train_epoch_with_graphs') and 
-                device.type == 'cuda' and 
-                model_type == 'FNN'
-            )
             
-            # Reset CUDA graphs at the start of each new Optuna trial to ensure clean state
-            if use_cuda_graphs and hasattr(self.training_service, 'reset_cuda_graphs'):
-                self.logger.info(f"Resetting CUDA graphs for new Optuna trial {optuna_trial.number}")
-                self.training_service.reset_cuda_graphs()
-                # Also clear CUDA cache to prevent "previous error during capture"
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
+            if model_type == 'FNN' and device.type == 'cuda':
+                self.logger.info("CUDA graphs disabled for Optuna trials (incompatible with dynamic architecture search)")
             
             # Most of this setup is identical to run_training
             setattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', float('inf'))
@@ -1748,56 +1743,21 @@ class TrainingTaskManager:
                 
                 verbose = task.get('verbose', True)
                 
-                # Use CUDA Graphs if available and enabled (only for FNN models on CUDA)
-                if (hasattr(self.training_service, 'train_epoch_with_graphs') and 
-                    device.type == 'cuda' and model_type == 'FNN'):
-                    
-                    # Check if batch size has changed and reset CUDA graphs if necessary
-                    current_batch_size = train_loader.batch_size
-                    if (self.previous_batch_size is not None and 
-                        current_batch_size != self.previous_batch_size):
-                        self.logger.info(f"Optuna batch size changed from {self.previous_batch_size} to {current_batch_size}. Resetting CUDA Graphs.")
-                        self.training_service.reset_cuda_graphs()
-                    
-                    # Enable CUDA graphs on first epoch or after reset
-                    if epoch == 1 or (self.previous_batch_size is not None and current_batch_size != self.previous_batch_size):
-                        use_mixed_precision = task['hyperparams'].get('USE_MIXED_PRECISION', False)
-                        graphs_enabled = self.training_service.enable_cuda_graphs(device, use_mixed_precision)
-                        if graphs_enabled:
-                            self.logger.info("CUDA Graphs enabled for Optuna training!")
-                    
-                    # Update the previous batch size for future trials
-                    self.previous_batch_size = current_batch_size
-                
-                # Use CUDA Graphs training if available for FNN models
-                if (hasattr(self.training_service, 'train_epoch_with_graphs') and 
-                    device.type == 'cuda' and model_type == 'FNN'):
-                    avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch_with_graphs(
-                        model, train_loader, optimizer, epoch, device, self.stop_requested, task, verbose=verbose
-                    )
-                else:
-                    # Standard training - for RNN models or CPU
-                    avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch(
-                        model, model_type, train_loader, optimizer, None, None, epoch, device, self.stop_requested, task, verbose=verbose
-                    )
+                # CUDA graphs disabled for Optuna - use standard training for all trials
+                # Standard training - works reliably with dynamic architectures
+                avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch(
+                    model, model_type, train_loader, optimizer, None, None, epoch, device, self.stop_requested, task, verbose=verbose
+                )
                 
                 if self.stop_requested:
                     break
 
                 # Validation and Pruning Phase
                 if epoch == 1 or epoch % valid_freq == 0 or epoch == max_epochs:
-                    # Use CUDA Graphs validation if available, consistent with main training loop
-                    if (hasattr(self.training_service, 'validate_epoch_with_graphs') and 
-                        device.type == 'cuda' and model_type == 'FNN'):
-                        val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch_with_graphs(
-                            model, val_loader, epoch, device, self.stop_requested, task
-                        )
-                    else:
-                        # Standard validation - for validation, hidden states are managed within validate_epoch, so we pass None
-                        val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
-                            model, model_type, val_loader, None, None, epoch, device, self.stop_requested, task, verbose=verbose
-                        )
-                    
+                    # Standard validation for Optuna
+                    val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
+                        model, model_type, val_loader, None, None, epoch, device, self.stop_requested, task, verbose=verbose
+                    )
                     # --- OPTUNA PRUNING LOGIC ---
                     log_callback = task.get('log_callback')
                     if log_callback:
