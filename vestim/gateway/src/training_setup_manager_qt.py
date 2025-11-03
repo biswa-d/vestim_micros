@@ -466,9 +466,17 @@ class VEstimTrainingSetupManager:
             model_type = hyperparams.get('MODEL_TYPE', 'MDL')
             name_parts = []
             if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
-                layers = int(hyperparams.get('LAYERS', hyperparams.get('GRU_LAYERS', 0)))
-                hidden_units = int(hyperparams.get('HIDDEN_UNITS', hyperparams.get('GRU_HIDDEN_UNITS', 0)))
-                name_parts.extend([model_type, f"L{layers}", f"HU{hidden_units}"])
+                # Check for RNN_LAYER_SIZES first (new format: "64,32")
+                rnn_layer_sizes = hyperparams.get('RNN_LAYER_SIZES')
+                if rnn_layer_sizes:
+                    # Use layer sizes string in folder name (replace commas with underscores)
+                    layer_str = str(rnn_layer_sizes).replace(',', '_')
+                    name_parts.extend([model_type, f"ARCH_{layer_str}"])
+                else:
+                    # Fall back to legacy LAYERS + HIDDEN_UNITS
+                    layers = int(hyperparams.get('LAYERS', hyperparams.get('GRU_LAYERS', 0)))
+                    hidden_units = int(hyperparams.get('HIDDEN_UNITS', hyperparams.get('GRU_HIDDEN_UNITS', 0)))
+                    name_parts.extend([model_type, f"L{layers}", f"HU{hidden_units}"])
             elif model_type == 'FNN':
                 fnn_units = hyperparams.get('FNN_UNITS', hyperparams.get('HIDDEN_LAYER_SIZES', []))
                 hidden_layers_str = '_'.join(map(str, fnn_units)) if isinstance(fnn_units, list) else str(fnn_units).replace(',', '_')

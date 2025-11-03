@@ -40,8 +40,8 @@ class VEstimHyperParamManager:
 
         # Define model-specific requirements
         model_specific_requirements = {
-            'LSTM': ['LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'],
-            'GRU': ['GRU_LAYERS', 'GRU_HIDDEN_UNITS', 'LOOKBACK'],
+            'LSTM': ['RNN_LAYER_SIZES', 'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'],  # RNN_LAYER_SIZES takes precedence
+            'GRU': ['RNN_LAYER_SIZES', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS', 'LOOKBACK'],  # RNN_LAYER_SIZES takes precedence
             'FNN': ['FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB']
         }
 
@@ -125,8 +125,8 @@ class VEstimHyperParamManager:
 
         # Define model-specific tunable keys
         model_specific_tunable_keys = {
-            'LSTM': ['LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'],
-            'GRU': ['GRU_LAYERS', 'GRU_HIDDEN_UNITS', 'LOOKBACK'],
+            'LSTM': ['RNN_LAYER_SIZES', 'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'],  # RNN_LAYER_SIZES takes precedence
+            'GRU': ['RNN_LAYER_SIZES', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS', 'LOOKBACK'],  # RNN_LAYER_SIZES takes precedence
             'FNN': ['FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB']
         }
 
@@ -236,7 +236,8 @@ class VEstimHyperParamManager:
                 
                 # Add model-specific integer parameters
                 if model_type in ['LSTM', 'GRU']:
-                    integer_params.extend(['LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'])
+                    integer_params.extend(['LAYERS', 'HIDDEN_UNITS', 'LOOKBACK', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS'])
+                    # Note: RNN_LAYER_SIZES is a string parameter (comma-separated) and NOT treated as integer
                 elif model_type == 'FNN':
                     # FNN does not use LOOKBACK, so it's not added to integer_params
                     pass
@@ -376,8 +377,8 @@ class VEstimHyperParamManager:
             "MODEL_TYPE", "TRAINING_METHOD", "LOOKBACK",
             # FNN Specific
             "FNN_HIDDEN_LAYERS", "FNN_ACTIVATION", "FNN_DROPOUT_PROB",
-            # RNN Specific
-            "LAYERS", "HIDDEN_UNITS",
+            # RNN Specific (NEW: RNN_LAYER_SIZES takes precedence over legacy LAYERS/HIDDEN_UNITS)
+            "RNN_LAYER_SIZES", "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS",
             # Training Core
             "BATCH_TRAINING", "BATCH_SIZE", "VALID_PATIENCE", "VALID_FREQUENCY", "MAX_EPOCHS", "REPETITIONS",
             # Optimizer

@@ -581,11 +581,11 @@ class VEstimHyperParamGUI(QWidget):
 
         # FIXED:--- Clear previous model-specific QLineEdit entries from self.param_entries ---
         # FIXED:Define keys for model-specific parameters that might exist from a previous selection
-        lstm_specific_keys = ["LAYERS", "HIDDEN_UNITS"] # FIXED:Add any other LSTM specific QLineEdit keys
-        gru_specific_keys = ["GRU_LAYERS", "GRU_HIDDEN_UNITS"] # FIXED:Add any other GRU specific QLineEdit keys
+        # Updated to use RNN_LAYER_SIZES instead of separate LAYERS/HIDDEN_UNITS fields
+        rnn_specific_keys = ["RNN_LAYER_SIZES", "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS"] # FIXED:Include both new and legacy keys
         fnn_specific_keys = ["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB", "FNN_ACTIVATION"] # FIXED:Add FNN specific QLineEdit keys
         
-        all_model_specific_keys = lstm_specific_keys + gru_specific_keys + fnn_specific_keys
+        all_model_specific_keys = rnn_specific_keys + fnn_specific_keys
         
         for key_to_remove in all_model_specific_keys:
             if key_to_remove in self.param_entries:
@@ -606,57 +606,59 @@ class VEstimHyperParamGUI(QWidget):
 
         # FIXED:**Model-Specific Parameters**
         if selected_model in ["LSTM", "LSTM_EMA", "LSTM_LPF"] or selected_model == "":
-            lstm_layers_label = QLabel("LSTM Layers:")
-            lstm_layers_label.setStyleSheet("font-size: 9pt;")
-            lstm_layers_label.setToolTip("Number of LSTM layers in the model.")
+            lstm_layer_sizes_label = QLabel("LSTM Layer Sizes:")
+            lstm_layer_sizes_label.setStyleSheet("font-size: 9pt;")
+            lstm_layer_sizes_label.setToolTip("Define LSTM layer sizes. Single config: 64,32. Multiple configs: use semicolons (64,32;128,64,32) or brackets ([64,32], [128,64,32]).")
 
-            self.lstm_layers_entry = QLineEdit(self.params.get("LAYERS", "1"))
-            self.lstm_layers_entry.setToolTip("Enter the number of stacked LSTM layers.\nGrid Search: 1,2,3 | Optuna: [1,5]")
-            self.lstm_layers_entry.textChanged.connect(self.on_param_text_changed)
+            # Get default value from RNN_LAYER_SIZES, LSTM_UNITS, or fallback to legacy params
+            default_value = self.params.get("RNN_LAYER_SIZES") or self.params.get("LSTM_UNITS")
+            if not default_value:
+                # Fallback to legacy LAYERS + HIDDEN_UNITS
+                layers = self.params.get("LAYERS", "1")
+                hidden = self.params.get("HIDDEN_UNITS", "10")
+                # Convert to comma-separated format: LAYERS=2, HIDDEN_UNITS=10 -> "10,10"
+                try:
+                    default_value = ",".join([str(hidden)] * int(layers))
+                except:
+                    default_value = "64,32"
 
-            hidden_units_label = QLabel("Hidden Units:")
-            hidden_units_label.setStyleSheet("font-size: 9pt;")
-            hidden_units_label.setToolTip("Number of hidden units per layer.")
+            self.lstm_layer_sizes_entry = QLineEdit(default_value)
+            self.lstm_layer_sizes_entry.setToolTip("Single: '64,32,16' | Multiple with semicolons: '64,32;128,64' | Multiple with brackets: '[64,32], [128,64]'")
+            self.lstm_layer_sizes_entry.textChanged.connect(self.on_param_text_changed)
 
-            self.hidden_units_entry = QLineEdit(self.params.get("HIDDEN_UNITS", "10"))
-            self.hidden_units_entry.setToolTip("Enter the number of hidden units per LSTM layer.\nGrid Search: 10,20,50 | Optuna: [10,100]")
-            self.hidden_units_entry.textChanged.connect(self.on_param_text_changed)
+            self.model_param_container.addWidget(lstm_layer_sizes_label)
+            self.model_param_container.addWidget(self.lstm_layer_sizes_entry)
 
-            self.model_param_container.addWidget(lstm_layers_label)
-            self.model_param_container.addWidget(self.lstm_layers_entry)
-            self.model_param_container.addWidget(hidden_units_label)
-            self.model_param_container.addWidget(self.hidden_units_entry)
-
-            # Store in param_entries
-            model_params["LAYERS"] = self.lstm_layers_entry
-            model_params["HIDDEN_UNITS"] = self.hidden_units_entry
+            # Store in param_entries using new parameter name
+            model_params["RNN_LAYER_SIZES"] = self.lstm_layer_sizes_entry
 
         # FIXED:**GRU Parameters**
         elif selected_model == "GRU":
-            gru_layers_label = QLabel("GRU Layers:")
-            gru_layers_label.setStyleSheet("font-size: 9pt;")
-            gru_layers_label.setToolTip("Number of GRU layers in the model.")
+            gru_layer_sizes_label = QLabel("GRU Layer Sizes:")
+            gru_layer_sizes_label.setStyleSheet("font-size: 9pt;")
+            gru_layer_sizes_label.setToolTip("Define GRU layer sizes. Single config: 64,32. Multiple configs: use semicolons (64,32;128,64,32) or brackets ([64,32], [128,64,32]).")
 
-            self.gru_layers_entry = QLineEdit(self.params.get("GRU_LAYERS", "1"))
-            self.gru_layers_entry.setToolTip("Enter the number of stacked GRU layers.")
-            self.gru_layers_entry.textChanged.connect(self.on_param_text_changed)
+            # Get default value from RNN_LAYER_SIZES, GRU_UNITS, or fallback to legacy params
+            default_value = self.params.get("RNN_LAYER_SIZES") or self.params.get("GRU_UNITS")
+            if not default_value:
+                # Fallback to legacy GRU_LAYERS + GRU_HIDDEN_UNITS
+                layers = self.params.get("GRU_LAYERS", "1")
+                hidden = self.params.get("GRU_HIDDEN_UNITS", "10")
+                # Convert to comma-separated format: GRU_LAYERS=2, GRU_HIDDEN_UNITS=10 -> "10,10"
+                try:
+                    default_value = ",".join([str(hidden)] * int(layers))
+                except:
+                    default_value = "64,32"
 
-            gru_hidden_units_label = QLabel("GRU Hidden Units:")
-            gru_hidden_units_label.setStyleSheet("font-size: 9pt;")
-            gru_hidden_units_label.setToolTip("Number of hidden units per GRU layer.")
+            self.gru_layer_sizes_entry = QLineEdit(default_value)
+            self.gru_layer_sizes_entry.setToolTip("Single: '64,32,16' | Multiple with semicolons: '64,32;128,64' | Multiple with brackets: '[64,32], [128,64]'")
+            self.gru_layer_sizes_entry.textChanged.connect(self.on_param_text_changed)
 
-            self.gru_hidden_units_entry = QLineEdit(self.params.get("GRU_HIDDEN_UNITS", "10"))
-            self.gru_hidden_units_entry.setToolTip("Enter the number of hidden units per GRU layer.")
-            self.gru_hidden_units_entry.textChanged.connect(self.on_param_text_changed)
+            self.model_param_container.addWidget(gru_layer_sizes_label)
+            self.model_param_container.addWidget(self.gru_layer_sizes_entry)
 
-            self.model_param_container.addWidget(gru_layers_label)
-            self.model_param_container.addWidget(self.gru_layers_entry)
-            self.model_param_container.addWidget(gru_hidden_units_label)
-            self.model_param_container.addWidget(self.gru_hidden_units_entry)
-
-            # Store in param_entries
-            model_params["GRU_LAYERS"] = self.gru_layers_entry
-            model_params["GRU_HIDDEN_UNITS"] = self.gru_hidden_units_entry
+            # Store in param_entries using new parameter name
+            model_params["RNN_LAYER_SIZES"] = self.gru_layer_sizes_entry
 
         elif selected_model == "FNN":
             fnn_hidden_layers_label = QLabel("FNN Hidden Layers:")

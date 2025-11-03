@@ -1,13 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.utils.prune as prune
-
-import torch
-import torch.nn as nn
-import torch.nn.utils.prune as prune
 from vestim.services.model_training.src.LSTM_model import LSTMModel
-from vestim.services.model_training.src.LSTM_model_stacked import LSTMStacked
-from vestim.services.model_training.src.rnn_arch_utils import parse_layer_sizes, all_equal
 from vestim.services.model_training.src.LSTM_model_filterable import LSTM_EMA, LSTM_LPF
 
 class LSTMModelService:
@@ -25,48 +19,51 @@ class LSTMModelService:
         """
         target_device = device if device is not None else self.device
         input_size = params.get("INPUT_SIZE", 3)
-        # Support either legacy params (HIDDEN_UNITS + LAYERS) or new RNN layer sizes list
-        rnn_units_val = params.get("RNN_LAYER_SIZES") or params.get("LSTM_UNITS")
-        if rnn_units_val is not None:
-            layer_sizes = parse_layer_sizes(rnn_units_val, params.get("HIDDEN_UNITS"), params.get("LAYERS"))
+        
+        # Parse RNN_LAYER_SIZES parameter (supports comma-separated like "64,32")
+        rnn_layer_sizes = params.get("RNN_LAYER_SIZES") or params.get("LSTM_UNITS")
+        if rnn_layer_sizes:
+            # Parse the layer sizes string (e.g., "64,32" or "128,64,32")
+            if isinstance(rnn_layer_sizes, str):
+                layer_sizes = [int(x.strip()) for x in rnn_layer_sizes.split(',')]
+            elif isinstance(rnn_layer_sizes, list):
+                layer_sizes = [int(x) for x in rnn_layer_sizes]
+            else:
+                layer_sizes = [int(rnn_layer_sizes)]
+            
+            # For now, use only the first layer size (uniform layers)
+            # Future: Support variable layers with custom stacked implementation
+            hidden_units = layer_sizes[0]
+            num_layers = len(layer_sizes)
         else:
-            hidden_units = int(params["HIDDEN_UNITS"])
-            num_layers = int(params["LAYERS"])
-            layer_sizes = [hidden_units] * num_layers
+            # Legacy: Fall back to HIDDEN_UNITS + LAYERS
+            hidden_units = int(params.get("HIDDEN_UNITS", 10))
+            num_layers = int(params.get("LAYERS", 1))
+        
         dropout_prob = params.get("DROPOUT_PROB", 0.5)
-
         apply_clipped_relu = params.get("normalization_applied", False)
         use_layer_norm = params.get("LSTM_USE_LAYERNORM", False)
+        
         print(f"Building {model_type} model with input_size={input_size}, hidden_units={hidden_units}, "
               f"num_layers={num_layers}, dropout_prob={dropout_prob}, device={target_device}, "
               f"apply_clipped_relu={apply_clipped_relu}, use_layer_norm={use_layer_norm}")
 
-        # Choose model implementation
+        # Choose model implementation based on type
         if model_type == "LSTM":
-            if all_equal(layer_sizes):
-                model = LSTMModel(
-                    input_size=input_size,
-                    hidden_units=layer_sizes[0],
-                    num_layers=len(layer_sizes),
-                    device=target_device,
-                    dropout_prob=dropout_prob,
-                    apply_clipped_relu=apply_clipped_relu,
-                    use_layer_norm=use_layer_norm
-                )
-            else:
-                model = LSTMStacked(
-                    input_size=input_size,
-                    layer_sizes=layer_sizes,
-                    device=target_device,
-                    dropout_prob=dropout_prob,
-                    apply_clipped_relu=apply_clipped_relu
-                )
+            model = LSTMModel(
+                input_size=input_size,
+                hidden_units=hidden_units,
+                num_layers=num_layers,
+                device=target_device,
+                dropout_prob=dropout_prob,
+                apply_clipped_relu=apply_clipped_relu,
+                use_layer_norm=use_layer_norm
+            )
         elif model_type == "LSTM_EMA":
-            # EMA uses standard LSTM backbone internally for now
             model = LSTM_EMA(
                 input_size=input_size,
-                hidden_units=layer_sizes[0],
-                num_layers=len(layer_sizes),
+                hidden_units=hidden_units,
+                num_layers=num_layers,
                 device=target_device,
                 dropout_prob=dropout_prob,
                 apply_clipped_relu=apply_clipped_relu
@@ -74,8 +71,8 @@ class LSTMModelService:
         elif model_type == "LSTM_LPF":
             model = LSTM_LPF(
                 input_size=input_size,
-                hidden_units=layer_sizes[0],
-                num_layers=len(layer_sizes),
+                hidden_units=hidden_units,
+                num_layers=num_layers,
                 device=target_device,
                 dropout_prob=dropout_prob,
                 apply_clipped_relu=apply_clipped_relu
@@ -83,8 +80,8 @@ class LSTMModelService:
         else:
             model = LSTMModel(
                 input_size=input_size,
-                hidden_units=layer_sizes[0],
-                num_layers=len(layer_sizes),
+                hidden_units=hidden_units,
+                num_layers=num_layers,
                 device=target_device,
                 dropout_prob=dropout_prob,
                 apply_clipped_relu=apply_clipped_relu,

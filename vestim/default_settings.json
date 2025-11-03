@@ -1,8 +1,8 @@
 {
     "last_used": {
-        "train_folder": "C:/Users/dehuryb/code/Data/E66_All_Temp/train_data",
-        "val_folder": "C:/Users/dehuryb/code/Data/E66_All_Temp/valid_data",
-        "test_folder": "C:/Users/dehuryb/code/Data/E66_All_Temp/test_data",
+        "train_folder": "/mnt/data1/dehuryb/data/Tesla/pybattml/train",
+        "val_folder": "/mnt/data1/dehuryb/data/Tesla/pybattml/valid",
+        "test_folder": "/mnt/data1/dehuryb/data/Tesla/pybattml/test",
         "file_format": "csv",
         "hyperparams": {
             "FEATURE_COLUMNS": [

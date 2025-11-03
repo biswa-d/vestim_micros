@@ -178,7 +178,7 @@ class TrainingTaskManager:
             
             # Add model-specific parameters
             if model_type in ['LSTM', 'GRU']:
-                essential_keys.extend(['LAYERS', 'HIDDEN_UNITS'])
+                essential_keys.extend(['RNN_LAYER_SIZES', 'LAYERS', 'HIDDEN_UNITS', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS'])
             elif model_type == 'FNN':
                 essential_keys.extend(['HIDDEN_LAYER_SIZES', 'DROPOUT_PROB'])
             
@@ -1907,6 +1907,7 @@ class TrainingTaskManager:
             "BATCH_SIZE", "LR_PERIOD", "PLATEAU_PATIENCE", "REPETITIONS",
             "COSINE_T0", "COSINE_T_MULT"
         }
+        # Note: RNN_LAYER_SIZES is NOT an integer param - it's a comma-separated string
         
         for param_name, param_value in hyperparams.items():
             if isinstance(param_value, str) and param_value.startswith('[') and param_value.endswith(']'):

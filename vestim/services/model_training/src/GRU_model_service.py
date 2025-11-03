@@ -1,8 +1,6 @@
 import torch
 import logging
 from vestim.services.model_training.src.GRU_model import GRUModel
-from vestim.services.model_training.src.GRU_model_stacked import GRUStacked
-from vestim.services.model_training.src.rnn_arch_utils import parse_layer_sizes, all_equal
 
 class GRUModelService:
     def __init__(self):
@@ -15,8 +13,8 @@ class GRUModelService:
 
         :param params: Dictionary containing model parameters. Expected keys:
                        "INPUT_SIZE": int,
-                       "HIDDEN_UNITS": int,
-                       "LAYERS": int,
+                       "RNN_LAYER_SIZES" or "GRU_UNITS": str (e.g., "64,32") or list,
+                       OR legacy "HIDDEN_UNITS" + "LAYERS",
                        "OUTPUT_SIZE": int (optional, default 1),
                        "DROPOUT_PROB": float (optional, default 0.0)
         :param device: The target device for the model.
@@ -24,54 +22,48 @@ class GRUModelService:
         """
         target_device = device if device is not None else self.device
         input_size = params.get("INPUT_SIZE", 3)
-        rnn_units_val = params.get("RNN_LAYER_SIZES") or params.get("GRU_UNITS")
-        if rnn_units_val is not None:
-            layer_sizes = parse_layer_sizes(rnn_units_val, params.get("HIDDEN_UNITS"), params.get("LAYERS"))
+        
+        # Parse RNN_LAYER_SIZES parameter (supports comma-separated like "64,32")
+        rnn_layer_sizes = params.get("RNN_LAYER_SIZES") or params.get("GRU_UNITS")
+        if rnn_layer_sizes:
+            # Parse the layer sizes string (e.g., "64,32" or "128,64,32")
+            if isinstance(rnn_layer_sizes, str):
+                layer_sizes = [int(x.strip()) for x in rnn_layer_sizes.split(',')]
+            elif isinstance(rnn_layer_sizes, list):
+                layer_sizes = [int(x) for x in rnn_layer_sizes]
+            else:
+                layer_sizes = [int(rnn_layer_sizes)]
+            
+            # For now, use only the first layer size (uniform layers)
+            # Future: Support variable layers with custom stacked implementation
+            hidden_units = layer_sizes[0]
+            num_layers = len(layer_sizes)
         else:
-            hidden_units = params.get("HIDDEN_UNITS")
-            num_layers = params.get("LAYERS")  # Use LAYERS for consistency
-            layer_sizes = [int(hidden_units)] * int(num_layers)
+            # Legacy: Fall back to GRU_HIDDEN_UNITS + GRU_LAYERS or HIDDEN_UNITS + LAYERS
+            hidden_units = int(params.get("GRU_HIDDEN_UNITS") or params.get("HIDDEN_UNITS", 10))
+            num_layers = int(params.get("GRU_LAYERS") or params.get("LAYERS", 1))
+        
         output_size = params.get("OUTPUT_SIZE", 1)
         dropout_prob = params.get("DROPOUT_PROB", 0.0)
-
-        if input_size is None:
-            self.logger.error("INPUT_SIZE is required to build GRUModel.")
-            raise ValueError("INPUT_SIZE is required for GRUModel.")
-        if layer_sizes is None:
-            self.logger.error("HIDDEN_UNITS is required for GRUModel.")
-            raise ValueError("HIDDEN_UNITS is required for GRUModel.")
-        if len(layer_sizes) == 0:
-            self.logger.error("LAYERS is required for GRUModel.")
-            raise ValueError("LAYERS is required for GRUModel.")
-
         apply_clipped_relu = params.get("normalization_applied", False)
         use_layer_norm = params.get("GRU_USE_LAYERNORM", False)
+        
         self.logger.info(
             f"Building GRU model with input_size={input_size}, hidden_units={hidden_units}, "
             f"num_layers={num_layers}, output_size={output_size}, dropout_prob={dropout_prob}, device={target_device}, "
             f"apply_clipped_relu={apply_clipped_relu}, use_layer_norm={use_layer_norm}"
         )
 
-        if all_equal(layer_sizes):
-            model = GRUModel(
-                input_size=input_size,
-                hidden_units=layer_sizes[0],
-                num_layers=len(layer_sizes),
-                output_size=output_size,
-                dropout_prob=dropout_prob,
-                device=target_device,
-                apply_clipped_relu=apply_clipped_relu,
-                use_layer_norm=use_layer_norm
-            ).to(target_device)
-        else:
-            model = GRUStacked(
-                input_size=input_size,
-                layer_sizes=layer_sizes,
-                output_size=output_size,
-                dropout_prob=dropout_prob,
-                device=target_device,
-                apply_clipped_relu=apply_clipped_relu
-            ).to(target_device)
+        model = GRUModel(
+            input_size=input_size,
+            hidden_units=hidden_units,
+            num_layers=num_layers,
+            output_size=output_size,
+            dropout_prob=dropout_prob,
+            device=target_device,
+            apply_clipped_relu=apply_clipped_relu,
+            use_layer_norm=use_layer_norm
+        ).to(target_device)
         
         return model
 
