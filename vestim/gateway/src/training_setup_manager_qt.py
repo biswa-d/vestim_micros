@@ -622,24 +622,29 @@ class VEstimTrainingSetupManager:
             # Try to get from model_task hyperparams (may have RNN_LAYER_SIZES or legacy params)
             hidden_units = model_task['hyperparams'].get('HIDDEN_UNITS')
             layers = model_task['hyperparams'].get('LAYERS')
+            rnn_layer_sizes_str = model_task['hyperparams'].get('RNN_LAYER_SIZES')
             
-            # If not present, extract from RNN_LAYER_SIZES
+            # Parse layer sizes if available for accurate parameter counting
+            layer_sizes_list = None
+            if rnn_layer_sizes_str:
+                layer_sizes_list = [int(x.strip()) for x in str(rnn_layer_sizes_str).split(',')]
+                if hidden_units is None:
+                    hidden_units = layer_sizes_list[0]
+                if layers is None:
+                    layers = len(layer_sizes_list)
+            
+            # If still not present, use fallback defaults
             if hidden_units is None or layers is None:
-                rnn_layer_sizes = model_task['hyperparams'].get('RNN_LAYER_SIZES')
-                if rnn_layer_sizes:
-                    layer_sizes = [int(x.strip()) for x in str(rnn_layer_sizes).split(',')]
-                    hidden_units = layer_sizes[0]
-                    layers = len(layer_sizes)
-                else:
-                    # Fallback defaults
-                    hidden_units = 10
-                    layers = 1
+                hidden_units = 10
+                layers = 1
             
+            # Calculate parameters with layer_sizes if available for accuracy
             num_learnable_params = self.calculate_learnable_parameters(
                 layers,
                 input_size,
                 hidden_units,
-                model_type
+                model_type,
+                layer_sizes=layer_sizes_list  # Pass variable layer sizes if available
             )
         else:  # FNN model
             hidden_layer_sizes = model_task['hyperparams']['HIDDEN_LAYER_SIZES']
@@ -821,14 +826,15 @@ class VEstimTrainingSetupManager:
         
         return total_params
 
-    def calculate_learnable_parameters(self, layers, input_size, hidden_units, model_type="LSTM"):
+    def calculate_learnable_parameters(self, layers, input_size, hidden_units, model_type="LSTM", layer_sizes=None):
         """
         Calculate the number of learnable parameters for RNN models (LSTM or GRU).
 
         :param layers: Number of layers (an integer representing the number of RNN layers)
         :param input_size: The size of the input features (e.g., 3 for [SOC, Current, Temp])
-        :param hidden_units: An integer representing the number of hidden units in each layer
+        :param hidden_units: An integer representing the number of hidden units (used if layer_sizes not provided)
         :param model_type: Type of model ("LSTM" or "GRU")
+        :param layer_sizes: Optional list of hidden units per layer (e.g., [16, 12] for variable sizes)
         :return: Total number of learnable parameters
         """
 
@@ -842,26 +848,31 @@ class VEstimTrainingSetupManager:
             # LSTM has 4 gates: input, forget, output, and candidate gates
             gates = 4
 
+        # If layer_sizes provided, use variable layer sizes; otherwise use uniform hidden_units
+        if layer_sizes is None:
+            layer_sizes = [hidden_units] * layers
+        
         # Input-to-hidden weights for the first layer
         # For LSTM: 4 * hidden_units * (input_size + hidden_units)
         # For GRU: 3 * hidden_units * (input_size + hidden_units)
-        input_layer_params = gates * (input_size + hidden_units) * hidden_units
-
-        # Add bias terms for each gate in the first layer
-        input_layer_bias = gates * hidden_units
-
+        first_layer_hidden = layer_sizes[0]
+        input_layer_params = gates * (input_size + first_layer_hidden) * first_layer_hidden
+        input_layer_bias = gates * first_layer_hidden
         learnable_params += input_layer_params + input_layer_bias
 
-        # For each additional layer, it's hidden_units -> hidden_units
-        for i in range(1, layers):
-            hidden_layer_params = gates * (hidden_units + hidden_units) * hidden_units
-            hidden_layer_bias = gates * hidden_units
+        # For each additional layer, input is previous layer's hidden size
+        for i in range(1, len(layer_sizes)):
+            prev_hidden = layer_sizes[i - 1]
+            curr_hidden = layer_sizes[i]
+            hidden_layer_params = gates * (prev_hidden + curr_hidden) * curr_hidden
+            hidden_layer_bias = gates * curr_hidden
             learnable_params += hidden_layer_params + hidden_layer_bias
 
-        # Output layer (assuming 1 output)
+        # Output layer (assuming 1 output) - uses last layer's hidden size
         output_size = 1
-        output_layer_params = hidden_units * output_size
-        output_layer_bias = output_size  # 1 bias for the output layer
+        last_layer_hidden = layer_sizes[-1]
+        output_layer_params = last_layer_hidden * output_size
+        output_layer_bias = output_size
         learnable_params += output_layer_params + output_layer_bias
 
         return learnable_params
