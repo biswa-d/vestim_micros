@@ -1652,18 +1652,19 @@ class TrainingTaskManager:
 
     def run_optuna_training(self, task, update_progress_callback, train_loader, val_loader, device):
         """Run the training process for a single Optuna trial."""
+        # IMPORTANT: Switch to standard training service for Optuna
+        # CUDAGraphsTrainingService doesn't have train_epoch() method, only train_epoch_with_graphs()
+        # Since we disabled CUDA graphs for Optuna, we need the standard service
+        if isinstance(self.training_service, CUDAGraphsTrainingService):
+            self.training_service = TrainingTaskService(device=self.device)
+            self.logger.info("Switched to standard TrainingTaskService for Optuna optimization.")
+        
         try:
             self._run_optuna_training_loop(task, update_progress_callback, train_loader, val_loader, device)
         except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
-            self.logger.warning(f"CUDA Graphs training failed for Optuna trial {task.get('task_id', 'N/A')}: {e}. Attempting to fall back to standard training.")
-            if isinstance(self.training_service, CUDAGraphsTrainingService):
-                self.training_service = TrainingTaskService(device=self.device)
-                self.logger.info("Switched to standard TrainingTaskService for Optuna.")
-                update_progress_callback.emit({'status': 'CUDA Graphs failed. Falling back to standard training for Optuna...'})
-                self._run_optuna_training_loop(task, update_progress_callback, train_loader, val_loader, device)
-            else:
-                self.logger.error("CUDA error occurred even with standard training service for Optuna. Cannot recover.")
-                raise e
+            self.logger.warning(f"Training failed for Optuna trial {task.get('task_id', 'N/A')}: {e}.")
+            self.logger.error("Training error occurred during Optuna trial. Cannot recover.")
+            raise e
 
     def _run_optuna_training_loop(self, task, update_progress_callback, train_loader, val_loader, device):
         """
