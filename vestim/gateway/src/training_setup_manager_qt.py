@@ -136,17 +136,29 @@ class VEstimTrainingSetupManager:
             
             # Handle model-specific parameter extraction
             if model_type == "GRU":
-                # For GRU models, use GRU-specific parameters
-                hidden_units_value = str(self.params.get('GRU_HIDDEN_UNITS', '10'))
-                layers_value = str(self.params.get('GRU_LAYERS', '1'))
+                # For GRU models, check RNN_LAYER_SIZES first, then GRU-specific parameters
+                rnn_layer_sizes = self.params.get('RNN_LAYER_SIZES')
+                if rnn_layer_sizes:
+                    hidden_units_value = str(rnn_layer_sizes)
+                    # Count layers from comma-separated values
+                    layers_value = str(len(rnn_layer_sizes.split(',')))
+                else:
+                    hidden_units_value = str(self.params.get('GRU_HIDDEN_UNITS', '10'))
+                    layers_value = str(self.params.get('GRU_LAYERS', '1'))
             elif model_type == "FNN":
                 # For FNN models, use FNN-specific parameters
                 hidden_units_value = str(self.params.get('FNN_HIDDEN_LAYERS', '128,64'))
                 layers_value = "1"  # FNN doesn't use layers like RNN, set to 1 for consistency
             else:
-                # For LSTM and other models, use standard parameters
-                hidden_units_value = str(self.params['HIDDEN_UNITS'])
-                layers_value = str(self.params['LAYERS'])
+                # For LSTM and other models, check RNN_LAYER_SIZES first, then standard parameters
+                rnn_layer_sizes = self.params.get('RNN_LAYER_SIZES')
+                if rnn_layer_sizes:
+                    hidden_units_value = str(rnn_layer_sizes)
+                    # Count layers from comma-separated values
+                    layers_value = str(len(rnn_layer_sizes.split(',')))
+                else:
+                    hidden_units_value = str(self.params.get('HIDDEN_UNITS', '10'))
+                    layers_value = str(self.params.get('LAYERS', '1'))
 
             # **Get input and output feature sizes**
             feature_columns = self.params.get("FEATURE_COLUMNS", [])
@@ -233,39 +245,84 @@ class VEstimTrainingSetupManager:
                         }
                     })
             else:
-                # For RNN models (LSTM/GRU), use the existing logic
-                hidden_units_list = [int(h) for h in hidden_units_value.split(',')]  # Parse hidden units
-                layers_list = [int(l) for l in layers_value.split(',')]  # Parse layers
-
-                # Iterate over all combinations of hidden_units and layers
-                for hidden_units in hidden_units_list:
-                    for layers in layers_list:
-                        self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
-
-                        # Create model directory for RNN models
-                        model_dir_name = self._generate_model_dir_name({'MODEL_TYPE': model_type, 'LAYERS': layers, 'HIDDEN_UNITS': hidden_units})
+                # For RNN models (LSTM/GRU)
+                # Check if using RNN_LAYER_SIZES (new format: "64,32;128,64")
+                rnn_layer_sizes = self.params.get('RNN_LAYER_SIZES')
+                
+                if rnn_layer_sizes:
+                    # New format: Parse semicolon-separated architectures
+                    architectures = [arch.strip() for arch in str(rnn_layer_sizes).split(';') if arch.strip()]
+                    self.logger.info(f"Found {len(architectures)} RNN architecture(s): {architectures}")
+                    
+                    for arch_idx, arch_config in enumerate(architectures):
+                        self.logger.info(f"Creating {model_type} model {arch_idx + 1}/{len(architectures)} with layer sizes: {arch_config}")
+                        
+                        # Create model directory
+                        model_dir_name = self._generate_model_dir_name({'MODEL_TYPE': model_type, 'RNN_LAYER_SIZES': arch_config})
                         model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', model_dir_name)
                         os.makedirs(model_dir, exist_ok=True)
-
+                        
                         model_name = "untrained_model_template.pth"
                         model_path = os.path.join(model_dir, model_name)
-
-                        # Model parameters - handle different model types
-                        if model_type == "GRU":
-                            # GRU model service expects LAYERS (same as LSTM)
-                            model_params = {
-                                "INPUT_SIZE": input_size,
-                                "OUTPUT_SIZE": output_size,
-                                "HIDDEN_UNITS": hidden_units,
-                                "LAYERS": layers  # GRU uses LAYERS, not NUM_LAYERS
+                        
+                        # Model parameters with RNN_LAYER_SIZES
+                        model_params = {
+                            "INPUT_SIZE": input_size,
+                            "OUTPUT_SIZE": output_size,
+                            "RNN_LAYER_SIZES": arch_config  # Pass the architecture string
+                        }
+                        
+                        # Create the model
+                        model = self.create_selected_model(model_type, model_params, model_path)
+                        
+                        # Store model information
+                        self.models.append({
+                            'model': model,
+                            'model_type': model_type,
+                            'model_dir': model_dir,
+                            "FEATURE_COLUMNS": feature_columns,
+                            "TARGET_COLUMN": target_column,
+                            'hyperparams': {
+                                'INPUT_SIZE': input_size,
+                                'OUTPUT_SIZE': output_size,
+                                'RNN_LAYER_SIZES': arch_config,
+                                'model_path': model_path
                             }
-                            self.logger.info(f"GRU model params: {model_params}")
-                        else:
-                            # LSTM and other models use LAYERS
-                            model_params = {
-                                "INPUT_SIZE": input_size,
-                                "OUTPUT_SIZE": output_size,
-                                "HIDDEN_UNITS": hidden_units,
+                        })
+                else:
+                    # Legacy format: Use hidden_units_value and layers_value
+                    hidden_units_list = [int(h) for h in hidden_units_value.split(',')]  # Parse hidden units
+                    layers_list = [int(l) for l in layers_value.split(',')]  # Parse layers
+
+                    # Iterate over all combinations of hidden_units and layers
+                    for hidden_units in hidden_units_list:
+                        for layers in layers_list:
+                            self.logger.info(f"Creating model with hidden_units: {hidden_units}, layers: {layers}")
+
+                            # Create model directory for RNN models
+                            model_dir_name = self._generate_model_dir_name({'MODEL_TYPE': model_type, 'LAYERS': layers, 'HIDDEN_UNITS': hidden_units})
+                            model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', model_dir_name)
+                            os.makedirs(model_dir, exist_ok=True)
+
+                            model_name = "untrained_model_template.pth"
+                            model_path = os.path.join(model_dir, model_name)
+
+                            # Model parameters - handle different model types
+                            if model_type == "GRU":
+                                # GRU model service expects LAYERS (same as LSTM)
+                                model_params = {
+                                    "INPUT_SIZE": input_size,
+                                    "OUTPUT_SIZE": output_size,
+                                    "HIDDEN_UNITS": hidden_units,
+                                    "LAYERS": layers  # GRU uses LAYERS, not NUM_LAYERS
+                                }
+                                self.logger.info(f"GRU model params: {model_params}")
+                            else:
+                                # LSTM and other models use LAYERS
+                                model_params = {
+                                    "INPUT_SIZE": input_size,
+                                    "OUTPUT_SIZE": output_size,
+                                    "HIDDEN_UNITS": hidden_units,
                                 "LAYERS": layers,
                                 "normalization_applied": self.load_job_normalization_metadata().get('normalization_applied', False)
                             }
