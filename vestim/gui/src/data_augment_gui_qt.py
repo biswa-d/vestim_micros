@@ -147,7 +147,7 @@ class FilterInputDialog(QDialog):
         self.filter_order_spinbox.setSingleStep(1)
         form_layout.addRow("Filter Order:", self.filter_order_spinbox)
         self.corner_frequency_spinbox = QDoubleSpinBox()
-        self.corner_frequency_spinbox.setRange(0.0000001, 0.5)
+        self.corner_frequency_spinbox.setRange(0.0000001, 0.6)
         self.corner_frequency_spinbox.setValue(0.01)
         self.corner_frequency_spinbox.setSingleStep(0.0000001)
         self.corner_frequency_spinbox.setDecimals(7)
@@ -170,8 +170,8 @@ class FilterInputDialog(QDialog):
         self.corner_frequency = self.corner_frequency_spinbox.value()
         self.sampling_rate = self.sampling_rate_spinbox.value()
         self.filter_order = self.filter_order_spinbox.value()
-        if not (1e-7 <= self.corner_frequency <= 0.5):
-            QMessageBox.warning(self, "Input Error", "Corner frequency must be between 1e-7 Hz and 0.5 Hz.")
+        if not (1e-7 <= self.corner_frequency <= 0.6):
+            QMessageBox.warning(self, "Input Error", "Corner frequency must be between 1e-7 Hz and 0.6 Hz.")
             return
         if not self.output_column_name:
             QMessageBox.warning(self, "Input Error", "Please enter a name for the new column.")

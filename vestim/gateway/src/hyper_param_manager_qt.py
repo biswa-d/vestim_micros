@@ -151,7 +151,7 @@ class VEstimHyperParamManager:
         model_specific_tunable_keys = {
             'LSTM': ['RNN_LAYER_SIZES', 'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'],  # RNN_LAYER_SIZES takes precedence
             'GRU': ['RNN_LAYER_SIZES', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS', 'LOOKBACK'],  # RNN_LAYER_SIZES takes precedence
-            'FNN': ['FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB']
+            'FNN': ['FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB']  # FNN does not use LOOKBACK
         }
 
         # Define scheduler-specific tunable keys
@@ -171,17 +171,27 @@ class VEstimHyperParamManager:
         for key in tunable_keys:
             value = params.get(key)
             if isinstance(value, str):
-                is_boundary = value.strip().startswith('[') and value.strip().endswith(']')
-                if is_boundary:
-                    # FNN_HIDDEN_LAYERS in Optuna format is an exception, but this is for Grid Search
-                    if key == 'FNN_HIDDEN_LAYERS' and value.count('[') == 2 and value.count(']') == 2:
-                         msg = f"Invalid format for '{key}' in Exhaustive Search. For FNN layer ranges, use semicolon-separated lists of units, not Optuna's double-bracket format."
-                         self.logger.error(msg)
-                         return False, msg
-                    elif key != 'FNN_HIDDEN_LAYERS':
-                        msg = f"Invalid format for '{key}' in Exhaustive Search mode. Use comma-separated values for lists, not [min,max]."
+                value_stripped = value.strip()
+                # Reject any bracket notation in grid search
+                if '[' in value_stripped or ']' in value_stripped:
+                    # FNN_HIDDEN_LAYERS with semicolons is allowed (e.g., "64,32;128,64")
+                    # But reject Optuna format [min],[max] even for FNN_HIDDEN_LAYERS
+                    if key == 'FNN_HIDDEN_LAYERS' and ';' in value_stripped:
+                        # Grid search format for FNN - allow it
+                        pass
+                    else:
+                        msg = f"Invalid format for '{key}' in Exhaustive Search mode. Brackets [] are not allowed. Use comma-separated values (e.g., '5,10,15') or semicolon-separated architectures for FNN_HIDDEN_LAYERS (e.g., '64,32;128,64')."
                         self.logger.error(msg)
                         return False, msg
+        
+        # Additional check: FNN should not have LOOKBACK parameter
+        if model_type == 'FNN' and 'LOOKBACK' in params:
+            lookback_val = params.get('LOOKBACK', '').strip()
+            if lookback_val:  # Only reject if not empty
+                msg = "Invalid parameter 'LOOKBACK' for FNN model. LOOKBACK is only applicable to RNN models (LSTM/GRU)."
+                self.logger.error(msg)
+                return False, msg
+        
         return True, ""
     def validate_hyperparameters_for_gui(self, params, search_mode):
         """

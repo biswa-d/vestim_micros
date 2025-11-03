@@ -1585,6 +1585,10 @@ class VEstimHyperParamGUI(QWidget):
             # FIXED:Ensure batch size has a proper default for FNN
             if not new_params.get("BATCH_SIZE") or new_params.get("BATCH_SIZE").strip() == "":
                 new_params["BATCH_SIZE"] = "5000"
+            # FIXED: Remove LOOKBACK for FNN models - not applicable
+            if "LOOKBACK" in new_params:
+                del new_params["LOOKBACK"]
+                self.logger.info("Removed LOOKBACK parameter for FNN model (not applicable)")
         
         # FIXED:Special handling for LSTM/GRU models - ensure compatible training method
         elif new_params.get("MODEL_TYPE") in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]:
