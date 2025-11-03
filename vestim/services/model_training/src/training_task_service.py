@@ -85,7 +85,7 @@ class TrainingTaskService:
         
         # Check if mixed precision training is enabled
         use_mixed_precision = task['hyperparams'].get('USE_MIXED_PRECISION', False) and device.type == 'cuda'
-        scaler = torch.cuda.amp.GradScaler() if use_mixed_precision else None
+        scaler = torch.amp.GradScaler('cuda') if use_mixed_precision else None
         
         if use_mixed_precision:
             print(f"Using mixed precision training (AMP) for epoch {epoch}")
@@ -112,7 +112,7 @@ class TrainingTaskService:
 
             # Use AMP autocast context manager when mixed precision is enabled
             if use_mixed_precision:
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast('cuda'):
                     # Forward pass with mixed precision
                     if model_type == "LSTM_LPF":
                         if h_s is None or h_c is None: # Ensure hidden states are initialized
@@ -161,7 +161,7 @@ class TrainingTaskService:
                     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
                     # Check for invalid gradients after clipping
                     if not torch.isfinite(grad_norm):
-                        logger.warning(f"Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected ({grad_norm:.4f}), skipping batch")
+                        print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected ({grad_norm:.4f}), skipping batch")
                         continue  # Skip this batch update
                 
                 scaler.step(optimizer)
@@ -213,7 +213,7 @@ class TrainingTaskService:
                     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
                     # Check for invalid gradients after clipping
                     if not torch.isfinite(grad_norm):
-                        logger.warning(f"Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected ({grad_norm:.4f}), skipping batch")
+                        print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected ({grad_norm:.4f}), skipping batch")
                         optimizer.zero_grad()  # Clear the bad gradients
                         continue
                 
@@ -297,7 +297,7 @@ class TrainingTaskService:
 
                 # Use AMP autocast context manager when mixed precision is enabled
                 if use_mixed_precision:
-                    with torch.cuda.amp.autocast():
+                    with torch.amp.autocast('cuda'):
                         if model_type == "LSTM_LPF":
                             if h_s is None or h_c is None:
                                 h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
