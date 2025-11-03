@@ -1677,6 +1677,22 @@ class TrainingTaskManager:
         try:
             self.logger.info(f"--- Starting _run_optuna_training_loop for trial: {optuna_trial.number} ---")
             
+            # Check model type early to determine CUDA graph usage
+            model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM')
+            use_cuda_graphs = (
+                hasattr(self.training_service, 'train_epoch_with_graphs') and 
+                device.type == 'cuda' and 
+                model_type == 'FNN'
+            )
+            
+            # Reset CUDA graphs at the start of each new Optuna trial to ensure clean state
+            if use_cuda_graphs and hasattr(self.training_service, 'reset_cuda_graphs'):
+                self.logger.info(f"Resetting CUDA graphs for new Optuna trial {optuna_trial.number}")
+                self.training_service.reset_cuda_graphs()
+                # Also clear CUDA cache to prevent "previous error during capture"
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            
             # Most of this setup is identical to run_training
             setattr(self, f'_task_{task["task_id"]}_best_val_rmse_orig', float('inf'))
             best_train_loss_norm = float('inf')
@@ -1696,14 +1712,6 @@ class TrainingTaskManager:
             early_stopping = False
             max_training_time_seconds = int(task.get('training_params', {}).get('max_training_time_seconds', 0))
             overall_training_start_time = time.time()
-            
-            # Check if CUDA Graphs will be used for this Optuna trial
-            model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM')
-            use_cuda_graphs = (
-                hasattr(self.training_service, 'train_epoch_with_graphs') and 
-                device.type == 'cuda' and 
-                model_type == 'FNN'
-            )
 
             if use_cuda_graphs:
                 # CUDA Graphs requires capturable=True for Adam optimizer
