@@ -164,7 +164,7 @@ class OptunaOptimizationThread(QThread):
             self.error_occurred.emit(f"Optimization failed: {str(e)}")
     
     def _suggest_params(self, trial):
-        """Suggest parameters for a trial, with special handling for dynamic FNN architecture search."""
+        """Suggest parameters for a trial, with special handling for dynamic FNN and RNN architecture search."""
         params = self.params.copy()
         handled_params = set()
         model_type = self.params.get('MODEL_TYPE')
@@ -196,6 +196,43 @@ class OptunaOptimizationThread(QThread):
 
                 except (ValueError, IndexError) as e:
                     self.log_message.emit(f"Could not parse FNN dynamic ranges from FNN_HIDDEN_LAYERS: {e}. Please check the format.")
+                    raise e
+        
+        # Dynamic RNN Architecture Search based on RNN_LAYER_SIZES format
+        if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF'] and 'RNN_LAYER_SIZES' in self.params:
+            rnn_layer_sizes_str = self.params.get('RNN_LAYER_SIZES', '').strip()
+            # Support format: [[min1,min2],[max1,max2]] for variable layer sizes
+            if rnn_layer_sizes_str.count('[') == 2 and rnn_layer_sizes_str.count(']') == 2:
+                try:
+                    import re
+                    matches = re.findall(r'\[(.*?)\]', rnn_layer_sizes_str)
+                    min_bounds_str, max_bounds_str = matches
+                    min_bounds = [int(x.strip()) for x in min_bounds_str.split(',') if x.strip()]
+                    max_bounds = [int(x.strip()) for x in max_bounds_str.split(',') if x.strip()]
+
+                    n_layers = len(min_bounds)
+                    self.log_message.emit(f"RNN dynamic architecture search: {n_layers} layers with bounds {min_bounds} to {max_bounds}")
+
+                    layer_sizes = []
+                    for i in range(n_layers):
+                        min_units = min_bounds[i]
+                        max_units = max_bounds[i]
+                        units = trial.suggest_int(f'RNN_UNITS_L{i}', min_units, max_units)
+                        layer_sizes.append(units)
+                    
+                    # Store as comma-separated string for compatibility
+                    params['RNN_LAYER_SIZES'] = ','.join(map(str, layer_sizes))
+                    
+                    # Also set legacy params for backward compatibility
+                    params['HIDDEN_UNITS'] = layer_sizes[0]
+                    params['LAYERS'] = len(layer_sizes)
+                    
+                    handled_params.add('RNN_LAYER_SIZES')
+                    handled_params.add('LAYERS')
+                    handled_params.add('HIDDEN_UNITS')
+
+                except (ValueError, IndexError) as e:
+                    self.log_message.emit(f"Could not parse RNN dynamic ranges from RNN_LAYER_SIZES: {e}. Please check the format.")
                     raise e
         
         # General parameter suggestion loop

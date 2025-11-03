@@ -39,9 +39,10 @@ class VEstimHyperParamManager:
         always_required = ['BATCH_SIZE', 'MAX_EPOCHS', 'INITIAL_LR']
 
         # Define model-specific requirements
+        # For LSTM/GRU: Either RNN_LAYER_SIZES OR (LAYERS + HIDDEN_UNITS) must be present
         model_specific_requirements = {
-            'LSTM': ['RNN_LAYER_SIZES', 'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'],  # RNN_LAYER_SIZES takes precedence
-            'GRU': ['RNN_LAYER_SIZES', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS', 'LOOKBACK'],  # RNN_LAYER_SIZES takes precedence
+            'LSTM': ['LOOKBACK'],  # RNN_LAYER_SIZES or (LAYERS + HIDDEN_UNITS) checked separately
+            'GRU': ['LOOKBACK'],   # RNN_LAYER_SIZES or (LAYERS + HIDDEN_UNITS) checked separately
             'FNN': ['FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB']
         }
 
@@ -57,6 +58,20 @@ class VEstimHyperParamManager:
             model_specific_requirements.get(model_type, []) +
             scheduler_specific_requirements.get(scheduler_type, [])
         )
+        
+        # Check RNN architecture parameters for LSTM/GRU
+        if model_type in ['LSTM', 'GRU']:
+            rnn_layer_sizes = params.get('RNN_LAYER_SIZES')
+            has_legacy = params.get('LAYERS') or params.get('HIDDEN_UNITS')
+            
+            if not rnn_layer_sizes and not has_legacy:
+                invalid_params.append("For RNN models, either 'RNN_LAYER_SIZES' or both 'LAYERS' and 'HIDDEN_UNITS' must be provided.")
+            elif rnn_layer_sizes:
+                # If using RNN_LAYER_SIZES, add it to validation
+                strictly_bounded_keys.append('RNN_LAYER_SIZES')
+            else:
+                # If using legacy params, add them to validation
+                strictly_bounded_keys.extend(['LAYERS', 'HIDDEN_UNITS'])
         
         flexible_keys = ['VALID_PATIENCE', 'VALID_FREQUENCY']
         
@@ -74,11 +89,20 @@ class VEstimHyperParamManager:
                     invalid_params.append(f"'{key}' must be in [min,max] format for Auto Search.")
                     continue
             
-            # Rule 2: FNN_HIDDEN_LAYERS has its own special validation handled by validate_hyperparameters_for_gui
-            # We just ensure it's not empty here.
-            if key == 'FNN_HIDDEN_LAYERS' and not value_str:
-                invalid_params.append(f"'{key}' cannot be empty.")
-                continue
+            # Rule 2: FNN_HIDDEN_LAYERS and RNN_LAYER_SIZES have special validation
+            # Support both single boundary [min,max] and double bracket format [[min1,min2],[max1,max2]]
+            if key in ['FNN_HIDDEN_LAYERS', 'RNN_LAYER_SIZES']:
+                if not value_str:
+                    invalid_params.append(f"'{key}' cannot be empty.")
+                    continue
+                # Check if it's the dynamic architecture format [[...],[...]]
+                if value_str.count('[') == 2 and value_str.count(']') == 2:
+                    # Valid dynamic format, skip further validation
+                    continue
+                # Otherwise should be boundary format [min,max]
+                if not (value_str.startswith('[') and value_str.endswith(']')):
+                    invalid_params.append(f"'{key}' must be in [min,max] or [[min1,min2],[max1,max2]] format for Auto Search.")
+                    continue
 
             # Rule 3: For all tunable keys, comma-separated lists are invalid
             if ',' in value_str and not (value_str.startswith('[') and value_str.endswith(']')):

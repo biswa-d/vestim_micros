@@ -66,14 +66,52 @@ The system checks parameters in this order:
 }
 ```
 
-### Optuna Search (Not Yet Supported)
-For Optuna, currently use legacy params:
+### Optuna Search (Dynamic Architecture)
+
+**New**: Optuna now supports dynamic architecture search for RNN models!
+
+**Format**: Use double bracket notation `[[min_bounds],[max_bounds]]`
+
+```json
+{
+  "RNN_LAYER_SIZES": "[[16,12],[64,48]]"
+}
+```
+
+This tells Optuna to search:
+- Layer 1: between 16 and 64 units
+- Layer 2: between 12 and 48 units
+
+**Examples:**
+
+**2-layer search:**
+```json
+{
+  "MODEL_TYPE": "LSTM",
+  "RNN_LAYER_SIZES": "[[32,16],[128,64]]",
+  "BATCH_SIZE": "[16,64]",
+  "INITIAL_LR": "[0.0001,0.01]"
+}
+```
+
+**3-layer search:**
+```json
+{
+  "RNN_LAYER_SIZES": "[[64,32,16],[256,128,64]]"
+}
+```
+- Layer 1: 64-256 units
+- Layer 2: 32-128 units  
+- Layer 3: 16-64 units
+
+**Legacy Optuna (still supported):**
 ```json
 {
   "LAYERS": "[1,3]",
   "HIDDEN_UNITS": "[32,128]"
 }
 ```
+This searches uniform layer sizes only.
 
 ### Grid Search with Multiple Architectures
 ```json
