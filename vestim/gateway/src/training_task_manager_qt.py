@@ -1761,9 +1761,17 @@ class TrainingTaskManager:
                     # Update the previous batch size for future trials
                     self.previous_batch_size = current_batch_size
                 
-                avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch_with_graphs(
-                    model, train_loader, optimizer, epoch, device, self.stop_requested, task, verbose=verbose
-                )
+                # Use CUDA Graphs training if available for FNN models
+                if (hasattr(self.training_service, 'train_epoch_with_graphs') and 
+                    device.type == 'cuda' and model_type == 'FNN'):
+                    avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch_with_graphs(
+                        model, train_loader, optimizer, epoch, device, self.stop_requested, task, verbose=verbose
+                    )
+                else:
+                    # Standard training - for RNN models or CPU
+                    avg_batch_time, train_loss_norm, _, _ = self.training_service.train_epoch(
+                        model, model_type, train_loader, optimizer, None, None, epoch, device, self.stop_requested, task, verbose=verbose
+                    )
                 
                 if self.stop_requested:
                     break
