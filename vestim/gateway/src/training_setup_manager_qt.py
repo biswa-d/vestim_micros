@@ -275,6 +275,11 @@ class VEstimTrainingSetupManager:
                         # Create the model
                         model = self.create_selected_model(model_type, model_params, model_path)
                         
+                        # Parse layer sizes to extract hidden_units and layers for compatibility
+                        layer_sizes = [int(x.strip()) for x in arch_config.split(',')]
+                        hidden_units = layer_sizes[0]  # Use first layer size
+                        num_layers = len(layer_sizes)
+                        
                         # Store model information
                         self.models.append({
                             'model': model,
@@ -286,6 +291,8 @@ class VEstimTrainingSetupManager:
                                 'INPUT_SIZE': input_size,
                                 'OUTPUT_SIZE': output_size,
                                 'RNN_LAYER_SIZES': arch_config,
+                                'HIDDEN_UNITS': hidden_units,  # For compatibility
+                                'LAYERS': num_layers,  # For compatibility
                                 'model_path': model_path
                             }
                         })
@@ -461,8 +468,14 @@ class VEstimTrainingSetupManager:
             "normalization_applied": job_normalization_metadata.get('normalization_applied', False) if job_normalization_metadata else False
         }
         if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]:
-            model_params["HIDDEN_UNITS"] = int(hyperparams.get("HIDDEN_UNITS", hyperparams.get("GRU_HIDDEN_UNITS", 10)))
-            model_params["LAYERS"] = int(hyperparams.get("LAYERS", hyperparams.get("GRU_LAYERS", 1)))
+            # Check for RNN_LAYER_SIZES first (new format), then fall back to legacy
+            rnn_layer_sizes = hyperparams.get("RNN_LAYER_SIZES")
+            if rnn_layer_sizes:
+                model_params["RNN_LAYER_SIZES"] = rnn_layer_sizes
+            else:
+                # Legacy format
+                model_params["HIDDEN_UNITS"] = int(hyperparams.get("HIDDEN_UNITS", hyperparams.get("GRU_HIDDEN_UNITS", 10)))
+                model_params["LAYERS"] = int(hyperparams.get("LAYERS", hyperparams.get("GRU_LAYERS", 1)))
         elif model_type == "FNN":
             # For Optuna, FNN_UNITS will be a list of ints. For grid search, FNN_HIDDEN_LAYERS is a string.
             fnn_units = hyperparams.get("FNN_UNITS", hyperparams.get("FNN_HIDDEN_LAYERS"))
@@ -606,8 +619,22 @@ class VEstimTrainingSetupManager:
         
         # For RNN models (LSTM/GRU), use HIDDEN_UNITS and LAYERS
         if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
-            hidden_units = model_task['hyperparams']['HIDDEN_UNITS']
-            layers = model_task['hyperparams']['LAYERS']
+            # Try to get from model_task hyperparams (may have RNN_LAYER_SIZES or legacy params)
+            hidden_units = model_task['hyperparams'].get('HIDDEN_UNITS')
+            layers = model_task['hyperparams'].get('LAYERS')
+            
+            # If not present, extract from RNN_LAYER_SIZES
+            if hidden_units is None or layers is None:
+                rnn_layer_sizes = model_task['hyperparams'].get('RNN_LAYER_SIZES')
+                if rnn_layer_sizes:
+                    layer_sizes = [int(x.strip()) for x in str(rnn_layer_sizes).split(',')]
+                    hidden_units = layer_sizes[0]
+                    layers = len(layer_sizes)
+                else:
+                    # Fallback defaults
+                    hidden_units = 10
+                    layers = 1
+            
             num_learnable_params = self.calculate_learnable_parameters(
                 layers,
                 input_size,
