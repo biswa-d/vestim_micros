@@ -18,7 +18,14 @@ class LSTMModelService:
         :return: An instance of the specified model.
         """
         target_device = device if device is not None else self.device
-        input_size = params.get("INPUT_SIZE", 3)
+        
+        # INPUT_SIZE must be provided - it should equal the number of input features
+        input_size = params.get("INPUT_SIZE")
+        if input_size is None:
+            raise ValueError(
+                "INPUT_SIZE is missing from params. It must equal the number of input features in your data. "
+                "Ensure FEATURE_COLUMNS is properly set in your hyperparameters."
+            )
         
         # Parse RNN_LAYER_SIZES parameter (supports comma-separated like "64,32")
         rnn_layer_sizes = params.get("RNN_LAYER_SIZES") or params.get("LSTM_UNITS")

@@ -321,6 +321,15 @@ class OptunaOptimizationThread(QThread):
             # Only construct torch.device if torch is importable; otherwise, use string
             device = torch.device(device_str.lower()) if torch else device_str.lower()
             
+            # Calculate INPUT_SIZE from FEATURE_COLUMNS if not already present
+            if 'INPUT_SIZE' not in params and 'FEATURE_COLUMNS' in self.params:
+                params['INPUT_SIZE'] = len(self.params['FEATURE_COLUMNS'])
+                self.log_message.emit(f"Calculated INPUT_SIZE={params['INPUT_SIZE']} from {len(self.params['FEATURE_COLUMNS'])} feature columns")
+            
+            # Ensure OUTPUT_SIZE is set (typically 1 for regression)
+            if 'OUTPUT_SIZE' not in params:
+                params['OUTPUT_SIZE'] = 1
+            
             # Pass the trial object to create_model for dynamic model creation only for FNN
             if params['MODEL_TYPE'] == 'FNN':
                 model = model_service.create_model(params, trial=trial, device=device)
