@@ -153,11 +153,8 @@ class TrainingTaskService:
                 
                 # Check for invalid loss before backpropagation
                 if not torch.isfinite(loss):
-                    print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid loss detected ({loss.item()})")
-                    print(f"  Input range: [{X_batch.min().item():.4f}, {X_batch.max().item():.4f}]")
-                    print(f"  Target range: [{y_batch.min().item():.4f}, {y_batch.max().item():.4f}]")
-                    print(f"  Prediction range: [{y_pred.min().item():.4f}, {y_pred.max().item():.4f}]")
-                    print(f"  Learning rate: {optimizer.param_groups[0]['lr']}")
+                    print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid loss detected (NaN/Inf)")
+                    # PERFORMANCE: Removed .item()/.min()/.max() calls - they sync GPU→CPU and are very slow
                     optimizer.zero_grad()
                     if use_mixed_precision:
                         scaler.update()
@@ -178,10 +175,8 @@ class TrainingTaskService:
                     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
                     # Check for invalid gradients after clipping
                     if not torch.isfinite(grad_norm):
-                        print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected ({grad_norm:.4f})")
-                        print(f"  Loss: {loss.item():.6f}")
-                        print(f"  Learning rate: {optimizer.param_groups[0]['lr']}")
-                        print(f"  This usually indicates: learning rate too high, extreme data values, or numerical instability")
+                        print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected (NaN/Inf)")
+                        # PERFORMANCE: Removed .item() calls - they sync GPU→CPU and are very slow
                         optimizer.zero_grad()  # Clear bad gradients before skipping
                         scaler.update()  # Update scaler state even when skipping
                         # Detach hidden states to break computation graph
@@ -234,11 +229,8 @@ class TrainingTaskService:
                 
                 # Check for invalid loss before backpropagation
                 if not torch.isfinite(loss):
-                    print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid loss detected ({loss.item()})")
-                    print(f"  Input range: [{X_batch.min().item():.4f}, {X_batch.max().item():.4f}]")
-                    print(f"  Target range: [{y_batch.min().item():.4f}, {y_batch.max().item():.4f}]")
-                    print(f"  Prediction range: [{y_pred.min().item():.4f}, {y_pred.max().item():.4f}]")
-                    print(f"  Learning rate: {optimizer.param_groups[0]['lr']}")
+                    print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid loss detected (NaN/Inf)")
+                    # PERFORMANCE: Removed .item()/.min()/.max() calls - they sync GPU→CPU and are very slow
                     optimizer.zero_grad()
                     # Detach hidden states to break computation graph
                     if h_s is not None:
@@ -255,10 +247,8 @@ class TrainingTaskService:
                     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
                     # Check for invalid gradients after clipping
                     if not torch.isfinite(grad_norm):
-                        print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected ({grad_norm:.4f})")
-                        print(f"  Loss: {loss.item():.6f}")
-                        print(f"  Learning rate: {optimizer.param_groups[0]['lr']}")
-                        print(f"  This usually indicates: learning rate too high, extreme data values, or numerical instability")
+                        print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected (NaN/Inf)")
+                        # PERFORMANCE: Removed .item() calls - they sync GPU→CPU and are very slow
                         optimizer.zero_grad()  # Clear the bad gradients
                         # Detach hidden states to break computation graph
                         if h_s is not None:
@@ -272,9 +262,9 @@ class TrainingTaskService:
                 
             total_train_loss.append(loss.item())
             
-            # Store predictions and true values
-            all_train_y_pred_normalized.append(y_pred.detach().cpu())
-            all_train_y_true_normalized.append(y_batch.detach().cpu()) # y_batch is already on device, move to cpu
+            # Store predictions and true values - keep on GPU for speed
+            all_train_y_pred_normalized.append(y_pred.detach())
+            all_train_y_true_normalized.append(y_batch.detach())
 
             end_batch_time = time.time()
             batch_time = end_batch_time - start_batch_time
@@ -422,9 +412,9 @@ class TrainingTaskService:
 
                 total_val_loss.append(loss.item()) # Accumulate loss per batch (matches training approach)
                 
-                # Store predictions and true values
-                all_val_y_pred_normalized.append(y_pred.detach().cpu())
-                all_val_y_true_normalized.append(y_batch.detach().cpu())
+                # Store predictions and true values - keep on GPU for speed
+                all_val_y_pred_normalized.append(y_pred.detach())
+                all_val_y_true_normalized.append(y_batch.detach())
 
                 if verbose and batch_idx % log_freq == 0:
                     log_callback = task.get('log_callback')
