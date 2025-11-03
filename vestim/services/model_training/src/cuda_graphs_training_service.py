@@ -52,8 +52,9 @@ class CUDAGraphsTrainingService:
         return True
     
     def reset_cuda_graphs(self):
-        """Reset CUDA graphs state - call this after model reloading."""
+        """Reset CUDA graphs state - call this after model reloading or between trials."""
         if self.graphs_enabled:
+            # Clear Python references to graph objects
             self.train_graph = None
             self.val_graph = None
             self.static_input = None
@@ -62,11 +63,30 @@ class CUDAGraphsTrainingService:
             self.static_loss = None
             self.static_val_input = None
             self.static_val_target = None
+            
+            # CRITICAL: Synchronize CUDA to ensure all operations complete
+            # This prevents "operation failed due to a previous error" in next trial
+            torch.cuda.synchronize()
+            
+            # Clear CUDA cache to free memory and reset internal state
+            torch.cuda.empty_cache()
+            
             self.logger.info("CUDA graphs state reset - graphs will be re-captured on next training epoch")
     
     def _warmup_model(self, model, sample_input, sample_target, optimizer, device, warmup_iters=3):
         """Warmup to allocate all memory before capturing graph."""
         self.logger.info(f"Warming up model for CUDA Graphs with {warmup_iters} iterations...")
+        
+        # Clear any previous CUDA errors before starting warmup
+        # This prevents "previous error during capture" from affecting current trial
+        torch.cuda.synchronize()
+        try:
+            # Attempt a simple operation to clear error state
+            _ = torch.zeros(1, device=device)
+        except RuntimeError:
+            # If there's a lingering error, clear cache and synchronize again
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
         
         for i in range(warmup_iters):
             # Warmup forward and backward pass
