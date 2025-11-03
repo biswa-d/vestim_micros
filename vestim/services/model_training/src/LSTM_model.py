@@ -82,7 +82,11 @@ class LSTMModel(nn.Module):
         x = x.to(self.device)
 
         # Pass input through LSTM
-        out, (h_s, h_c) = self.lstm(x, (h_s, h_c))
+        # Allow None hidden states: let PyTorch initialize zeros for us
+        if h_s is None or h_c is None:
+            out, (h_s, h_c) = self.lstm(x)
+        else:
+            out, (h_s, h_c) = self.lstm(x, (h_s, h_c))
 
         # Apply dropout to the outputs of the LSTM
         out = self.dropout(out)

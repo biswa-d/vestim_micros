@@ -92,19 +92,18 @@ class ContinuousTestingService:
                 }
                 print(f"No hidden states needed for FNN model")
             elif model_type == 'GRU':
-                # GRU only has hidden state (h_s), no cell state (h_c)
+                # GRU: defer hidden init to model on first forward (supports variable layer sizes)
                 self.hidden_states = {
-                    'h_s': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
+                    'h_s': None,
                     'model_type': 'GRU'
                 }
                 print(f"Hidden states reset for new test file ({model_type})")
-                print(f"DEBUG: Hidden state device: {self.hidden_states['h_s'].device}")
                 print(f"DEBUG: Service device: {self.device}")
             else:
                 # LSTM variants
                 self.hidden_states = {
-                    'h_s': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
-                    'h_c': torch.zeros(self.model_instance.num_layers, 1, self.model_instance.hidden_units).to(self.device),
+                    'h_s': None,
+                    'h_c': None,
                     'model_type': model_type  # Use the specific model_type
                 }
                 if model_type == 'LSTM_LPF':
@@ -204,11 +203,17 @@ class ContinuousTestingService:
                         if t == 0:  # Only print for first iteration to avoid spam
                             print(f"DEBUG GRU Forward Pass:")
                             print(f"  x_t device: {x_t.device}")
-                            print(f"  hidden_states['h_s'] device: {self.hidden_states['h_s'].device}")
+                            if isinstance(self.hidden_states['h_s'], torch.Tensor):
+                                print(f"  hidden_states['h_s'] device: {self.hidden_states['h_s'].device}")
+                            else:
+                                print(f"  hidden_states['h_s'] is {type(self.hidden_states['h_s'])}")
                             print(f"  Model parameters device: {next(self.model_instance.parameters()).device}")
                         y_pred, h_s = self.model_instance(x_t, self.hidden_states['h_s'])
-                        # Update hidden state for next sample
-                        self.hidden_states['h_s'] = h_s.detach()
+                        # Update hidden state for next sample (tensor or list)
+                        if isinstance(h_s, list):
+                            self.hidden_states['h_s'] = [t.detach() for t in h_s]
+                        else:
+                            self.hidden_states['h_s'] = h_s.detach()
                     else: # LSTM variants
                         if self.hidden_states['model_type'] == 'LSTM_LPF':
                             y_pred, (h_s, h_c), z = self.model_instance(x_t, self.hidden_states['h_s'], self.hidden_states['h_c'], self.hidden_states.get('z'))
@@ -217,9 +222,15 @@ class ContinuousTestingService:
                         else: # LSTM and LSTM_EMA
                             y_pred, (h_s, h_c) = self.model_instance(x_t, self.hidden_states['h_s'], self.hidden_states['h_c'])
                         
-                        # Update hidden states for next sample
-                        self.hidden_states['h_s'] = h_s.detach()
-                        self.hidden_states['h_c'] = h_c.detach()
+                        # Update hidden states for next sample (support tensor or list)
+                        if isinstance(h_s, list):
+                            self.hidden_states['h_s'] = [t.detach() for t in h_s]
+                        else:
+                            self.hidden_states['h_s'] = h_s.detach()
+                        if isinstance(h_c, list):
+                            self.hidden_states['h_c'] = [t.detach() for t in h_c]
+                        else:
+                            self.hidden_states['h_c'] = h_c.detach()
                     
                     # Skip predictions during warmup period (always applies now, not just first file)
                     if t < warmup_samples:
@@ -268,7 +279,7 @@ class ContinuousTestingService:
                 except Exception as e:
                     print(f"Warning: Could not read raw file to get length: {e}")
 
-            print(f"Generated {len(y_pred_arr)} predictions (after warmup: {warmup_samples if is_first_file else 0})")
+            print(f"Generated {len(y_pred_arr)} predictions (after warmup: {warmup_samples})")
             print(f"Data processing mode: processed file (from data augmentation pipeline)")
             print(f"Normalization was applied during training: {normalization_applied}")
             print(f"Data shapes - Predictions: {y_pred_arr.shape}, True values: {y_true.shape}")

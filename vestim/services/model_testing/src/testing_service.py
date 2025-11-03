@@ -130,11 +130,11 @@ class VEstimTestingService:
                     all_predictions.append(y_out.cpu().numpy())
                     y_test_normalized_list.append(y_batch.cpu().numpy())
             else:
-                # RNN testing: requires hidden states (LSTM/GRU)
-                h_s = torch.zeros(num_layers, 1, hidden_units).to(self.device)
+                # RNN testing: for variable-layer models defer hidden init to model by using None
+                h_s = None
                 z = None # Initialize filter state for LPF models
                 if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
-                    h_c = torch.zeros(num_layers, 1, hidden_units).to(self.device)
+                    h_c = None
                 else:  # GRU
                     h_c = None
 
@@ -142,11 +142,11 @@ class VEstimTestingService:
                 for X_batch, y_batch in test_loader:
                     # Since test_loader is batched, process each sequence in the batch individually
                     for i in range(X_batch.size(0)):
-                        # Re-initialize hidden states for each new sequence
-                        h_s = torch.zeros(num_layers, 1, hidden_units).to(self.device)
+                        # Re-initialize hidden states for each new sequence (model will size correctly)
+                        h_s = None
                         z = None # Re-initialize filter state for each new sequence
                         if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
-                            h_c = torch.zeros(num_layers, 1, hidden_units).to(self.device)
+                            h_c = None
 
                         # Extract a single sequence (shape: [1, lookback, features])
                         x_seq = X_batch[i].unsqueeze(0).to(self.device)
