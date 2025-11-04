@@ -73,8 +73,14 @@ def _preflight_check_torch():
         import importlib
         importlib.invalidate_caches()
         torch = importlib.import_module("torch")
-        # Optional: print minimal info to logs/stdout for debugging
-        print(f"Detected PyTorch {getattr(torch, '__version__', 'unknown')} | CUDA built: {getattr(getattr(torch, 'backends', None), 'cuda', None) and torch.backends.cuda.is_built()} | CUDA avail: {torch.cuda.is_available() if hasattr(torch, 'cuda') else 'n/a'}")
+        # Optional: print minimal info to logs/stdout for debugging (main process only)
+        try:
+            import multiprocessing as _mp
+            is_main = (_mp.current_process().name == 'MainProcess')
+        except Exception:
+            is_main = True
+        if is_main:
+            print(f"Detected PyTorch {getattr(torch, '__version__', 'unknown')} | CUDA built: {getattr(getattr(torch, 'backends', None), 'cuda', None) and torch.backends.cuda.is_built()} | CUDA avail: {torch.cuda.is_available() if hasattr(torch, 'cuda') else 'n/a'}")
         return True
     except OSError as e:
         if sys.platform == "win32" and ("WinError 1114" in str(e) or "c10.dll" in str(e)):

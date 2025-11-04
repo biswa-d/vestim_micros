@@ -32,7 +32,14 @@ class ConfigManager:
             self._projects_dir = project_dir_env
             self._data_dir = str(Path(project_dir_env) / 'data')
             self._defaults_dir = str(Path(project_dir_env) / 'defaults_templates')
-            print(f"Loaded configuration from VESTIM_PROJECT_DIR: {self._projects_dir}")
+            # Reduce console noise when multiple worker processes import this module
+            try:
+                import multiprocessing as _mp
+                is_main = (_mp.current_process().name == 'MainProcess')
+            except Exception:
+                is_main = True
+            if is_main:
+                print(f"Loaded configuration from VESTIM_PROJECT_DIR: {self._projects_dir}")
             return
 
         # 2. Check for vestim_config.json
@@ -53,13 +60,25 @@ class ConfigManager:
                     self._projects_dir = projects_dir
                     self._data_dir = config.get('data_directory')
                     self._defaults_dir = config.get('defaults_directory')
-                    print(f"Loaded configuration from {config_path}")
+                    try:
+                        import multiprocessing as _mp
+                        is_main = (_mp.current_process().name == 'MainProcess')
+                    except Exception:
+                        is_main = True
+                    if is_main:
+                        print(f"Loaded configuration from {config_path}")
                     return
         except Exception as e:
             print(f"Error loading vestim_config.json: {e}")
 
         # 3. Fallback to default locations
-        print("Using default directory configuration.")
+        try:
+            import multiprocessing as _mp
+            is_main = (_mp.current_process().name == 'MainProcess')
+        except Exception:
+            is_main = True
+        if is_main:
+            print("Using default directory configuration.")
         self._projects_dir = self._get_default_projects_dir()
         self._data_dir = self._get_default_data_dir()
         self._defaults_dir = self._get_default_defaults_dir()
@@ -296,6 +315,9 @@ class ConfigManager:
             "LOOKBACK": "400",
             "BATCH_TRAINING": True,
             "BATCH_SIZE": "200",
+            # Optimizer defaults
+            "OPTIMIZER_TYPE": "Adam",
+            "WEIGHT_DECAY": "0.0",
             "SCHEDULER_TYPE": "StepLR",
             "INITIAL_LR": "0.0001",
             "LR_PARAM": "0.1",
