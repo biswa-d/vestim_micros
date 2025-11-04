@@ -403,7 +403,7 @@ class VEstimTrainingSetupManager:
         max_training_time_seconds_arg = self.params.get('MAX_TRAINING_TIME_SECONDS', 0)
 
         # Define parameters that can be grid-searched, excluding those handled by model building
-        grid_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'LR_PARAM', 'LR_PERIOD', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'BATCH_SIZE']
+        grid_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'LR_PARAM', 'LR_PERIOD', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'BATCH_SIZE', 'OPTIMIZER_TYPE']
         
         param_grid = {}
         for key in grid_keys:
@@ -578,10 +578,12 @@ class VEstimTrainingSetupManager:
                         name_parts.append(f"{prefix}{value}")
             else:
                 bs = int(hyperparams.get('BATCH_SIZE', 0))
+                optimizer_type = hyperparams.get('OPTIMIZER_TYPE', 'Adam')
+                optimizer_abbrev = 'AdW' if 'adamw' in optimizer_type.lower() else 'Adam'
                 scheduler_type = hyperparams.get('SCHEDULER_TYPE', 'StepLR')
                 scheduler_map = {'StepLR': 'SLR', 'ReduceLROnPlateau': 'RLROP'}
                 scheduler_name = scheduler_map.get(scheduler_type, scheduler_type)
-                name_parts.extend([f"B{bs}", f"LR_{scheduler_name}"])
+                name_parts.extend([f"B{bs}", optimizer_abbrev, f"LR_{scheduler_name}"])
                 vp = hyperparams.get('VALID_PATIENCE', 'N/A')
                 name_parts.append(f"VP{vp}")
             
@@ -675,6 +677,7 @@ class VEstimTrainingSetupManager:
             'BATCH_SIZE': hyperparams['BATCH_SIZE'],
             'MAX_EPOCHS': hyperparams['MAX_EPOCHS'],
             'INITIAL_LR': hyperparams['INITIAL_LR'],
+            'OPTIMIZER_TYPE': hyperparams.get('OPTIMIZER_TYPE', 'Adam'),
             'VALID_PATIENCE': hyperparams['VALID_PATIENCE'],
             'VALID_FREQUENCY': hyperparams['VALID_FREQUENCY'],
             'SCHEDULER_TYPE': hyperparams['SCHEDULER_TYPE'],

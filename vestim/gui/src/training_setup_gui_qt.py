@@ -67,7 +67,9 @@ class VEstimTrainSetupGUI(QWidget):
         self.param_labels = {
             "LAYERS": "Layers", "HIDDEN_UNITS": "Hidden Units", "BATCH_SIZE": "Batch Size",
             "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
+            "OPTIMIZER_TYPE": "Optimizer", "SCHEDULER_TYPE": "LR Scheduler",
             "LR_PARAM": "LR Drop Factor", "LR_PERIOD": "LR Drop Period",
+            "PLATEAU_PATIENCE": "Plateau Patience", "PLATEAU_FACTOR": "Plateau Factor",
             "VALID_PATIENCE": "Validation Patience", "VALID_FREQUENCY": "Validation Freq",
             "LOOKBACK": "Lookback Sequence Length", "REPETITIONS": "Repetitions",
             "NUM_WORKERS": "# CPU Threads", "PIN_MEMORY": "Fast CPU-GPU Transfer",

@@ -55,7 +55,7 @@ def display_hyperparameters(gui, params):
         always_relevant = {
             'MODEL_TYPE', 'NUM_LEARNABLE_PARAMS',
             'TRAINING_METHOD', 'BATCH_TRAINING', 'BATCH_SIZE',
-            'MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE', 'VALID_PATIENCE',
+            'MAX_EPOCHS', 'INITIAL_LR', 'OPTIMIZER_TYPE', 'SCHEDULER_TYPE', 'VALID_PATIENCE',
             'VALID_FREQUENCY', 'REPETITIONS', 'DEVICE_SELECTION', 'USE_MIXED_PRECISION',
             'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN',
             'CURRENT_REPETITION', 'INFERENCE_FILTER_TYPE', 'PIN_MEMORY'
@@ -129,7 +129,7 @@ def display_hyperparameters(gui, params):
     train_method_keys = ['TRAINING_METHOD', 'LOOKBACK', 'BATCH_TRAINING', 'BATCH_SIZE']
     
     # Reordered training controls
-    train_control_keys = ['MAX_EPOCHS', 'SCHEDULER_TYPE', 'INITIAL_LR']
+    train_control_keys = ['MAX_EPOCHS', 'OPTIMIZER_TYPE', 'SCHEDULER_TYPE', 'INITIAL_LR']
     if scheduler_type == 'StepLR':
         train_control_keys.extend(['LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'])
     elif scheduler_type == 'ReduceLROnPlateau':
