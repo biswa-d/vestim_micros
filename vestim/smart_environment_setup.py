@@ -414,49 +414,65 @@ class SmartEnvironmentSetup:
                 self.log(f"Python installer returned non-zero exit. STDERR: {result.stderr}", "ERROR")
                 # Do not early-return; sometimes $LASTEXITCODE is unreliable; we'll probe for python below
 
-            # Re-probe for python using PATH, py.exe, and registry
-            try:
-                # Prefer py launcher to resolve the freshly installed version
-                if shutil.which("py"):
-                    r = subprocess.run(["py", "-3", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True, timeout=10)
-                    candidate = r.stdout.strip() if r.returncode == 0 else None
-                    if candidate and self._is_valid_python(candidate):
-                        self.log(f"Python installed at: {candidate}")
-                        return candidate
-            except Exception:
-                pass
+            # Re-probe for python using a backoff loop (PATH/registry can lag)
+            def _find_candidate() -> Optional[str]:
+                # Prefer py launcher (64-bit) to resolve the freshly installed version
+                try:
+                    if shutil.which("py"):
+                        # Try forcing 64-bit first
+                        r = subprocess.run(["py", "-3-64", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True, timeout=10)
+                        candidate = r.stdout.strip() if r.returncode == 0 else None
+                        if candidate and self._is_valid_python(candidate):
+                            return candidate
+                        # Fallback to generic -3
+                        r = subprocess.run(["py", "-3", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True, timeout=10)
+                        candidate = r.stdout.strip() if r.returncode == 0 else None
+                        if candidate and self._is_valid_python(candidate):
+                            return candidate
+                except Exception:
+                    pass
+                # PATH
+                cand = shutil.which("python") or shutil.which("python3")
+                if cand and self._is_valid_python(cand):
+                    return cand
+                # Registry fallback
+                try:
+                    import winreg
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"SOFTWARE\Python\PythonCore") as root:
+                        i = 0
+                        chosen = None
+                        while True:
+                            try:
+                                ver = winreg.EnumKey(root, i); i += 1
+                                with winreg.OpenKey(root, f"{ver}\\InstallPath") as ip:
+                                    try:
+                                        exe, _ = winreg.QueryValueEx(ip, "ExecutablePath")
+                                    except FileNotFoundError:
+                                        path, _ = winreg.QueryValueEx(ip, None)
+                                        exe = os.path.join(path, "python.exe")
+                                    if exe and self._is_valid_python(exe):
+                                        chosen = exe if (chosen is None or ver > chosen) else chosen
+                            except OSError:
+                                break
+                    if chosen:
+                        return chosen
+                except Exception:
+                    pass
+                return None
 
-            cand = shutil.which("python") or shutil.which("python3")
-            if cand and self._is_valid_python(cand):
-                self.log(f"Python installed at (PATH): {cand}")
-                return cand
+            total_wait_s = 60
+            interval = 3
+            attempts = max(1, total_wait_s // interval)
+            for i in range(int(attempts)):
+                cand = _find_candidate()
+                if cand:
+                    self.log(f"Python installed and discovered: {cand}")
+                    return cand
+                if i == 0:
+                    self.log("Waiting for Python install to become visible on PATH/registry...", "WARNING")
+                time.sleep(interval)
 
-            # Registry fallback
-            try:
-                import winreg
-                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"SOFTWARE\Python\PythonCore") as root:
-                    i = 0
-                    chosen = None
-                    while True:
-                        try:
-                            ver = winreg.EnumKey(root, i); i += 1
-                            with winreg.OpenKey(root, f"{ver}\\InstallPath") as ip:
-                                try:
-                                    exe, _ = winreg.QueryValueEx(ip, "ExecutablePath")
-                                except FileNotFoundError:
-                                    path, _ = winreg.QueryValueEx(ip, None)
-                                    exe = os.path.join(path, "python.exe")
-                                if exe and self._is_valid_python(exe):
-                                    chosen = exe if (chosen is None or ver > chosen) else chosen
-                        except OSError:
-                            break
-                if chosen:
-                    self.log(f"Python installed at (registry): {chosen}")
-                    return chosen
-            except Exception:
-                pass
-
-            self.log("Python installation attempted but executable not found.", "ERROR")
+            self.log("Python installation attempted but executable not found after backoff.", "ERROR")
             return None
         except Exception as e:
             self.log(f"Python auto-installation failed: {e}", "ERROR")
@@ -748,12 +764,42 @@ class SmartEnvironmentSetup:
         
         try:
             venv_python = self.install_config["venv_python"]
-            
+
+            # Log interpreter details for troubleshooting
+            try:
+                info = subprocess.run([
+                    venv_python, "-c",
+                    (
+                        "import sys,platform,pip;\n"
+                        "print(f'Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} ({platform.architecture()[0]})')\n"
+                        "print('pip', pip.__version__)"
+                    )
+                ], capture_output=True, text=True, timeout=10)
+                if info.returncode == 0:
+                    for line in info.stdout.strip().splitlines():
+                        self.log(f"  {line}")
+            except Exception as ei:
+                self.log(f"Could not query venv interpreter info: {ei}", "WARNING")
+
             for req in base_requirements:
                 self.log(f"Installing {req}...")
-                subprocess.run([
+                result = subprocess.run([
                     venv_python, "-m", "pip", "install", req
-                ], check=True, timeout=300)
+                ], capture_output=True, text=True, timeout=300)
+                if result.returncode != 0:
+                    self.log(f"Package install failed: {req}", "ERROR")
+                    # Emit trimmed outputs for readability
+                    stdout = (result.stdout or "").strip()
+                    stderr = (result.stderr or "").strip()
+                    if stdout:
+                        self.log("  pip stdout:", "ERROR")
+                        for line in stdout.splitlines():
+                            self.log(f"    {line}", "ERROR")
+                    if stderr:
+                        self.log("  pip stderr:", "ERROR")
+                        for line in stderr.splitlines():
+                            self.log(f"    {line}", "ERROR")
+                    return False
             
             return True
             
