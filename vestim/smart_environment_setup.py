@@ -273,6 +273,40 @@ class SmartEnvironmentSetup:
             self.log(f"Failed to validate Python at {p}: {e}", "WARNING")
             return False
 
+    def _python_info(self, p: str) -> Optional[dict]:
+        """Return version and arch info for a Python executable.
+
+        Returns dict like {"major":3, "minor":12, "arch":"64bit"} or None on failure.
+        """
+        try:
+            code = (
+                "import sys,platform,json;"
+                "print(json.dumps({'major':sys.version_info.major,'minor':sys.version_info.minor,'arch':platform.architecture()[0]}))"
+            )
+            r = subprocess.run([p, "-c", code], capture_output=True, text=True, timeout=5)
+            if r.returncode != 0:
+                return None
+            return json.loads(r.stdout.strip())
+        except Exception:
+            return None
+
+    def _is_compatible_python(self, p: str) -> bool:
+        """Require 64-bit Python 3.11+ to ensure wheel availability for NumPy/PyTorch."""
+        if not self._is_valid_python(p):
+            return False
+        info = self._python_info(p)
+        if not info:
+            return False
+        arch_ok = str(info.get("arch", "")).startswith("64")
+        ver_ok = int(info.get("major", 0)) > 3 or (int(info.get("major", 0)) == 3 and int(info.get("minor", 0)) >= 11)
+        if not arch_ok or not ver_ok:
+            self.log(
+                f"Incompatible Python detected: {p} (arch={info.get('arch')}, version={info.get('major')}.{info.get('minor')}). "
+                f"Requiring 64-bit Python 3.11+ for compatibility.",
+                "WARNING",
+            )
+        return arch_ok and ver_ok
+
     def _check_vc_redist_installed(self) -> bool:
         """Check if Microsoft Visual C++ 2015–2022 Redistributable (x64) is installed.
 
@@ -515,14 +549,25 @@ class SmartEnvironmentSetup:
                     # 1) Prefer the Python Launcher (py.exe) – reliably points to a real install
                     try:
                         if shutil.which("py"):
-                            self.log("Trying to resolve Python via py.exe launcher (-3)...")
+                            # Force 64-bit resolution first
+                            self.log("Trying to resolve Python via py.exe launcher (-3-64)...")
                             r = subprocess.run([
-                                "py", "-3", "-c", "import sys; print(sys.executable)"
+                                "py", "-3-64", "-c", "import sys; print(sys.executable)"
                             ], capture_output=True, text=True, timeout=10)
                             candidate = r.stdout.strip() if r.returncode == 0 else None
-                            if candidate and self._is_valid_python(candidate):
+                            if candidate and self._is_compatible_python(candidate):
                                 python_exe = candidate
-                                self.log(f"Found valid Python via py.exe: {python_exe}")
+                                self.log(f"Found compatible Python via py.exe (64-bit): {python_exe}")
+                            else:
+                                # Fallback to generic -3 and filter after
+                                self.log("py -3-64 failed; trying py -3 ...", "WARNING")
+                                r = subprocess.run([
+                                    "py", "-3", "-c", "import sys; print(sys.executable)"
+                                ], capture_output=True, text=True, timeout=10)
+                                candidate = r.stdout.strip() if r.returncode == 0 else None
+                                if candidate and self._is_compatible_python(candidate):
+                                    python_exe = candidate
+                                    self.log(f"Found compatible Python via py.exe: {python_exe}")
                     except Exception as e:
                         self.log(f"py.exe lookup failed: {e}", "WARNING")
 
@@ -530,11 +575,11 @@ class SmartEnvironmentSetup:
                     if not python_exe:
                         cand = shutil.which("python") or shutil.which("python3")
                         if cand:
-                            if self._is_valid_python(cand):
+                            if self._is_compatible_python(cand):
                                 python_exe = cand
-                                self.log(f"Found valid Python on PATH: {python_exe}")
+                                self.log(f"Found compatible Python on PATH: {python_exe}")
                             else:
-                                self.log(f"Skipping invalid/WindowsApps python on PATH: {cand}", "WARNING")
+                                self.log(f"Skipping incompatible/WindowsApps python on PATH: {cand}", "WARNING")
 
                     # 3) Try Windows registry for installed Python locations
                     if not python_exe:
@@ -590,7 +635,7 @@ class SmartEnvironmentSetup:
                             try:
                                 if base.exists():
                                     for exe in base.rglob("python.exe"):
-                                        if self._is_valid_python(str(exe)):
+                                        if self._is_compatible_python(str(exe)):
                                             python_exe = str(exe)
                                             self.log(f"Found valid Python in common paths: {python_exe}")
                                             break
@@ -603,7 +648,7 @@ class SmartEnvironmentSetup:
                     python_exe = shutil.which("python3") or shutil.which("python")
 
                 if not python_exe:
-                    # Try to install Python per-user automatically
+                    # Try to install 64-bit Python per-user automatically
                     python_exe = self._attempt_python_install_windows()
                 if not python_exe:
                     raise RuntimeError(
@@ -613,7 +658,38 @@ class SmartEnvironmentSetup:
                     )
             else:
                 python_exe = sys.executable
-                
+
+            # Final defensive check: never proceed with an invalid or incompatible interpreter
+            if not self._is_compatible_python(python_exe) or self._is_windowsapps_shim(python_exe):
+                self.log(
+                    f"Selected Python appears invalid, incompatible (32-bit or <3.11), or is a WindowsApps alias: {python_exe}",
+                    "WARNING",
+                )
+                # On Windows, try a last-chance resolution/install
+                if sys.platform == "win32":
+                    # Try a quick scan of common per-user install paths first
+                    quick_candidates = [
+                        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python" / "Python312" / "python.exe",
+                        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python" / "Python311" / "python.exe",
+                        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python" / "Python310" / "python.exe",
+                    ]
+                    for cand in quick_candidates:
+                        if self._is_compatible_python(str(cand)):
+                            python_exe = str(cand)
+                            break
+                    # If still invalid, attempt a per-user install and re-validate
+                    if not self._is_compatible_python(python_exe):
+                        resolved = self._attempt_python_install_windows()
+                        if resolved and self._is_compatible_python(resolved):
+                            python_exe = resolved
+                # If still invalid at this point, abort with a clear message
+                if not self._is_compatible_python(python_exe):
+                    raise RuntimeError(
+                        "Could not obtain a functional, 64-bit Python 3.11+ interpreter (WindowsApps alias or 32-bit was detected). "
+                        "Please install Python 3.11+ x64 from python.org and disable the Microsoft Store Python alias: "
+                        "Settings > Apps > Advanced app settings > App execution aliases."
+                    )
+
             self.log(f"Using Python executable: {python_exe}")
             # Prefer invoking via launcher on Windows to avoid quoting issues
             if sys.platform == "win32" and Path(python_exe).name.lower() == "py.exe":
@@ -1308,14 +1384,28 @@ reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML
                 # Extract data directory to project directory
                 data_source = bundle_dir / "data"
                 data_dest = self.project_dir / "data"
-                
+
                 if data_source.exists():
                     if data_dest.exists():
                         shutil.rmtree(data_dest)
                     shutil.copytree(data_source, data_dest)
                     self.log(f"Extracted data to project: {data_dest}")
+
+                    # Verify required subfolders exist and contain at least one file; if not, create empty structure
+                    def _has_files(p: Path) -> bool:
+                        try:
+                            return any(p.rglob("*.*"))
+                        except Exception:
+                            return False
+                    required = [data_dest / "train_data", data_dest / "val_data", data_dest / "test_data"]
+                    if not all(d.exists() for d in required) or not any(_has_files(d) for d in required):
+                        self.log("Data directory missing required content; creating empty train/val/test folders.", "WARNING")
+                        for sub in ("train_data", "val_data", "test_data"):
+                            (data_dest / sub).mkdir(parents=True, exist_ok=True)
                 else:
-                    self.log("Warning: 'data' directory not found in installer bundle; proceeding without sample data.", "WARNING")
+                    self.log("Warning: 'data' directory not found in installer bundle; creating empty train/val/test folders.", "WARNING")
+                    for sub in ("train_data", "val_data", "test_data"):
+                        (data_dest / sub).mkdir(parents=True, exist_ok=True)
                 
                 # Save project directory location
                 self.install_config["project_dir"] = str(self.project_dir)

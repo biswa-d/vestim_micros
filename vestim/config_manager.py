@@ -162,24 +162,22 @@ class ConfigManager:
     def _load_default_settings(self):
         """Load default settings from configuration file"""
         try:
-            # Look for default settings file
-            if getattr(sys, 'frozen', False):
-                # Running as compiled executable - check projects directory first
-                projects_dir = self.get_projects_directory()
-                settings_path = Path(projects_dir) / "default_settings.json"
-                
-                if not settings_path.exists():
-                    # Fallback to application directory
+            # Always prefer the project directory if known
+            projects_dir = self.get_projects_directory()
+            settings_path = Path(projects_dir) / "default_settings.json"
+
+            # If not present, fall back to an app-local copy (helps dev mode)
+            if not settings_path.exists():
+                if getattr(sys, 'frozen', False):
                     app_dir = Path(sys.executable).parent
-                    settings_path = app_dir / "default_settings.json"
-            else:
-                # Running as script - look in script directory
-                app_dir = Path(__file__).parent
+                else:
+                    app_dir = Path(__file__).parent
                 settings_path = app_dir / "default_settings.json"
             
             if settings_path.exists():
                 with open(settings_path, 'r') as f:
                     self._default_settings = json.load(f)
+                    # Be a bit verbose in frozen mode to help users
                     if getattr(sys, 'frozen', False):
                         print(f"Loaded default settings from: {settings_path}")
             else:
@@ -257,10 +255,9 @@ class ConfigManager:
     def update_last_used_hyperparams(self, hyperparams):
         """Update the last used hyperparameters in hyperparams_last_used.json."""
         try:
-            # Always save in defaults_templates folder in project directory
-            repo_root = Path(__file__).parent.parent
-            defaults_dir = repo_root / "defaults_templates"
-            defaults_dir.mkdir(exist_ok=True)
+            # Save in the resolved defaults directory (typically project/defaults_templates)
+            defaults_dir = Path(self.get_defaults_directory())
+            defaults_dir.mkdir(parents=True, exist_ok=True)
             filepath = defaults_dir / "hyperparams_last_used.json"
             with open(filepath, 'w') as f:
                 json.dump(hyperparams, f, indent=4)
@@ -271,9 +268,8 @@ class ConfigManager:
     def get_default_hyperparams(self):
         """Get default hyperparameters - from last used file or system defaults."""
         try:
-            # Always load from defaults_templates folder in project directory
-            repo_root = Path(__file__).parent.parent
-            defaults_dir = repo_root / "defaults_templates"
+            # Load from the resolved defaults directory (typically project/defaults_templates)
+            defaults_dir = Path(self.get_defaults_directory())
             filepath = defaults_dir / "hyperparams_last_used.json"
             print(f"[VEstim] Attempting to load last used hyperparams from: {filepath}")
             if filepath.exists():
