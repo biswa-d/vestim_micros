@@ -84,8 +84,8 @@ class VEstimTestingGUI(QMainWindow):
         self.data_cleanup_manager = DataCleanupManager()
 
         self.param_labels = {
-            "LAYERS": "Layers", "HIDDEN_UNITS": "Hidden Units", "BATCH_SIZE": "Batch Size",
-            "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
+            "LAYERS": "Layers", "HIDDEN_UNITS": "Hidden Units", "RNN_LAYER_SIZES": "Layer Sizes",
+            "BATCH_SIZE": "Batch Size", "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
             "LR_DROP_FACTOR": "LR Drop Factor", "LR_DROP_PERIOD": "LR Drop Period",
             "VALID_PATIENCE": "Validation Patience", "VALID_FREQUENCY": "Validation Freq",
             "LOOKBACK": "Lookback Sequence Length", "REPETITIONS": "Repetitions",

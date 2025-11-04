@@ -80,6 +80,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.param_labels = {
             "LAYERS": "Layers",
             "HIDDEN_UNITS": "Hidden Units",
+            "RNN_LAYER_SIZES": "Layer Sizes",
             "HIDDEN_LAYER_SIZES": "Hidden Layers",
             "DROPOUT_PROB": "Dropout Prob",
             "BATCH_SIZE": "Batch Size",

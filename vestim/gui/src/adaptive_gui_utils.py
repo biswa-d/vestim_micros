@@ -71,7 +71,7 @@ def display_hyperparameters(gui, params):
                 return False
 
         if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
-            lstm_gru_params = {'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'}
+            lstm_gru_params = {'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK', 'RNN_LAYER_SIZES'}
             if param_key in lstm_gru_params:
                 return True
         elif model_type == 'FNN':
@@ -106,7 +106,11 @@ def display_hyperparameters(gui, params):
 
     model_arch_keys = ['MODEL_TYPE', 'NUM_LEARNABLE_PARAMS']
     if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
-        model_arch_keys.extend(['LAYERS', 'HIDDEN_UNITS'])
+        # Use RNN_LAYER_SIZES if available (new format like "32,16"), otherwise fall back to LAYERS/HIDDEN_UNITS
+        if 'RNN_LAYER_SIZES' in filtered_params:
+            model_arch_keys.append('RNN_LAYER_SIZES')
+        else:
+            model_arch_keys.extend(['LAYERS', 'HIDDEN_UNITS'])
     elif model_type == 'FNN':
         model_arch_keys.extend(['FNN_HIDDEN_LAYERS', 'HIDDEN_LAYER_SIZES', 'FNN_DROPOUT_PROB', 'DROPOUT_PROB'])
     
@@ -173,7 +177,8 @@ def display_hyperparameters(gui, params):
         # Convert to float for formatting check, handle potential errors
         try:
             float_val = float(value)
-            if 0 < abs(float_val) < 0.01:
+            # Use scientific notation for small values (learning rates, etc.)
+            if 0 < abs(float_val) <= 0.01:
                 value_str = f"{float_val:.1e}"
             elif abs(float_val) < 1.0:
                 # Format to 1 decimal place for values less than 1

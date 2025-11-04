@@ -746,6 +746,9 @@ class VEstimTrainingSetupManager:
         if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
             final_hyperparams['HIDDEN_UNITS'] = hidden_units
             final_hyperparams['LAYERS'] = layers
+            # Add RNN_LAYER_SIZES if available for better GUI display (e.g., "32,16")
+            if 'RNN_LAYER_SIZES' in hyperparams:
+                final_hyperparams['RNN_LAYER_SIZES'] = hyperparams['RNN_LAYER_SIZES']
             final_hyperparams['LOOKBACK'] = hyperparams['LOOKBACK']
         elif model_type == 'FNN':
             final_hyperparams['HIDDEN_LAYER_SIZES'] = model_task['hyperparams']['HIDDEN_LAYER_SIZES']

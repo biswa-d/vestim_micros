@@ -51,6 +51,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             'NUM_LEARNABLE_PARAMS': 'Total Parameters',
             'LAYERS': 'Hidden Layers',
             'HIDDEN_UNITS': 'Hidden Units',
+            'RNN_LAYER_SIZES': 'Layer Sizes',
             'FNN_HIDDEN_LAYERS': 'FNN Hidden Layers',
             'HIDDEN_LAYER_SIZES': 'Layer Sizes',
             'FNN_DROPOUT_PROB': 'FNN Dropout',

@@ -65,8 +65,8 @@ class VEstimTrainSetupGUI(QWidget):
         self.auto_proceed_timer.setSingleShot(True)
         self.auto_proceed_timer.timeout.connect(self.transition_to_training_gui)
         self.param_labels = {
-            "LAYERS": "Layers", "HIDDEN_UNITS": "Hidden Units", "BATCH_SIZE": "Batch Size",
-            "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
+            "LAYERS": "Layers", "HIDDEN_UNITS": "Hidden Units", "RNN_LAYER_SIZES": "Layer Sizes",
+            "BATCH_SIZE": "Batch Size", "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
             "OPTIMIZER_TYPE": "Optimizer", "SCHEDULER_TYPE": "LR Scheduler",
             "LR_PARAM": "LR Drop Factor", "LR_PERIOD": "LR Drop Period",
             "PLATEAU_PATIENCE": "Plateau Patience", "PLATEAU_FACTOR": "Plateau Factor",
