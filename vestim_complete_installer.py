@@ -41,18 +41,45 @@ class SetupWorker(QThread):
             # Create log callback to emit progress
             def progress_callback(message):
                 self.progress.emit(message)
+                # Also print to console for debugging
+                print(message)
+                sys.stdout.flush()
             
             # Run setup directly
+            print("\n" + "="*80)
+            print("Starting PyBattML Environment Setup")
+            print("="*80 + "\n")
+            
             setup = SmartEnvironmentSetup(self.install_dir, self.project_dir, progress_callback)
             success = setup.run_full_setup()
             
-            result_msg = "Setup completed successfully!" if success else "Setup failed"
+            if success:
+                result_msg = "Setup completed successfully!"
+                print("\n" + "="*80)
+                print("INSTALLATION SUCCESSFUL")
+                print("="*80 + "\n")
+            else:
+                result_msg = "Setup failed - check console output for details"
+                print("\n" + "="*80)
+                print("INSTALLATION FAILED")
+                print("="*80)
+                print("Check the setup.log file at:", setup.log_file)
+                print("="*80 + "\n")
+            
             self.finished.emit(success, result_msg)
             
         except Exception as e:
             import traceback
             error_msg = f"Setup failed: {e}\n\nFull traceback:\n{traceback.format_exc()}"
             self.progress.emit(error_msg)
+            
+            # Print detailed error to console
+            print("\n" + "="*80)
+            print("CRITICAL ERROR DURING INSTALLATION")
+            print("="*80)
+            print(error_msg)
+            print("="*80 + "\n")
+            
             self.finished.emit(False, error_msg)
 
 
@@ -223,12 +250,36 @@ class PyBattMLInstaller(QMainWindow):
         else:
             # Show the actual error details in the dialog
             error_details = full_output if full_output else "Unknown error occurred"
-            QMessageBox.critical(self, "Installation Failed",
-                f"Installation failed. Error details:\n\n{error_details}")
+            
+            # Create a detailed error message box
+            error_msg = QMessageBox(self)
+            error_msg.setIcon(QMessageBox.Critical)
+            error_msg.setWindowTitle("Installation Failed")
+            error_msg.setText("Installation failed. Please review the error details below.")
+            error_msg.setDetailedText(error_details)
+            error_msg.setStandardButtons(QMessageBox.Ok)
+            
+            # Also log to console so it stays visible
+            print("\n" + "="*80)
+            print("INSTALLATION FAILED")
+            print("="*80)
+            print(error_details)
+            print("="*80)
+            print("\nPlease copy the error above for debugging.")
+            print("Press any key in the console window or close this dialog to exit...")
+            
+            error_msg.exec_()
 
 
 def main():
     """Main entry point"""
+    print("="*80)
+    print("PyBattML Complete Installer")
+    print("="*80)
+    print("Starting installation GUI...")
+    print("Console window will remain open to capture any error messages.")
+    print("="*80 + "\n")
+    
     app = QApplication(sys.argv)
     
     # Set application properties
@@ -238,7 +289,14 @@ def main():
     installer = PyBattMLInstaller()
     installer.show()
     
-    sys.exit(app.exec_())
+    exit_code = app.exec_()
+    
+    # Keep console open if there was an error
+    if exit_code != 0:
+        print("\nInstallation ended with errors. Press Enter to close...")
+        input()
+    
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
