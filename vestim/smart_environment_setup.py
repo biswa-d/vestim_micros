@@ -755,6 +755,34 @@ $Shortcut.Save()
                         self.log(f"Start Menu shortcut created: {start_menu_shortcut}")
                     else:
                         self.log(f"Start Menu shortcut creation failed: {result_start.stderr}", "WARNING")
+                    
+                    # Also create an Uninstall shortcut in Start Menu
+                    uninstaller_path = self.install_config.get("uninstaller_script")
+                    if uninstaller_path and Path(uninstaller_path).exists():
+                        uninstall_shortcut = start_menu_path / "Uninstall PyBattML.lnk"
+                        
+                        ps_command_uninstall = f'''
+$WshShell = New-Object -comObject WScript.Shell
+$Shortcut = $WshShell.CreateShortcut("{uninstall_shortcut}")
+$Shortcut.TargetPath = "{uninstaller_path}"
+$Shortcut.WorkingDirectory = "{self.install_dir}"
+$Shortcut.Description = "Uninstall PyBattML"'''
+                        
+                        if icon_path and Path(icon_path).exists():
+                            ps_command_uninstall += f'''
+$Shortcut.IconLocation = "{icon_path}"'''
+                        
+                        ps_command_uninstall += '''
+$Shortcut.Save()
+'''
+                        
+                        result_uninstall = subprocess.run(['powershell', '-Command', ps_command_uninstall], 
+                                                    capture_output=True, text=True)
+                        
+                        if result_uninstall.returncode == 0:
+                            self.log(f"Uninstall shortcut created in Start Menu: {uninstall_shortcut}")
+                        else:
+                            self.log(f"Uninstall shortcut creation failed: {result_uninstall.stderr}", "WARNING")
                         
                     return True
                 else:
@@ -1208,14 +1236,14 @@ reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML
                 
             # Clean up old Start Menu entries
             self.cleanup_old_start_menu_entries()
-                
-            # Create desktop shortcut
-            if not self.create_desktop_shortcut():
-                self.log("Desktop shortcut creation failed, but continuing...", "WARNING")
-                
-            # Create uninstaller
+            
+            # Create uninstaller (must be before desktop shortcut so uninstall shortcut can be added)
             if not self.create_uninstaller():
                 self.log("Uninstaller creation failed, but continuing...", "WARNING")
+                
+            # Create desktop shortcut (includes uninstall shortcut in Start Menu)
+            if not self.create_desktop_shortcut():
+                self.log("Desktop shortcut creation failed, but continuing...", "WARNING")
             
             self.log("=== Environment Setup Complete ===")
             return True
