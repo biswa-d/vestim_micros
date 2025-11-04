@@ -233,6 +233,45 @@ class SmartEnvironmentSetup:
 
     def _is_windows(self) -> bool:
         return sys.platform == "win32"
+    
+    def _is_windowsapps_shim(self, p: str) -> bool:
+        """Check if a path is the problematic Windows Store python shim."""
+        try:
+            if not p:
+                return False
+            p_str = str(p).lower()
+            # Check for WindowsApps in path
+            if "windowsapps" in p_str:
+                return True
+            # Also check for Microsoft Store Python locations
+            if "microsoft\\windowsapps" in p_str or "local\\microsoft\\windowsapps" in p_str:
+                return True
+            return False
+        except Exception:
+            return False
+    
+    def _is_valid_python(self, p: str) -> bool:
+        """Verify that a Python executable is real and functional."""
+        try:
+            if not p or not Path(p).exists():
+                return False
+            if self._is_windowsapps_shim(p):
+                return False
+            # Try to actually run it to verify it's functional
+            result = subprocess.run(
+                [p, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            # WindowsApps shim returns exit code 9009, real Python returns 0
+            if result.returncode != 0:
+                self.log(f"Python at {p} failed version check (exit {result.returncode})", "WARNING")
+                return False
+            return True
+        except Exception as e:
+            self.log(f"Failed to validate Python at {p}: {e}", "WARNING")
+            return False
 
     def _check_vc_redist_installed(self) -> bool:
         """Check if Microsoft Visual C++ 2015–2022 Redistributable (x64) is installed.
@@ -347,14 +386,14 @@ class SmartEnvironmentSetup:
                 if shutil.which("py"):
                     r = subprocess.run(["py", "-3", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True, timeout=10)
                     candidate = r.stdout.strip() if r.returncode == 0 else None
-                    if candidate and Path(candidate).exists():
+                    if candidate and self._is_valid_python(candidate):
                         self.log(f"Python installed at: {candidate}")
                         return candidate
             except Exception:
                 pass
 
             cand = shutil.which("python") or shutil.which("python3")
-            if cand and Path(cand).exists():
+            if cand and self._is_valid_python(cand):
                 self.log(f"Python installed at (PATH): {cand}")
                 return cand
 
@@ -373,7 +412,7 @@ class SmartEnvironmentSetup:
                                 except FileNotFoundError:
                                     path, _ = winreg.QueryValueEx(ip, None)
                                     exe = os.path.join(path, "python.exe")
-                                if exe and Path(exe).exists():
+                                if exe and self._is_valid_python(exe):
                                     chosen = exe if (chosen is None or ver > chosen) else chosen
                         except OSError:
                             break
@@ -472,12 +511,6 @@ class SmartEnvironmentSetup:
                 # We're in a PyInstaller executable, locate a real system Python
                 python_exe = None
 
-                def _is_windowsapps_shim(p: str) -> bool:
-                    try:
-                        return p and "WindowsApps" in str(p)
-                    except Exception:
-                        return False
-
                 if sys.platform == "win32":
                     # 1) Prefer the Python Launcher (py.exe) – reliably points to a real install
                     try:
@@ -487,18 +520,21 @@ class SmartEnvironmentSetup:
                                 "py", "-3", "-c", "import sys; print(sys.executable)"
                             ], capture_output=True, text=True, timeout=10)
                             candidate = r.stdout.strip() if r.returncode == 0 else None
-                            if candidate and Path(candidate).exists() and not _is_windowsapps_shim(candidate):
+                            if candidate and self._is_valid_python(candidate):
                                 python_exe = candidate
-                    except Exception as _:
-                        pass
+                                self.log(f"Found valid Python via py.exe: {python_exe}")
+                    except Exception as e:
+                        self.log(f"py.exe lookup failed: {e}", "WARNING")
 
                     # 2) Next, try PATH but avoid the Microsoft Store alias
                     if not python_exe:
                         cand = shutil.which("python") or shutil.which("python3")
-                        if cand and not _is_windowsapps_shim(cand):
-                            python_exe = cand
-                        elif cand:
-                            self.log(f"Ignoring WindowsApps python shim on PATH: {cand}", "WARNING")
+                        if cand:
+                            if self._is_valid_python(cand):
+                                python_exe = cand
+                                self.log(f"Found valid Python on PATH: {python_exe}")
+                            else:
+                                self.log(f"Skipping invalid/WindowsApps python on PATH: {cand}", "WARNING")
 
                     # 3) Try Windows registry for installed Python locations
                     if not python_exe:
@@ -519,7 +555,7 @@ class SmartEnvironmentSetup:
                                                     except FileNotFoundError:
                                                         path, _ = winreg.QueryValueEx(ip, None)
                                                         exe = os.path.join(path, "python.exe")
-                                                    if exe and Path(exe).exists() and not _is_windowsapps_shim(exe):
+                                                    if exe and self._is_valid_python(exe):
                                                         best = exe if (best is None or ver > best) else best
                                             except OSError:
                                                 break
@@ -554,8 +590,9 @@ class SmartEnvironmentSetup:
                             try:
                                 if base.exists():
                                     for exe in base.rglob("python.exe"):
-                                        if exe.exists() and not _is_windowsapps_shim(str(exe)):
+                                        if self._is_valid_python(str(exe)):
                                             python_exe = str(exe)
+                                            self.log(f"Found valid Python in common paths: {python_exe}")
                                             break
                             except Exception:
                                 continue
