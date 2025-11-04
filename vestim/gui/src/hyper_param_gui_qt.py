@@ -889,12 +889,13 @@ class VEstimHyperParamGUI(QWidget):
             self.cosine_eta_min_entry.setVisible(False)
 
         elif selected_scheduler == "ReduceLROnPlateau":
-            self.lr_param_label.setText("Plateau Factor:")
-            self.lr_param_label.setVisible(True)
-            self.lr_param_entry.setVisible(True)
+            # Hide StepLR params - ReduceLROnPlateau has its own dedicated fields
+            self.lr_param_label.setVisible(False)
+            self.lr_param_entry.setVisible(False)
             self.lr_period_label.setVisible(False)
             self.lr_period_entry.setVisible(False)
 
+            # Show ReduceLROnPlateau params
             self.plateau_patience_label.setVisible(True)
             self.plateau_patience_entry.setVisible(True)
             self.plateau_factor_label.setVisible(True)
