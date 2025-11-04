@@ -308,6 +308,87 @@ class SmartEnvironmentSetup:
             self.log(f"VC++ installation step failed: {e}", "ERROR")
             return False
 
+    def _attempt_python_install_windows(self, version: str = "3.12.7") -> Optional[str]:
+        """Download and install Python per-user silently if not present.
+
+        Returns the path to the installed python.exe if successful, else None.
+        """
+        if sys.platform != "win32":
+            return None
+
+        try:
+            self.log("Python not found. Attempting per-user installation of Python from python.org...")
+            installer_name = f"python-{version}-amd64.exe"
+            download_url = f"https://www.python.org/ftp/python/{version}/{installer_name}"
+            installer_path = self.install_dir / installer_name
+
+            # Download installer via PowerShell (more reliable on Windows)
+            ps_download = (
+                f"Invoke-WebRequest -Uri '{download_url}' -OutFile '{installer_path}' -UseBasicParsing"
+            )
+            result = subprocess.run(["powershell", "-Command", ps_download], capture_output=True, text=True, timeout=180)
+            if result.returncode != 0 or not installer_path.exists():
+                self.log(f"Failed to download Python installer: {result.stderr}", "ERROR")
+                return None
+
+            # Silent per-user install, add to PATH, include pip
+            ps_install = (
+                f"Start-Process -FilePath '{installer_path}' -ArgumentList '/quiet','InstallAllUsers=0','PrependPath=1','Include_pip=1','SimpleInstall=1' -Wait; "
+                f"Write-Output $LASTEXITCODE"
+            )
+            result = subprocess.run(["powershell", "-Command", ps_install], capture_output=True, text=True, timeout=600)
+            if result.returncode != 0:
+                self.log(f"Python installer returned non-zero exit. STDERR: {result.stderr}", "ERROR")
+                # Do not early-return; sometimes $LASTEXITCODE is unreliable; we'll probe for python below
+
+            # Re-probe for python using PATH, py.exe, and registry
+            try:
+                # Prefer py launcher to resolve the freshly installed version
+                if shutil.which("py"):
+                    r = subprocess.run(["py", "-3", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True, timeout=10)
+                    candidate = r.stdout.strip() if r.returncode == 0 else None
+                    if candidate and Path(candidate).exists():
+                        self.log(f"Python installed at: {candidate}")
+                        return candidate
+            except Exception:
+                pass
+
+            cand = shutil.which("python") or shutil.which("python3")
+            if cand and Path(cand).exists():
+                self.log(f"Python installed at (PATH): {cand}")
+                return cand
+
+            # Registry fallback
+            try:
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"SOFTWARE\Python\PythonCore") as root:
+                    i = 0
+                    chosen = None
+                    while True:
+                        try:
+                            ver = winreg.EnumKey(root, i); i += 1
+                            with winreg.OpenKey(root, f"{ver}\\InstallPath") as ip:
+                                try:
+                                    exe, _ = winreg.QueryValueEx(ip, "ExecutablePath")
+                                except FileNotFoundError:
+                                    path, _ = winreg.QueryValueEx(ip, None)
+                                    exe = os.path.join(path, "python.exe")
+                                if exe and Path(exe).exists():
+                                    chosen = exe if (chosen is None or ver > chosen) else chosen
+                        except OSError:
+                            break
+                if chosen:
+                    self.log(f"Python installed at (registry): {chosen}")
+                    return chosen
+            except Exception:
+                pass
+
+            self.log("Python installation attempted but executable not found.", "ERROR")
+            return None
+        except Exception as e:
+            self.log(f"Python auto-installation failed: {e}", "ERROR")
+            return None
+
     def ensure_windows_prerequisites(self) -> bool:
         """Ensure system-level prerequisites exist (Windows only).
 
@@ -388,28 +469,120 @@ class SmartEnvironmentSetup:
             
             # Get the actual Python executable (not our packaged .exe)
             if getattr(sys, 'frozen', False):
-                # We're in a PyInstaller executable, find Python
-                python_exe = shutil.which("python") or shutil.which("python3")
+                # We're in a PyInstaller executable, locate a real system Python
+                python_exe = None
+
+                def _is_windowsapps_shim(p: str) -> bool:
+                    try:
+                        return p and "WindowsApps" in str(p)
+                    except Exception:
+                        return False
+
+                if sys.platform == "win32":
+                    # 1) Prefer the Python Launcher (py.exe) – reliably points to a real install
+                    try:
+                        if shutil.which("py"):
+                            self.log("Trying to resolve Python via py.exe launcher (-3)...")
+                            r = subprocess.run([
+                                "py", "-3", "-c", "import sys; print(sys.executable)"
+                            ], capture_output=True, text=True, timeout=10)
+                            candidate = r.stdout.strip() if r.returncode == 0 else None
+                            if candidate and Path(candidate).exists() and not _is_windowsapps_shim(candidate):
+                                python_exe = candidate
+                    except Exception as _:
+                        pass
+
+                    # 2) Next, try PATH but avoid the Microsoft Store alias
+                    if not python_exe:
+                        cand = shutil.which("python") or shutil.which("python3")
+                        if cand and not _is_windowsapps_shim(cand):
+                            python_exe = cand
+                        elif cand:
+                            self.log(f"Ignoring WindowsApps python shim on PATH: {cand}", "WARNING")
+
+                    # 3) Try Windows registry for installed Python locations
+                    if not python_exe:
+                        try:
+                            import winreg
+                            def _probe_registry(hive, base):
+                                best = None
+                                try:
+                                    with winreg.OpenKey(hive, base) as root:
+                                        i = 0
+                                        while True:
+                                            try:
+                                                ver = winreg.EnumKey(root, i)
+                                                i += 1
+                                                with winreg.OpenKey(root, f"{ver}\\InstallPath") as ip:
+                                                    try:
+                                                        exe, _ = winreg.QueryValueEx(ip, "ExecutablePath")
+                                                    except FileNotFoundError:
+                                                        path, _ = winreg.QueryValueEx(ip, None)
+                                                        exe = os.path.join(path, "python.exe")
+                                                    if exe and Path(exe).exists() and not _is_windowsapps_shim(exe):
+                                                        best = exe if (best is None or ver > best) else best
+                                            except OSError:
+                                                break
+                                except FileNotFoundError:
+                                    pass
+                                return best
+
+                            reg_paths = [
+                                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Python\PythonCore"),
+                                (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Python\PythonCore"),
+                                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Python\PythonCore"),
+                            ]
+                            for hive, base in reg_paths:
+                                cand = _probe_registry(hive, base)
+                                if cand:
+                                    python_exe = cand
+                                    break
+                        except Exception as e:
+                            self.log(f"Python registry lookup failed: {e}", "WARNING")
+
+                    # 4) Finally, check common install locations
+                    if not python_exe:
+                        common_paths = [
+                            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python",
+                            Path("C:/Program Files/Python"),
+                            Path("C:/Program Files (x86)/Python"),
+                            Path("C:/Python312"),
+                            Path("C:/Python311"),
+                            Path("C:/Python310"),
+                        ]
+                        for base in common_paths:
+                            try:
+                                if base.exists():
+                                    for exe in base.rglob("python.exe"):
+                                        if exe.exists() and not _is_windowsapps_shim(str(exe)):
+                                            python_exe = str(exe)
+                                            break
+                            except Exception:
+                                continue
+                            if python_exe:
+                                break
+                else:
+                    # Non-Windows: rely on PATH or common names
+                    python_exe = shutil.which("python3") or shutil.which("python")
+
                 if not python_exe:
-                    # Try common Python locations
-                    for py_path in [
-                        Path(sys.prefix) / "python.exe",
-                        Path("C:\\Python312\\python.exe"),
-                        Path("C:\\Python311\\python.exe"),
-                        Path("C:\\Python310\\python.exe")
-                    ]:
-                        if py_path.exists():
-                            python_exe = str(py_path)
-                            break
+                    # Try to install Python per-user automatically
+                    python_exe = self._attempt_python_install_windows()
                 if not python_exe:
-                    raise RuntimeError("Could not find Python executable for virtual environment creation")
+                    raise RuntimeError(
+                        "Could not locate or install a real Python interpreter to create a virtual environment. "
+                        "On Windows, avoid the Microsoft Store alias (WindowsApps). The installer attempted to "
+                        "download Python from python.org but failed. Please install Python 3.11+ manually and re-run."
+                    )
             else:
                 python_exe = sys.executable
                 
             self.log(f"Using Python executable: {python_exe}")
-            subprocess.run([
-                python_exe, "-m", "venv", str(self.venv_dir)
-            ], check=True, timeout=120)
+            # Prefer invoking via launcher on Windows to avoid quoting issues
+            if sys.platform == "win32" and Path(python_exe).name.lower() == "py.exe":
+                subprocess.run([python_exe, "-3", "-m", "venv", str(self.venv_dir)], check=True, timeout=240)
+            else:
+                subprocess.run([python_exe, "-m", "venv", str(self.venv_dir)], check=True, timeout=240)
             
             # Get paths to venv executables
             if sys.platform == "win32":
