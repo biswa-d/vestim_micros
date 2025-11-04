@@ -49,7 +49,7 @@ class WelcomeGUI(QMainWindow):
         self.test_model_button.clicked.connect(self.test_trained_model)
         self.main_layout.addWidget(self.test_model_button, alignment=Qt.AlignCenter)
 
-        test_desc = QLabel("Test trained models with comprehensive metrics, plots, and results history.")
+        test_desc = QLabel("Test trained models with comprehensive metrics and result plots.")
         test_desc.setAlignment(Qt.AlignCenter)
         test_desc.setStyleSheet(get_adaptive_stylesheet("font-size: 11pt; color: #666;"))
         self.main_layout.addWidget(test_desc, alignment=Qt.AlignCenter)

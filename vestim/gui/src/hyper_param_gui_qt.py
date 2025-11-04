@@ -1054,7 +1054,8 @@ class VEstimHyperParamGUI(QWidget):
         optimizer_label.setStyleSheet("font-size: 9pt;")
         optimizer_label.setToolTip("Select one or more optimization algorithms for grid search.")
         self.optimizer_list = QListWidget()
-        self.optimizer_list.addItems(["Adam", "SGD", "RMSprop"])
+        # Include AdamW as a selectable optimizer
+        self.optimizer_list.addItems(["Adam", "AdamW", "SGD", "RMSprop"])
         self.optimizer_list.setSelectionMode(QAbstractItemView.MultiSelection)
         self.optimizer_list.setFixedHeight(60)
         self.param_entries["OPTIMIZER_TYPE"] = self.optimizer_list

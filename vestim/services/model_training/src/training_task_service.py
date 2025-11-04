@@ -457,9 +457,31 @@ class TrainingTaskService:
         with open(model_path + '_hyperparams.json', 'w') as f:
             json.dump(model.hyperparams, f, indent=4)
 
-    def get_optimizer(self, model, lr):
-        """Initialize the optimizer for the model."""
-        return optim.Adam(model.parameters(), lr=lr)
+    def get_optimizer(self, model, lr, optimizer_type: str = 'Adam', weight_decay: float = 0.0, capturable: bool = False):
+        """Initialize the optimizer for the model.
+
+        Args:
+            model: The model whose parameters will be optimized.
+            lr (float): Initial learning rate.
+            optimizer_type (str): 'Adam' or 'AdamW' (default: 'Adam').
+            weight_decay (float): Weight decay coefficient. For AdamW this is decoupled; for Adam it behaves like L2.
+            capturable (bool): Set capturable=True when using CUDA Graphs.
+
+        Returns:
+            torch.optim.Optimizer
+        """
+        optimizer_type = (optimizer_type or 'Adam').strip()
+        try:
+            if optimizer_type.lower() == 'adamw':
+                return optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, capturable=capturable)
+            else:
+                return optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay, capturable=capturable)
+        except TypeError:
+            # Fallback for older PyTorch without capturable kw
+            if optimizer_type.lower() == 'adamw':
+                return optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+            else:
+                return optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     def get_scheduler(self, optimizer, lr_drop_period):
         """Initialize the learning rate scheduler."""

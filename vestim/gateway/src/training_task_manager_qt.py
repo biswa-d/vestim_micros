@@ -781,7 +781,9 @@ class TrainingTaskManager:
         model_total_params = sum(p.numel() for p in task['model'].parameters())
         mixed_precision = task['hyperparams'].get('USE_MIXED_PRECISION', False)
         cuda_graph_enabled = isinstance(self.training_service, CUDAGraphsTrainingService)
-        optimizer_type = 'Adam' # Currently hardcoded in the training service
+        # Pull optimizer type from hyperparams (may be a CSV if grid search; take the first)
+        raw_opt = task.get('hyperparams', {}).get('OPTIMIZER_TYPE', 'Adam')
+        optimizer_type = raw_opt.split(',')[0].strip() if isinstance(raw_opt, str) else str(raw_opt)
         
         model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM')
         training_method = task['hyperparams'].get('TRAINING_METHOD', 'Sequence-to-Sequence')
@@ -893,14 +895,32 @@ class TrainingTaskManager:
             model_type == 'FNN'
         )
 
+        # Resolve weight decay (string from GUI -> float)
+        try:
+            weight_decay = float(hyperparams.get('WEIGHT_DECAY', 0.0))
+        except Exception:
+            weight_decay = 0.0
+
         if use_cuda_graphs:
-            # CUDA Graphs requires capturable=True for Adam optimizer
-            self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr, capturable=True)
-            self.logger.info(f"Created CUDA Graphs-compatible optimizer with capturable=True for {model_type} model")
+            # CUDA Graphs requires capturable=True; both Adam and AdamW support it on recent PyTorch
+            if optimizer_type.lower() == 'adamw':
+                try:
+                    self.optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr, weight_decay=weight_decay, capturable=True)
+                except TypeError:
+                    self.optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr, weight_decay=weight_decay)
+            else:
+                try:
+                    self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr, weight_decay=weight_decay, capturable=True)
+                except TypeError:
+                    self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr, weight_decay=weight_decay)
+            self.logger.info(f"Created CUDA Graphs-compatible optimizer ({optimizer_type}) for {model_type} model")
         else:
             # Standard optimizer for non-CUDA graphs training
-            self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
-            self.logger.info(f"Created standard optimizer for {model_type} model")
+            if optimizer_type.lower() == 'adamw':
+                self.optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr, weight_decay=weight_decay)
+            else:
+                self.optimizer = torch.optim.Adam(model.parameters(), lr=current_lr, weight_decay=weight_decay)
+            self.logger.info(f"Created standard optimizer ({optimizer_type}) for {model_type} model")
 
         # Create scheduler based on type
         scheduler_type = hyperparams.get("SCHEDULER_TYPE", "StepLR")
@@ -1709,14 +1729,34 @@ class TrainingTaskManager:
             max_training_time_seconds = int(task.get('training_params', {}).get('max_training_time_seconds', 0))
             overall_training_start_time = time.time()
 
+            # Resolve optimizer choice for Optuna path as well
+            raw_opt = task.get('hyperparams', {}).get('OPTIMIZER_TYPE', 'Adam')
+            optimizer_type = raw_opt.split(',')[0].strip() if isinstance(raw_opt, str) else str(raw_opt)
+            try:
+                weight_decay = float(hyperparams.get('WEIGHT_DECAY', 0.0))
+            except Exception:
+                weight_decay = 0.0
+
             if use_cuda_graphs:
-                # CUDA Graphs requires capturable=True for Adam optimizer
-                optimizer = torch.optim.Adam(model.parameters(), lr=current_lr, capturable=True)
-                self.logger.info(f"Created CUDA Graphs-compatible Optuna optimizer with capturable=True for {model_type} model")
+                # CUDA Graphs requires capturable=True
+                if optimizer_type.lower() == 'adamw':
+                    try:
+                        optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr, weight_decay=weight_decay, capturable=True)
+                    except TypeError:
+                        optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr, weight_decay=weight_decay)
+                else:
+                    try:
+                        optimizer = torch.optim.Adam(model.parameters(), lr=current_lr, weight_decay=weight_decay, capturable=True)
+                    except TypeError:
+                        optimizer = torch.optim.Adam(model.parameters(), lr=current_lr, weight_decay=weight_decay)
+                self.logger.info(f"Created CUDA Graphs-compatible Optuna optimizer ({optimizer_type})")
             else:
                 # Standard optimizer for non-CUDA graphs training
-                optimizer = torch.optim.Adam(model.parameters(), lr=current_lr)
-                self.logger.info(f"Created standard Optuna optimizer for {model_type} model")
+                if optimizer_type.lower() == 'adamw':
+                    optimizer = torch.optim.AdamW(model.parameters(), lr=current_lr, weight_decay=weight_decay)
+                else:
+                    optimizer = torch.optim.Adam(model.parameters(), lr=current_lr, weight_decay=weight_decay)
+                self.logger.info(f"Created standard Optuna optimizer ({optimizer_type})")
                 
             scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_drop_period, gamma=lr_drop_factor)
             csv_log_file = task.get('csv_log_file')
