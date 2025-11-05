@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 import sys
 import time
+import os, json
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from vestim.gateway.src.optuna_setup_manager_qt import OptunaSetupManager
 from vestim.gui.src.training_task_gui_qt import VEstimTrainingTaskGUI
@@ -111,6 +112,43 @@ class VEstimTrainSetupGUI(QWidget):
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
         top_layout.addWidget(title_label)
+
+        # Subheading: show training data source (trimmed) in small font
+        try:
+            data_source_path = None
+            job_folder = self.job_manager.get_job_folder() if self.job_manager else None
+            if job_folder:
+                ref_path = os.path.join(job_folder, 'data_files_reference.json')
+                if os.path.exists(ref_path):
+                    with open(ref_path, 'r') as f:
+                        ref = json.load(f)
+                        data_source_path = (ref.get('original_data_sources', {}) or {}).get('train')
+            # Fallback to JobManager's remembered selection
+            if not data_source_path and hasattr(self.job_manager, 'get_train_folder_path'):
+                data_source_path = self.job_manager.get_train_folder_path()
+
+            def _format_path(p: str, max_len: int = 85) -> str:
+                if not p:
+                    return ""
+                # Normalize separators for display
+                display = p.replace('\\', '/')
+                if len(display) <= max_len:
+                    return display
+                # Keep tail segments; trim head
+                parts = display.strip('/').split('/')
+                tail = '/'.join(parts[-4:]) if len(parts) >= 4 else display[-max_len:]
+                return f"..{('/' if not tail.startswith('/') else '')}{tail}"
+
+            if data_source_path:
+                subtitle = QLabel(f"data: {_format_path(data_source_path)}")
+                subtitle.setAlignment(Qt.AlignCenter)
+                subtitle.setStyleSheet("color: #666; font-size: 15px; margin-top: -5px; margin-bottom: 8px;")
+                # Full path in tooltip
+                subtitle.setToolTip(data_source_path)
+                top_layout.addWidget(subtitle)
+        except Exception:
+            # Non-fatal; simply omit subtitle if anything goes wrong
+            pass
         
         time_layout = QHBoxLayout()
         time_layout.setContentsMargins(0, 10, 0, 10)

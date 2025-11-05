@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt5.QtGui import QFont, QDesktopServices, QPixmap, QImage, QClipboard
 import os, sys, time
+import json
 import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -125,6 +126,38 @@ class VEstimTestingGUI(QMainWindow):
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
         self.main_layout.addWidget(title_label)
+
+        # Subheading: show training data source (trimmed) for context during testing
+        try:
+            data_source_path = None
+            job_folder = self.job_folder
+            if job_folder:
+                ref_path = os.path.join(job_folder, 'data_files_reference.json')
+                if os.path.exists(ref_path):
+                    with open(ref_path, 'r') as f:
+                        ref = json.load(f)
+                        data_source_path = (ref.get('original_data_sources', {}) or {}).get('train')
+            if not data_source_path and hasattr(self.job_manager, 'get_train_folder_path'):
+                data_source_path = self.job_manager.get_train_folder_path()
+
+            def _format_path(p: str, max_len: int = 85) -> str:
+                if not p:
+                    return ""
+                display = p.replace('\\', '/')
+                if len(display) <= max_len:
+                    return display
+                parts = display.strip('/').split('/')
+                tail = '/'.join(parts[-4:]) if len(parts) >= 4 else display[-max_len:]
+                return f"..{('/' if not tail.startswith('/') else '')}{tail}"
+
+            if data_source_path:
+                subtitle = QLabel(f"data: {_format_path(data_source_path)}")
+                subtitle.setAlignment(Qt.AlignCenter)
+                subtitle.setStyleSheet("color: #666; font-size: 15px; margin-top: -5px; margin-bottom: 8px;")
+                subtitle.setToolTip(data_source_path)
+                self.main_layout.addWidget(subtitle)
+        except Exception:
+            pass
 
         self.hyperparam_frame = QFrame()
         self.hyperparam_frame.setObjectName("hyperparamFrame")

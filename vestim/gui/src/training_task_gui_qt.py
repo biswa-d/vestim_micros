@@ -139,6 +139,37 @@ class VEstimTrainingTaskGUI(QMainWindow):
         title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #0b6337; margin-bottom: 15px;")
         self.main_layout.addWidget(title_label)
         
+        # Subheading: show training data source (trimmed) in small font
+        try:
+            data_source_path = None
+            job_folder = self.job_manager.get_job_folder() if self.job_manager else None
+            if job_folder:
+                ref_path = os.path.join(job_folder, 'data_files_reference.json')
+                if os.path.exists(ref_path):
+                    with open(ref_path, 'r') as f:
+                        ref = json.load(f)
+                        data_source_path = (ref.get('original_data_sources', {}) or {}).get('train')
+            if not data_source_path and hasattr(self.job_manager, 'get_train_folder_path'):
+                data_source_path = self.job_manager.get_train_folder_path()
+
+            def _format_path(p: str, max_len: int = 85) -> str:
+                if not p:
+                    return ""
+                display = p.replace('\\', '/')
+                if len(display) <= max_len:
+                    return display
+                parts = display.strip('/').split('/')
+                tail = '/'.join(parts[-4:]) if len(parts) >= 4 else display[-max_len:]
+                return f"..{('/' if not tail.startswith('/') else '')}{tail}"
+
+            if data_source_path:
+                subtitle = QLabel(f"data: {_format_path(data_source_path)}")
+                subtitle.setAlignment(Qt.AlignCenter)
+                subtitle.setStyleSheet("color: #666; font-size: 15px; margin-top: -8px; margin-bottom: 6px;")
+                subtitle.setToolTip(data_source_path)
+                self.main_layout.addWidget(subtitle)
+        except Exception:
+            pass
         # Keep the original window title format
         # (The device name is already shown in the title label above)
 
