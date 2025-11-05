@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QLabel, QGridLayout, QWidget, QVBoxLayout
+from PyQt5.QtWidgets import QLabel, QGridLayout, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox
 from PyQt5.QtCore import Qt
 
 def scale_font(font):
@@ -21,6 +21,58 @@ def _get_value_or_zero(params, key):
         return float(params.get(key, 0))
     except (ValueError, TypeError):
         return 0
+
+def _create_section_box(title, items, gui, color="#3498db"):
+    """Create a styled QGroupBox for a parameter section"""
+    group = QGroupBox(title)
+    group.setStyleSheet(f"""
+        QGroupBox {{
+            font-weight: bold;
+            font-size: 10pt;
+            color: {color};
+            border: 2px solid {color};
+            border-radius: 5px;
+            margin-top: 12px;
+            padding: 15px 10px 10px 10px;
+        }}
+        QGroupBox::title {{
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 0 5px;
+            background-color: white;
+        }}
+    """)
+    
+    layout = QGridLayout()
+    layout.setHorizontalSpacing(10)
+    layout.setVerticalSpacing(8)
+    layout.setContentsMargins(5, 10, 5, 5)
+    
+    # Arrange items in 2 columns within each box
+    for i, (param, value) in enumerate(items):
+        row = i // 2
+        col = (i % 2) * 2
+        
+        label_text = gui.param_labels.get(param, param.replace("_", " ").title())
+        
+        lbl = QLabel(f"{label_text}:")
+        lbl.setStyleSheet("font-size: 9pt; color: #555; font-weight: normal;")
+        lbl.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        
+        val = QLabel(str(value))
+        val.setStyleSheet("font-size: 9pt; font-weight: bold; color: #000;")
+        val.setWordWrap(True)
+        val.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        
+        layout.addWidget(lbl, row, col)
+        layout.addWidget(val, row, col + 1)
+    
+    # Set column stretches to make value columns wider
+    layout.setColumnStretch(1, 2)  # First value column
+    layout.setColumnStretch(3, 2)  # Second value column
+    
+    group.setLayout(layout)
+    return group
 
 def display_hyperparameters(gui, params):
     if not params:
@@ -156,43 +208,16 @@ def display_hyperparameters(gui, params):
     items = []
     used_keys = set()
     
-    for key in ordered_keys:
-        if key in params:
-            items.append((key, params[key]))
-            used_keys.add(key)
+    # Build grouped sections with formatted values
+    data_items = []
+    model_items = []
+    training_items = []
+    validation_items = []
+    inference_items = []
+    exploit_items = []
     
-    # Add any remaining params not explicitly ordered (fallback)
-    excluded_always = {'INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_WORKERS', 'BATCH_TRAINING', 
-                      'DEVICE_SELECTION', 'REPETITIONS', 'CURRENT_REPETITION', 
-                      'LAYERS', 'HIDDEN_UNITS', 'LR_PERIOD', 'LR_PARAM'}
-
-    def _include_in_fallback(k: str) -> bool:
-        # Hide inference filter details when filter is None
-        if k in {'INFERENCE_FILTER_WINDOW_SIZE', 'INFERENCE_FILTER_ALPHA', 'INFERENCE_FILTER_POLYORDER'}:
-            if not inference_filter or str(inference_filter).strip().lower() == 'none':
-                return False
-        # Hide exploit params when repetitions are zero
-        if k in {'EXPLOIT_LR', 'EXPLOIT_EPOCHS', 'EXPLOIT_REPETITIONS'} and exploit_reps <= 0:
-            return False
-        # Hide max training time when zero
-        if k == 'MAX_TRAINING_TIME_SECONDS' and max_train_time <= 0:
-            return False
-        return True
-
-    for key, value in params.items():
-        if key not in used_keys and key not in excluded_always and _include_in_fallback(key):
-            items.append((key, value))
-    # Revert to 4 columns as requested
-    num_cols = 4
-    num_rows = (len(items) + num_cols - 1) // num_cols
-
-    for i, (param, value) in enumerate(items):
-        row = i % num_rows
-        col = (i // num_rows) * 2
-
-        label_text = gui.param_labels.get(param, param.replace("_", " ").title())
-
-        # Friendly formatting with special handling for integers, booleans, and zero-as-None fields
+    def _format_value(param, value):
+        """Format parameter value for display"""
         boolean_like_keys = {"normalization_applied", "PIN_MEMORY", "USE_MIXED_PRECISION"}
         integer_keys = {
             'BATCH_SIZE','MAX_EPOCHS','VALID_FREQUENCY','VALID_PATIENCE','PLATEAU_PATIENCE',
@@ -202,62 +227,124 @@ def display_hyperparameters(gui, params):
         zero_as_none_keys = {'EXPLOIT_REPETITIONS'}
 
         if isinstance(value, bool):
-            value_str = "True" if value else "False"
+            return "True" if value else "False"
         elif str(param) in boolean_like_keys or str(param).lower() in boolean_like_keys:
             truthy = {True, 1, "1", "true", "True", "YES", "yes"}
-            value_str = "True" if value in truthy else "False"
+            return "True" if value in truthy else "False"
         elif param in zero_as_none_keys:
             try:
                 v = int(float(value))
-                value_str = "None" if v == 0 else str(v)
+                return "None" if v == 0 else str(v)
             except (ValueError, TypeError):
-                value_str = str(value)
+                return str(value)
         elif param in integer_keys:
             try:
-                value_str = str(int(float(value)))
+                return str(int(float(value)))
             except (ValueError, TypeError):
-                value_str = str(value)
+                return str(value)
         else:
             try:
                 float_val = float(value)
                 if 0 < abs(float_val) <= 0.01:
-                    value_str = f"{float_val:.1e}"
+                    return f"{float_val:.1e}"
                 elif abs(float_val) < 1.0 and float_val != int(float_val):
-                    value_str = f"{float_val:.1f}"
+                    return f"{float_val:.1f}"
                 else:
                     if float_val == int(float_val):
-                        value_str = str(int(float_val))
+                        return str(int(float_val))
                     else:
-                        value_str = f"{float_val:.1f}"
+                        return f"{float_val:.1f}"
             except (ValueError, TypeError):
+                # Truncate very long strings
                 value_str = str(value)
+                if len(value_str) > 60:
+                    return value_str[:57] + "..."
+                return value_str
+    
+    # Populate sections based on ordered keys
+    for key in ordered_keys:
+        if key not in params:
+            continue
+        formatted_value = _format_value(key, params[key])
         
-        # Truncate very long parameter values to prevent GUI distortion
-        MAX_DISPLAY_LENGTH = 60
-        if len(value_str) > MAX_DISPLAY_LENGTH:
-            value_str = value_str[:MAX_DISPLAY_LENGTH-3] + "..."
+        # Data section
+        if key in ['FEATURE_COLUMNS', 'TARGET_COLUMN']:
+            data_items.append((key, formatted_value))
+        # Model section
+        elif key in ['MODEL_TYPE', 'RNN_LAYER_SIZES', 'HIDDEN_LAYER_SIZES', 'NUM_LEARNABLE_PARAMS', 'CURRENT_DEVICE', 'USE_MIXED_PRECISION', 'DROPOUT_PROB']:
+            model_items.append((key, formatted_value))
+        # Training section
+        elif key in ['TRAINING_METHOD', 'LOOKBACK', 'BATCH_SIZE', 'MAX_EPOCHS', 'OPTIMIZER_TYPE', 'WEIGHT_DECAY', 'INITIAL_LR']:
+            training_items.append((key, formatted_value))
+        # Validation & LR section
+        elif key in ['VALID_FREQUENCY', 'VALID_PATIENCE', 'SCHEDULER_TYPE', 'LR_DROP_PERIOD', 'LR_DROP_FACTOR', 
+                     'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN']:
+            validation_items.append((key, formatted_value))
+        # Exploit section (only if reps > 0)
+        elif key in ['EXPLOIT_LR', 'EXPLOIT_EPOCHS', 'EXPLOIT_REPETITIONS'] and exploit_reps > 0:
+            exploit_items.append((key, formatted_value))
+        # Inference section (only if filter != None)
+        elif key.startswith('INFERENCE_FILTER') and inference_filter and str(inference_filter).strip().lower() != 'none':
+            inference_items.append((key, formatted_value))
+        # Pin Memory goes to training
+        elif key == 'PIN_MEMORY':
+            training_items.append((key, formatted_value))
+        # Max training time (only if > 0)
+        elif key == 'MAX_TRAINING_TIME_SECONDS' and max_train_time > 0:
+            training_items.append((key, formatted_value))
+    
+    # Add any remaining params to appropriate fallback section
+    excluded_always = {'INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_WORKERS', 'BATCH_TRAINING', 
+                      'DEVICE_SELECTION', 'REPETITIONS', 'CURRENT_REPETITION', 
+                      'LAYERS', 'HIDDEN_UNITS', 'LR_PERIOD', 'LR_PARAM'}
+    
+    used_keys = set(key for key in ordered_keys if key in params)
+    for key, value in params.items():
+        if key in used_keys or key in excluded_always:
+            continue
+        # Apply fallback filtering
+        if key in {'INFERENCE_FILTER_WINDOW_SIZE', 'INFERENCE_FILTER_ALPHA', 'INFERENCE_FILTER_POLYORDER'}:
+            if not inference_filter or str(inference_filter).strip().lower() == 'none':
+                continue
+        if key in {'EXPLOIT_LR', 'EXPLOIT_EPOCHS', 'EXPLOIT_REPETITIONS'} and exploit_reps <= 0:
+            continue
+        if key == 'MAX_TRAINING_TIME_SECONDS' and max_train_time <= 0:
+            continue
+        
+        formatted_value = _format_value(key, value)
+        # Add to training as fallback
+        training_items.append((key, formatted_value))
 
-        param_label = QLabel(f"{label_text}:")
-        param_label.setStyleSheet("font-size: 9pt; color: #333;")
-        param_label.setAlignment(Qt.AlignRight | Qt.AlignTop)
-
-        value_label = QLabel(value_str)
-        value_label.setStyleSheet("font-size: 9pt; color: #000000; font-weight: bold;")
-        value_label.setWordWrap(True)
-        value_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-
-        grid_layout.addWidget(param_label, row, col)
-        grid_layout.addWidget(value_label, row, col + 1)
-
-    # Custom column stretch for 4 columns.
-    # The grid has 8 columns total (4 label/value pairs).
-    # We give the first value column (index 1) a higher stretch factor
-    # to make it wider for long text like the feature list.
-    grid_layout.setColumnStretch(0, 0) # Col 1 Label
-    grid_layout.setColumnStretch(1, 2) # Col 1 Value (weight 2)
-    grid_layout.setColumnStretch(2, 0) # Col 2 Label
-    grid_layout.setColumnStretch(3, 1) # Col 2 Value (weight 1)
-    grid_layout.setColumnStretch(4, 0) # Col 3 Label
-    grid_layout.setColumnStretch(5, 1) # Col 3 Value (weight 1)
-    grid_layout.setColumnStretch(6, 0) # Col 4 Label
-    grid_layout.setColumnStretch(7, 1) # Col 4 Value (weight 1)
+    # Create grouped box layout
+    # Row 1: Data, Model, Training (side by side)
+    row1_layout = QHBoxLayout()
+    row1_layout.setSpacing(10)
+    
+    if data_items:
+        row1_layout.addWidget(_create_section_box("DATA", data_items, gui, "#3498db"))
+    
+    if model_items:
+        row1_layout.addWidget(_create_section_box("MODEL", model_items, gui, "#2ecc71"))
+    
+    if training_items:
+        row1_layout.addWidget(_create_section_box("TRAINING", training_items, gui, "#e74c3c"))
+    
+    # Row 2: Validation & LR (full width), optional Exploit and Inference
+    row2_layout = QHBoxLayout()
+    row2_layout.setSpacing(10)
+    
+    if validation_items:
+        validation_box = _create_section_box("VALIDATION & LR SCHEDULE", validation_items, gui, "#f39c12")
+        row2_layout.addWidget(validation_box)
+    
+    if exploit_items:
+        exploit_box = _create_section_box("EXPLOIT", exploit_items, gui, "#9b59b6")
+        row2_layout.addWidget(exploit_box)
+    
+    if inference_items:
+        inference_box = _create_section_box("INFERENCE FILTER", inference_items, gui, "#1abc9c")
+        row2_layout.addWidget(inference_box)
+    
+    # Add rows to main container
+    frame_layout.addLayout(row1_layout)
+    frame_layout.addLayout(row2_layout)
