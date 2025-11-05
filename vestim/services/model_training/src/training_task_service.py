@@ -90,16 +90,11 @@ class TrainingTaskService:
         if use_mixed_precision:
             print(f"Using mixed precision training (AMP) for epoch {epoch}")
         
-        # Make copies of initial hidden states to be used and modified in the loop if RNN
-        h_s, h_c = None, None
-        z = None # Initialize filter state for LPF models
-        if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]: # Or any other RNN type needing hidden states
-            if h_s_initial is not None:
-                h_s = h_s_initial.detach().clone().to(device)  # Ensure cloned states are moved to the correct device
-            if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"] and h_c_initial is not None:
-                h_c = h_c_initial.detach().clone().to(device)  # Ensure cloned states are moved to the correct device
-
+        # Reference code approach: hidden states will be reset to zeros at START of each batch
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
+            # RESET hidden states to zeros for EVERY batch (reference code behavior)
+            h_s, h_c = None, None
+            z = None  # Initialize filter state for LPF models
             if stop_requested:
                 print("Stop requested during training")
                 break
@@ -119,21 +114,14 @@ class TrainingTaskService:
                             h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                             h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                         y_pred, (h_s, h_c), z = model(X_batch, h_s, h_c, z)
-                    elif model_type in ["LSTM", "LSTM_EMA"]:
-                        if h_s is None or h_c is None: # Ensure hidden states are initialized
-                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                        else:
-                            # Ensure existing hidden states are on the correct device
-                            h_s = h_s.to(device)
-                            h_c = h_c.to(device)
+                    if model_type in ["LSTM", "LSTM_EMA"]:
+                        # Always initialize to zeros (reset every batch - reference code)
+                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                        h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                         y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                     elif model_type == "GRU":
-                        if h_s is None: # Ensure hidden state is initialized
-                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                        else:
-                            # Ensure existing hidden state is on the correct device
-                            h_s = h_s.to(device)
+                        # Always initialize to zeros (reset every batch - reference code)
+                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                         y_pred, h_s = model(X_batch, h_s)
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
@@ -188,20 +176,7 @@ class TrainingTaskService:
                 
                 scaler.step(optimizer)
                 scaler.update()
-                
-                # CRITICAL: Detach hidden states immediately after successful backward pass
-                # This prevents gradient graph accumulation across batches which causes:
-                # - Memory buildup
-                # - Gradient instability 
-                # - Training spikes/explosions in RNNs
-                if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
-                    if h_s is not None:
-                        h_s = h_s.detach()
-                    if h_c is not None:
-                        h_c = h_c.detach()
-                elif model_type == "GRU":
-                    if h_s is not None:
-                        h_s = h_s.detach()
+                # No need to detach - states are reset to zeros every batch (reference code)
             else:
                 # Standard precision training
                 if model_type == "LSTM_LPF":
@@ -210,20 +185,13 @@ class TrainingTaskService:
                         h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                     y_pred, (h_s, h_c), z = model(X_batch, h_s, h_c, z)
                 elif model_type in ["LSTM", "LSTM_EMA"]:
-                    if h_s is None or h_c is None:
-                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                        h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                    else:
-                        # Ensure existing hidden states are on the correct device
-                        h_s = h_s.to(device)
-                        h_c = h_c.to(device)
+                    # Always initialize to zeros (reset every batch - reference code)
+                    h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                    h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                     y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                 elif model_type == "GRU":
-                    if h_s is None:
-                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                    else:
-                        # Ensure existing hidden state is on the correct device
-                        h_s = h_s.to(device)
+                    # Always initialize to zeros (reset every batch - reference code)
+                    h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                     y_pred, h_s = model(X_batch, h_s)
                 elif model_type == "FNN":
                     y_pred = model(X_batch)
@@ -348,16 +316,12 @@ class TrainingTaskService:
         if use_mixed_precision:
             print(f"Using mixed precision for validation in epoch {epoch}")
         
-        h_s, h_c = None, None
-        z = None # Initialize filter state for LPF models
-        if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]:
-            if h_s_initial is not None:
-                h_s = h_s_initial.detach().clone().to(device)  # Ensure cloned states are moved to the correct device
-            if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"] and h_c_initial is not None:
-                h_c = h_c_initial.detach().clone().to(device)  # Ensure cloned states are moved to the correct device
-
+        # Reference code approach: hidden states will be reset to zeros at START of each batch
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
+                # RESET hidden states to zeros for EVERY batch (reference code behavior)
+                h_s, h_c = None, None
+                z = None  # Initialize filter state for LPF models
                 if stop_requested:
                     print("Stop requested during validation")
                     break
@@ -373,20 +337,13 @@ class TrainingTaskService:
                                 h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                             y_pred, (h_s, h_c), z = model(X_batch, h_s, h_c, z)
                         elif model_type in ["LSTM", "LSTM_EMA"]:
-                            if h_s is None or h_c is None:
-                                h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                                h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            else:
-                                # Ensure existing hidden states are on the correct device
-                                h_s = h_s.to(device)
-                                h_c = h_c.to(device)
+                            # Always initialize to zeros (reset every batch - reference code)
+                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                             y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                         elif model_type == "GRU":
-                            if h_s is None:
-                                h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            else:
-                                # Ensure existing hidden state is on the correct device
-                                h_s = h_s.to(device)
+                            # Always initialize to zeros (reset every batch - reference code)
+                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                             y_pred, h_s = model(X_batch, h_s)
                         elif model_type == "FNN":
                             y_pred = model(X_batch)
@@ -409,20 +366,13 @@ class TrainingTaskService:
                             h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                         y_pred, (h_s, h_c), z = model(X_batch, h_s, h_c, z)
                     elif model_type in ["LSTM", "LSTM_EMA"]:
-                        if h_s is None or h_c is None:
-                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                        else:
-                            # Ensure existing hidden states are on the correct device
-                            h_s = h_s.to(device)
-                            h_c = h_c.to(device)
+                        # Always initialize to zeros (reset every batch - reference code)
+                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
+                        h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                         y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                     elif model_type == "GRU":
-                        if h_s is None:
-                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                        else:
-                            # Ensure existing hidden state is on the correct device
-                            h_s = h_s.to(device)
+                        # Always initialize to zeros (reset every batch - reference code)
+                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
                         y_pred, h_s = model(X_batch, h_s)
                     elif model_type == "FNN":
                         y_pred = model(X_batch)

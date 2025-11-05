@@ -48,17 +48,31 @@ def display_hyperparameters(gui, params):
     scheduler_type = params.get('SCHEDULER_TYPE', 'StepLR')
 
     def is_parameter_relevant(param_key, model_type, scheduler_type, current_params):
-        # Exclude INPUT_SIZE and OUTPUT_SIZE from the display
-        if param_key in ['INPUT_SIZE', 'OUTPUT_SIZE']:
+        # Exclude parameters that are redundant or internal
+        excluded_params = ['INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_WORKERS', 'BATCH_TRAINING', 
+                          'DEVICE_SELECTION', 'REPETITIONS', 'CURRENT_REPETITION']
+        if param_key in excluded_params:
+            return False
+        
+        # Hide exploitation parameters when exploitation is disabled (Exploit Epochs = 0)
+        exploit_epochs = current_params.get('EXPLOIT_EPOCHS', 0)
+        try:
+            exploit_epochs_val = float(exploit_epochs)
+        except (ValueError, TypeError):
+            exploit_epochs_val = 0
+        
+        if param_key in ['EXPLOIT_LR', 'EXPLOIT_EPOCHS', 'EXPLOIT_REPETITIONS'] and exploit_epochs_val == 0:
             return False
 
         always_relevant = {
             'MODEL_TYPE', 'NUM_LEARNABLE_PARAMS',
-            'TRAINING_METHOD', 'BATCH_TRAINING', 'BATCH_SIZE',
-            'MAX_EPOCHS', 'INITIAL_LR', 'OPTIMIZER_TYPE', 'SCHEDULER_TYPE', 'VALID_PATIENCE',
-            'VALID_FREQUENCY', 'REPETITIONS', 'DEVICE_SELECTION', 'USE_MIXED_PRECISION',
+            'TRAINING_METHOD', 'BATCH_SIZE', 'LOOKBACK',
+            'MAX_EPOCHS', 'INITIAL_LR', 'OPTIMIZER_TYPE', 'SCHEDULER_TYPE', 
+            'VALID_PATIENCE', 'VALID_FREQUENCY',
+            'CURRENT_DEVICE', 'USE_MIXED_PRECISION',
             'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN',
-            'CURRENT_REPETITION', 'INFERENCE_FILTER_TYPE', 'PIN_MEMORY'
+            'INFERENCE_FILTER_TYPE', 'PIN_MEMORY',
+            'DROPOUT_PROB', 'WEIGHT_DECAY'
         }
 
         if param_key in always_relevant:
@@ -71,7 +85,10 @@ def display_hyperparameters(gui, params):
                 return False
 
         if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
-            lstm_gru_params = {'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK', 'RNN_LAYER_SIZES'}
+            # Explicitly hide legacy redundancy for RNNs
+            if param_key in {'LAYERS', 'HIDDEN_UNITS'}:
+                return False
+            lstm_gru_params = {'LOOKBACK', 'RNN_LAYER_SIZES'}
             if param_key in lstm_gru_params:
                 return True
         elif model_type == 'FNN':
@@ -106,13 +123,14 @@ def display_hyperparameters(gui, params):
 
     model_arch_keys = ['MODEL_TYPE', 'NUM_LEARNABLE_PARAMS']
     if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
-        # Use RNN_LAYER_SIZES if available (new format like "32,16"), otherwise fall back to LAYERS/HIDDEN_UNITS
+        # Only show RNN_LAYER_SIZES (shows layer architecture like "32,16")
+        # Don't show redundant LAYERS and HIDDEN_UNITS on the right
         if 'RNN_LAYER_SIZES' in filtered_params:
             model_arch_keys.append('RNN_LAYER_SIZES')
-        else:
-            model_arch_keys.extend(['LAYERS', 'HIDDEN_UNITS'])
+        # Add dropout and weight decay for RNN models
+        model_arch_keys.extend(['DROPOUT_PROB', 'WEIGHT_DECAY'])
     elif model_type == 'FNN':
-        model_arch_keys.extend(['FNN_HIDDEN_LAYERS', 'HIDDEN_LAYER_SIZES', 'FNN_DROPOUT_PROB', 'DROPOUT_PROB'])
+        model_arch_keys.extend(['HIDDEN_LAYER_SIZES', 'DROPOUT_PROB', 'WEIGHT_DECAY'])
     
     train_method_keys = ['TRAINING_METHOD', 'BATCH_TRAINING', 'BATCH_SIZE']
     if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
@@ -127,13 +145,13 @@ def display_hyperparameters(gui, params):
         train_control_keys.extend(['COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'])
     train_control_keys.extend(['VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS'])
     
-    # Device info after model arch
-    device_keys = ['DEVICE_SELECTION', 'CURRENT_DEVICE', 'USE_MIXED_PRECISION']
+    # Device info after model arch - only show current device, not the duplicate
+    device_keys = ['CURRENT_DEVICE', 'USE_MIXED_PRECISION']
 
-    train_method_keys = ['TRAINING_METHOD', 'LOOKBACK', 'BATCH_TRAINING', 'BATCH_SIZE']
+    train_method_keys = ['TRAINING_METHOD', 'LOOKBACK', 'BATCH_SIZE']
     
-    # Reordered training controls
-    train_control_keys = ['MAX_EPOCHS', 'OPTIMIZER_TYPE', 'SCHEDULER_TYPE', 'INITIAL_LR']
+    # Reordered training controls - ensure optimizer is always shown
+    train_control_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'OPTIMIZER_TYPE', 'SCHEDULER_TYPE']
     if scheduler_type == 'StepLR':
         train_control_keys.extend(['LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'])
     elif scheduler_type == 'ReduceLROnPlateau':
@@ -143,13 +161,11 @@ def display_hyperparameters(gui, params):
     
     validation_keys = ['VALID_FREQUENCY', 'VALID_PATIENCE']
     
-    repetition_keys = ['REPETITIONS', 'CURRENT_REPETITION']
-    
     other_keys = ['MAX_TRAINING_TIME_SECONDS']
     
-    # New order: Data -> Model -> Device -> Method -> Controls -> Others -> Repetitions
+    # New order: Data -> Model -> Device -> Method -> Controls -> Validation -> Others
     all_ordered_keys = (data_keys + model_arch_keys + device_keys + train_method_keys + 
-                        train_control_keys + validation_keys + other_keys + repetition_keys)
+                        train_control_keys + validation_keys + other_keys)
     
     ordered_items = []
     used_keys = set()
@@ -174,23 +190,32 @@ def display_hyperparameters(gui, params):
 
         label_text = gui.param_labels.get(param, param.replace("_", " ").title())
         
-        # Convert to float for formatting check, handle potential errors
-        try:
-            float_val = float(value)
-            # Use scientific notation for small values (learning rates, etc.)
-            if 0 < abs(float_val) <= 0.01:
-                value_str = f"{float_val:.1e}"
-            elif abs(float_val) < 1.0:
-                # Format to 1 decimal place for values less than 1
-                value_str = f"{float_val:.1f}"
-            else:
-                # Display as integer for values >= 1
-                if float_val == int(float_val):
-                    value_str = str(int(float_val))
-                else:
+        # Friendly formatting with special handling for boolean-like fields
+        boolean_like_keys = {"normalization_applied", "PIN_MEMORY", "USE_MIXED_PRECISION"}
+        if isinstance(value, bool):
+            value_str = "True" if value else "False"
+        elif str(param) in boolean_like_keys or str(param).lower() in boolean_like_keys:
+            # Treat 1/0 or truthy strings as booleans
+            truthy = {True, 1, "1", "true", "True", "YES", "yes"}
+            value_str = "True" if value in truthy else "False"
+        else:
+            # Convert to float for formatting check, handle potential errors
+            try:
+                float_val = float(value)
+                # Use scientific notation for small values (learning rates, etc.)
+                if 0 < abs(float_val) <= 0.01:
+                    value_str = f"{float_val:.1e}"
+                elif abs(float_val) < 1.0:
+                    # Format to 1 decimal place for values less than 1
                     value_str = f"{float_val:.1f}"
-        except (ValueError, TypeError):
-            value_str = str(value)
+                else:
+                    # Display as integer for values >= 1
+                    if float_val == int(float_val):
+                        value_str = str(int(float_val))
+                    else:
+                        value_str = f"{float_val:.1f}"
+            except (ValueError, TypeError):
+                value_str = str(value)
         
         # Truncate very long parameter values to prevent GUI distortion
         MAX_DISPLAY_LENGTH = 60

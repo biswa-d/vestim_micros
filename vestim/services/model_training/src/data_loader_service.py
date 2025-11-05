@@ -21,10 +21,10 @@ class DataLoaderService:
                               batch_size: int, num_workers: int,
                               lookback: int = None, # Optional, only for SequenceRNN
                               concatenate_raw_data: bool = False, # Optional, for SequenceRNN
-                              train_split: float = 0.7, seed: int = None, model_type: str = "LSTM",
-                              sequence_split_method: str = "temporal"):
+                              train_split: float = 0.7, seed: int = None, model_type: str = "LSTM"):
         """
         Creates DataLoaders for training and validation data using a specified data handling strategy.
+        Follows reference code approach: creates sequences from files, then shuffles them.
 
         :param folder_path: Path to the folder containing the data files.
         :param training_method: Specifies the data handling strategy ("SequenceRNN" or "WholeSequenceFNN").
@@ -37,7 +37,6 @@ class DataLoaderService:
         :param train_split: Fraction of data to use for training.
         :param seed: Random seed for reproducibility.
         :param model_type: Type of model (LSTM, GRU, FNN) - affects data loading strategy.
-        :param sequence_split_method: Method for splitting sequences ("temporal", "random", "file_wise").
         :return: A tuple of (train_loader, val_loader) PyTorch DataLoader objects.
         """
         # Special handling for FNN models with batch training
@@ -46,12 +45,6 @@ class DataLoaderService:
                 folder_path, feature_cols, target_col, batch_size, num_workers, train_split, seed
             )
         
-        # Special handling for LSTM/GRU models to prevent data leakage
-        if model_type in ["LSTM", "GRU"] and training_method == "Sequence-to-Sequence" and sequence_split_method == "temporal":
-            return self.create_temporal_sequence_data_loaders(
-                folder_path, feature_cols, target_col, batch_size, num_workers,
-                lookback, concatenate_raw_data, train_split, seed, model_type
-            )
         if seed is None:
             seed = int(datetime.now().timestamp())
         
@@ -530,12 +523,13 @@ class DataLoaderService:
         prefetch_factor_value = 2 if optimized_num_workers > 0 else None
 
         self.logger.info(f"Temporal DataLoader settings: num_workers={optimized_num_workers}, pin_memory={pin_memory_flag}")
+        self.logger.info("Using shuffle=False to maintain temporal order for LSTM/GRU")
 
-        # Create DataLoaders
+        # Create DataLoaders WITHOUT shuffling to maintain temporal order
         train_loader = DataLoader(
             train_dataset,
             batch_size=batch_size,
-            shuffle=True,
+            shuffle=False,  # CRITICAL: Don't shuffle for temporal training!
             drop_last=True,
             num_workers=optimized_num_workers,
             pin_memory=pin_memory_flag,
@@ -600,6 +594,7 @@ class DataLoaderService:
             seed = int(datetime.now().timestamp())
 
         self.logger.info(f"Creating data loaders from separate folders for {model_type}")
+        self.logger.info(f"Following reference code approach: sequences will be shuffled during training")
         train_folder = os.path.join(job_folder_path, 'train_data', 'processed_data')
         val_folder = os.path.join(job_folder_path, 'val_data', 'processed_data')
 
@@ -611,8 +606,9 @@ class DataLoaderService:
             # If only the size is needed, we can return early
             return None, None, total_size_mb
 
+        # Reference code approach: BOTH train and validation use SubsetRandomSampler (both shuffled!)
         train_loader = self._create_loader_from_tensors(train_X, train_y, batch_size, num_workers, True, "train", pin_memory, prefetch_factor, persistent_workers)
-        val_loader = self._create_loader_from_tensors(val_X, val_y, batch_size, num_workers, False, "validation", pin_memory, prefetch_factor, persistent_workers)
+        val_loader = self._create_loader_from_tensors(val_X, val_y, batch_size, num_workers, True, "validation", pin_memory, prefetch_factor, persistent_workers)
 
         if create_test_loader:
             test_folder = os.path.join(job_folder_path, 'test_data', 'processed_data')

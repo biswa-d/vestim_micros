@@ -599,6 +599,8 @@ class TrainingTaskManager:
                 )
         else:
             self.logger.info(f"Using standard data loader creation for model type: {model_type}")
+            self.logger.info(f"Following reference code: sequences will be shuffled during training")
+            
             train_loader, val_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
                 job_folder_path=job_folder_path, training_method=training_method, feature_cols=feature_cols,
                 target_col=target_col, batch_size=int(task['data_loader_params'].get('batch_size', 32)),

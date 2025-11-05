@@ -130,11 +130,12 @@ class VEstimTestingService:
                     all_predictions.append(y_out.cpu().numpy())
                     y_test_normalized_list.append(y_batch.cpu().numpy())
             else:
-                # RNN testing: for variable-layer models defer hidden init to model by using None
-                h_s = None
+                # RNN testing: REFERENCE CODE APPROACH - Initialize ONCE and CARRY FORWARD states!
+                # This is critical: states should accumulate across ALL test sequences
+                h_s = torch.zeros(num_layers, 1, hidden_units).to(self.device)  # batch_size=1
                 z = None # Initialize filter state for LPF models
                 if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
-                    h_c = None
+                    h_c = torch.zeros(num_layers, 1, hidden_units).to(self.device)
                 else:  # GRU
                     h_c = None
 
@@ -142,17 +143,13 @@ class VEstimTestingService:
                 for X_batch, y_batch in test_loader:
                     # Since test_loader is batched, process each sequence in the batch individually
                     for i in range(X_batch.size(0)):
-                        # Re-initialize hidden states for each new sequence (model will size correctly)
-                        h_s = None
-                        z = None # Re-initialize filter state for each new sequence
-                        if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
-                            h_c = None
-
+                        # DO NOT re-initialize! Carry forward states (reference code behavior)
+                        
                         # Extract a single sequence (shape: [1, lookback, features])
                         x_seq = X_batch[i].unsqueeze(0).to(self.device)
                         y_true = y_batch[i].unsqueeze(0).to(self.device)
 
-                        # Forward pass with re-initialized hidden states
+                        # Forward pass - states are CARRIED FORWARD from previous sequence
                         if model_type == "LSTM_LPF":
                             y_out, (h_s, h_c), z = model(x_seq, h_s, h_c, z)
                         elif model_type in ["LSTM", "LSTM_EMA"]:
