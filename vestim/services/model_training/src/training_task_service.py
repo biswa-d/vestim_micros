@@ -156,23 +156,7 @@ class TrainingTaskService:
                 # Mixed precision backward and optimizer step
                 scaler.scale(loss).backward()
                 
-                # Add gradient clipping to prevent exploding gradients (especially for RNNs)
-                if model_type in ["LSTM", "GRU"]:
-                    scaler.unscale_(optimizer)
-                    # Clip gradients more aggressively with max_norm=0.5
-                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
-                    # Check for invalid gradients after clipping
-                    if not torch.isfinite(grad_norm):
-                        print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected (NaN/Inf)")
-                        # PERFORMANCE: Removed .item() calls - they sync GPU→CPU and are very slow
-                        optimizer.zero_grad()  # Clear bad gradients before skipping
-                        scaler.update()  # Update scaler state even when skipping
-                        # Detach hidden states to break computation graph
-                        if h_s is not None:
-                            h_s = h_s.detach()
-                        if h_c is not None:
-                            h_c = h_c.detach()
-                        continue  # Skip this batch update
+                # No gradient clipping (reference code: Junran Chen)
                 
                 scaler.step(optimizer)
                 scaler.update()
@@ -224,20 +208,7 @@ class TrainingTaskService:
                 # Backward pass FIRST to compute gradients
                 loss.backward()
                 
-                # THEN clip gradients to prevent exploding gradients (especially for RNNs)
-                if model_type in ["LSTM", "GRU"]:
-                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
-                    # Check for invalid gradients after clipping
-                    if not torch.isfinite(grad_norm):
-                        print(f"WARNING: Epoch {epoch}, Batch {batch_idx}: Invalid gradient norm detected (NaN/Inf)")
-                        # PERFORMANCE: Removed .item() calls - they sync GPU→CPU and are very slow
-                        optimizer.zero_grad()  # Clear the bad gradients
-                        # Detach hidden states to break computation graph
-                        if h_s is not None:
-                            h_s = h_s.detach()
-                        if h_c is not None:
-                            h_c = h_c.detach()
-                        continue
+                # No gradient clipping (reference code: Junran Chen)
                 
                 # Finally update weights
                 optimizer.step()

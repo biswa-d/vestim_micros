@@ -1,17 +1,6 @@
 import torch
 import torch.nn as nn
 
-class LSTMLayerNorm(nn.Module):
-    """A custom LSTM layer with Layer Normalization."""
-    def __init__(self, input_size, hidden_size, num_layers, dropout):
-        super(LSTMLayerNorm, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout)
-        self.layer_norm = nn.LayerNorm(hidden_size)
-
-    def forward(self, x, hx):
-        x, hx = self.lstm(x, hx)
-        x = self.layer_norm(x)
-        return x, hx
 
 class LSTMModel(nn.Module):
     def __init__(self, input_size, hidden_units, num_layers, device, dropout_prob=0.0, apply_clipped_relu=False, use_layer_norm=False):
@@ -22,24 +11,14 @@ class LSTMModel(nn.Module):
         self.device = device
         self.dropout_prob = dropout_prob
         self.apply_clipped_relu = apply_clipped_relu
-        self.use_layer_norm = use_layer_norm
-
-        # Define the LSTM layer with dropout between layers
-        if self.use_layer_norm:
-            self.lstm = LSTMLayerNorm(
-                input_size,
-                hidden_units,
-                num_layers,
-                dropout=dropout_prob if num_layers > 1 else 0
-            ).to(self.device)
-        else:
-            self.lstm = nn.LSTM(
-                input_size,
-                hidden_units,
-                num_layers,
-                batch_first=True,
-                dropout=dropout_prob if num_layers > 1 else 0
-            ).to(self.device)
+        # Define the LSTM layer with dropout between layers (no layer norm, reference code)
+        self.lstm = nn.LSTM(
+            input_size,
+            hidden_units,
+            num_layers,
+            batch_first=True,
+            dropout=dropout_prob if num_layers > 1 else 0
+        ).to(self.device)
 
         # Define a dropout layer for the outputs
         self.dropout = nn.Dropout(p=dropout_prob)
@@ -47,11 +26,7 @@ class LSTMModel(nn.Module):
         # Define the fully connected layer
         self.fc = nn.Linear(hidden_units, 1).to(self.device)
         
-        # Define the final activation layer
-        if self.apply_clipped_relu:
-            self.final_activation = torch.nn.Hardtanh(min_val=0, max_val=1)
-        else:
-            self.final_activation = nn.Identity()
+        # No output activation (reference code: Junran Chen)
         
         # Initialize weights properly to prevent gradient issues and flat loss
         self._initialize_weights()
@@ -94,7 +69,5 @@ class LSTMModel(nn.Module):
         # Pass the output through the fully connected layer
         # Apply the fully connected layer to the last time step only (for sequence-to-one prediction)
         out = self.fc(out[:, -1, :])
-        
-        out = self.final_activation(out)
-
+        # No clamp, ReLU, or LeakyReLU on output (reference code)
         return out, (h_s, h_c)
