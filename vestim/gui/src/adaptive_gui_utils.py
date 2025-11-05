@@ -224,9 +224,7 @@ def display_hyperparameters(gui, params):
         col = (i // num_rows) * 2  # Which column pair (0, 2, 4, 6)
         row = i % num_rows          # Which row within that column
         
-        # DEBUG: Print first few to verify ordering
-        if i < 5:
-            print(f"DEBUG: Item {i}: {param} at row={row}, col={col}")
+        # Debug prints removed once layout confirmed
 
         label_text = gui.param_labels.get(param, param.replace("_", " ").title())
         
