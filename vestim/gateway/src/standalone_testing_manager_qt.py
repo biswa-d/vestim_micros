@@ -389,7 +389,9 @@ class VEstimStandaloneTestingManager(QObject):
             self.progress.emit(f"  Task: {task_name}")
             
             # Extract model configuration from task_info
-            model_type = task_info.get('model_type', 'FNN')
+            # Model type is stored in model_metadata, not at top level
+            model_metadata = task_info.get('model_metadata', {})
+            model_type = model_metadata.get('model_type', task_info.get('model_type', 'FNN'))
             hyperparams = task_info.get('hyperparams', {})
             data_config = task_info.get('data_config', {})
             training_config = task_info.get('training_config', {})
