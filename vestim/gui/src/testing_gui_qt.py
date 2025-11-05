@@ -86,12 +86,20 @@ class VEstimTestingGUI(QMainWindow):
 
         self.param_labels = {
             "LAYERS": "Layers", "HIDDEN_UNITS": "Hidden Units", "RNN_LAYER_SIZES": "Layer Sizes",
-            "BATCH_SIZE": "Batch Size", "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Learning Rate",
+            "BATCH_SIZE": "Batch Size", "MAX_EPOCHS": "Max Epochs", "INITIAL_LR": "Initial Lr",
             "LR_DROP_FACTOR": "LR Drop Factor", "LR_DROP_PERIOD": "LR Drop Period",
+            "PLATEAU_PATIENCE": "Plateau Patience", "PLATEAU_FACTOR": "Plateau Factor",
             "VALID_PATIENCE": "Validation Patience", "VALID_FREQUENCY": "Validation Freq",
-            "LOOKBACK": "Lookback Sequence Length", "REPETITIONS": "Repetitions",
+            "LOOKBACK": "Sequence Len", "REPETITIONS": "Repetitions",
             "NUM_WORKERS": "# CPU Threads", "PIN_MEMORY": "Fast CPU-GPU Transfer",
-            "PREFETCH_FACTOR": "Batch Pre-loading", "USE_CUDA_GRAPHS": "CUDA Graphs"
+            "PREFETCH_FACTOR": "Batch Pre-loading", "USE_CUDA_GRAPHS": "CUDA Graphs",
+            "USE_MIXED_PRECISION": "Mixed Precision", "WEIGHT_DECAY": "Weight Decay",
+            "OPTIMIZER_TYPE": "Optimizer", "SCHEDULER_TYPE": "LR Scheduler",
+            "FEATURE_COLUMNS": "Feature Columns", "TARGET_COLUMN": "Target Column",
+            "MODEL_TYPE": "Model Type", "TRAINING_METHOD": "Training Method",
+            "EXPLOIT_LR": "Exploit Lr", "EXPLOIT_EPOCHS": "Exploit Epochs",
+            "EXPLOIT_REPETITIONS": "Exploit Repetitions", "MAX_TRAINING_TIME_SECONDS": "Max Train Seconds",
+            "INFERENCE_FILTER_TYPE": "Inference Filter Type"
         }
 
         self.queue = Queue()

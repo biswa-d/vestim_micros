@@ -15,6 +15,13 @@ def get_adaptive_stylesheet(base_style):
     """Returns an adaptive stylesheet."""
     return base_style
 
+def _get_value_or_zero(params, key):
+    """Helper to safely get numeric value or return 0"""
+    try:
+        return float(params.get(key, 0))
+    except (ValueError, TypeError):
+        return 0
+
 def display_hyperparameters(gui, params):
     if not params:
         return
@@ -46,140 +53,119 @@ def display_hyperparameters(gui, params):
 
     model_type = params.get('MODEL_TYPE', 'LSTM')
     scheduler_type = params.get('SCHEDULER_TYPE', 'StepLR')
-
-    def is_parameter_relevant(param_key, model_type, scheduler_type, current_params):
-        # Exclude parameters that are redundant or internal
-        excluded_params = ['INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_WORKERS', 'BATCH_TRAINING', 
-                          'DEVICE_SELECTION', 'REPETITIONS', 'CURRENT_REPETITION']
-        if param_key in excluded_params:
-            return False
-        
-        # Hide exploitation parameters when exploitation is disabled (Exploit Epochs = 0)
-        exploit_epochs = current_params.get('EXPLOIT_EPOCHS', 0)
-        try:
-            exploit_epochs_val = float(exploit_epochs)
-        except (ValueError, TypeError):
-            exploit_epochs_val = 0
-        
-        if param_key in ['EXPLOIT_LR', 'EXPLOIT_EPOCHS', 'EXPLOIT_REPETITIONS'] and exploit_epochs_val == 0:
-            return False
-
-        always_relevant = {
-            'MODEL_TYPE', 'NUM_LEARNABLE_PARAMS',
-            'TRAINING_METHOD', 'BATCH_SIZE', 'LOOKBACK',
-            'MAX_EPOCHS', 'INITIAL_LR', 'OPTIMIZER_TYPE', 'SCHEDULER_TYPE', 
-            'VALID_PATIENCE', 'VALID_FREQUENCY',
-            'CURRENT_DEVICE', 'USE_MIXED_PRECISION',
-            'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN',
-            'INFERENCE_FILTER_TYPE', 'PIN_MEMORY',
-            'DROPOUT_PROB', 'WEIGHT_DECAY'
-        }
-
-        if param_key in always_relevant:
-            return True
-
-        # Conditionally hide inference filter parameters if filter type is None
-        inference_filter_type = current_params.get('INFERENCE_FILTER_TYPE')
-        if param_key in ['INFERENCE_FILTER_WINDOW_SIZE', 'INFERENCE_FILTER_ALPHA', 'INFERENCE_FILTER_POLYORDER']:
-            if inference_filter_type is None or str(inference_filter_type).strip().lower() == 'none':
-                return False
-
-        if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
-            # Explicitly hide legacy redundancy for RNNs
-            if param_key in {'LAYERS', 'HIDDEN_UNITS'}:
-                return False
-            lstm_gru_params = {'LOOKBACK', 'RNN_LAYER_SIZES'}
-            if param_key in lstm_gru_params:
-                return True
-        elif model_type == 'FNN':
-            fnn_params = {'FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB', 'HIDDEN_LAYER_SIZES', 'DROPOUT_PROB'}
-            if param_key in fnn_params:
-                return True
-            if param_key in {'LOOKBACK', 'LAYERS', 'HIDDEN_UNITS'}:
-                return False
-        
-        if scheduler_type == 'StepLR':
-            if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'}:
-                return True
-            if param_key in {'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
-                return False
-        elif scheduler_type == 'ReduceLROnPlateau':
-            if param_key in {'PLATEAU_PATIENCE', 'PLATEAU_FACTOR'}:
-                return True
-            if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
-                return False
-        elif scheduler_type == 'CosineAnnealingWarmRestarts':
-            if param_key in {'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'}:
-                return True
-            if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR'}:
-                return False
-        
-        return True
-
-    filtered_params = {k: v for k, v in params.items() if is_parameter_relevant(k, model_type, scheduler_type, params)}
     
-    # Reordered sections for better logical flow
-    data_keys = ['FEATURE_COLUMNS', 'TARGET_COLUMN']
-
-    model_arch_keys = ['MODEL_TYPE', 'NUM_LEARNABLE_PARAMS']
+    # Get critical values for conditional display
+    max_train_time = _get_value_or_zero(params, 'MAX_TRAINING_TIME_SECONDS')
+    exploit_reps = _get_value_or_zero(params, 'EXPLOIT_REPETITIONS')
+    inference_filter = params.get('INFERENCE_FILTER_TYPE')
+    
+    # Logical order as requested by user:
+    # 1. Feature & Target columns
+    # 2. Model & Layers
+    # 3. Mixed Precision
+    # 4. Training Method
+    # 5. For LSTM: Sequence Length
+    # 6. Batch Size
+    # 7. Max Epochs
+    # 8. Validation Freq
+    # 9. Validation Patience
+    # 10. Optimizer
+    # 11. Weight Decay
+    # 12. LR Scheduler & relevant params only
+    # 13. Exploit params (only if exploit_reps > 0)
+    # 14. Training time (only if > 0)
+    # 15. Inference filter params (only if filter != None)
+    
+    ordered_keys = []
+    
+    # 1. Data columns
+    ordered_keys.extend(['FEATURE_COLUMNS', 'TARGET_COLUMN'])
+    
+    # 2. Model architecture
+    ordered_keys.append('MODEL_TYPE')
     if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
-        # Only show RNN_LAYER_SIZES (shows layer architecture like "32,16")
-        # Don't show redundant LAYERS and HIDDEN_UNITS on the right
-        if 'RNN_LAYER_SIZES' in filtered_params:
-            model_arch_keys.append('RNN_LAYER_SIZES')
-        # Add dropout and weight decay for RNN models
-        model_arch_keys.extend(['DROPOUT_PROB', 'WEIGHT_DECAY'])
+        ordered_keys.append('RNN_LAYER_SIZES')
     elif model_type == 'FNN':
-        model_arch_keys.extend(['HIDDEN_LAYER_SIZES', 'DROPOUT_PROB', 'WEIGHT_DECAY'])
+        ordered_keys.append('HIDDEN_LAYER_SIZES')
     
-    train_method_keys = ['TRAINING_METHOD', 'BATCH_TRAINING', 'BATCH_SIZE']
+    # 3. Mixed Precision
+    ordered_keys.append('USE_MIXED_PRECISION')
+    
+    # 4. Training Method
+    ordered_keys.append('TRAINING_METHOD')
+    
+    # 5. For LSTM/GRU: Sequence Length (renamed from LOOKBACK)
     if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
-        train_method_keys.insert(1, 'LOOKBACK')
+        ordered_keys.append('LOOKBACK')
     
-    train_control_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE']
+    # 6. Batch Size
+    ordered_keys.append('BATCH_SIZE')
+    
+    # 7. Max Epochs
+    ordered_keys.append('MAX_EPOCHS')
+    
+    # 8. Validation Frequency
+    ordered_keys.append('VALID_FREQUENCY')
+    
+    # 9. Validation Patience
+    ordered_keys.append('VALID_PATIENCE')
+    
+    # 10. Optimizer
+    ordered_keys.append('OPTIMIZER_TYPE')
+    
+    # 11. Weight Decay
+    ordered_keys.append('WEIGHT_DECAY')
+    
+    # 12. LR Scheduler and relevant params
+    ordered_keys.append('INITIAL_LR')
+    ordered_keys.append('SCHEDULER_TYPE')
+    
     if scheduler_type == 'StepLR':
-        train_control_keys.extend(['LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'])
+        ordered_keys.extend(['LR_DROP_PERIOD', 'LR_DROP_FACTOR'])
     elif scheduler_type == 'ReduceLROnPlateau':
-        train_control_keys.extend(['PLATEAU_PATIENCE', 'PLATEAU_FACTOR'])
+        ordered_keys.extend(['PLATEAU_PATIENCE', 'PLATEAU_FACTOR'])
     elif scheduler_type == 'CosineAnnealingWarmRestarts':
-        train_control_keys.extend(['COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'])
-    train_control_keys.extend(['VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS'])
+        ordered_keys.extend(['COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'])
     
-    # Device info after model arch - only show current device, not the duplicate
-    device_keys = ['CURRENT_DEVICE', 'USE_MIXED_PRECISION']
-
-    train_method_keys = ['TRAINING_METHOD', 'LOOKBACK', 'BATCH_SIZE']
+    # 13. Exploit params (only if EXPLOIT_REPETITIONS > 0)
+    if exploit_reps > 0:
+        ordered_keys.extend(['EXPLOIT_LR', 'EXPLOIT_EPOCHS', 'EXPLOIT_REPETITIONS'])
     
-    # Reordered training controls - ensure optimizer is always shown
-    train_control_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'OPTIMIZER_TYPE', 'SCHEDULER_TYPE']
-    if scheduler_type == 'StepLR':
-        train_control_keys.extend(['LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'])
-    elif scheduler_type == 'ReduceLROnPlateau':
-        train_control_keys.extend(['PLATEAU_PATIENCE', 'PLATEAU_FACTOR'])
-    elif scheduler_type == 'CosineAnnealingWarmRestarts':
-        train_control_keys.extend(['COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'])
+    # 14. Training time (only if > 0)
+    if max_train_time > 0:
+        ordered_keys.append('MAX_TRAINING_TIME_SECONDS')
     
-    validation_keys = ['VALID_FREQUENCY', 'VALID_PATIENCE']
+    # 15. Inference filter params (only if filter is not None)
+    if inference_filter and str(inference_filter).strip().lower() != 'none':
+        ordered_keys.append('INFERENCE_FILTER_TYPE')
+        # Add specific filter params based on filter type
+        if 'INFERENCE_FILTER_WINDOW_SIZE' in params:
+            ordered_keys.append('INFERENCE_FILTER_WINDOW_SIZE')
+        if 'INFERENCE_FILTER_ALPHA' in params:
+            ordered_keys.append('INFERENCE_FILTER_ALPHA')
+        if 'INFERENCE_FILTER_POLYORDER' in params:
+            ordered_keys.append('INFERENCE_FILTER_POLYORDER')
     
-    other_keys = ['MAX_TRAINING_TIME_SECONDS']
+    # Additional useful params
+    ordered_keys.extend(['CURRENT_DEVICE', 'PIN_MEMORY', 'NUM_LEARNABLE_PARAMS', 'DROPOUT_PROB'])
     
-    # New order: Data -> Model -> Device -> Method -> Controls -> Validation -> Others
-    all_ordered_keys = (data_keys + model_arch_keys + device_keys + train_method_keys + 
-                        train_control_keys + validation_keys + other_keys)
-    
-    ordered_items = []
+    # Build filtered items list in order
+    items = []
     used_keys = set()
     
-    for key in all_ordered_keys:
-        if key in filtered_params:
-            ordered_items.append((key, filtered_params[key]))
+    for key in ordered_keys:
+        if key in params:
+            items.append((key, params[key]))
             used_keys.add(key)
     
-    for key, value in filtered_params.items():
-        if key not in used_keys:
-            ordered_items.append((key, value))
-
-    items = ordered_items
+    # Add any remaining params not explicitly ordered (fallback)
+    excluded_always = {'INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_WORKERS', 'BATCH_TRAINING', 
+                      'DEVICE_SELECTION', 'REPETITIONS', 'CURRENT_REPETITION', 
+                      'LAYERS', 'HIDDEN_UNITS', 'LR_PERIOD', 'LR_PARAM'}
+    
+    for key, value in params.items():
+        if key not in used_keys and key not in excluded_always:
+            items.append((key, value))
     # Revert to 4 columns as requested
     num_cols = 4
     num_rows = (len(items) + num_cols - 1) // num_cols
