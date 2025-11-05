@@ -264,19 +264,14 @@ class CUDAGraphsTrainingService:
                 if use_mixed_precision:
                     with torch.cuda.amp.autocast(dtype=torch.bfloat16):
                         if model_type == "LSTM":
-                            if h_s_initial is None:
-                                h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                                h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            else:
-                                h_s = h_s_initial.detach().clone()
-                                h_c = h_c_initial.detach().clone()
+                            # RESET hidden states to zeros for EVERY batch (reference code: Junran Chen)
+                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                             y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                             
                         elif model_type == "GRU":
-                            if h_s_initial is None:
-                                h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            else:
-                                h_s = h_s_initial.detach().clone()
+                            # RESET hidden states to zeros for EVERY batch (reference code: Junran Chen)
+                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                             y_pred, h_s = model(X_batch, h_s)
                             
                         elif model_type == "FNN":
@@ -293,8 +288,8 @@ class CUDAGraphsTrainingService:
                     scaler.scale(loss).backward()
                     
                     if model_type in ["LSTM", "GRU"]:
-                        scaler.unscale_(optimizer)
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        # No gradient clipping (reference code: Junran Chen)
+                        pass
                     
                     scaler.step(optimizer)
                     scaler.update()
@@ -302,19 +297,14 @@ class CUDAGraphsTrainingService:
                 else:
                     # Standard precision
                     if model_type == "LSTM":
-                        if h_s_initial is None:
-                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                        else:
-                            h_s = h_s_initial.detach().clone()
-                            h_c = h_c_initial.detach().clone()
+                        # RESET hidden states to zeros for EVERY batch (reference code: Junran Chen)
+                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                        h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                         y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
                         
                     elif model_type == "GRU":
-                        if h_s_initial is None:
-                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                        else:
-                            h_s = h_s_initial.detach().clone()
+                        # RESET hidden states to zeros for EVERY batch (reference code: Junran Chen)
+                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                         y_pred, h_s = model(X_batch, h_s)
                         
                     elif model_type == "FNN":
@@ -329,7 +319,8 @@ class CUDAGraphsTrainingService:
                     loss = self.criterion(y_pred, y_batch)
                     
                     if model_type in ["LSTM", "GRU"]:
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        # No gradient clipping (reference code: Junran Chen)
+                        pass
                     
                     loss.backward()
                     optimizer.step()
@@ -407,19 +398,14 @@ class CUDAGraphsTrainingService:
                 if use_mixed_precision:
                     with torch.cuda.amp.autocast(dtype=torch.bfloat16):
                         if model_type == "LSTM":
-                            if h_s_initial is None:
-                                h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                                h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            else:
-                                h_s = h_s_initial.detach().clone()
-                                h_c = h_c_initial.detach().clone()
+                            # RESET hidden states to zeros for EVERY batch (reference code: Junran Chen)
+                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                             y_pred, _ = model(X_batch, h_s, h_c)
                             
                         elif model_type == "GRU":
-                            if h_s_initial is None:
-                                h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            else:
-                                h_s = h_s_initial.detach().clone()
+                            # RESET hidden states to zeros for EVERY batch (reference code: Junran Chen)
+                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                             y_pred, _ = model(X_batch, h_s)
                             
                         elif model_type == "FNN":
@@ -437,19 +423,14 @@ class CUDAGraphsTrainingService:
                 else:
                     # Standard precision validation
                     if model_type == "LSTM":
-                        if h_s_initial is None:
-                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                        else:
-                            h_s = h_s_initial.detach().clone()
-                            h_c = h_c_initial.detach().clone()
+                        # RESET hidden states to zeros for EVERY batch (reference code: Junran Chen)
+                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
+                        h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                         y_pred, _ = model(X_batch, h_s, h_c)
                         
                     elif model_type == "GRU":
-                        if h_s_initial is None:
-                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                        else:
-                            h_s = h_s_initial.detach().clone()
+                        # RESET hidden states to zeros for EVERY batch (reference code: Junran Chen)
+                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
                         y_pred, _ = model(X_batch, h_s)
                         
                     elif model_type == "FNN":
