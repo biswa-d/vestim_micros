@@ -492,7 +492,14 @@ class VEstimStandaloneTestingManager(QObject):
             self.progress.emit(f"  Running inference on {effective_samples} samples...")
             start_time = time.time()
             with torch.no_grad():
-                predictions_normalized = model(X_test)
+                if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
+                    # LSTM/GRU return (output, hidden_states), we only need output
+                    if model_type == 'GRU':
+                        predictions_normalized, _ = model(X_test, None)
+                    else:  # LSTM variants
+                        predictions_normalized, _ = model(X_test, None, None)
+                else:  # FNN
+                    predictions_normalized = model(X_test)
             predictions_normalized = predictions_normalized.cpu().numpy()
             inference_time = time.time() - start_time
             
