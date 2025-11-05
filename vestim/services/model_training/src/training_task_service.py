@@ -188,6 +188,20 @@ class TrainingTaskService:
                 
                 scaler.step(optimizer)
                 scaler.update()
+                
+                # CRITICAL: Detach hidden states immediately after successful backward pass
+                # This prevents gradient graph accumulation across batches which causes:
+                # - Memory buildup
+                # - Gradient instability 
+                # - Training spikes/explosions in RNNs
+                if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
+                    if h_s is not None:
+                        h_s = h_s.detach()
+                    if h_c is not None:
+                        h_c = h_c.detach()
+                elif model_type == "GRU":
+                    if h_s is not None:
+                        h_s = h_s.detach()
             else:
                 # Standard precision training
                 if model_type == "LSTM_LPF":
@@ -259,6 +273,21 @@ class TrainingTaskService:
                 
                 # Finally update weights
                 optimizer.step()
+            
+            # CRITICAL: Detach hidden states immediately after successful backward pass
+            # This prevents gradient graph accumulation across batches which causes:
+            # - Memory buildup
+            # - Gradient instability 
+            # - Training spikes/explosions in RNNs
+            # Do this BEFORE appending to loss history to ensure clean state
+            if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
+                if h_s is not None:
+                    h_s = h_s.detach()
+                if h_c is not None:
+                    h_c = h_c.detach()
+            elif model_type == "GRU":
+                if h_s is not None:
+                    h_s = h_s.detach()
                 
             total_train_loss.append(loss.item())
             
