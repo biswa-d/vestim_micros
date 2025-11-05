@@ -1,6 +1,8 @@
 from PyQt5.QtWidgets import QLabel, QGridLayout, QWidget, QVBoxLayout
 from PyQt5.QtCore import Qt
 
+# Updated: 2025-11-05 - Fixed column-first filling order
+
 def scale_font(font):
     """Scales font size based on screen resolution."""
     return font
@@ -50,9 +52,16 @@ def display_hyperparameters(gui, params):
     def is_parameter_relevant(param_key, model_type, scheduler_type, current_params):
         # Exclude parameters that are redundant or internal
         excluded_params = ['INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_WORKERS', 'BATCH_TRAINING', 
-                          'DEVICE_SELECTION', 'REPETITIONS', 'CURRENT_REPETITION']
+                  'DEVICE_SELECTION', 'REPETITIONS', 'CURRENT_REPETITION',
+                  # Hide deprecated time-split inputs; we display the canonical seconds field instead
+                  'MAX_TRAIN_HOURS', 'MAX_TRAIN_MINUTES', 'MAX_TRAIN_SECONDS']
         if param_key in excluded_params:
             return False
+        
+        # Only show LOOKBACK for sequence training
+        if param_key == 'LOOKBACK':
+            training_method = current_params.get('TRAINING_METHOD', '')
+            return str(training_method) == 'Sequence-to-Sequence'
         
         # Hide exploitation parameters when exploitation is disabled (Exploit Epochs = 0)
         exploit_epochs = current_params.get('EXPLOIT_EPOCHS', 0)
@@ -72,7 +81,7 @@ def display_hyperparameters(gui, params):
             'CURRENT_DEVICE', 'USE_MIXED_PRECISION',
             'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN',
             'INFERENCE_FILTER_TYPE', 'PIN_MEMORY',
-            'DROPOUT_PROB', 'WEIGHT_DECAY'
+            'DROPOUT_PROB', 'WEIGHT_DECAY', 'NORMALIZATION_APPLIED', 'FINAL_LR'
         }
 
         if param_key in always_relevant:
@@ -117,76 +126,107 @@ def display_hyperparameters(gui, params):
         return True
 
     filtered_params = {k: v for k, v in params.items() if is_parameter_relevant(k, model_type, scheduler_type, params)}
-    
-    # Reordered sections for better logical flow
-    data_keys = ['FEATURE_COLUMNS', 'TARGET_COLUMN']
 
-    model_arch_keys = ['MODEL_TYPE', 'NUM_LEARNABLE_PARAMS']
-    if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
-        # Only show RNN_LAYER_SIZES (shows layer architecture like "32,16")
-        # Don't show redundant LAYERS and HIDDEN_UNITS on the right
-        if 'RNN_LAYER_SIZES' in filtered_params:
-            model_arch_keys.append('RNN_LAYER_SIZES')
-        # Add dropout and weight decay for RNN models
-        model_arch_keys.extend(['DROPOUT_PROB', 'WEIGHT_DECAY'])
-    elif model_type == 'FNN':
-        model_arch_keys.extend(['HIDDEN_LAYER_SIZES', 'DROPOUT_PROB', 'WEIGHT_DECAY'])
-    
-    train_method_keys = ['TRAINING_METHOD', 'BATCH_TRAINING', 'BATCH_SIZE']
-    if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
-        train_method_keys.insert(1, 'LOOKBACK')
-    
-    train_control_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'SCHEDULER_TYPE']
-    if scheduler_type == 'StepLR':
-        train_control_keys.extend(['LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'])
-    elif scheduler_type == 'ReduceLROnPlateau':
-        train_control_keys.extend(['PLATEAU_PATIENCE', 'PLATEAU_FACTOR'])
-    elif scheduler_type == 'CosineAnnealingWarmRestarts':
-        train_control_keys.extend(['COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'])
-    train_control_keys.extend(['VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS'])
-    
-    # Device info after model arch - only show current device, not the duplicate
-    device_keys = ['CURRENT_DEVICE', 'USE_MIXED_PRECISION']
+    # Sequential ordering with key aliases: fill top-to-bottom in a single list.
+    # Each entry in preferred_key_groups is a list of aliases; the first present wins.
+    preferred_key_groups = [
+        ['FEATURE_COLUMNS'],
+        ['TARGET_COLUMN'],
+        ['NORMALIZATION_APPLIED', 'normalization_applied'],
+        ['MODEL_TYPE'],
+    ]
 
-    train_method_keys = ['TRAINING_METHOD', 'LOOKBACK', 'BATCH_SIZE']
-    
-    # Reordered training controls - ensure optimizer is always shown
-    train_control_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'OPTIMIZER_TYPE', 'SCHEDULER_TYPE']
+    # Model-specific architecture
+    if model_type == 'FNN':
+        preferred_key_groups += [
+            ['HIDDEN_LAYER_SIZES', 'FNN_HIDDEN_LAYERS'],
+            ['FNN_ACTIVATION'],
+            ['DROPOUT_PROB', 'FNN_DROPOUT_PROB'],
+            ['WEIGHT_DECAY']
+        ]
+    elif model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
+        preferred_key_groups += [
+            ['RNN_LAYER_SIZES'],
+            ['DROPOUT_PROB'],
+            ['WEIGHT_DECAY']
+        ]
+
+    preferred_key_groups += [
+        ['NUM_LEARNABLE_PARAMS'],
+        ['CURRENT_DEVICE'],
+        ['USE_MIXED_PRECISION'],
+        ['TRAINING_METHOD'],
+    ]
+
+    # Show LOOKBACK only for sequence training
+    if str(params.get('TRAINING_METHOD', '')) == 'Sequence-to-Sequence':
+        preferred_key_groups.append(['LOOKBACK'])
+
+    preferred_key_groups += [
+        ['BATCH_SIZE'],
+        ['OPTIMIZER_TYPE'],
+        ['INITIAL_LR'],
+        ['SCHEDULER_TYPE'],
+        ['FINAL_LR'],
+    ]
+
+    # Scheduler-specific params
     if scheduler_type == 'StepLR':
-        train_control_keys.extend(['LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'])
+        preferred_key_groups += [
+            ['LR_DROP_PERIOD', 'LR_PERIOD'],
+            ['LR_DROP_FACTOR', 'LR_PARAM']
+        ]
     elif scheduler_type == 'ReduceLROnPlateau':
-        train_control_keys.extend(['PLATEAU_PATIENCE', 'PLATEAU_FACTOR'])
+        preferred_key_groups += [
+            ['PLATEAU_PATIENCE'],
+            ['PLATEAU_FACTOR']
+        ]
     elif scheduler_type == 'CosineAnnealingWarmRestarts':
-        train_control_keys.extend(['COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN'])
-    
-    validation_keys = ['VALID_FREQUENCY', 'VALID_PATIENCE']
-    
-    other_keys = ['MAX_TRAINING_TIME_SECONDS']
-    
-    # New order: Data -> Model -> Device -> Method -> Controls -> Validation -> Others
-    all_ordered_keys = (data_keys + model_arch_keys + device_keys + train_method_keys + 
-                        train_control_keys + validation_keys + other_keys)
-    
+        preferred_key_groups += [
+            ['COSINE_T0'],
+            ['COSINE_T_MULT'],
+            ['COSINE_ETA_MIN']
+        ]
+
+    # Exploit + validation/limits
+    preferred_key_groups += [
+        ['EXPLOIT_LR'],
+        ['EXPLOIT_EPOCHS'],
+        ['EXPLOIT_REPETITIONS'],
+        ['MAX_EPOCHS'],
+        ['VALID_FREQUENCY'],
+        ['VALID_PATIENCE'],
+        ['MAX_TRAINING_TIME_SECONDS'],
+        ['INFERENCE_FILTER_TYPE']
+    ]
+
     ordered_items = []
     used_keys = set()
-    
-    for key in all_ordered_keys:
-        if key in filtered_params:
-            ordered_items.append((key, filtered_params[key]))
-            used_keys.add(key)
+
+    # Place items according to preferred order, respecting aliases
+    for aliases in preferred_key_groups:
+        actual_key = next((k for k in aliases if k in filtered_params), None)
+        if actual_key is not None and actual_key not in used_keys:
+            ordered_items.append((actual_key, filtered_params[actual_key]))
+            used_keys.add(actual_key)
     
     for key, value in filtered_params.items():
         if key not in used_keys:
             ordered_items.append((key, value))
 
     items = ordered_items
-    # Revert to 4 columns as requested
+    # Use 4 columns (each column has label + value, so 8 grid columns total)
     num_cols = 4
     num_rows = (len(items) + num_cols - 1) // num_cols
 
     for i, (param, value) in enumerate(items):
-        row = i % num_rows
-        col = (i // num_rows) * 2
+        # Fill DOWN columns first (top-to-bottom), then move RIGHT
+        col = (i // num_rows) * 2  # Which column pair (0, 2, 4, 6)
+        row = i % num_rows          # Which row within that column
+        
+        # DEBUG: Print first few to verify ordering
+        if i < 5:
+            print(f"DEBUG: Item {i}: {param} at row={row}, col={col}")
 
         label_text = gui.param_labels.get(param, param.replace("_", " ").title())
         
@@ -202,18 +242,18 @@ def display_hyperparameters(gui, params):
             # Convert to float for formatting check, handle potential errors
             try:
                 float_val = float(value)
-                # Use scientific notation for small values (learning rates, etc.)
-                if 0 < abs(float_val) <= 0.01:
+                # Clean integer representation for any integer-valued number (including 0.0)
+                if float_val.is_integer():
+                    value_str = str(int(float_val))
+                # Use scientific notation for small non-zero values (learning rates, etc.)
+                elif 0 < abs(float_val) <= 0.01:
                     value_str = f"{float_val:.1e}"
                 elif abs(float_val) < 1.0:
                     # Format to 1 decimal place for values less than 1
                     value_str = f"{float_val:.1f}"
                 else:
-                    # Display as integer for values >= 1
-                    if float_val == int(float_val):
-                        value_str = str(int(float_val))
-                    else:
-                        value_str = f"{float_val:.1f}"
+                    # Non-integer values >= 1
+                    value_str = f"{float_val:.1f}"
             except (ValueError, TypeError):
                 value_str = str(value)
         
