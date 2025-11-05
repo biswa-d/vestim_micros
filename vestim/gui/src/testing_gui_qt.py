@@ -149,67 +149,57 @@ class VEstimTestingGUI(QMainWindow):
             if not data_source_path and hasattr(self.job_manager, 'get_train_folder_path'):
                 data_source_path = self.job_manager.get_train_folder_path()
 
-            def _format_path(p: str, max_len: int = 85) -> str:
-                if not p:
-                    return ""
-                display = p.replace('\\', '/')
-                if len(display) <= max_len:
-                    return display
-                parts = display.strip('/').split('/')
-                tail = '/'.join(parts[-4:]) if len(parts) >= 4 else display[-max_len:]
-                return f"..{('/' if not tail.startswith('/') else '')}{tail}"
-
             # Add data and job folder display with adaptive layout (same row if fullscreen, else two rows)
             if data_source_path or job_folder:
-                # Container widget for adaptive layout
-                path_container = QWidget()
-                path_layout = QHBoxLayout(path_container)
-                path_layout.setContentsMargins(0, 0, 0, 8)
-                path_layout.setSpacing(20)
+                data_path_subtitle = ""
+                job_folder_subtitle = ""
                 
-                # Data folder label
-                data_label = QLabel(f"data: {_format_path(data_source_path)}" if data_source_path else "")
-                data_label.setStyleSheet("color: #777; font-size: 13px;")
-                data_label.setToolTip(data_source_path if data_source_path else "")
+                # Extract data source path (up to 3 levels)
+                if data_source_path:
+                    parts = data_source_path.replace('\\', '/').split('/')
+                    visible_parts = parts[-3:] if len(parts) >= 3 else parts
+                    data_path_subtitle = f"Data: .../{'/'.join(visible_parts)}"
                 
-                # Job folder label
-                job_label = None
+                # Extract job folder path (up to 3 levels)
                 if job_folder:
-                    job_folder_display = _format_path(job_folder, max_len=50)
-                    job_label = QLabel(f"job: {job_folder_display}")
-                    job_label.setStyleSheet("color: #777; font-size: 13px;")
-                    job_label.setToolTip(job_folder)
+                    parts = job_folder.replace('\\', '/').split('/')
+                    visible_parts = parts[-3:] if len(parts) >= 3 else parts
+                    job_folder_subtitle = f"Job: .../{'/'.join(visible_parts)}"
                 
-                # Adaptive layout based on combined length
-                data_text = data_label.text() if data_source_path else ""
-                job_text = job_label.text() if job_label else ""
-                combined_len = len(data_text) + len(job_text)
+                # Adaptive layout: same row if combined length < 110, else two rows
+                combined_text = f"{data_path_subtitle}    {job_folder_subtitle}".strip()
                 
-                if combined_len < 110:  # Fullscreen: same row
-                    path_layout.addStretch(1)
-                    if data_source_path:
-                        path_layout.addWidget(data_label)
-                    if job_label:
-                        path_layout.addWidget(job_label)
-                    path_layout.addStretch(1)
-                else:  # Narrow window: two rows
-                    path_layout = QVBoxLayout(path_container)
-                    path_layout.setContentsMargins(0, 0, 0, 8)
-                    path_layout.setSpacing(3)
-                    if data_source_path:
+                if len(combined_text) < 110 and data_path_subtitle and job_folder_subtitle:
+                    # Single row layout
+                    path_row = QHBoxLayout()
+                    path_row.addStretch(1)
+                    combined_label = QLabel(combined_text)
+                    combined_label.setStyleSheet("color: #777; font-size: 13px; padding: 5px 0;")
+                    combined_label.setAlignment(Qt.AlignCenter)
+                    path_row.addWidget(combined_label)
+                    path_row.addStretch(1)
+                    self.main_layout.addLayout(path_row)
+                else:
+                    # Two row layout
+                    if data_path_subtitle:
                         data_row = QHBoxLayout()
                         data_row.addStretch(1)
+                        data_label = QLabel(data_path_subtitle)
+                        data_label.setStyleSheet("color: #777; font-size: 13px; padding: 5px 0;")
+                        data_label.setAlignment(Qt.AlignCenter)
                         data_row.addWidget(data_label)
                         data_row.addStretch(1)
-                        path_layout.addLayout(data_row)
-                    if job_label:
+                        self.main_layout.addLayout(data_row)
+                    
+                    if job_folder_subtitle:
                         job_row = QHBoxLayout()
                         job_row.addStretch(1)
+                        job_label = QLabel(job_folder_subtitle)
+                        job_label.setStyleSheet("color: #777; font-size: 13px; padding: 5px 0;")
+                        job_label.setAlignment(Qt.AlignCenter)
                         job_row.addWidget(job_label)
                         job_row.addStretch(1)
-                        path_layout.addLayout(job_row)
-                
-                self.main_layout.addWidget(path_container)
+                        self.main_layout.addLayout(job_row)
         except Exception:
             pass
 

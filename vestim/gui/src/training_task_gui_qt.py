@@ -229,6 +229,63 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Keep the original window title format
         # (The device name is already shown in the title label above)
 
+        # --- Data Source and Job Folder Paths Section (Adaptive Layout) ---
+        data_path_subtitle = ""
+        job_folder_subtitle = ""
+        
+        if task and 'hyperparams' in task:
+            params = task['hyperparams']
+            
+            # Extract data source path (up to 3 levels)
+            data_source_path = params.get('DATA_SOURCE_PATH', '')
+            if data_source_path:
+                parts = data_source_path.replace('\\', '/').split('/')
+                visible_parts = parts[-3:] if len(parts) >= 3 else parts
+                data_path_subtitle = f"Data: .../{'/'.join(visible_parts)}"
+            
+            # Extract job folder path (up to 3 levels)
+            job_folder = self.job_folder if hasattr(self, 'job_folder') and self.job_folder else ''
+            if job_folder:
+                parts = job_folder.replace('\\', '/').split('/')
+                visible_parts = parts[-3:] if len(parts) >= 3 else parts
+                job_folder_subtitle = f"Job: .../{'/'.join(visible_parts)}"
+        
+        # Adaptive layout: same row if combined length < 110, else two rows
+        if data_path_subtitle or job_folder_subtitle:
+            combined_text = f"{data_path_subtitle}    {job_folder_subtitle}".strip()
+            
+            if len(combined_text) < 110 and data_path_subtitle and job_folder_subtitle:
+                # Single row layout
+                path_row = QHBoxLayout()
+                path_row.addStretch(1)
+                combined_label = QLabel(combined_text)
+                combined_label.setStyleSheet("color: #777; font-size: 13px; padding: 5px 0;")
+                combined_label.setAlignment(Qt.AlignCenter)
+                path_row.addWidget(combined_label)
+                path_row.addStretch(1)
+                self.main_layout.addLayout(path_row)
+            else:
+                # Two row layout
+                if data_path_subtitle:
+                    data_row = QHBoxLayout()
+                    data_row.addStretch(1)
+                    data_label = QLabel(data_path_subtitle)
+                    data_label.setStyleSheet("color: #777; font-size: 13px; padding: 5px 0;")
+                    data_label.setAlignment(Qt.AlignCenter)
+                    data_row.addWidget(data_label)
+                    data_row.addStretch(1)
+                    self.main_layout.addLayout(data_row)
+                
+                if job_folder_subtitle:
+                    job_row = QHBoxLayout()
+                    job_row.addStretch(1)
+                    job_label = QLabel(job_folder_subtitle)
+                    job_label.setStyleSheet("color: #777; font-size: 13px; padding: 5px 0;")
+                    job_label.setAlignment(Qt.AlignCenter)
+                    job_row.addWidget(job_label)
+                    job_row.addStretch(1)
+                    self.main_layout.addLayout(job_row)
+
         # Display hyperparameters
         # Initialize the hyperparameter frame
         self.hyperparam_frame = QFrame(self)

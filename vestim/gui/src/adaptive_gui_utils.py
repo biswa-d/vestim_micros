@@ -209,12 +209,12 @@ def display_hyperparameters(gui, params):
     used_keys = set()
     
     # Build grouped sections with formatted values
-    data_items = []
-    model_items = []
-    training_items = []
-    validation_items = []
-    inference_items = []
-    exploit_items = []
+    # Better logical grouping as per user feedback
+    data_model_items = []      # Data + Model architecture together
+    training_config_items = []  # Training method, seq len, batch, epochs, validation
+    optimizer_items = []        # Optimizer, LR scheduler and its params
+    refinement_items = []       # Exploit params (only if active)
+    inference_items = []        # Inference filter params (only if active)
     
     def _format_value(param, value):
         """Format parameter value for display"""
@@ -261,37 +261,42 @@ def display_hyperparameters(gui, params):
                     return value_str[:57] + "..."
                 return value_str
     
-    # Populate sections based on ordered keys
+    # Populate sections with better logical grouping
     for key in ordered_keys:
         if key not in params:
             continue
         formatted_value = _format_value(key, params[key])
         
-        # Data section
-        if key in ['FEATURE_COLUMNS', 'TARGET_COLUMN']:
-            data_items.append((key, formatted_value))
-        # Model section
-        elif key in ['MODEL_TYPE', 'RNN_LAYER_SIZES', 'HIDDEN_LAYER_SIZES', 'NUM_LEARNABLE_PARAMS', 'CURRENT_DEVICE', 'USE_MIXED_PRECISION', 'DROPOUT_PROB']:
-            model_items.append((key, formatted_value))
-        # Training section
-        elif key in ['TRAINING_METHOD', 'LOOKBACK', 'BATCH_SIZE', 'MAX_EPOCHS', 'OPTIMIZER_TYPE', 'WEIGHT_DECAY', 'INITIAL_LR']:
-            training_items.append((key, formatted_value))
-        # Validation & LR section
-        elif key in ['VALID_FREQUENCY', 'VALID_PATIENCE', 'SCHEDULER_TYPE', 'LR_DROP_PERIOD', 'LR_DROP_FACTOR', 
-                     'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN']:
-            validation_items.append((key, formatted_value))
-        # Exploit section (only if reps > 0)
+        # DATA + MODEL section (Features, Target, Model Type, Layers, # Params, Device, Mixed Precision)
+        if key in ['FEATURE_COLUMNS', 'TARGET_COLUMN', 'MODEL_TYPE', 'RNN_LAYER_SIZES', 'HIDDEN_LAYER_SIZES', 
+                   'NUM_LEARNABLE_PARAMS', 'CURRENT_DEVICE', 'USE_MIXED_PRECISION', 'DROPOUT_PROB']:
+            data_model_items.append((key, formatted_value))
+        
+        # TRAINING CONFIGURATION section (Method, Seq Len, Batch, Epochs, Val Freq, Val Patience)
+        elif key in ['TRAINING_METHOD', 'LOOKBACK', 'BATCH_SIZE', 'MAX_EPOCHS', 'VALID_FREQUENCY', 'VALID_PATIENCE']:
+            training_config_items.append((key, formatted_value))
+        
+        # OPTIMIZER SETTINGS section (Optimizer, Weight Decay, Initial LR, LR Scheduler and all scheduler params)
+        elif key in ['OPTIMIZER_TYPE', 'WEIGHT_DECAY', 'INITIAL_LR', 'SCHEDULER_TYPE', 
+                     'LR_DROP_PERIOD', 'LR_DROP_FACTOR', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR',
+                     'COSINE_T0', 'COSINE_T_MULT', 'COSINE_ETA_MIN']:
+            optimizer_items.append((key, formatted_value))
+        
+        # TRAINING REFINEMENT section (Exploit params - only if reps > 0)
         elif key in ['EXPLOIT_LR', 'EXPLOIT_EPOCHS', 'EXPLOIT_REPETITIONS'] and exploit_reps > 0:
-            exploit_items.append((key, formatted_value))
-        # Inference section (only if filter != None)
+            refinement_items.append((key, formatted_value))
+        
+        # INFERENCE SETTINGS section (Filter params - only if filter != None)
         elif key.startswith('INFERENCE_FILTER') and inference_filter and str(inference_filter).strip().lower() != 'none':
             inference_items.append((key, formatted_value))
-        # Pin Memory goes to training
-        elif key == 'PIN_MEMORY':
-            training_items.append((key, formatted_value))
-        # Max training time (only if > 0)
+        
+        # Pin Memory and other misc go to training config
+        elif key in ['PIN_MEMORY']:
+            training_config_items.append((key, formatted_value))
+        
+        # Max training time (only if > 0) goes to training config
         elif key == 'MAX_TRAINING_TIME_SECONDS' and max_train_time > 0:
-            training_items.append((key, formatted_value))
+            training_config_items.append((key, formatted_value))
     
     # Add any remaining params to appropriate fallback section
     excluded_always = {'INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_WORKERS', 'BATCH_TRAINING', 
@@ -312,39 +317,36 @@ def display_hyperparameters(gui, params):
             continue
         
         formatted_value = _format_value(key, value)
-        # Add to training as fallback
-        training_items.append((key, formatted_value))
+        # Add to training config as fallback
+        training_config_items.append((key, formatted_value))
 
-    # Create grouped box layout
-    # Row 1: Data, Model, Training (side by side)
+    # Create grouped box layout with better organization
+    # Row 1: Data+Model, Training Config, Optimizer Settings
     row1_layout = QHBoxLayout()
     row1_layout.setSpacing(10)
     
-    if data_items:
-        row1_layout.addWidget(_create_section_box("DATA", data_items, gui, "#3498db"))
+    if data_model_items:
+        row1_layout.addWidget(_create_section_box("DATA & MODEL", data_model_items, gui, "#3498db"))
     
-    if model_items:
-        row1_layout.addWidget(_create_section_box("MODEL", model_items, gui, "#2ecc71"))
+    if training_config_items:
+        row1_layout.addWidget(_create_section_box("TRAINING CONFIGURATION", training_config_items, gui, "#e74c3c"))
     
-    if training_items:
-        row1_layout.addWidget(_create_section_box("TRAINING", training_items, gui, "#e74c3c"))
+    if optimizer_items:
+        row1_layout.addWidget(_create_section_box("OPTIMIZER SETTINGS", optimizer_items, gui, "#f39c12"))
     
-    # Row 2: Validation & LR (full width), optional Exploit and Inference
+    # Row 2: Training Refinement (Exploit) and Inference Settings (only if active)
     row2_layout = QHBoxLayout()
     row2_layout.setSpacing(10)
     
-    if validation_items:
-        validation_box = _create_section_box("VALIDATION & LR SCHEDULE", validation_items, gui, "#f39c12")
-        row2_layout.addWidget(validation_box)
-    
-    if exploit_items:
-        exploit_box = _create_section_box("EXPLOIT", exploit_items, gui, "#9b59b6")
-        row2_layout.addWidget(exploit_box)
+    if refinement_items:
+        refinement_box = _create_section_box("TRAINING REFINEMENT", refinement_items, gui, "#9b59b6")
+        row2_layout.addWidget(refinement_box)
     
     if inference_items:
-        inference_box = _create_section_box("INFERENCE FILTER", inference_items, gui, "#1abc9c")
+        inference_box = _create_section_box("INFERENCE SETTINGS", inference_items, gui, "#1abc9c")
         row2_layout.addWidget(inference_box)
     
     # Add rows to main container
     frame_layout.addLayout(row1_layout)
-    frame_layout.addLayout(row2_layout)
+    if refinement_items or inference_items:  # Only add row 2 if there's content
+        frame_layout.addLayout(row2_layout)
