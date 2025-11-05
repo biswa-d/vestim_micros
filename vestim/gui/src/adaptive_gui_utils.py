@@ -87,6 +87,9 @@ def display_hyperparameters(gui, params):
         ordered_keys.append('RNN_LAYER_SIZES')
     elif model_type == 'FNN':
         ordered_keys.append('HIDDEN_LAYER_SIZES')
+    # 2b. Place # Params and Current Device right after layer sizes for visual consistency
+    ordered_keys.append('NUM_LEARNABLE_PARAMS')
+    ordered_keys.append('CURRENT_DEVICE')
     
     # 3. Mixed Precision
     ordered_keys.append('USE_MIXED_PRECISION')
@@ -146,8 +149,8 @@ def display_hyperparameters(gui, params):
         if 'INFERENCE_FILTER_POLYORDER' in params:
             ordered_keys.append('INFERENCE_FILTER_POLYORDER')
     
-    # Additional useful params
-    ordered_keys.extend(['CURRENT_DEVICE', 'PIN_MEMORY', 'NUM_LEARNABLE_PARAMS', 'DROPOUT_PROB'])
+    # Additional useful params (device already placed above next to model arch)
+    ordered_keys.extend(['PIN_MEMORY', 'DROPOUT_PROB'])
     
     # Build filtered items list in order
     items = []
@@ -162,9 +165,22 @@ def display_hyperparameters(gui, params):
     excluded_always = {'INPUT_SIZE', 'OUTPUT_SIZE', 'NUM_WORKERS', 'BATCH_TRAINING', 
                       'DEVICE_SELECTION', 'REPETITIONS', 'CURRENT_REPETITION', 
                       'LAYERS', 'HIDDEN_UNITS', 'LR_PERIOD', 'LR_PARAM'}
-    
+
+    def _include_in_fallback(k: str) -> bool:
+        # Hide inference filter details when filter is None
+        if k in {'INFERENCE_FILTER_WINDOW_SIZE', 'INFERENCE_FILTER_ALPHA', 'INFERENCE_FILTER_POLYORDER'}:
+            if not inference_filter or str(inference_filter).strip().lower() == 'none':
+                return False
+        # Hide exploit params when repetitions are zero
+        if k in {'EXPLOIT_LR', 'EXPLOIT_EPOCHS', 'EXPLOIT_REPETITIONS'} and exploit_reps <= 0:
+            return False
+        # Hide max training time when zero
+        if k == 'MAX_TRAINING_TIME_SECONDS' and max_train_time <= 0:
+            return False
+        return True
+
     for key, value in params.items():
-        if key not in used_keys and key not in excluded_always:
+        if key not in used_keys and key not in excluded_always and _include_in_fallback(key):
             items.append((key, value))
     # Revert to 4 columns as requested
     num_cols = 4
@@ -175,27 +191,40 @@ def display_hyperparameters(gui, params):
         col = (i // num_rows) * 2
 
         label_text = gui.param_labels.get(param, param.replace("_", " ").title())
-        
-        # Friendly formatting with special handling for boolean-like fields
+
+        # Friendly formatting with special handling for integers, booleans, and zero-as-None fields
         boolean_like_keys = {"normalization_applied", "PIN_MEMORY", "USE_MIXED_PRECISION"}
+        integer_keys = {
+            'BATCH_SIZE','MAX_EPOCHS','VALID_FREQUENCY','VALID_PATIENCE','PLATEAU_PATIENCE',
+            'COSINE_T0','LOOKBACK','NUM_LEARNABLE_PARAMS','EXPLOIT_EPOCHS','INFERENCE_FILTER_WINDOW_SIZE',
+            'INFERENCE_FILTER_POLYORDER'
+        }
+        zero_as_none_keys = {'EXPLOIT_REPETITIONS'}
+
         if isinstance(value, bool):
             value_str = "True" if value else "False"
         elif str(param) in boolean_like_keys or str(param).lower() in boolean_like_keys:
-            # Treat 1/0 or truthy strings as booleans
             truthy = {True, 1, "1", "true", "True", "YES", "yes"}
             value_str = "True" if value in truthy else "False"
+        elif param in zero_as_none_keys:
+            try:
+                v = int(float(value))
+                value_str = "None" if v == 0 else str(v)
+            except (ValueError, TypeError):
+                value_str = str(value)
+        elif param in integer_keys:
+            try:
+                value_str = str(int(float(value)))
+            except (ValueError, TypeError):
+                value_str = str(value)
         else:
-            # Convert to float for formatting check, handle potential errors
             try:
                 float_val = float(value)
-                # Use scientific notation for small values (learning rates, etc.)
                 if 0 < abs(float_val) <= 0.01:
                     value_str = f"{float_val:.1e}"
-                elif abs(float_val) < 1.0:
-                    # Format to 1 decimal place for values less than 1
+                elif abs(float_val) < 1.0 and float_val != int(float_val):
                     value_str = f"{float_val:.1f}"
                 else:
-                    # Display as integer for values >= 1
                     if float_val == int(float_val):
                         value_str = str(int(float_val))
                     else:

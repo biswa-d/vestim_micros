@@ -99,7 +99,8 @@ class VEstimTestingGUI(QMainWindow):
             "MODEL_TYPE": "Model Type", "TRAINING_METHOD": "Training Method",
             "EXPLOIT_LR": "Exploit Lr", "EXPLOIT_EPOCHS": "Exploit Epochs",
             "EXPLOIT_REPETITIONS": "Exploit Repetitions", "MAX_TRAINING_TIME_SECONDS": "Max Train Seconds",
-            "INFERENCE_FILTER_TYPE": "Inference Filter Type"
+            "INFERENCE_FILTER_TYPE": "Inference Filter Type", "NUM_LEARNABLE_PARAMS": "# Params",
+            "CURRENT_DEVICE": "Current Device"
         }
 
         self.queue = Queue()
