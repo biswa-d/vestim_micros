@@ -2,14 +2,15 @@
     "FEATURE_COLUMNS": ["Power", "Battery_Temp_degC", "SOC"],
     "TARGET_COLUMN": "Voltage",
     "MODEL_TYPE": "FNN",
-    "TRAINING_METHOD": "Sequence-to-Sequence",
+    "TRAINING_METHOD": "WholeSequenceFNN",
     
     "_comment_optimized": "=== OPTIMIZED PARAMETERS (Optuna will search these ranges) ===",
     "BATCH_SIZE": "[128,512]",
     "MAX_EPOCHS": "[50,200]",
     "INITIAL_LR": "[1e-5,1e-2]",
-    "FNN_HIDDEN_LAYERS": "[[32,64,128],[128,256,512]]",
+    "FNN_HIDDEN_LAYERS": "[32,64,128],[128,256,512]",
     "FNN_DROPOUT_PROB": "[0.1,0.5]",
+    "FNN_ACTIVATION": "ReLU",
     
     "_comment_scheduler": "=== SCHEDULER-SPECIFIC (ReduceLROnPlateau example) ===",
     "PLATEAU_FACTOR": "[0.1,0.8]",
@@ -28,6 +29,9 @@
     "NUM_WORKERS": "8",
     "PIN_MEMORY": true,
     "PREFETCH_FACTOR": "8",
+    
+    "_comment_inference": "=== INFERENCE SETTINGS ===",
+    "INFERENCE_FILTER_TYPE": "None",
     
     "_comment_time_limits": "=== TIME LIMITS ===",
     "MAX_TRAIN_HOURS": "0",

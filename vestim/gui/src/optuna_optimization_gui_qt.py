@@ -336,6 +336,19 @@ class OptunaOptimizationThread(QThread):
             else:
                 model = model_service.create_model(params, device=device)
             
+            # Build data_loader_params: only include lookback for Sequence-to-Sequence training
+            data_loader_params = {
+                'batch_size': int(params['BATCH_SIZE']),
+                'feature_columns': self.params['FEATURE_COLUMNS'],
+                'target_column': self.params['TARGET_COLUMN'],
+                'num_workers': 4
+            }
+            
+            # Add lookback only for sequence-based training methods
+            training_method = params.get('TRAINING_METHOD', '')
+            if training_method == 'Sequence-to-Sequence' and 'LOOKBACK' in params:
+                data_loader_params['lookback'] = int(params['LOOKBACK'])
+            
             training_task = {
                 'task_id': f"optuna_trial_{trial.number}",
                 'model': model,
@@ -344,13 +357,7 @@ class OptunaOptimizationThread(QThread):
                 'log_callback': self.log_message.emit,
                 'normalization_applied': self.params.get('normalization_applied', False),
                 'job_folder_augmented_from': self.job_manager.get_job_folder(),
-                'data_loader_params': {
-                    'lookback': int(params['LOOKBACK']),
-                    'batch_size': int(params['BATCH_SIZE']),
-                    'feature_columns': self.params['FEATURE_COLUMNS'],
-                    'target_column': self.params['TARGET_COLUMN'],
-                    'num_workers': 4
-                },
+                'data_loader_params': data_loader_params,
                 'training_params': {
                     'early_stopping': True,
                     'early_stopping_patience': int(params['VALID_PATIENCE']),

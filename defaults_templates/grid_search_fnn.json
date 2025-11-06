@@ -2,7 +2,7 @@
     "FEATURE_COLUMNS": ["Power", "Battery_Temp_degC", "SOC"],
     "TARGET_COLUMN": "Voltage",
     "MODEL_TYPE": "FNN",
-    "TRAINING_METHOD": "Sequence-to-Sequence",
+    "TRAINING_METHOD": "WholeSequenceFNN",
     
     "_comment_grid_search": "=== GRID SEARCH PARAMETERS (comma-separated values) ===",
     "BATCH_SIZE": "128,256",
@@ -10,6 +10,7 @@
     "INITIAL_LR": "0.001,0.0001",
     "FNN_HIDDEN_LAYERS": "64,128;128,256;64,128,256",
     "FNN_DROPOUT_PROB": "0.1,0.3",
+    "FNN_ACTIVATION": "ReLU",
     
     "_comment_scheduler": "=== SCHEDULER SETTINGS ===",
     "SCHEDULER_TYPE": "ReduceLROnPlateau",
@@ -27,5 +28,8 @@
     "USE_MIXED_PRECISION": true,
     "NUM_WORKERS": "8",
     "PIN_MEMORY": true,
-    "PREFETCH_FACTOR": "8"
+    "PREFETCH_FACTOR": "8",
+    
+    "_comment_inference": "=== INFERENCE SETTINGS ===",
+    "INFERENCE_FILTER_TYPE": "None"
 }

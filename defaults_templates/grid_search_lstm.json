@@ -28,5 +28,8 @@
     "USE_MIXED_PRECISION": true,
     "NUM_WORKERS": "8",
     "PIN_MEMORY": true,
-    "PREFETCH_FACTOR": "4"
+    "PREFETCH_FACTOR": "4",
+    
+    "_comment_inference": "=== INFERENCE SETTINGS ===",
+    "INFERENCE_FILTER_TYPE": "None"
 }

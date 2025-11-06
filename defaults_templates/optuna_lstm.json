@@ -30,6 +30,9 @@
     "PIN_MEMORY": true,
     "PREFETCH_FACTOR": "4",
     
+    "_comment_inference": "=== INFERENCE SETTINGS ===",
+    "INFERENCE_FILTER_TYPE": "None",
+    
     "_comment_time_limits": "=== TIME LIMITS ===",
     "MAX_TRAIN_HOURS": "0",
     "MAX_TRAIN_MINUTES": "0",
