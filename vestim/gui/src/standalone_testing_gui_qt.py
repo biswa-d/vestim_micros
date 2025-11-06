@@ -12,9 +12,9 @@
 # ---------------------------------------------------------------------------------
 
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, 
-    QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QMessageBox, 
-    QGroupBox, QTextEdit, QFrame, QFileDialog, QTabWidget, QAction
+    QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
+    QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QMessageBox,
+    QGroupBox, QTextEdit, QFrame, QFileDialog, QTabWidget, QAction, QLineEdit, QComboBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -44,6 +44,8 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         self.session_timestamp = session_timestamp or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.results_list = []
         self.results_data = []  # Store all results for consolidated summary
+        self.all_tree_items = []  # Store all items for filtering
+        self.sl_no_counter = 1
         
         # Add param_labels needed for hyperparameter display
         self.param_labels = {
@@ -168,6 +170,47 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         results_group = QGroupBox("Testing Results")
         results_layout = QVBoxLayout(results_group)
         
+        # Add filter/sort controls
+        filter_group = QGroupBox("Filter & Sort Results")
+        filter_group.setStyleSheet("QGroupBox { font-weight: bold; padding: 10px; margin-top: 10px; }")
+        filter_layout = QHBoxLayout()
+        
+        # Search box
+        search_label = QLabel("Search:")
+        self.search_box = QLineEdit()
+        self.search_box.setPlaceholderText("Filter by model, task, or file name...")
+        self.search_box.textChanged.connect(self.apply_filters)
+        filter_layout.addWidget(search_label)
+        filter_layout.addWidget(self.search_box, 2)
+        
+        # Model type filter
+        model_label = QLabel("Model:")
+        self.model_filter = QComboBox()
+        self.model_filter.addItem("All Models")
+        self.model_filter.currentTextChanged.connect(self.apply_filters)
+        filter_layout.addWidget(model_label)
+        filter_layout.addWidget(self.model_filter, 1)
+        
+        # Sort by
+        sort_label = QLabel("Sort by:")
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems(["Sl.No", "Best Valid Loss (Low→High)", "Best Valid Loss (High→Low)",
+                                  "Test RMSE (Low→High)", "Test RMSE (High→Low)",
+                                  "Test MAXE (Low→High)", "Test MAXE (High→Low)",
+                                  "R² (High→Low)", "R² (Low→High)", "Model Type"])
+        self.sort_combo.currentTextChanged.connect(self.apply_sort)
+        filter_layout.addWidget(sort_label)
+        filter_layout.addWidget(self.sort_combo, 1)
+        
+        # Clear filters button
+        clear_btn = QPushButton("Clear Filters")
+        clear_btn.setStyleSheet("background-color: #f0ad4e; color: white; padding: 5px; font-weight: bold;")
+        clear_btn.clicked.connect(self.clear_filters)
+        filter_layout.addWidget(clear_btn)
+        
+        filter_group.setLayout(filter_layout)
+        results_layout.addWidget(filter_group)
+
         # Create results table with exact main testing GUI columns
         self.results_table = QTreeWidget()
         self.results_table.setHeaderLabels([
@@ -393,6 +436,118 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             f"Test RMSE ({rmse_unit})", f"Test MAXE ({rmse_unit})", "R2", "Plot"
         ])
     
+    def apply_filters(self):
+        """Filter results based on search box and model filter"""
+        search_text = self.search_box.text().lower()
+        model_filter = self.model_filter.currentText()
+        
+        # Hide/show existing rows based on filters
+        for i in range(self.results_table.topLevelItemCount()):
+            item = self.results_table.topLevelItem(i)
+            if not item:
+                continue
+                
+            # Get data from the item
+            model = item.text(2).lower()
+            task = item.text(1).lower()
+            file_name = item.text(3).lower()
+            
+            # Check search text
+            search_match = (search_text == "" or
+                          search_text in model or
+                          search_text in task or
+                          search_text in file_name)
+            
+            # Check model filter
+            model_match = (model_filter == "All Models" or
+                         model_filter.lower() == model)
+            
+            # Show/hide item
+            item.setHidden(not (search_match and model_match))
+
+    def apply_sort(self):
+        """Sort results based on selected criteria"""
+        if not self.all_tree_items:
+            return
+            
+        sort_by = self.sort_combo.currentText()
+        
+        try:
+            if sort_by == "Sl.No":
+                sorted_items = sorted(self.all_tree_items, key=lambda x: x['sl_no'])
+            elif sort_by == "Best Valid Loss (Low→High)":
+                sorted_items = sorted(self.all_tree_items, key=lambda x: x['best_valid_loss_float'])
+            elif sort_by == "Best Valid Loss (High→Low)":
+                sorted_items = sorted(self.all_tree_items, key=lambda x: x['best_valid_loss_float'], reverse=True)
+            elif sort_by == "Test RMSE (Low→High)":
+                sorted_items = sorted(self.all_tree_items, key=lambda x: x['rmse_float'])
+            elif sort_by == "Test RMSE (High→Low)":
+                sorted_items = sorted(self.all_tree_items, key=lambda x: x['rmse_float'], reverse=True)
+            elif sort_by == "Test MAXE (Low→High)":
+                sorted_items = sorted(self.all_tree_items, key=lambda x: x['maxe_float'])
+            elif sort_by == "Test MAXE (High→Low)":
+                sorted_items = sorted(self.all_tree_items, key=lambda x: x['maxe_float'], reverse=True)
+            elif sort_by == "R² (High→Low)":
+                sorted_items = sorted(self.all_tree_items, key=lambda x: x['r2_float'], reverse=True)
+            elif sort_by == "R² (Low→High)":
+                sorted_items = sorted(self.all_tree_items, key=lambda x: x['r2_float'])
+            elif sort_by == "Model Type":
+                sorted_items = sorted(self.all_tree_items, key=lambda x: x['model'])
+            else:
+                return
+            
+            # Clear tree and rebuild from sorted data
+            self.results_table.clear()
+            
+            for idx, item_data in enumerate(sorted_items):
+                # Recreate tree item from stored data
+                row = QTreeWidgetItem([
+                    str(idx + 1),
+                    item_data['task'],
+                    item_data['model'],
+                    item_data['file'],
+                    item_data['num_params'],
+                    item_data['best_train_loss'],
+                    item_data['best_valid_loss'],
+                    item_data['completed_epochs'],
+                    item_data['rms_error_str'],
+                    item_data['max_error_str'],
+                    item_data['r2_str']
+                ])
+                
+                self.results_table.addTopLevelItem(row)
+                
+                # Recreate button widget
+                button_widget = QWidget()
+                button_layout = QHBoxLayout(button_widget)
+                button_layout.setContentsMargins(4, 0, 4, 0)
+                plot_button = QPushButton("Plot")
+                plot_button.setStyleSheet("background-color: #663399; color: white; font-weight: bold; padding: 5px 15px; border-radius: 3px; border: none;")
+                
+                if item_data['plot_data']:
+                    plot_data = item_data['plot_data']
+                    plot_button.clicked.connect(lambda checked, p=plot_data: self.show_model_plot(p))
+                else:
+                    plot_button.setDisabled(True)
+                    plot_button.setToolTip("Predictions file not found")
+                
+                button_layout.addWidget(plot_button)
+                self.results_table.setItemWidget(row, 11, button_widget)
+            
+            # Re-apply filters after sorting
+            self.apply_filters()
+            
+        except Exception as e:
+            self.logger.error(f"Error during sorting: {e}", exc_info=True)
+            QMessageBox.warning(self, "Sort Error", f"An error occurred while sorting: {str(e)}")
+
+    def clear_filters(self):
+        """Clear all filters and reset to default view"""
+        self.search_box.clear()
+        self.model_filter.setCurrentIndex(0)
+        self.sort_combo.setCurrentIndex(0)
+        self.apply_filters()
+
     def add_result_row(self, result):
         """Add result row matching the desired main testing GUI format"""
         
@@ -449,8 +604,9 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             file_name = os.path.basename(test_data_file) if test_data_file and os.path.exists(test_data_file) else "Test Data"
 
             # Create tree widget item with the new column order
-            item = QTreeWidgetItem(self.results_table)
-            sl_no = str(self.results_table.topLevelItemCount())
+            item = QTreeWidgetItem()
+            sl_no = str(self.sl_no_counter)
+            self.sl_no_counter += 1
             item.setText(0, sl_no)                                     # Sl.No
             item.setText(1, task)                                      # Task ID
             item.setText(2, architecture)                              # Model (from architecture)
@@ -489,6 +645,33 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             # Store result for consolidated summary
             self.store_result_for_summary(result, rmse, max_error, r2, error_unit, train_loss, val_loss, epochs_trained, model_params)
             
+            self.results_table.addTopLevelItem(item)
+
+            # Store item DATA (not Qt objects) for filtering/sorting
+            item_data = {
+                'sl_no': len(self.all_tree_items) + 1,
+                'model': str(architecture),
+                'task': str(task),
+                'file': str(file_name),
+                'num_params': str(model_params),
+                'best_train_loss': str(train_display),
+                'best_valid_loss': str(val_display),
+                'completed_epochs': str(epochs_display),
+                'rms_error_str': str(rmse_display),
+                'max_error_str': str(max_error_display),
+                'r2_str': str(r2_display),
+                'best_valid_loss_float': float(val_loss) if isinstance(val_loss, (int, float)) else float('inf'),
+                'rmse_float': float(rmse) if isinstance(rmse, (int, float)) else float('inf'),
+                'maxe_float': float(max_error) if isinstance(max_error, (int, float)) else float('inf'),
+                'r2_float': float(r2) if isinstance(r2, (int, float)) else float('-inf'),
+                'plot_data': plot_data,
+            }
+            self.all_tree_items.append(item_data)
+
+            # Update model filter dropdown if new model type
+            if str(architecture) not in [self.model_filter.itemText(i) for i in range(self.model_filter.count())]:
+                self.model_filter.addItem(str(architecture))
+
         except Exception as e:
             import traceback
             traceback.print_exc()
