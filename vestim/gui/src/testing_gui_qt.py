@@ -154,36 +154,27 @@ class VEstimTestingGUI(QMainWindow):
             if data_source_path or job_folder:
                 # Container widget for adaptive layout
                 path_container = QWidget()
-                path_layout = QHBoxLayout(path_container)
-                path_layout.setContentsMargins(0, 0, 0, 8)
-                path_layout.setSpacing(20)
-                
-                # Data folder label
-                data_label = QLabel(f"data: {_format_path(data_source_path)}" if data_source_path else "")
-                data_label.setStyleSheet("color: #777; font-size: 13px;")
-                data_label.setToolTip(data_source_path if data_source_path else "")
-                
-                # Job folder label
-                job_label = None
-                if job_folder:
-                    job_folder_display = _format_path(job_folder, max_len=50)
-                    job_label = QLabel(f"job: {job_folder_display}")
-                    job_label.setStyleSheet("color: #777; font-size: 13px;")
-                    job_label.setToolTip(job_folder)
-                
-                # Use a consistent vertical layout for paths to avoid rendering bugs with adaptive logic.
-                path_layout = QVBoxLayout(path_container)
+                path_layout = QVBoxLayout(path_container) # Use a single, stable vertical layout
                 path_layout.setContentsMargins(0, 0, 0, 8)
                 path_layout.setSpacing(3)
                 
+                # Data folder label
                 if data_source_path:
+                    data_label = QLabel(f"data: {_format_path(data_source_path)}")
+                    data_label.setStyleSheet("color: #777; font-size: 13px;")
+                    data_label.setToolTip(data_source_path)
                     data_row = QHBoxLayout()
                     data_row.addStretch(1)
                     data_row.addWidget(data_label)
                     data_row.addStretch(1)
                     path_layout.addLayout(data_row)
                 
-                if job_label:
+                # Job folder label
+                if job_folder:
+                    job_folder_display = _format_path(job_folder, max_len=50)
+                    job_label = QLabel(f"job: {job_folder_display}")
+                    job_label.setStyleSheet("color: #777; font-size: 13px;")
+                    job_label.setToolTip(job_folder)
                     job_row = QHBoxLayout()
                     job_row.addStretch(1)
                     job_row.addWidget(job_label)
