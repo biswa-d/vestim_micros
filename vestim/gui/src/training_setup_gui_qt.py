@@ -115,38 +115,17 @@ class VEstimTrainSetupGUI(QWidget):
 
         # Subheading: show training data source (trimmed) in small font
         try:
-            self.logger.info("--- PATH DEBUG START ---")
             data_source_path = None
             job_folder = self.job_manager.get_job_folder() if self.job_manager else None
-            self.logger.info(f"PathDebug: Job folder from JobManager is: '{job_folder}'")
-
             if job_folder:
                 ref_path = os.path.join(job_folder, 'job_metadata.json')
-                self.logger.info(f"PathDebug: Checking for metadata file at: '{ref_path}'")
-
                 if os.path.exists(ref_path):
-                    self.logger.info("PathDebug: Metadata file FOUND.")
                     with open(ref_path, 'r') as f:
                         ref = json.load(f)
-                        self.logger.info(f"PathDebug: Metadata content: {ref}")
                         data_source_path = ref.get('train_folder_path')
-                        self.logger.info(f"PathDebug: Path from metadata is: '{data_source_path}'")
-                else:
-                    self.logger.info("PathDebug: Metadata file NOT FOUND.")
-            else:
-                self.logger.info("PathDebug: Job folder is None, cannot check for metadata.")
-
             # Fallback to JobManager's remembered selection
             if not data_source_path and hasattr(self.job_manager, 'get_train_folder_path'):
-                fallback_path = self.job_manager.get_train_folder_path()
-                self.logger.info(f"PathDebug: Using fallback path from JobManager memory: '{fallback_path}'")
-                data_source_path = fallback_path
-            
-            if not data_source_path:
-                self.logger.warning("PathDebug: FINAL data source path is NOT FOUND.")
-            else:
-                self.logger.info(f"PathDebug: FINAL data source path is: '{data_source_path}'")
-            self.logger.info("--- PATH DEBUG END ---")
+                data_source_path = self.job_manager.get_train_folder_path()
 
             def _format_path(p: str, max_len: int = 85) -> str:
                 if not p:
@@ -182,33 +161,24 @@ class VEstimTrainSetupGUI(QWidget):
                     job_label.setToolTip(job_folder)
                 
                 # Adaptive layout based on combined length
-                data_text = data_label.text() if data_source_path else ""
-                job_text = job_label.text() if job_label else ""
-                combined_len = len(data_text) + len(job_text)
+                # Use a consistent vertical layout for paths to avoid rendering bugs with adaptive logic.
+                path_layout = QVBoxLayout(path_container)
+                path_layout.setContentsMargins(0, 0, 0, 8)
+                path_layout.setSpacing(3)
                 
-                if combined_len < 110:  # Fullscreen: same row
-                    path_layout.addStretch(1)
-                    if data_source_path:
-                        path_layout.addWidget(data_label)
-                    if job_label:
-                        path_layout.addWidget(job_label)
-                    path_layout.addStretch(1)
-                else:  # Narrow window: two rows
-                    path_layout = QVBoxLayout(path_container)
-                    path_layout.setContentsMargins(0, 0, 0, 8)
-                    path_layout.setSpacing(3)
-                    if data_source_path:
-                        data_row = QHBoxLayout()
-                        data_row.addStretch(1)
-                        data_row.addWidget(data_label)
-                        data_row.addStretch(1)
-                        path_layout.addLayout(data_row)
-                    if job_label:
-                        job_row = QHBoxLayout()
-                        job_row.addStretch(1)
-                        job_row.addWidget(job_label)
-                        job_row.addStretch(1)
-                        path_layout.addLayout(job_row)
+                if data_source_path:
+                    data_row = QHBoxLayout()
+                    data_row.addStretch(1)
+                    data_row.addWidget(data_label)
+                    data_row.addStretch(1)
+                    path_layout.addLayout(data_row)
+                
+                if job_label:
+                    job_row = QHBoxLayout()
+                    job_row.addStretch(1)
+                    job_row.addWidget(job_label)
+                    job_row.addStretch(1)
+                    path_layout.addLayout(job_row)
                 
                 top_layout.addWidget(path_container)
         except Exception:
