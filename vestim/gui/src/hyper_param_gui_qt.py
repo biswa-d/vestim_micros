@@ -1694,11 +1694,56 @@ class VEstimHyperParamGUI(QWidget):
 
 
     def on_param_text_changed(self, text=None):
-        """Resets the style of a QLineEdit when its text is changed."""
+        """Resets the style of a QLineEdit when its text is changed and validates critical fields."""
         sender = self.sender()
         if sender in self.error_fields:
             sender.setStyleSheet("")
             self.error_fields.remove(sender)
+        
+        # Real-time validation for learning rate fields
+        if sender == self.initial_lr_entry:
+            self._validate_lr_field(sender, "INITIAL_LR")
+        elif hasattr(self, 'exploit_lr_entry') and sender == self.exploit_lr_entry:
+            self._validate_lr_field(sender, "EXPLOIT_LR")
+        elif hasattr(self, 'final_lr_entry') and sender == self.final_lr_entry:
+            self._validate_lr_field(sender, "FINAL_LR", allow_zero=True)
+    
+    def _validate_lr_field(self, field, field_name, allow_zero=False):
+        """Validate a learning rate field and highlight if invalid."""
+        text = field.text().strip()
+        if not text:
+            return  # Empty is okay, will be caught later if required
+        
+        # Skip validation for boundary format (Optuna)
+        if text.startswith('[') and text.endswith(']'):
+            field.setStyleSheet("")  # Clear any error styling
+            return
+        
+        try:
+            value = float(text)
+            if value < 0 or (not allow_zero and value == 0):
+                # Invalid: negative or zero (when not allowed)
+                field.setStyleSheet("border: 2px solid #FF4444; background-color: #FFE6E6;")
+                if value == 0:
+                    field.setToolTip(f"⚠️ {field_name} cannot be zero! Training will fail. Enter a positive value like 0.001 or 1e-4.")
+                else:
+                    field.setToolTip(f"⚠️ {field_name} cannot be negative!")
+                self.error_fields.add(field)
+            else:
+                # Valid
+                field.setStyleSheet("")  # Clear error styling
+                # Restore original tooltip
+                if field_name == "INITIAL_LR":
+                    field.setToolTip("The starting learning rate for the optimizer.")
+                elif field_name == "EXPLOIT_LR":
+                    field.setToolTip("Learning rate for exploitation phase (finetuning near convergence).")
+                elif field_name == "FINAL_LR":
+                    field.setToolTip("Target learning rate at end of scheduler (optional).")
+        except ValueError:
+            # Invalid format
+            field.setStyleSheet("border: 2px solid #FF4444; background-color: #FFE6E6;")
+            field.setToolTip(f"⚠️ {field_name} must be a valid number!")
+            self.error_fields.add(field)
 
     def reset_field_styles(self):
         """Resets the stylesheet for all QLineEdit widgets to default."""

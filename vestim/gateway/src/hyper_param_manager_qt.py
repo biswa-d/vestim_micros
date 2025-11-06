@@ -360,6 +360,80 @@ class VEstimHyperParamManager:
         validated_params["INFERENCE_FILTER_ALPHA"] = params.get("INFERENCE_FILTER_ALPHA", "0.1")
         validated_params["INFERENCE_FILTER_POLYORDER"] = params.get("INFERENCE_FILTER_POLYORDER", "2")
 
+        # === Critical validation for learning rates ===
+        initial_lr_str = validated_params.get('INITIAL_LR', '')
+        if initial_lr_str:
+            # Check if it's boundary format or actual value
+            if not (initial_lr_str.strip().startswith('[') and initial_lr_str.strip().endswith(']')):
+                try:
+                    initial_lr_val = float(initial_lr_str)
+                    if initial_lr_val <= 0:
+                        error_msg = f"INITIAL_LR must be positive, got {initial_lr_val}. Please enter a valid learning rate (e.g., 0.001, 0.0001)."
+                        self.logger.error(error_msg)
+                        raise ValueError(error_msg)
+                except ValueError as e:
+                    if "could not convert" in str(e):
+                        error_msg = f"INITIAL_LR must be a valid number, got '{initial_lr_str}'"
+                        self.logger.error(error_msg)
+                        raise ValueError(error_msg)
+                    else:
+                        raise
+        
+        # === Validation for exploit parameters ===
+        exploit_epochs_str = validated_params.get('EXPLOIT_EPOCHS', '')
+        exploit_lr_str = validated_params.get('EXPLOIT_LR', '')
+        
+        # Determine if exploitation is enabled
+        exploit_enabled = False
+        if exploit_epochs_str and not (exploit_epochs_str.strip().startswith('[') and exploit_epochs_str.strip().endswith(']')):
+            try:
+                exploit_epochs_val = int(exploit_epochs_str)
+                if exploit_epochs_val > 0:
+                    exploit_enabled = True
+            except (ValueError, TypeError):
+                pass
+        
+        # If exploit is enabled, validate EXPLOIT_LR
+        if exploit_enabled:
+            if not exploit_lr_str or exploit_lr_str.strip() == '':
+                error_msg = "EXPLOIT_LR is required when EXPLOIT_EPOCHS > 0. Please enter a learning rate for the exploitation phase (e.g., 1e-5)."
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
+            
+            # Validate EXPLOIT_LR is positive
+            if not (exploit_lr_str.strip().startswith('[') and exploit_lr_str.strip().endswith(']')):
+                try:
+                    exploit_lr_val = float(exploit_lr_str)
+                    if exploit_lr_val <= 0:
+                        error_msg = f"EXPLOIT_LR must be positive, got {exploit_lr_val}. Please enter a valid learning rate."
+                        self.logger.error(error_msg)
+                        raise ValueError(error_msg)
+                except ValueError as e:
+                    if "could not convert" in str(e):
+                        error_msg = f"EXPLOIT_LR must be a valid number, got '{exploit_lr_str}'"
+                        self.logger.error(error_msg)
+                        raise ValueError(error_msg)
+                    else:
+                        raise
+        
+        # Validate FINAL_LR if provided (optional parameter)
+        final_lr_str = validated_params.get('FINAL_LR', '')
+        if final_lr_str and final_lr_str.strip() != '':
+            if not (final_lr_str.strip().startswith('[') and final_lr_str.strip().endswith(']')):
+                try:
+                    final_lr_val = float(final_lr_str)
+                    if final_lr_val < 0:
+                        error_msg = f"FINAL_LR must be non-negative, got {final_lr_val}."
+                        self.logger.error(error_msg)
+                        raise ValueError(error_msg)
+                except ValueError as e:
+                    if "could not convert" in str(e):
+                        error_msg = f"FINAL_LR must be a valid number, got '{final_lr_str}'"
+                        self.logger.error(error_msg)
+                        raise ValueError(error_msg)
+                    else:
+                        raise
+
         self.logger.info("Parameter validation and normalization completed successfully.")
         return validated_params
 

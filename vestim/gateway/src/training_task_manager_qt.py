@@ -1905,15 +1905,64 @@ class TrainingTaskManager:
             
         hyperparams['REPETITIONS'] = int(hyperparams['REPETITIONS'])
 
-        # Add conversions for exploit-phase hyperparameters
-        if 'EXPLOIT_EPOCHS' in hyperparams:
-            hyperparams['EXPLOIT_EPOCHS'] = int(hyperparams['EXPLOIT_EPOCHS'])
-        if 'EXPLOIT_REPETITIONS' in hyperparams:
-            hyperparams['EXPLOIT_REPETITIONS'] = int(hyperparams['EXPLOIT_REPETITIONS'])
-        if 'EXPLOIT_LR' in hyperparams:
-            hyperparams['EXPLOIT_LR'] = float(hyperparams['EXPLOIT_LR'])
-        if 'FINAL_LR' in hyperparams:
-            hyperparams['FINAL_LR'] = float(hyperparams['FINAL_LR'])
+        # Handle exploit-phase hyperparameters with smart defaults
+        # First, determine if exploitation is enabled
+        exploit_epochs_raw = hyperparams.get('EXPLOIT_EPOCHS')
+        
+        try:
+            if exploit_epochs_raw is None or str(exploit_epochs_raw).strip() == '':
+                exploit_epochs = 0
+            else:
+                exploit_epochs = int(exploit_epochs_raw)
+        except (ValueError, TypeError) as e:
+            self.logger.warning(f"Invalid EXPLOIT_EPOCHS value '{exploit_epochs_raw}'. Using default: 0 (disabled)")
+            exploit_epochs = 0
+        
+        hyperparams['EXPLOIT_EPOCHS'] = exploit_epochs
+        
+        # Only require other exploit params if exploit is enabled (epochs > 0)
+        if exploit_epochs > 0:
+            # EXPLOIT_LR is required when exploit is enabled
+            exploit_lr_raw = hyperparams.get('EXPLOIT_LR')
+            try:
+                if exploit_lr_raw is None or str(exploit_lr_raw).strip() == '':
+                    # Use initial LR as fallback
+                    fallback_lr = hyperparams.get('INITIAL_LR', 0.001)
+                    self.logger.warning(f"EXPLOIT_LR not provided but exploit is enabled (EXPLOIT_EPOCHS={exploit_epochs}). Using INITIAL_LR as default: {fallback_lr}")
+                    hyperparams['EXPLOIT_LR'] = float(fallback_lr)
+                else:
+                    hyperparams['EXPLOIT_LR'] = float(exploit_lr_raw)
+            except (ValueError, TypeError) as e:
+                fallback_lr = hyperparams.get('INITIAL_LR', 0.001)
+                self.logger.warning(f"Invalid EXPLOIT_LR value '{exploit_lr_raw}'. Using INITIAL_LR as default: {fallback_lr}")
+                hyperparams['EXPLOIT_LR'] = float(fallback_lr)
+            
+            # EXPLOIT_REPETITIONS with default
+            exploit_reps_raw = hyperparams.get('EXPLOIT_REPETITIONS')
+            try:
+                if exploit_reps_raw is None or str(exploit_reps_raw).strip() == '':
+                    self.logger.info("EXPLOIT_REPETITIONS not provided. Using default: 1")
+                    hyperparams['EXPLOIT_REPETITIONS'] = 1
+                else:
+                    hyperparams['EXPLOIT_REPETITIONS'] = int(exploit_reps_raw)
+            except (ValueError, TypeError) as e:
+                self.logger.warning(f"Invalid EXPLOIT_REPETITIONS value '{exploit_reps_raw}'. Using default: 1")
+                hyperparams['EXPLOIT_REPETITIONS'] = 1
+        else:
+            # Exploit disabled, set safe defaults
+            hyperparams['EXPLOIT_LR'] = 0.0
+            hyperparams['EXPLOIT_REPETITIONS'] = 0
+        
+        # FINAL_LR is optional regardless of exploit status
+        final_lr_raw = hyperparams.get('FINAL_LR')
+        try:
+            if final_lr_raw is not None and str(final_lr_raw).strip() != '':
+                hyperparams['FINAL_LR'] = float(final_lr_raw)
+            else:
+                hyperparams['FINAL_LR'] = None
+        except (ValueError, TypeError) as e:
+            self.logger.warning(f"Invalid FINAL_LR value '{final_lr_raw}'. Setting to None")
+            hyperparams['FINAL_LR'] = None
             
         return hyperparams
 
