@@ -12,11 +12,10 @@ import logging
 class DataProcessorXLSX:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.job_manager = JobManager()
         self.total_files = 0  # Total number of files to process (copy + convert)
         self.processed_files = 0  # Keep track of total processed files
 
-    def organize_and_convert_files(self, train_files, val_files, test_files, progress_callback=None, sampling_frequency=None):
+    def organize_and_convert_files(self, train_files, val_files, test_files, progress_callback=None, sampling_frequency=None, job_manager=None):
         # Ensure `total_files` is calculated upfront and is non-zero
         self.logger.info("Starting file organization and conversion.")
         self.total_files = len(train_files) + len(val_files) + len(test_files)
@@ -25,7 +24,10 @@ class DataProcessorXLSX:
             self.logger.error("No files to process.")
             raise ValueError("No files to process.")
 
-        job_id, job_folder = self.job_manager.create_new_job()
+        if job_manager is None:
+            job_manager = JobManager()
+
+        job_id, job_folder = job_manager.create_new_job()
         self.logger.info(f"Job created with ID: {job_id}, Folder: {job_folder}")
 
         # Switch logger to job-specific log file

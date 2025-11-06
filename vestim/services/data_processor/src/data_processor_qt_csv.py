@@ -10,11 +10,10 @@ import logging
 class DataProcessorCSV:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.job_manager = JobManager()
         self.total_files = 0  # Total number of files to process (copy)
         self.processed_files = 0  # Keep track of total processed files
 
-    def organize_and_convert_files(self, train_files, val_files, test_files, progress_callback=None, sampling_frequency=None):
+    def organize_and_convert_files(self, train_files, val_files, test_files, progress_callback=None, sampling_frequency=None, job_manager=None):
         # Ensure valid CSV files are provided
         if not all(f.endswith('.csv') for f in train_files + val_files + test_files):
             self.logger.error("Invalid file types. Only CSV files are accepted for CSV processor.")
@@ -22,7 +21,10 @@ class DataProcessorCSV:
 
         self.logger.info("Starting file organization and processing for CSV files.")
         
-        job_id, job_folder = self.job_manager.create_new_job()
+        if job_manager is None:
+            job_manager = JobManager()
+
+        job_id, job_folder = job_manager.create_new_job()
         self.logger.info(f"Job created with ID: {job_id}, Folder: {job_folder}")
 
         job_log_file = os.path.join(job_folder, 'job.log')
