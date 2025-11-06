@@ -1700,13 +1700,27 @@ class VEstimHyperParamGUI(QWidget):
             sender.setStyleSheet("")
             self.error_fields.remove(sender)
         
-        # Real-time validation for learning rate fields
-        if sender == self.initial_lr_entry:
+        # Map sender back to param key if possible
+        changed_key = None
+        for key, widget in self.param_entries.items():
+            if widget is sender:
+                changed_key = key
+                break
+
+        # Real-time validation: learning rates and general numeric fields
+        if sender == getattr(self, 'initial_lr_entry', None):
             self._validate_lr_field(sender, "INITIAL_LR")
-        elif hasattr(self, 'exploit_lr_entry') and sender == self.exploit_lr_entry:
+            return
+        if sender == getattr(self, 'exploit_lr_entry', None):
             self._validate_lr_field(sender, "EXPLOIT_LR")
-        elif hasattr(self, 'final_lr_entry') and sender == self.final_lr_entry:
+            return
+        if sender == getattr(self, 'final_lr_entry', None):
             self._validate_lr_field(sender, "FINAL_LR", allow_zero=True)
+            return
+
+        # Apply generic numeric validation for other fields (e.g., MAX_EPOCHS, BATCH_SIZE)
+        if isinstance(sender, QLineEdit) and changed_key:
+            self._validate_numeric_field(sender, changed_key)
     
     def _validate_lr_field(self, field, field_name, allow_zero=False):
         """Validate a learning rate field and highlight if invalid."""
@@ -1763,6 +1777,101 @@ class VEstimHyperParamGUI(QWidget):
             if key in self.param_entries and isinstance(self.param_entries[key], QLineEdit):
                 self.param_entries[key].setStyleSheet("border: 1px solid red;")
                 self.error_fields.add(self.param_entries[key])
+
+    def _validate_numeric_field(self, field: QLineEdit, field_name: str):
+        """Generic numeric field validator with red highlight for accidental zeros/negatives.
+
+        Rules:
+        - Supports Optuna boundary format [min,max] (no highlight in that case)
+        - For grid/single values, enforces per-field constraints (min/max, integer-only when required)
+        - Highlights invalid input with red border and pale red background, sets helpful tooltip
+        """
+        text = field.text().strip()
+        if text == "":
+            # Empty handled elsewhere (required checks on proceed), do not flag yet
+            field.setStyleSheet("")
+            return
+
+        # Skip validation for Optuna boundary format
+        if text.startswith("[") and text.endswith("]"):
+            field.setStyleSheet("")
+            return
+
+        # Define validation rules
+        rules = {
+            # Core training
+            "MAX_EPOCHS": {"type": "int", "min": 1},
+            "BATCH_SIZE": {"type": "int", "min": 1},
+            "VALID_PATIENCE": {"type": "int", "min": 1},
+            "VALID_FREQUENCY": {"type": "int", "min": 1},
+            "REPETITIONS": {"type": "int", "min": 1},
+            # Sequence & batching
+            "LOOKBACK": {"type": "int", "min": 1},
+            # Scheduler specifics
+            "LR_PERIOD": {"type": "int", "min": 1},
+            "LR_PARAM": {"type": "float", "min": 1e-12, "max": 1 - 1e-12},  # drop factor in (0,1)
+            "PLATEAU_PATIENCE": {"type": "int", "min": 1},
+            "PLATEAU_FACTOR": {"type": "float", "min": 1e-12, "max": 1 - 1e-12},
+            "COSINE_T0": {"type": "int", "min": 1},
+            "COSINE_T_MULT": {"type": "int", "min": 1},
+            "COSINE_ETA_MIN": {"type": "float", "min": 0.0},
+            # Device and data loading
+            "NUM_WORKERS": {"type": "int", "min": 0},
+            "PREFETCH_FACTOR": {"type": "int", "min": 1},
+            # Regularization / dropout
+            "WEIGHT_DECAY": {"type": "float", "min": 0.0},
+            "FNN_DROPOUT_PROB": {"type": "float", "min": 0.0, "max": 1.0},
+            # Exploit
+            "EXPLOIT_EPOCHS": {"type": "int", "min": 0},
+            "EXPLOIT_REPETITIONS": {"type": "int", "min": 0},
+            # Inference filter params
+            "INFERENCE_FILTER_WINDOW_SIZE": {"type": "int", "min": 1},
+            "INFERENCE_FILTER_ALPHA": {"type": "float", "min": 0.0, "max": 1.0},
+            "INFERENCE_FILTER_POLYORDER": {"type": "int", "min": 1},
+            # Time fields (HH:MM:SS) can be zero but not negative and must be integers
+            "MAX_TRAIN_HOURS": {"type": "int", "min": 0},
+            "MAX_TRAIN_MINUTES": {"type": "int", "min": 0, "max": 59},
+            "MAX_TRAIN_SECONDS": {"type": "int", "min": 0, "max": 59},
+        }
+
+        if field_name not in rules:
+            # Not a numeric field we validate generically
+            return
+
+        rule = rules[field_name]
+        want_int = rule.get("type") == "int"
+        min_v = rule.get("min")
+        max_v = rule.get("max")
+
+        # Fields may contain comma-separated lists for grid; validate each token
+        tokens = [t.strip() for t in text.replace(";", ",").split(",") if t.strip()]
+        try:
+            parsed = []
+            for tok in tokens:
+                val = int(tok) if want_int else float(tok)
+                parsed.append(val)
+                if min_v is not None and val < min_v:
+                    raise ValueError(f"{field_name} value {val} is below minimum {min_v}")
+                if max_v is not None and val > max_v:
+                    raise ValueError(f"{field_name} value {val} exceeds maximum {max_v}")
+        except ValueError:
+            # Invalid number or out-of-range
+            field.setStyleSheet("border: 2px solid #FF4444; background-color: #FFE6E6;")
+            # Construct helpful tooltip
+            limit_txt = []
+            if min_v is not None:
+                limit_txt.append(f">= {min_v}")
+            if max_v is not None:
+                limit_txt.append(f"<= {max_v}")
+            lim = " and ".join(limit_txt)
+            type_txt = "integer" if want_int else "number"
+            field.setToolTip(f"⚠️ {field_name} must be a valid {type_txt}{' ' + lim if lim else ''}. Comma-separated lists allowed for grid search.")
+            self.error_fields.add(field)
+            return
+
+        # If all tokens valid
+        field.setStyleSheet("")
+        field.setToolTip("")
 
     def _validate_feature_target_columns(self, params):
         """

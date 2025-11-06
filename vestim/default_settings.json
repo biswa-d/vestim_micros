@@ -1,8 +1,8 @@
 {
     "last_used": {
-        "train_folder": "C:/Users/dehuryb/code/Data/Tesla/train",
-        "val_folder": "C:/Users/dehuryb/code/Data/Tesla/valid",
-        "test_folder": "C:/Users/dehuryb/code/Data/Tesla/test",
+        "train_folder": "C:/Users/dehuryb/code/Data/CATL_161/train_cell_SOC",
+        "val_folder": "C:/Users/dehuryb/code/Data/CATL_161/val_cell_SOC",
+        "test_folder": "C:/Users/dehuryb/code/Data/CATL_161/test_cell_SOC",
         "file_format": "csv",
         "hyperparams": {
             "FEATURE_COLUMNS": [

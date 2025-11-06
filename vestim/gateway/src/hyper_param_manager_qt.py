@@ -434,6 +434,76 @@ class VEstimHyperParamManager:
                     else:
                         raise
 
+        # === General numeric constraints (catch accidental zeros/negatives) ===
+        # Skip fields using Optuna boundary format; enforce on single or comma-separated values
+        rules = {
+            # Core training
+            'MAX_EPOCHS': {'type': 'int', 'min': 1},
+            'BATCH_SIZE': {'type': 'int', 'min': 1},
+            'VALID_PATIENCE': {'type': 'int', 'min': 1},
+            'VALID_FREQUENCY': {'type': 'int', 'min': 1},
+            'REPETITIONS': {'type': 'int', 'min': 1},
+            # Sequence & batching
+            'LOOKBACK': {'type': 'int', 'min': 1},
+            # Scheduler specifics
+            'LR_PERIOD': {'type': 'int', 'min': 1},
+            'LR_PARAM': {'type': 'float', 'min': 1e-12, 'max': 1 - 1e-12},
+            'PLATEAU_PATIENCE': {'type': 'int', 'min': 1},
+            'PLATEAU_FACTOR': {'type': 'float', 'min': 1e-12, 'max': 1 - 1e-12},
+            'COSINE_T0': {'type': 'int', 'min': 1},
+            'COSINE_T_MULT': {'type': 'int', 'min': 1},
+            'COSINE_ETA_MIN': {'type': 'float', 'min': 0.0},
+            # Device and data loading
+            'NUM_WORKERS': {'type': 'int', 'min': 0},
+            'PREFETCH_FACTOR': {'type': 'int', 'min': 1},
+            # Regularization / dropout
+            'WEIGHT_DECAY': {'type': 'float', 'min': 0.0},
+            'FNN_DROPOUT_PROB': {'type': 'float', 'min': 0.0, 'max': 1.0},
+            # Inference filter params
+            'INFERENCE_FILTER_WINDOW_SIZE': {'type': 'int', 'min': 1},
+            'INFERENCE_FILTER_ALPHA': {'type': 'float', 'min': 0.0, 'max': 1.0},
+            'INFERENCE_FILTER_POLYORDER': {'type': 'int', 'min': 1},
+            # Time fields (HH:MM:SS)
+            'MAX_TRAIN_HOURS': {'type': 'int', 'min': 0},
+            'MAX_TRAIN_MINUTES': {'type': 'int', 'min': 0, 'max': 59},
+            'MAX_TRAIN_SECONDS': {'type': 'int', 'min': 0, 'max': 59},
+        }
+
+        numeric_errors = []
+        for key, rule in rules.items():
+            raw = validated_params.get(key)
+            if raw is None:
+                continue
+            if not isinstance(raw, str):
+                # Non-string (already normalized) values: skip here
+                continue
+            value_str = raw.strip()
+            if value_str == '':
+                continue
+            if value_str.startswith('[') and value_str.endswith(']'):
+                # Boundary format: defer to search-time parsing
+                continue
+            # Validate each token (comma or semicolon separated)
+            tokens = [t.strip() for t in value_str.replace(';', ',').split(',') if t.strip()]
+            want_int = (rule.get('type') == 'int')
+            min_v = rule.get('min')
+            max_v = rule.get('max')
+            for tok in tokens:
+                try:
+                    val = int(tok) if want_int else float(tok)
+                except ValueError:
+                    numeric_errors.append(f"'{key}' contains an invalid {'integer' if want_int else 'number'}: '{tok}'")
+                    continue
+                if min_v is not None and val < min_v:
+                    numeric_errors.append(f"'{key}' must be >= {min_v}, got {val}")
+                if max_v is not None and val > max_v:
+                    numeric_errors.append(f"'{key}' must be <= {max_v}, got {val}")
+
+        if numeric_errors:
+            msg = "Input validation error(s):\n\n" + "\n".join(numeric_errors)
+            self.logger.error(msg)
+            raise ValueError(msg)
+
         self.logger.info("Parameter validation and normalization completed successfully.")
         return validated_params
 
