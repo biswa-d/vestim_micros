@@ -144,11 +144,11 @@ class VEstimTrainingTaskGUI(QMainWindow):
             data_source_path = None
             job_folder = self.job_manager.get_job_folder() if self.job_manager else None
             if job_folder:
-                ref_path = os.path.join(job_folder, 'data_files_reference.json')
+                ref_path = os.path.join(job_folder, 'job_metadata.json')
                 if os.path.exists(ref_path):
                     with open(ref_path, 'r') as f:
                         ref = json.load(f)
-                        data_source_path = (ref.get('original_data_sources', {}) or {}).get('train')
+                        data_source_path = ref.get('train_folder_path')
             if not data_source_path and hasattr(self.job_manager, 'get_train_folder_path'):
                 data_source_path = self.job_manager.get_train_folder_path()
 
@@ -183,34 +183,24 @@ class VEstimTrainingTaskGUI(QMainWindow):
                     job_label.setStyleSheet("color: #777; font-size: 13px;")
                     job_label.setToolTip(job_folder)
                 
-                # Adaptive layout based on combined length
-                data_text = data_label.text() if data_source_path else ""
-                job_text = job_label.text() if job_label else ""
-                combined_len = len(data_text) + len(job_text)
+                # Use a consistent vertical layout for paths to avoid rendering bugs with adaptive logic.
+                path_layout = QVBoxLayout(path_container)
+                path_layout.setContentsMargins(0, 0, 0, 8)
+                path_layout.setSpacing(3)
                 
-                if combined_len < 110:  # Fullscreen: same row
-                    path_layout.addStretch(1)
-                    if data_source_path:
-                        path_layout.addWidget(data_label)
-                    if job_label:
-                        path_layout.addWidget(job_label)
-                    path_layout.addStretch(1)
-                else:  # Narrow window: two rows
-                    path_layout = QVBoxLayout(path_container)
-                    path_layout.setContentsMargins(0, 0, 0, 8)
-                    path_layout.setSpacing(3)
-                    if data_source_path:
-                        data_row = QHBoxLayout()
-                        data_row.addStretch(1)
-                        data_row.addWidget(data_label)
-                        data_row.addStretch(1)
-                        path_layout.addLayout(data_row)
-                    if job_label:
-                        job_row = QHBoxLayout()
-                        job_row.addStretch(1)
-                        job_row.addWidget(job_label)
-                        job_row.addStretch(1)
-                        path_layout.addLayout(job_row)
+                if data_source_path:
+                    data_row = QHBoxLayout()
+                    data_row.addStretch(1)
+                    data_row.addWidget(data_label)
+                    data_row.addStretch(1)
+                    path_layout.addLayout(data_row)
+                
+                if job_label:
+                    job_row = QHBoxLayout()
+                    job_row.addStretch(1)
+                    job_row.addWidget(job_label)
+                    job_row.addStretch(1)
+                    path_layout.addLayout(job_row)
                 
                 self.main_layout.addWidget(path_container)
         except Exception:
