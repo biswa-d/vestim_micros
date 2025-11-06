@@ -539,11 +539,13 @@ class DataImportGUI(QMainWindow):
         # Create and start the file organizer thread with the selected data processor
         # Removed sampling_frequency parameter as this is now handled in the data augmentation GUI
         # Store original paths in JobManager
-        self.job_manager._train_folder_path = self.train_folder_path
-        self.job_manager._val_folder_path = self.val_folder_path
-        self.job_manager._test_folder_path = self.test_folder_path
+        self.job_manager.set_data_paths(
+            train_path=self.train_folder_path,
+            val_path=self.val_folder_path,
+            test_path=self.test_folder_path
+        )
 
-        self.organizer = FileOrganizer(train_files, val_files, test_files, data_processor)
+        self.organizer = FileOrganizer(train_files, val_files, test_files, data_processor, self.job_manager)
         self.organizer_thread = QThread()
 
         # Connect signals and slots
@@ -673,12 +675,13 @@ class FileOrganizer(QObject):
     progress = pyqtSignal(int)  # Emit progress percentage
     job_folder_signal = pyqtSignal(str)  # To communicate when the job folder is created
 
-    def __init__(self, train_files, val_files, test_files, data_processor, sampling_frequency=None):
+    def __init__(self, train_files, val_files, test_files, data_processor, job_manager, sampling_frequency=None):
         super().__init__()
         self.train_files = train_files
         self.val_files = val_files
         self.test_files = test_files
         self.data_processor = data_processor
+        self.job_manager = job_manager
         self.sampling_frequency = sampling_frequency  # Keep for backwards compatibility with existing code
 
     def run(self):
@@ -691,10 +694,11 @@ class FileOrganizer(QObject):
             # Now the data processors support three sets of files: train, val, test
             job_folder = self.data_processor.organize_and_convert_files(
                 self.train_files,   # Training files
-                self.val_files,     # Validation files  
+                self.val_files,     # Validation files
                 self.test_files,    # Test files
-                progress_callback=self.update_progress, 
-                sampling_frequency=None  # Remove resampling here as it's moved to data augmentation
+                progress_callback=self.update_progress,
+                sampling_frequency=None,  # Remove resampling here as it's moved to data augmentation
+                job_manager=self.job_manager
             )
             
             logger.info(f"Job folder created: {job_folder}")

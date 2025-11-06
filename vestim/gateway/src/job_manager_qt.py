@@ -17,6 +17,18 @@ class JobManager:
     def __init__(self):
         if not hasattr(self, 'job_id'):  # Ensure the attributes are initialized once
             self.job_id = None
+            self._train_folder_path = None
+            self._val_folder_path = None
+            self._test_folder_path = None
+
+    def set_data_paths(self, train_path=None, val_path=None, test_path=None):
+        """Set the data paths for the current job."""
+        if train_path:
+            self._train_folder_path = train_path
+        if val_path:
+            self._val_folder_path = val_path
+        if test_path:
+            self._test_folder_path = test_path
 
     def create_new_job(self):
         """Generates a new job ID based on the current timestamp and initializes job directories."""
@@ -31,6 +43,22 @@ class JobManager:
         except Exception as e:
             logging.error(f"Failed to configure job-specific logging for {self.job_id}: {e}", exc_info=True)
             # Continue without job-specific logging if setup fails, default logging will be used.
+
+        # Save job metadata, including original data paths
+        metadata = {
+            'job_id': self.job_id,
+            'creation_date': datetime.now().isoformat(),
+            'train_folder_path': self._train_folder_path,
+            'val_folder_path': self._val_folder_path,
+            'test_folder_path': self._test_folder_path
+        }
+        metadata_path = os.path.join(job_folder, 'job_metadata.json')
+        try:
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=4)
+            logging.info(f"Job metadata saved to {metadata_path}")
+        except Exception as e:
+            logging.error(f"Failed to save job metadata: {e}", exc_info=True)
 
         return self.job_id, job_folder
 

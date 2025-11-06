@@ -118,11 +118,11 @@ class VEstimTrainSetupGUI(QWidget):
             data_source_path = None
             job_folder = self.job_manager.get_job_folder() if self.job_manager else None
             if job_folder:
-                ref_path = os.path.join(job_folder, 'data_files_reference.json')
+                ref_path = os.path.join(job_folder, 'job_metadata.json')
                 if os.path.exists(ref_path):
                     with open(ref_path, 'r') as f:
                         ref = json.load(f)
-                        data_source_path = (ref.get('original_data_sources', {}) or {}).get('train')
+                        data_source_path = ref.get('train_folder_path')
             # Fallback to JobManager's remembered selection
             if not data_source_path and hasattr(self.job_manager, 'get_train_folder_path'):
                 data_source_path = self.job_manager.get_train_folder_path()
