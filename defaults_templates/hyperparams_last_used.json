@@ -1,9 +1,8 @@
 {
     "FEATURE_COLUMNS": [
-        "Temperature",
-        "Watts",
         "SOC",
-        "P_filter_50"
+        "Battery_Temp_degC",
+        "Power"
     ],
     "TARGET_COLUMN": "Voltage",
     "DEVICE_SELECTION": "cuda:0",
@@ -16,13 +15,16 @@
     "MODEL_TYPE": "FNN",
     "BATCH_TRAINING": true,
     "BATCH_SIZE": "4096",
-    "VALID_PATIENCE": "200",
+    "VALID_PATIENCE": "5",
     "VALID_FREQUENCY": "1",
-    "MAX_EPOCHS": "800",
+    "MAX_EPOCHS": "10",
     "REPETITIONS": 5,
+    "MAX_TRAIN_HOURS": "0",
+    "MAX_TRAIN_MINUTES": "0",
+    "MAX_TRAIN_SECONDS": "0",
     "SCHEDULER_TYPE": "ReduceLROnPlateau",
     "INITIAL_LR": "0.001",
-    "PLATEAU_PATIENCE": "40",
+    "PLATEAU_PATIENCE": "4",
     "PLATEAU_FACTOR": "0.5",
     "EXPLOIT_LR": "1e-5",
     "EXPLOIT_EPOCHS": "15",
