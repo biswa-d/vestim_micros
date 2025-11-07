@@ -15,8 +15,8 @@
 
 import torch
 import os
-import json, hashlib, sqlite3, csv
-from threading import Thread
+import json, hashlib, sqlite3, csv, traceback, gc, sys
+from threading import Thread, Lock
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
@@ -67,6 +67,10 @@ class VEstimTestingManager:
         self.task_list = task_list if task_list is not None else []
         self.training_results = training_results if training_results is not None else {}
         self.results_summary = []
+        
+        self.lock = Lock()
+        self.successful_tests = 0
+        self.failed_tests = 0
         print("Initialization complete.")
 
     def start_testing(self, queue):
@@ -86,8 +90,10 @@ class VEstimTestingManager:
             print("Getting test folder and results save directory...")
             test_folder = self.job_manager.get_test_folder()
             self.results_summary.clear()
-            # save_dir = self.job_manager.get_test_results_folder()
-            # print(f"Test folder: {test_folder}, Save directory: {save_dir}")
+            
+            # Reset counters
+            self.successful_tests = 0
+            self.failed_tests = 0
 
             # Retrieve task list
             print("Retrieving task list from TrainingSetupManager...")
@@ -96,7 +102,7 @@ class VEstimTestingManager:
             if not task_list:
                 raise ValueError("Task list is not available.")
 
-            print(f"Total tasks to run: {len(task_list)}")
+            self.logger.info(f"Found {len(task_list)} tasks to run.")
 
             # Execute tasks in parallel using ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -111,8 +117,17 @@ class VEstimTestingManager:
                     try:
                         future.result()  # Retrieve the result
                     except Exception as exc:
-                        print(f"Task {task} generated an exception: {exc}")
-                        self.queue.put({'task_error': f'Task {task} generated an exception: {exc}'})
+                        self.logger.error(f"Task {task.get('task_id', 'unknown')} generated an exception in future: {exc}", exc_info=True)
+                        self.queue.put({'task_error': f"Task {task.get('task_id', 'unknown')} failed: {exc}"})
+
+            # Log summary
+            total_run = self.successful_tests + self.failed_tests
+            self.logger.info("--- TESTING SUMMARY ---")
+            self.logger.info(f"Total tasks processed: {len(task_list)}")
+            self.logger.info(f"Total tests attempted: {total_run}")
+            self.logger.info(f"Successful tests: {self.successful_tests}")
+            self.logger.info(f"Failed tests: {self.failed_tests}")
+            self.logger.info("-----------------------")
 
             # Signal to the queue that all tasks are completed
             print("All tasks completed. Sending signal to GUI...")
@@ -126,377 +141,374 @@ class VEstimTestingManager:
     def _test_single_model(self, task, idx, test_folder):
         """Test a single model and save the result."""
         try:
-            model_path = None
-            self.logger.info(f"--- Starting _test_single_model for task_id: {task.get('task_id', 'UnknownTask')} (list index: {idx}) ---") # Added detailed log
-            print(f"Preparing test data for Task {idx + 1}...")
+            self.logger.info(f"--- Starting _test_single_model for task_id: {task.get('task_id', 'UnknownTask')} (list index: {idx}) ---")
             
-            # Create a new instance of the testing service for each thread to ensure isolation
-            continuous_testing_service = ContinuousTestingService(device=self.functional_device)
-            
-            # Get required paths and parameters
-            lookback = task['hyperparams']['LOOKBACK']
-            # model_path = task['model_path'] # This was pointing to the untrained template
-            task_dir = task['task_dir'] # This is the specific directory for the task (e.g., .../task_XYZ_rep_1/)
-            
-            # Correct model_path should point to the best_model.pth within the task_dir
-            # This path is set in task['training_params']['best_model_path'] by TrainingSetupManager
-            # and used by TrainingTaskManager to save the best model.
+            # Get all test files first to accurately count failures if model is missing
+            test_files = [f for f in os.listdir(test_folder) if f.endswith('.csv')]
+            if not test_files:
+                self.logger.warning(f"No test files found in {test_folder} for task {task.get('task_id')}. Skipping model.")
+                return
+            self.logger.info(f"Task {task.get('task_id')}: Found {len(test_files)} test files.")
+
+            # Check for the trained model file
             model_path = task.get('training_params', {}).get('best_model_path')
-
             if not model_path or not os.path.exists(model_path):
-                self.logger.error(f"Best model path not found or file does not exist for task {task.get('task_id', 'UnknownTask')}: {model_path}. Skipping testing for this task.")
-                self.queue.put({'task_error': f"Best model not found for task {task.get('task_id', 'UnknownTask')}"})
-                return # Skip this task if its best model isn't available
+                self.logger.error(f"Best model not found for task {task.get('task_id')}: {model_path}. Skipping all {len(test_files)} tests for this model.")
+                self.queue.put({'task_error': f"Best model not found for task {task.get('task_id')}"})
+                with self.lock:
+                    self.failed_tests += len(test_files)  # All tests for this model failed
+                return
 
+            # --- If model exists, proceed with testing ---
+            task_dir = task['task_dir']
+            lookback = task['hyperparams']['LOOKBACK']
             num_learnable_params = task['hyperparams']['NUM_LEARNABLE_PARAMS']
             
-            # Make model_path relative for logging
-            try:
-                output_dir_for_log = os.path.dirname(self.job_manager.get_job_folder()) # Gets 'output'
-                log_model_path = os.path.relpath(model_path, output_dir_for_log)
-            except Exception: # Fallback if path manipulation fails
-                log_model_path = model_path
+            log_model_path = os.path.relpath(model_path, self.job_manager.get_job_folder())
             print(f"Testing model: {log_model_path} with lookback: {lookback}")
             
-            # Create test_results directory within task directory
             test_results_dir = os.path.join(task_dir, 'test_results')
             os.makedirs(test_results_dir, exist_ok=True)
 
-            # Get all test files
-            test_files = [f for f in os.listdir(test_folder) if f.endswith('.csv')]
-            if not test_files:
-                print(f"No test files found in {test_folder}")
-                return
-
-            print(f"Found {len(test_files)} test files. Running tests...")
-            
-            # Process each test file
             for test_file_index, test_file in enumerate(test_files):
-                file_name = os.path.splitext(test_file)[0]
-                test_file_path = os.path.join(test_folder, test_file)
-                
-                # IMPORTANT: Two different testing approaches:
-                # 1. CONTINUOUS TESTING (NEW - DEFAULT): Processes one sample at a time as single timesteps
-                #    - No sequence creation, no DataLoader, no lookback buffer
-                #    - Each sample fed as single timestep to LSTM: (1, 1, features)
-                #    - Hidden states persist across all test files for a single model
-                #    - Uses LSTM's natural recurrent memory for temporal dependencies
-                #    - More realistic for deployment scenarios (streaming inference)
-                # 2. SEQUENCE-BASED TESTING (OLD - FALLBACK): Creates sequences with padding, uses DataLoader
-                #    - Pads data and creates sequences of lookback length
-                #    - Resets hidden states for each sequence but maintains across batches
-                #    - More traditional approach
-                
-                # Default to new method, fallback to old dataloader method if needed
-                use_continuous_testing = True  # Set to False to use old dataloader method
-                
-                # Get lookback value for warmup
-                lookback_val = task.get('hyperparams', {}).get('LOOKBACK', 200) # Default if not found
-                
-                if use_continuous_testing:
-                    # Use continuous testing - no test loader needed
-                    test_df = pd.read_csv(test_file_path)
+                continuous_testing_service = None
+                file_results = None
+                try:
+                    # Create a new service for each file to ensure complete memory isolation
+                    continuous_testing_service = ContinuousTestingService(device=self.functional_device)
+                    file_name = os.path.splitext(test_file)[0]
+                    test_file_path = os.path.join(test_folder, test_file)
                     
-                    file_results = continuous_testing_service.run_continuous_testing(
-                        task=task,
-                        model_path=model_path,
-                        test_file_path=test_file_path,
-                        is_first_file=(test_file_index == 0),
-                        warmup_samples=lookback_val  # Use lookback as warmup period
-                    )
+                    # IMPORTANT: Two different testing approaches:
+                    # 1. CONTINUOUS TESTING (NEW - DEFAULT): Processes one sample at a time as single timesteps
+                    #    - No sequence creation, no DataLoader, no lookback buffer
+                    #    - Each sample fed as single timestep to LSTM: (1, 1, features)
+                    #    - Hidden states persist across all test files for a single model
+                    #    - Uses LSTM's natural recurrent memory for temporal dependencies
+                    #    - More realistic for deployment scenarios (streaming inference)
+                    # 2. SEQUENCE-BASED TESTING (OLD - FALLBACK): Creates sequences with padding, uses DataLoader
+                    #    - Pads data and creates sequences of lookback length
+                    #    - Resets hidden states for each sequence but maintains across batches
+                    #    - More traditional approach
                     
-                    # Get timestamps from the corresponding RAW test file since processed files may not have them
-                    # Try to find the raw file that corresponds to this processed file
-                    timestamps = None
-                    try:
-                        # Extract base filename (remove path and extension)
-                        processed_filename = os.path.basename(test_file_path)
-                        base_name = os.path.splitext(processed_filename)[0]
+                    # Default to new method, fallback to old dataloader method if needed
+                    use_continuous_testing = True  # Set to False to use old dataloader method
+                    
+                    # Get lookback value for warmup
+                    lookback_val = task.get('hyperparams', {}).get('LOOKBACK', 200) # Default if not found
+                    
+                    if use_continuous_testing:
+                        # Use continuous testing - no test loader needed
+                        test_df = pd.read_csv(test_file_path)
                         
-                        # Look for the raw file in the raw_data directory
-                        raw_data_dir = test_file_path.replace('processed_data', 'raw_data')
-                        raw_file_dir = os.path.dirname(raw_data_dir)
+                        file_results = continuous_testing_service.run_continuous_testing(
+                            task=task,
+                            model_path=model_path,
+                            test_file_path=test_file_path,
+                            is_first_file=(test_file_index == 0),
+                            warmup_samples=lookback_val  # Use lookback as warmup period
+                        )
                         
-                        # Try common raw file extensions
-                        raw_extensions = ['.csv', '.xlsx', '.mat']
-                        raw_file_path = None
-                        
-                        for ext in raw_extensions:
-                            potential_raw_file = os.path.join(raw_file_dir, base_name + ext)
-                            if os.path.exists(potential_raw_file):
-                                raw_file_path = potential_raw_file
-                                break
-                        
-                        if raw_file_path and raw_file_path.endswith('.csv'):
-                            print(f"Loading timestamps from raw file: {raw_file_path}")
-                            raw_df = pd.read_csv(raw_file_path)
+                        # Get timestamps from the corresponding RAW test file since processed files may not have them
+                        # Try to find the raw file that corresponds to this processed file
+                        timestamps = None
+                        try:
+                            # Extract base filename (remove path and extension)
+                            processed_filename = os.path.basename(test_file_path)
+                            base_name = os.path.splitext(processed_filename)[0]
                             
-                            # Handle different possible timestamp column names
-                            for col in raw_df.columns:
-                                if 'time' in col.lower().replace(" ", ""):
-                                    timestamps = raw_df[col].values
-                                    print(f"Found timestamp column '{col}' in raw file")
+                            # Look for the raw file in the raw_data directory
+                            raw_data_dir = test_file_path.replace('processed_data', 'raw_data')
+                            raw_file_dir = os.path.dirname(raw_data_dir)
+                            
+                            # Try common raw file extensions
+                            raw_extensions = ['.csv', '.xlsx', '.mat']
+                            raw_file_path = None
+                            
+                            for ext in raw_extensions:
+                                potential_raw_file = os.path.join(raw_file_dir, base_name + ext)
+                                if os.path.exists(potential_raw_file):
+                                    raw_file_path = potential_raw_file
                                     break
-                        else:
-                            print(f"Raw file not found or not CSV, falling back to processed file timestamps")
-                            # Fallback to processed file timestamps
+                            
+                            if raw_file_path and raw_file_path.endswith('.csv'):
+                                print(f"Loading timestamps from raw file: {raw_file_path}")
+                                raw_df = pd.read_csv(raw_file_path)
+                                
+                                # Handle different possible timestamp column names
+                                for col in raw_df.columns:
+                                    if 'time' in col.lower().replace(" ", ""):
+                                        timestamps = raw_df[col].values
+                                        print(f"Found timestamp column '{col}' in raw file")
+                                        break
+                            else:
+                                print(f"Raw file not found or not CSV, falling back to processed file timestamps")
+                                # Fallback to processed file timestamps
+                                for col in test_df.columns:
+                                    if 'time' in col.lower().replace(" ", ""):
+                                        timestamps = test_df[col].values
+                                        print(f"Found timestamp column '{col}' in processed file")
+                                        break
+                                        
+                        except Exception as e:
+                            print(f"Error loading timestamps from raw file: {e}")
+                            # Final fallback to processed file
                             for col in test_df.columns:
                                 if 'time' in col.lower().replace(" ", ""):
                                     timestamps = test_df[col].values
-                                    print(f"Found timestamp column '{col}' in processed file")
                                     break
-                                    
-                    except Exception as e:
-                        print(f"Error loading timestamps from raw file: {e}")
-                        # Final fallback to processed file
-                        for col in test_df.columns:
-                            if 'time' in col.lower().replace(" ", ""):
-                                timestamps = test_df[col].values
-                                break
-                    
-                    if timestamps is None:
-                        print("Warning: No timestamp column found, using index as fallback")
-                        timestamps = np.arange(len(file_results.get('predictions', [])))
-                    
-                    # Store timestamps in file_results for later use
-                    if timestamps is not None:
-                        if file_results is not None and timestamps is not None:
-                            file_results['timestamps'] = timestamps
-                else:
-                    # Fallback to old dataloader method - create test loader only when needed
-                    data_loader_params = task.get('data_loader_params', {})
-                    feature_cols = data_loader_params.get('feature_columns')
-                    target_col = data_loader_params.get('target_column')
-                    # LOOKBACK and BATCH_SIZE for test loader might come from task hyperparams or a specific test config
-                    # Using hyperparams for now, ensure these are appropriate for test data creation
-                    batch_size_val = task.get('hyperparams', {}).get('BATCH_SIZE', 100) # Default if not found
+                        
+                        if timestamps is None:
+                            print("Warning: No timestamp column found, using index as fallback")
+                            timestamps = np.arange(len(file_results.get('predictions', [])))
+                        
+                        # Store timestamps in file_results for later use
+                        if timestamps is not None:
+                            if file_results is not None and timestamps is not None:
+                                file_results['timestamps'] = timestamps
+                    else:
+                        # Fallback to old dataloader method - create test loader only when needed
+                        data_loader_params = task.get('data_loader_params', {})
+                        feature_cols = data_loader_params.get('feature_columns')
+                        target_col = data_loader_params.get('target_column')
+                        # LOOKBACK and BATCH_SIZE for test loader might come from task hyperparams or a specific test config
+                        # Using hyperparams for now, ensure these are appropriate for test data creation
+                        batch_size_val = task.get('hyperparams', {}).get('BATCH_SIZE', 100) # Default if not found
 
-                    if not feature_cols or not target_col:
-                        self.logger.error(f"Missing feature_cols or target_col in task for {test_file_path}")
-                        # Optionally, put an error in the queue or skip this file
+                        if not feature_cols or not target_col:
+                            self.logger.error(f"Missing feature_cols or target_col in task for {test_file_path}")
+                            # Optionally, put an error in the queue or skip this file
+                            continue
+
+                        test_loader = self.test_data_service.create_test_file_loader(
+                            test_file_path=test_file_path,
+                            lookback=int(lookback_val),
+                            batch_size=int(batch_size_val),
+                            feature_cols=feature_cols,
+                            target_col=target_col
+                        )
+                        
+                        file_results = self.testing_service.run_testing(
+                            task=task,
+                            model_path=model_path,
+                            test_loader=test_loader,
+                            test_file_path=test_file_path
+                        )
+                    
+                    if file_results is None:
+                        self.logger.error(f"Testing service returned None for {test_file_path}. Skipping.")
+                        with self.lock:
+                            self.failed_tests += 1
                         continue
 
-                    test_loader = self.test_data_service.create_test_file_loader(
-                        test_file_path=test_file_path,
-                        lookback=int(lookback_val),
-                        batch_size=int(batch_size_val),
-                        feature_cols=feature_cols,
-                        target_col=target_col
-                    )
+                    # The VEstimTestingService.test_model (called by run_testing) now returns results with dynamic keys
+                    # e.g., 'rms_error_mv', 'rms_error_percent', 'mae_degC'
+                    # It also returns 'predictions' and 'true_values'
+
+                    target_column_name = task.get('data_loader_params', {}).get('target_column', 'value')
+                    unit_suffix = ""
+                    csv_unit_display = "" # For CSV column names like "True Values (V)"
+                    error_unit_display = "" # For error column names like "RMS Error (mV)"
+
+                    if "voltage" in target_column_name.lower():
+                        unit_suffix = "_mv"
+                        csv_unit_display = "(V)"
+                        error_unit_display = "(mV)"  # Consistent with training GUI - errors in mV
+                    elif "soc" in target_column_name.lower() or "soe" in target_column_name.lower() or "sop" in target_column_name.lower():
+                        unit_suffix = "_percent"
+                        if "soc" in target_column_name.lower():
+                            csv_unit_display = "(SOC)"
+                            error_unit_display = "(% SOC)"
+                        elif "soe" in target_column_name.lower():
+                            csv_unit_display = "(SOE)"
+                            error_unit_display = "(% SOE)"
+                        else: # sop
+                            csv_unit_display = "(SOP)"
+                            error_unit_display = "(% SOP)"
+                    elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
+                        unit_suffix = "_degC"
+                        csv_unit_display = "(Deg C)"   # Match training GUI format
+                        error_unit_display = "(Deg C)" # Consistent with training GUI
                     
-                    file_results = self.testing_service.run_testing(
-                        task=task,
-                        model_path=model_path,
-                        test_loader=test_loader,
-                        test_file_path=test_file_path
-                    )
-                
-                if file_results is None: # Handle case where testing service run_testing fails
-                    self.logger.error(f"Testing failed for {test_file_path}, skipping results processing for this file.")
-                    continue
+                    # Define dynamic metric keys based on the unit suffix
+                    rms_key = f"rms_error{unit_suffix}"
+                    mae_key = f"mae{unit_suffix}"
+                    max_error_key = f"max_abs_error{unit_suffix}"
+                    
+                    # Calculate difference for CSV
+                    # Predictions and true values are in their original scale from file_results
+                    y_true_scaled = file_results['true_values']
+                    y_pred_scaled = file_results['predictions']
+                    
+                    difference = y_true_scaled - y_pred_scaled
+                    # Apply appropriate multiplier based on target type for consistent error reporting
+                    if "voltage" in target_column_name.lower():
+                        difference *= 1000  # Convert V difference to mV for CSV display consistency with error metrics
+                    elif "soc" in target_column_name.lower() or "soe" in target_column_name.lower() or "sop" in target_column_name.lower():
+                        # Use the multiplier calculated earlier for SOC/SOE/SOP error
+                        multiplier = file_results.get('multiplier', 100)
+                        difference *= multiplier
+                    
+                    # Save predictions with dynamic column names - matching training GUI conventions
+                    predictions_file = os.path.join(test_results_dir, f"{file_name}_predictions.csv")
+                    
+                    # Get timestamps from file_results or create fallback
+                    timestamps = file_results.get('timestamps', np.arange(len(y_true_scaled)))
+                    
+                    # Debug: Check timestamp data
+                    if len(timestamps) > 0:
+                        print(f"Timestamp data: first={timestamps[0]}, last={timestamps[-1]}, length={len(timestamps)}")
+                        # Check if timestamps are empty/null
+                        non_null_timestamps = sum(1 for ts in timestamps if ts not in [None, '', 'nan', 'NaN'])
+                        print(f"Non-null timestamps: {non_null_timestamps}/{len(timestamps)}")
+                    else:
+                        print("Warning: Empty timestamps array")
+                    
+                    # Prepare data for DataFrame
+                    data_for_csv = {
+                        'Timestamp': timestamps,
+                        f'True {target_column_name} {csv_unit_display}': y_true_scaled,
+                        f'Predicted {target_column_name} {csv_unit_display}': y_pred_scaled,
+                    }
+                    
+                    # For all cases, use the calculated and scaled 'difference'
+                    data_for_csv[f'Error {error_unit_display}'] = difference
+                    
+                    pd.DataFrame(data_for_csv).to_csv(predictions_file, index=False)
+                    
+                    # Add results to summary file with dynamic headers matching training GUI
+                    # Calculate max absolute error with appropriate scaling
+                    max_abs_error_val = np.max(np.abs(difference)) if difference.size > 0 else 0
 
-                # The VEstimTestingService.test_model (called by run_testing) now returns results with dynamic keys
-                # e.g., 'rms_error_mv', 'rms_error_percent', 'mae_degC'
-                # It also returns 'predictions' and 'true_values'
+                    # Generate shorthand name for the model task
+                    # Use the new descriptive names if available (for Optuna), otherwise generate the old ones
+                    # The model name is the parent directory of the task directory (e.g., FNN_32_16)
+                    task_dir = task.get('task_dir')
+                    if task_dir:
+                        display_model_name = os.path.basename(os.path.dirname(task_dir))
+                        # The task name is the descriptive task directory name (e.g., B128_LR_SLR_VP20)
+                        display_task_name = os.path.basename(task_dir)
+                    else:
+                        # Fallback for safety
+                        display_model_name = task.get('model_name', self.generate_shorthand_name(task))
+                        display_task_name = task.get('task_id')
 
-                target_column_name = task.get('data_loader_params', {}).get('target_column', 'value')
-                unit_suffix = ""
-                csv_unit_display = "" # For CSV column names like "True Values (V)"
-                error_unit_display = "" # For error column names like "RMS Error (mV)"
+                    # Best losses are now read from training summary files or passed from training GUI
+                    best_train_loss = 'N/A'
+                    best_valid_loss = 'N/A'
+                    completed_epochs = 'N/A'
+                    
+                    # Try to read from training_results first (in-memory from training GUI)
+                    training_result = self.training_results.get(task['task_id'], {})
+                    if training_result:
+                        best_train_loss = training_result.get('best_train_loss', 'N/A')
+                        best_valid_loss = training_result.get('best_validation_loss', 'N/A')
+                        completed_epochs = training_result.get('completed_epochs', 'N/A')
+                    
+                    # If not available in memory, try to read from training summary JSON file on disk
+                    if best_train_loss == 'N/A' or best_valid_loss == 'N/A':
+                        try:
+                            task_dir = task.get('task_dir') or task.get('model_dir')
+                            if task_dir:
+                                summary_file = os.path.join(task_dir, 'training_summary.json')
+                                if os.path.exists(summary_file):
+                                    with open(summary_file, 'r') as f:
+                                        summary_data = json.load(f)
+                                        best_train_loss = summary_data.get('best_train_loss_denormalized', 'N/A')
+                                        best_valid_loss = summary_data.get('best_validation_loss_denormalized', 'N/A')
+                                        completed_epochs = summary_data.get('completed_epochs', 'N/A')
+                                        self.logger.info(f"Loaded training results from disk for task {task['task_id']}: train={best_train_loss}, val={best_valid_loss}, epochs={completed_epochs}")
+                        except Exception as e:
+                            self.logger.warning(f"Could not read training summary from disk for task {task['task_id']}: {e}")
 
-                if "voltage" in target_column_name.lower():
-                    unit_suffix = "_mv"
-                    csv_unit_display = "(V)"
-                    error_unit_display = "(mV)"  # Consistent with training GUI - errors in mV
-                elif "soc" in target_column_name.lower() or "soe" in target_column_name.lower() or "sop" in target_column_name.lower():
-                    unit_suffix = "_percent"
-                    if "soc" in target_column_name.lower():
-                        csv_unit_display = "(SOC)"
-                        error_unit_display = "(% SOC)"
-                    elif "soe" in target_column_name.lower():
-                        csv_unit_display = "(SOE)"
-                        error_unit_display = "(% SOE)"
-                    else: # sop
-                        csv_unit_display = "(SOP)"
-                        error_unit_display = "(% SOP)"
-                elif "temperature" in target_column_name.lower() or "temp" in target_column_name.lower():
-                    unit_suffix = "_degC"
-                    csv_unit_display = "(Deg C)"   # Match training GUI format
-                    error_unit_display = "(Deg C)" # Consistent with training GUI
-                
-                # Define dynamic metric keys based on the unit suffix
-                rms_key = f"rms_error{unit_suffix}"
-                mae_key = f"mae{unit_suffix}"
-                max_error_key = f"max_abs_error{unit_suffix}"
-                
-                # Calculate difference for CSV
-                # Predictions and true values are in their original scale from file_results
-                y_true_scaled = file_results['true_values']
-                y_pred_scaled = file_results['predictions']
-                
-                difference = y_true_scaled - y_pred_scaled
-                # Apply appropriate multiplier based on target type for consistent error reporting
-                if "voltage" in target_column_name.lower():
-                    difference *= 1000  # Convert V difference to mV for CSV display consistency with error metrics
-                elif "soc" in target_column_name.lower() or "soe" in target_column_name.lower() or "sop" in target_column_name.lower():
-                    # Use the multiplier calculated earlier for SOC/SOE/SOP error
-                    multiplier = file_results.get('multiplier', 100)
-                    difference *= multiplier
-                
-                # Save predictions with dynamic column names - matching training GUI conventions
-                predictions_file = os.path.join(test_results_dir, f"{file_name}_predictions.csv")
-                
-                # Get timestamps from file_results or create fallback
-                timestamps = file_results.get('timestamps', np.arange(len(y_true_scaled)))
-                
-                # Debug: Check timestamp data
-                if len(timestamps) > 0:
-                    print(f"Timestamp data: first={timestamps[0]}, last={timestamps[-1]}, length={len(timestamps)}")
-                    # Check if timestamps are empty/null
-                    non_null_timestamps = sum(1 for ts in timestamps if ts not in [None, '', 'nan', 'NaN'])
-                    print(f"Non-null timestamps: {non_null_timestamps}/{len(timestamps)}")
-                else:
-                    print("Warning: Empty timestamps array")
-                
-                # Prepare data for DataFrame
-                data_for_csv = {
-                    'Timestamp': timestamps,
-                    f'True {target_column_name} {csv_unit_display}': y_true_scaled,
-                    f'Predicted {target_column_name} {csv_unit_display}': y_pred_scaled,
-                }
-                
-                # For all cases, use the calculated and scaled 'difference'
-                data_for_csv[f'Error {error_unit_display}'] = difference
-                
-                pd.DataFrame(data_for_csv).to_csv(predictions_file, index=False)
-                
-                # Add results to summary file with dynamic headers matching training GUI
-                # Calculate max absolute error with appropriate scaling
-                max_abs_error_val = np.max(np.abs(difference)) if difference.size > 0 else 0
-
-                # Generate shorthand name for the model task
-                # Use the new descriptive names if available (for Optuna), otherwise generate the old ones
-                # The model name is the parent directory of the task directory (e.g., FNN_32_16)
-                task_dir = task.get('task_dir')
-                if task_dir:
-                    display_model_name = os.path.basename(os.path.dirname(task_dir))
-                    # The task name is the descriptive task directory name (e.g., B128_LR_SLR_VP20)
-                    display_task_name = os.path.basename(task_dir)
-                else:
-                    # Fallback for safety
-                    display_model_name = task.get('model_name', self.generate_shorthand_name(task))
-                    display_task_name = task.get('task_id')
-
-                # Best losses are now read from training summary files or passed from training GUI
-                best_train_loss = 'N/A'
-                best_valid_loss = 'N/A'
-                completed_epochs = 'N/A'
-                
-                # Try to read from training_results first (in-memory from training GUI)
-                training_result = self.training_results.get(task['task_id'], {})
-                if training_result:
-                    best_train_loss = training_result.get('best_train_loss', 'N/A')
-                    best_valid_loss = training_result.get('best_validation_loss', 'N/A')
-                    completed_epochs = training_result.get('completed_epochs', 'N/A')
-                
-                # If not available in memory, try to read from training summary JSON file on disk
-                if best_train_loss == 'N/A' or best_valid_loss == 'N/A':
+                    summary_row = {
+                        "Sl.No": f"{idx + 1}.{test_file_index + 1}",
+                        "Task ID": display_task_name,
+                        "Model": display_model_name,
+                        "File Name": test_file,
+                        "#W&Bs": num_learnable_params,
+                        "Best Train Loss": best_train_loss,
+                        "Best Valid Loss": best_valid_loss,
+                        "Epochs Trained": completed_epochs,
+                        f"Test RMSE {error_unit_display}": f"{file_results.get(rms_key, float('nan')):.2f}",
+                        f"Test MAXE {error_unit_display}": f"{max_abs_error_val:.2f}",
+                        "R2": f"{file_results.get('r2', float('nan')):.4f}"
+                    }
+                    self.results_summary.append(summary_row)
+                    
+                    # Data to send to GUI for this specific test file
+                    gui_result_data = {
+                        'saved_dir': test_results_dir,
+                        'task_name': display_task_name, # Use the descriptive task name
+                        'sl_no': f"{idx + 1}.{test_file_index + 1}", # Unique Sl.No for GUI based on task and test file
+                        'model_name': display_model_name, # Use the descriptive model name
+                        'file_name': test_file, # Current test file name
+                        '#params': num_learnable_params,
+                        'best_train_loss': best_train_loss,
+                        'best_valid_loss': best_valid_loss,
+                        'completed_epochs': completed_epochs,
+                        # Create a more concise task_info for the GUI
+                        'task_info': {
+                            'task_id': task.get('task_id'),
+                            'model_type': task.get('model_metadata', {}).get('model_type'),
+                            'lookback': task.get('hyperparams', {}).get('LOOKBACK'),
+                            'repetitions': task.get('hyperparams', {}).get('REPETITIONS'),
+                            # Add other key identifiers if needed by GUI, but avoid full hyperparam dict
+                            'layers': task.get('hyperparams', {}).get('LAYERS'),
+                            'hidden_units': task.get('hyperparams', {}).get('HIDDEN_UNITS'),
+                        },
+                        'target_column': target_column_name, # Add target column for plotting
+                        'predictions_file': predictions_file, # Correct path to the predictions file for plotting
+                        'unit_display': error_unit_display, # Pass error unit display for GUI consistency
+                        'csv_unit_display': csv_unit_display # Pass value unit display for GUI consistency
+                    }
+                    
+                    # Add dynamic metrics from file_results directly with better error handling
+                    gui_result_data[rms_key] = file_results.get(rms_key, 'N/A')
+                    gui_result_data[mae_key] = file_results.get(mae_key, 'N/A')
+                    gui_result_data[f'max_abs_error{unit_suffix}'] = max_abs_error_val
+                    gui_result_data['r2'] = file_results.get('r2', 'N/A')
+                    
+                    # Include the unit suffix directly for GUI use
+                    gui_result_data['unit_suffix'] = unit_suffix
+                    gui_result_data['unit_display'] = error_unit_display
+                    
+                    # For backward compatibility with GUI
+                    if unit_suffix == "_mv":
+                        gui_result_data['rms_error_mv'] = file_results.get(rms_key, 'N/A')
+                        gui_result_data['mae_mv'] = file_results.get(mae_key, 'N/A')
+                        gui_result_data['max_error_mv'] = max_abs_error_val
+                    
+                    # Print debug information to help with troubleshooting
+                    print(f"Sending results for test file: {test_file}")
                     try:
-                        task_dir = task.get('task_dir') or task.get('model_dir')
-                        if task_dir:
-                            summary_file = os.path.join(task_dir, 'training_summary.json')
-                            if os.path.exists(summary_file):
-                                with open(summary_file, 'r') as f:
-                                    summary_data = json.load(f)
-                                    best_train_loss = summary_data.get('best_train_loss_denormalized', 'N/A')
-                                    best_valid_loss = summary_data.get('best_validation_loss_denormalized', 'N/A')
-                                    completed_epochs = summary_data.get('completed_epochs', 'N/A')
-                                    self.logger.info(f"Loaded training results from disk for task {task['task_id']}: train={best_train_loss}, val={best_valid_loss}, epochs={completed_epochs}")
-                    except Exception as e:
-                        self.logger.warning(f"Could not read training summary from disk for task {task['task_id']}: {e}")
-
-                summary_row = {
-                    "Sl.No": f"{idx + 1}.{test_file_index + 1}",
-                    "Task ID": display_task_name,
-                    "Model": display_model_name,
-                    "File Name": test_file,
-                    "#W&Bs": num_learnable_params,
-                    "Best Train Loss": best_train_loss,
-                    "Best Valid Loss": best_valid_loss,
-                    "Epochs Trained": completed_epochs,
-                    f"Test RMSE {error_unit_display}": f"{file_results.get(rms_key, float('nan')):.2f}",
-                    f"Test MAXE {error_unit_display}": f"{max_abs_error_val:.2f}",
-                    "R2": f"{file_results.get('r2', float('nan')):.4f}"
-                }
-                self.results_summary.append(summary_row)
-                
-                # Data to send to GUI for this specific test file
-                gui_result_data = {
-                    'saved_dir': test_results_dir,
-                    'task_name': display_task_name, # Use the descriptive task name
-                    'sl_no': f"{idx + 1}.{test_file_index + 1}", # Unique Sl.No for GUI based on task and test file
-                    'model_name': display_model_name, # Use the descriptive model name
-                    'file_name': test_file, # Current test file name
-                    '#params': num_learnable_params,
-                    'best_train_loss': best_train_loss,
-                    'best_valid_loss': best_valid_loss,
-                    'completed_epochs': completed_epochs,
-                    # Create a more concise task_info for the GUI
-                    'task_info': {
-                        'task_id': task.get('task_id'),
-                        'model_type': task.get('model_metadata', {}).get('model_type'),
-                        'lookback': task.get('hyperparams', {}).get('LOOKBACK'),
-                        'repetitions': task.get('hyperparams', {}).get('REPETITIONS'),
-                        # Add other key identifiers if needed by GUI, but avoid full hyperparam dict
-                        'layers': task.get('hyperparams', {}).get('LAYERS'),
-                        'hidden_units': task.get('hyperparams', {}).get('HIDDEN_UNITS'),
-                    },
-                    'target_column': target_column_name, # Add target column for plotting
-                    'predictions_file': predictions_file, # Correct path to the predictions file for plotting
-                    'unit_display': error_unit_display, # Pass error unit display for GUI consistency
-                    'csv_unit_display': csv_unit_display # Pass value unit display for GUI consistency
-                }
-                
-                # Add dynamic metrics from file_results directly with better error handling
-                gui_result_data[rms_key] = file_results.get(rms_key, 'N/A')
-                gui_result_data[mae_key] = file_results.get(mae_key, 'N/A')
-                gui_result_data[f'max_abs_error{unit_suffix}'] = max_abs_error_val
-                gui_result_data['r2'] = file_results.get('r2', 'N/A')
-                
-                # Include the unit suffix directly for GUI use
-                gui_result_data['unit_suffix'] = unit_suffix
-                gui_result_data['unit_display'] = error_unit_display
-                
-                # For backward compatibility with GUI
-                if unit_suffix == "_mv":
-                    gui_result_data['rms_error_mv'] = file_results.get(rms_key, 'N/A')
-                    gui_result_data['mae_mv'] = file_results.get(mae_key, 'N/A')
-                    gui_result_data['max_error_mv'] = max_abs_error_val
-                
-                # Print debug information to help with troubleshooting
-                print(f"Sending results for test file: {test_file}")
-                try:
-                    output_dir_for_log_preds = os.path.dirname(self.job_manager.get_job_folder()) # Gets 'output'
-                    log_predictions_path = os.path.relpath(predictions_file, output_dir_for_log_preds)
-                except Exception:
-                    log_predictions_path = predictions_file
-                print(f"Predictions file path: {log_predictions_path}")
-                print(f"Target column: {target_column_name}")
-                
-                # Send results to GUI for this specific test file
-                self.queue.put({'task_completed': gui_result_data})
-
-            # The overall task completion signal (all_tasks_completed) is sent after the outer loop in _run_testing_tasks
+                        output_dir_for_log_preds = os.path.dirname(self.job_manager.get_job_folder()) # Gets 'output'
+                        log_predictions_path = os.path.relpath(predictions_file, output_dir_for_log_preds)
+                    except Exception:
+                        log_predictions_path = predictions_file
+                    print(f"Predictions file path: {log_predictions_path}")
+                    print(f"Target column: {target_column_name}")
+                    
+                    # Send results to GUI for this specific test file
+                    self.queue.put({'task_completed': gui_result_data})
+                    with self.lock:
+                        self.successful_tests += 1
+                finally:
+                    # Aggressively clean up memory after each file test for each model
+                    if file_results is not None:
+                        del file_results
+                    if continuous_testing_service is not None:
+                        del continuous_testing_service
+                    if 'torch' in sys.modules:
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    gc.collect()
+                    self.logger.info(f"Cleaned up memory for task {task.get('task_id', 'UnknownTask')} on file {test_file}")
 
         except Exception as e:
-            try:
-                output_dir_for_log_err = os.path.dirname(self.job_manager.get_job_folder())
-                log_model_path_err = os.path.relpath(model_path, output_dir_for_log_err)
-            except Exception:
-                log_model_path_err = model_path
-            print(f"Error testing model {log_model_path_err}: {str(e)}")
-            self.logger.error(f"Error testing model {log_model_path_err}: {str(e)}", exc_info=True)
-            self.queue.put({'task_error': str(e)})
+            self.logger.error(f"CRITICAL ERROR in _test_single_model for task {task.get('task_id', 'UnknownTask')}: {e}")
+            self.logger.error(traceback.format_exc())
+            self.queue.put({'task_error': f"Critical error in task {task.get('task_id', 'UnknownTask')}: {e}"})
 
     @staticmethod
     def generate_shorthand_name(task):

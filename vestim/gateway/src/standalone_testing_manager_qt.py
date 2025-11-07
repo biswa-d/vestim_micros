@@ -6,6 +6,7 @@ import joblib
 import torch
 import numpy as np
 import time
+import gc, sys
 from PyQt5.QtCore import QObject, pyqtSignal
 from vestim.services.data_processor.src.data_augment_service import DataAugmentService
 from vestim.services.model_training.src.FNN_model import FNNModel
@@ -379,34 +380,32 @@ class VEstimStandaloneTestingManager(QObject):
 
     def _test_task_model(self, task_info, test_df, scaler, job_metadata):
         """Test a single model using the existing task structure."""
+        model = None
         try:
             arch_name = task_info['architecture_name']
-            task_name = task_info['task_name'] 
+            task_name = task_info['task_name']
             task_path = task_info['task_path']
             model_file = task_info['model_file']
             
             self.progress.emit(f"  Architecture: {arch_name}")
             self.progress.emit(f"  Task: {task_name}")
             
+            # Define device for model and tensors
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            
             # Extract model configuration from task_info
-            # Model type is stored in model_metadata, not at top level
             model_metadata = task_info.get('model_metadata', {})
             model_type = model_metadata.get('model_type', task_info.get('model_type', 'FNN'))
             hyperparams = task_info.get('hyperparams', {})
             data_config = task_info.get('data_config', {})
             training_config = task_info.get('training_config', {})
             
-            # Feature and target columns are in hyperparams (not data_config)
             feature_columns = hyperparams.get('FEATURE_COLUMNS', data_config.get('feature_columns', []))
             target_column = hyperparams.get('TARGET_COLUMN', data_config.get('target_column'))
             
-            # Handle LOOKBACK which might be "N/A" for FNN models
             lookback_val = hyperparams.get('LOOKBACK', data_config.get('lookback', 0))
-            if lookback_val == "N/A" or lookback_val is None:
-                lookback = 0
-            else:
-                lookback = int(lookback_val)
-                
+            lookback = 0 if lookback_val == "N/A" or lookback_val is None else int(lookback_val)
+            
             training_method = hyperparams.get('TRAINING_METHOD', training_config.get('training_method', 'Sequential'))
             
             self.progress.emit(f"  Model Type: {model_type}")
@@ -420,99 +419,150 @@ class VEstimStandaloneTestingManager(QObject):
             if missing_cols:
                 raise ValueError(f"Missing required columns: {missing_cols}")
             
-            # Prepare test data
-            data_to_process = test_df[feature_columns].values
-            if training_method == 'WholeSequenceFNN':
-                X_test = torch.tensor(data_to_process, dtype=torch.float32)
-                effective_samples = len(data_to_process)
-            else:
-                if len(data_to_process) < lookback:
-                    raise ValueError(f"Test data length ({len(data_to_process)}) < lookback ({lookback})")
-                X_test_np = self._create_sequences(data_to_process, lookback)
-                X_test = torch.tensor(X_test_np, dtype=torch.float32)
-                effective_samples = len(X_test_np)
-            
             # Create model instance based on architecture and hyperparams
             input_size = len(feature_columns)
             if model_type == 'FNN':
                 model_input_size = input_size * lookback if training_method != 'WholeSequenceFNN' else input_size
-                # Get hidden layer sizes - it's stored as a list in hyperparams
-                hidden_sizes = hyperparams.get('HIDDEN_LAYER_SIZES', hyperparams.get('hidden_layer_sizes', [64, 32]))
-                
-                # CRITICAL: Use apply_clipped_relu logic exactly like training loop
+                hidden_sizes = hyperparams.get('HIDDEN_LAYER_SIZES', [64, 32])
                 apply_clipped_relu = hyperparams.get('normalization_applied', False)
-                
                 model = FNNModel(
-                    input_size=model_input_size, 
-                    output_size=hyperparams.get('OUTPUT_SIZE', hyperparams.get('output_size', 1)),
+                    input_size=model_input_size,
+                    output_size=hyperparams.get('OUTPUT_SIZE', 1),
                     hidden_layer_sizes=hidden_sizes,
                     activation_function=hyperparams.get('activation', 'ReLU'),
-                    dropout_prob=float(hyperparams.get('DROPOUT_PROB', hyperparams.get('dropout_prob', 0.0))),
+                    dropout_prob=float(hyperparams.get('DROPOUT_PROB', 0.0)),
                     apply_clipped_relu=apply_clipped_relu
                 )
             elif model_type == 'LSTM':
-                # CRITICAL: Use apply_clipped_relu logic exactly like training loop
                 apply_clipped_relu = hyperparams.get('normalization_applied', False)
-                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-                
                 model = LSTMModel(
-                    input_size=input_size, 
-                    hidden_units=int(hyperparams.get('HIDDEN_UNITS', hyperparams.get('hidden_size', 64))),
-                    num_layers=int(hyperparams.get('LAYERS', hyperparams.get('num_layers', 2))),
+                    input_size=input_size,
+                    hidden_units=int(hyperparams.get('HIDDEN_UNITS', 64)),
+                    num_layers=int(hyperparams.get('LAYERS', 2)),
                     device=device,
-                    dropout_prob=float(hyperparams.get('DROPOUT_PROB', hyperparams.get('dropout_prob', 0.0))),
+                    dropout_prob=float(hyperparams.get('DROPOUT_PROB', 0.0)),
                     apply_clipped_relu=apply_clipped_relu
                 )
             elif model_type == 'GRU':
-                # CRITICAL: Use apply_clipped_relu logic exactly like training loop
                 apply_clipped_relu = hyperparams.get('normalization_applied', False)
-                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-                
                 model = GRUModel(
                     input_size=input_size,
-                    hidden_units=int(hyperparams.get('GRU_HIDDEN_UNITS', hyperparams.get('hidden_size', 64))),
-                    num_layers=int(hyperparams.get('GRU_LAYERS', hyperparams.get('num_layers', 2))),
+                    hidden_units=int(hyperparams.get('GRU_HIDDEN_UNITS', 64)),
+                    num_layers=int(hyperparams.get('GRU_LAYERS', 2)),
                     device=device,
-                    dropout_prob=float(hyperparams.get('GRU_DROPOUT_PROB', hyperparams.get('dropout_prob', 0.0))),
+                    dropout_prob=float(hyperparams.get('GRU_DROPOUT_PROB', 0.0)),
                     apply_clipped_relu=apply_clipped_relu
                 )
             else:
                 raise ValueError(f"Unsupported model type: {model_type}")
             
-            # Load trained weights
-            checkpoint = torch.load(model_file, map_location=torch.device('cpu'))
+            # Load trained weights and move model to the correct device
+            checkpoint = torch.load(model_file, map_location=device)
             model.load_state_dict(checkpoint.get('model_state_dict', checkpoint))
+            model.to(device)
             model.eval()
             
-            # Count model parameters and store in task_info
+            # Count model parameters
             total_params = sum(p.numel() for p in model.parameters())
             task_info['model_parameters'] = total_params
             
-            # Run inference
-            self.progress.emit(f"  Running inference on {effective_samples} samples...")
+            # Prepare and run inference
+            self.progress.emit(f"  Running inference on {len(test_df)} samples...")
             start_time = time.time()
+            predictions_normalized = None
+            effective_samples = len(test_df)
+
             with torch.no_grad():
-                if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
-                    # LSTM/GRU return (output, hidden_states), we only need output
-                    if model_type == 'GRU':
-                        predictions_normalized, _ = model(X_test, None)
-                    else:  # LSTM variants
-                        predictions_normalized, _ = model(X_test, None, None)
-                else:  # FNN
-                    predictions_normalized = model(X_test)
-            predictions_normalized = predictions_normalized.cpu().numpy()
+                # Use sample-by-sample inference for RNNs to avoid OOM
+                if model_type in ['LSTM', 'GRU']:
+                    data_to_process = test_df[feature_columns].values
+                    
+                    # Add warmup samples to initialize hidden states
+                    warmup_samples = lookback
+                    if len(data_to_process) > 0:
+                        first_row = data_to_process[0]
+                        warmup_data = np.array([first_row] * warmup_samples)
+                        data_full = np.vstack([warmup_data, data_to_process])
+                    else:
+                        data_full = data_to_process # Handle empty test file
+                    
+                    if data_full.size == 0:
+                        predictions_normalized = np.array([])
+                    else:
+                        X_all = torch.tensor(data_full.astype(np.float32)).view(-1, 1, len(feature_columns))
+                        
+                        y_preds_list = []
+                        h_s = None  # Hidden state for GRU/LSTM
+                        c_s = None  # Cell state for LSTM
+                        
+                        # Process data in chunks to avoid overwhelming the CPU->GPU transfer
+                        chunk_size = 10000
+                        for i in range(0, len(X_all), chunk_size):
+                            chunk = X_all[i:i+chunk_size].to(device)
+                            
+                            for t in range(len(chunk)):
+                                x_t = chunk[t].unsqueeze(0)  # Shape (1, 1, features)
+                                
+                                if model_type == 'LSTM':
+                                    y_pred, (h_s, c_s) = model(x_t, h_s, c_s)
+                                    if h_s is not None: h_s = h_s.detach()
+                                    if c_s is not None: c_s = c_s.detach()
+                                elif model_type == 'GRU':
+                                    y_pred, h_s = model(x_t, h_s)
+                                    if h_s is not None: h_s = h_s.detach()
+
+                                # Store predictions after warmup period
+                                if i + t >= warmup_samples:
+                                    y_preds_list.append(y_pred.squeeze().cpu().numpy())
+
+                        predictions_normalized = np.array(y_preds_list).reshape(-1, 1)
+
+                else:  # FNN and other models - use batched inference
+                    from torch.utils.data import TensorDataset, DataLoader
+                    
+                    data_to_process = test_df[feature_columns].values
+                    if training_method == 'WholeSequenceFNN':
+                        X_test_np = data_to_process
+                    else: # Sequential FNN
+                        if len(data_to_process) < lookback:
+                            raise ValueError(f"Test data length ({len(data_to_process)}) < lookback ({lookback})")
+                        X_test_np = self._create_sequences(data_to_process, lookback)
+                    
+                    if len(X_test_np) > 0:
+                        X_test = torch.tensor(X_test_np, dtype=torch.float32)
+                        test_dataset = TensorDataset(X_test)
+                        batch_size = 4096
+                        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+                        
+                        y_preds_list = []
+                        for (x_batch,) in test_loader:
+                            x_batch = x_batch.to(device)
+                            y_pred_batch = model(x_batch)
+                            y_preds_list.append(y_pred_batch.cpu().numpy())
+                        
+                        if y_preds_list:
+                            predictions_normalized = np.vstack(y_preds_list)
+                        else:
+                            predictions_normalized = np.array([])
+                    else:
+                        predictions_normalized = np.array([])
+
+            # Ensure predictions are numpy array for subsequent processing
+            if isinstance(predictions_normalized, torch.Tensor):
+                predictions_normalized = predictions_normalized.cpu().numpy()
+            
             inference_time = time.time() - start_time
             
             # CRITICAL: Apply inference filters exactly like main training loop
             filter_type = hyperparams.get('INFERENCE_FILTER_TYPE', 'None')
-            if filter_type != 'None':
+            if filter_type != 'None' and len(predictions_normalized) > 0:
                 self.progress.emit(f"  Applying {filter_type} inference filter...")
                 predictions_normalized = apply_inference_filter(predictions_normalized.flatten(), {'hyperparams': hyperparams})
                 predictions_normalized = predictions_normalized.reshape(-1, 1)
                 self.progress.emit(f"  ✓ {filter_type} filter applied")
             
             # Denormalize predictions
-            if scaler:
+            if scaler and len(predictions_normalized) > 0:
                 predictions_final = norm_svc.inverse_transform_single_column(
                     predictions_normalized, scaler, target_column, job_metadata.get('normalized_columns')
                 )
@@ -530,213 +580,117 @@ class VEstimStandaloneTestingManager(QObject):
             if "voltage" in target_column.lower():
                 target_display = "Voltage"
                 error_unit = "mV"
-                error_multiplier = 1000.0  # Convert V to mV for error display
+                error_multiplier = 1000.0
             elif "soc" in target_column.lower():
                 target_display = "SOC"
                 error_unit = "% SOC"
-                error_multiplier = 100.0  # Convert 0-1 to percentage for error display
+                error_multiplier = 100.0
             elif "temperature" in target_column.lower() or "temp" in target_column.lower():
                 target_display = "Temperature"
                 error_unit = "°C"
-                error_multiplier = 1.0  # Temperature already in correct scale
+                error_multiplier = 1.0
             else:
                 target_display = target_column.title()
                 error_unit = "units"
                 error_multiplier = 1.0
             
-            if training_method == 'WholeSequenceFNN':
-                # For FNN, use full test data - use ORIGINAL test data for actual values
-                final_df = self.original_test_df.copy()  # Use original (not normalized) data
-                final_df[f'Predicted_{target_display}'] = predictions_final
-                
-                if target_column in final_df.columns:
-                    # Get actual values from ORIGINAL test data (not normalized)
-                    actual_values_original = final_df[target_column].values
-                    # Rename target column to match main loop format  
-                    final_df[f'True_{target_display}'] = actual_values_original
-                    actual_values = actual_values_original  # These are already in original scale
-                    predicted_values = predictions_final   # These are denormalized
-            else:
-                # For RNN, adjust for lookback - use ORIGINAL test data for actual values
-                prediction_start_index = lookback - 1
-                final_df = self.original_test_df.iloc[prediction_start_index:].copy()  # Original test_df
-                final_df = final_df.iloc[:len(predictions_final)]
-                final_df[f'Predicted_{target_display}'] = predictions_final
-                
-                if target_column in final_df.columns:
-                    # Get actual values from ORIGINAL test data (not normalized)
-                    actual_values_original = final_df[target_column].values
-                    # Rename target column to match main loop format
-                    final_df[f'True_{target_display}'] = actual_values_original
-                    actual_values = actual_values_original  # These are already in original scale
-                    predicted_values = predictions_final   # These are denormalized
+            # --- New, unified data alignment logic ---
+            self.progress.emit("  Aligning predictions with original data...")
+            final_df = self.original_test_df.copy()
             
-            # Calculate error in appropriate units (like main loop)
-            if target_column in test_df.columns:
-                errors_raw = predicted_values - actual_values
+            # Initialize actual_values from the full original dataframe
+            if target_column in final_df.columns:
+                actual_values = final_df[target_column].values
+                final_df[f'True_{target_display}'] = actual_values
+            else:
+                actual_values = None
+
+            # Determine where predictions should start
+            if model_type in ['LSTM', 'GRU'] or training_method == 'WholeSequenceFNN':
+                prediction_start_index = 0
+            else: # Sequential FNN
+                prediction_start_index = lookback - 1 if lookback > 0 else 0
+
+            # Create a NaN-filled array for predictions that matches the original df length
+            predictions_aligned = np.full(len(final_df), np.nan)
+
+            # Calculate how many predictions can be placed into the aligned array
+            num_preds_to_place = min(len(predictions_final), len(predictions_aligned) - prediction_start_index)
+            
+            # Place the predictions at the correct starting index
+            if num_preds_to_place > 0:
+                predictions_aligned[prediction_start_index : prediction_start_index + num_preds_to_place] = predictions_final[:num_preds_to_place]
+
+            # Assign the aligned predictions to the dataframe
+            final_df[f'Predicted_{target_display}'] = predictions_aligned
+            predicted_values = predictions_aligned # This array now has NaNs
+
+            # --- End of new logic ---
+
+            # Calculate error and finalize DataFrame for CSV
+            if actual_values is not None and predicted_values is not None:
+                # Important: For metric calculation, we must ignore NaNs
+                # Create a mask for valid (non-NaN) prediction entries
+                valid_indices = ~np.isnan(predicted_values)
+                
+                # Filter both actual and predicted values using the mask
+                actual_values_for_metrics = actual_values[valid_indices]
+                predicted_values_for_metrics = predicted_values[valid_indices]
+
+                # Calculate error for the entire column (with NaNs where appropriate)
+                # Suppress warnings for NaN calculations, as this is expected
+                with np.errstate(invalid='ignore'):
+                    errors_raw = predicted_values - actual_values
                 errors_display = errors_raw * error_multiplier
                 final_df[f'Error ({error_unit})'] = errors_display
                 
-                # Remove the original target column since we renamed it
                 if target_column in final_df.columns and f'True_{target_display}' in final_df.columns:
                     final_df = final_df.drop(columns=[target_column])
                 
-                # Keep only essential columns (like main loop): features, True_X, Predicted_X, Error
-                essential_columns = []
-                
-                # Add feature columns (non-target columns from original data)
-                for col in final_df.columns:
-                    if col not in [f'True_{target_display}', f'Predicted_{target_display}', f'Error ({error_unit})']:
-                        # Keep if it's a feature column (was in original test data)
-                        if col in test_df.columns and col != target_column:
-                            essential_columns.append(col)
-                
-                # Add target and prediction columns in main loop order
+                essential_columns = [col for col in self.original_test_df.columns if col in final_df.columns and col != target_column]
                 essential_columns.extend([f'True_{target_display}', f'Predicted_{target_display}', f'Error ({error_unit})'])
-                
-                # Create clean final DataFrame with only essential columns
-                final_df = final_df[essential_columns]
+                final_df = final_df[[col for col in essential_columns if col in final_df.columns]]
             else:
-                # If no target column, just keep features and predictions
-                essential_columns = []
-                for col in final_df.columns:
-                    if col != f'Predicted_{target_display}':
-                        if col in test_df.columns:
-                            essential_columns.append(col)
-                essential_columns.append(f'Predicted_{target_display}')
-                final_df = final_df[essential_columns]
-                predicted_values = predictions_final
-                actual_values = None
+                actual_values_for_metrics = None # Ensure this is defined
             
-            # Save the clean predictions file (like main loop)
+            # Save predictions file
             predictions_file = os.path.join(test_result_dir, f"{test_file_name}_predictions.csv")
             final_df.to_csv(predictions_file, index=False)
             self.progress.emit(f"  ✓ Predictions saved: {predictions_file}")
             
-            # Calculate error statistics for GUI (keep in memory, don't save extra files)
-            if actual_values is not None:
-                # Calculate comprehensive error metrics (raw values for accurate calculation)
-                mae = np.mean(np.abs(predicted_values - actual_values))
-                mse = np.mean((predicted_values - actual_values) ** 2)
-                rmse = np.sqrt(mse)
-                mape = np.mean(np.abs((actual_values - predicted_values) / np.maximum(1e-10, np.abs(actual_values)))) * 100
-                r2 = 1 - (np.sum((actual_values - predicted_values) ** 2) / np.sum((actual_values - np.mean(actual_values)) ** 2))
-                max_error = np.max(np.abs(predicted_values - actual_values))  # Add max absolute error
-                
-                # Extract training metrics for GUI display
-                training_metrics = self._extract_training_metrics(task_path, task_info)
-                
-                # Get parameter count (exact number, not abbreviated)
-                num_params = hyperparams.get('NUM_LEARNABLE_PARAMS', 'N/A')
-                if isinstance(num_params, (int, float)):
-                    num_params = int(num_params)  # Ensure exact integer
-                
-                # Emit results for GUI display
-                results_data = {
-                    'predictions': predicted_values,
-                    'actual_values': actual_values,
-                    'MAE': mae,
-                    'MSE': mse,
-                    'RMSE': rmse,
-                    'MAPE': mape,
-                    'R²': r2,
-                    'max_error': max_error,  # Add max error for summary
-                    'model_type': model_type,
-                    'architecture': arch_name,
-                    'task': task_name,
-                    'target_column': target_column,
-                    'target_display': target_display,
-                    'error_unit': error_unit,
-                    'model_file_path': model_file,  # Add model file path for training metrics
-                    'test_data_file': self.test_data_path,  # Add test data file path for display
-                    'task_info': task_info,  # Add task info for model parameters
-                    'predictions_file': predictions_file,  # Add file path for plotting
-                    'inference_time': inference_time,
-                    'training_info': training_metrics,  # Include training metrics for GUI
-                    'num_params': num_params  # Add exact parameter count
-                }
-                self.results_ready.emit(results_data)
-                self.progress.emit(f"  ✓ Results: MAE={mae:.4f}, RMSE={rmse:.4f}, R²={r2:.4f}")
-                
-                # Create error statistics for metadata (but don't save separate file)
-                error_stats = {
-                    'mae': mae,
-                    'mse': mse, 
-                    'rmse': rmse,
-                    'mape': mape,
-                    'r2_score': r2,
-                    'samples_count': len(actual_values),
-                    'error_unit': error_unit,
-                    'error_multiplier': error_multiplier
-                }
-            else:
-                # No target column available for error calculation
-                error_stats = {
-                    'mae': 'N/A',
-                    'mse': 'N/A', 
-                    'rmse': 'N/A',
-                    'mape': 'N/A',
-                    'r2_score': 'N/A',
-                    'samples_count': len(predictions_final)
-                }
-                
-                # Still emit results for GUI even without actual values
-                results_data = {
-                    'predictions': predictions_final,
-                    'actual_values': None,
-                    'MAE': 'N/A',
-                    'MSE': 'N/A',
-                    'RMSE': 'N/A',
-                    'MAPE': 'N/A',
-                    'R²': 'N/A',
-                    'model_type': model_type,
-                    'architecture': arch_name,
-                    'task': task_name,
-                    'target_column': target_column,
-                    'target_display': target_display,
-                    'error_unit': error_unit,
-                    'model_file_path': model_file,  # Add model file path for training metrics
-                    'test_data_file': self.test_data_path,  # Add test data file path for display
-                    'task_info': task_info,  # Add task info for model parameters
-                    'predictions_file': predictions_file,  # Add file path for plotting
-                    'inference_time': inference_time,
-                    'training_info': training_metrics
-                }
-                self.results_ready.emit(results_data)
-                
-            # Save essential test metadata
+            # Calculate metrics and emit results for GUI
+            # Use the NaN-filtered arrays for metric calculation
+            mae, mse, rmse, r2, max_error = ('N/A', 'N/A', 'N/A', 'N/A', 'N/A')
+            try:
+                if actual_values_for_metrics is not None and len(actual_values_for_metrics) > 0:
+                    mae = np.mean(np.abs(predicted_values_for_metrics - actual_values_for_metrics))
+                    mse = np.mean((predicted_values_for_metrics - actual_values_for_metrics) ** 2)
+                    rmse = np.sqrt(mse)
+                    r2 = 1 - (np.sum((actual_values_for_metrics - predicted_values_for_metrics) ** 2) / np.sum((actual_values_for_metrics - np.mean(actual_values_for_metrics)) ** 2))
+                    max_error = np.max(np.abs(predicted_values_for_metrics - actual_values_for_metrics))
+            except Exception as e:
+                self.progress.emit(f"  Warning: Could not calculate metrics: {e}")
+
             training_metrics = self._extract_training_metrics(task_path, task_info)
+            num_params = hyperparams.get('NUM_LEARNABLE_PARAMS', 'N/A')
             
-            test_metadata = {
-                'test_type': 'standalone_test',
-                'test_timestamp': self.session_timestamp,
-                'test_file': os.path.basename(self.test_data_path),
-                'architecture': arch_name,
-                'task': task_name,
-                'model_type': model_type,
-                'target_column': target_column,
-                'target_display': target_display,
-                'error_unit': error_unit,
-                'samples_processed': effective_samples,
-                'inference_time_seconds': inference_time,
-                'training_info': training_metrics,
-                'prediction_stats': {
-                    'mean': float(np.mean(predictions_final)),
-                    'std': float(np.std(predictions_final)),
-                    'min': float(np.min(predictions_final)),
-                    'max': float(np.max(predictions_final))
-                }
+            results_data = {
+                'MAE': mae, 'RMSE': rmse, 'R²': r2, 'max_error': max_error,
+                'predictions': predicted_values, # Send the full array with NaNs for plotting
+                'actual_values': actual_values,   # Send the full actuals array for plotting
+                'model_type': model_type, 'architecture': arch_name, 'task': task_name,
+                'target_column': target_column, 'target_display': target_display, 'error_unit': error_unit,
+                'model_file_path': model_file, 'test_data_file': self.test_data_path,
+                'task_info': task_info, 'predictions_file': predictions_file,
+                'inference_time': inference_time, 'training_info': training_metrics,
+                'num_params': int(num_params) if isinstance(num_params, (int, float)) else 'N/A'
             }
+            self.results_ready.emit(results_data)
+            self.progress.emit(f"  ✓ Results: MAE={mae if isinstance(mae, str) else f'{mae:.4f}'}, RMSE={rmse if isinstance(rmse, str) else f'{rmse:.4f}'}, R²={r2 if isinstance(r2, str) else f'{r2:.4f}'}")
             
-            # No individual metadata files needed - consolidated summary will be created by GUI
-            
-            # Display training metrics (like normal tool run)
-            training_history = task_info.get('training_history', {})
-            epochs = training_history.get('epochs_trained', 'N/A')
-            best_train_loss = training_history.get('best_train_loss', 'N/A')
-            best_val_loss = training_history.get('best_val_loss', 'N/A')
-            
-            self.progress.emit(f"  ✓ Training Info - Epochs: {epochs}, Best Train Loss: {best_train_loss}, Best Val Loss: {best_val_loss}")
+            # Display training metrics
+            training_metrics = self._extract_training_metrics(task_path, task_info)
+            self.progress.emit(f"  ✓ Training Info - Epochs: {training_metrics.get('epochs_trained', 'N/A')}, Best Train Loss: {training_metrics.get('best_train_loss', 'N/A')}, Best Val Loss: {training_metrics.get('best_val_loss', 'N/A')}")
             self.progress.emit(f"  ✓ Results saved to: {test_result_dir}")
             self.progress.emit(f"  ✓ Processing time: {time.time() - start_time:.2f}s")
             
@@ -745,6 +699,17 @@ class VEstimStandaloneTestingManager(QObject):
         except Exception as e:
             self.progress.emit(f"  ✗ Error: {e}")
             return False
+        finally:
+            # Aggressively clean up memory after each model test
+            del model
+            if 'X_test' in locals(): del X_test
+            if 'predictions_normalized' in locals(): del predictions_normalized
+            if 'predictions_final' in locals(): del predictions_final
+            if 'torch' in sys.modules and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+            task_name = task_info.get('task_name', 'Unknown')
+            self.progress.emit(f"  ✓ Cleaned up memory for task {task_name}")
 
     def _extract_training_metrics(self, task_path, task_info):
         """Extract training metrics from training logs and task results."""
@@ -773,7 +738,7 @@ class VEstimStandaloneTestingManager(QObject):
             
             if os.path.exists(training_csv):
                 try:
-                    df = pd.read_csv(training_csv)
+                    df = pd.read_csv(training_csv, comment='#', on_bad_lines='warn', engine='python')
                     if not df.empty:
                         training_metrics['epochs_trained'] = int(df['epoch'].max())
                         training_metrics['final_train_loss'] = float(df['train_loss_norm'].iloc[-1])

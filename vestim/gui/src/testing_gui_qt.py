@@ -784,7 +784,10 @@ class VEstimTestingGUI(QMainWindow):
             self.logger.error(f"Error during automatic data cleanup: {e}", exc_info=True)
 
     def export_to_csv(self):
-        save_path = os.path.join(self.job_manager.get_job_folder(), "test_results_summary.csv")
+        job_folder = self.job_manager.get_job_folder()
+        job_name = os.path.basename(job_folder) if job_folder else "job"
+        file_name = f"test_results_summary_{job_name}.csv"
+        save_path = os.path.join(job_folder, file_name)
         summary_data = self.testing_manager.get_results_summary()
         if not summary_data:
             self.logger.warning("No summary data to export.")

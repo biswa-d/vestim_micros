@@ -411,7 +411,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 border: none;
             }
         """)
-        self.results_table.setItemWidget(placeholder_item, 8, plot_button)
+        self.results_table.setItemWidget(placeholder_item, 11, plot_button)
     
     def update_table_headers_for_target(self, target_column):
         """Update table headers based on target column type"""
@@ -518,21 +518,17 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 self.results_table.addTopLevelItem(row)
                 
                 # Recreate button widget
-                button_widget = QWidget()
-                button_layout = QHBoxLayout(button_widget)
-                button_layout.setContentsMargins(4, 0, 4, 0)
-                plot_button = QPushButton("Plot")
+                plot_button = QPushButton("Plot", self.results_table)
                 plot_button.setStyleSheet("background-color: #663399; color: white; font-weight: bold; padding: 5px 15px; border-radius: 3px; border: none;")
                 
-                if item_data['plot_data']:
-                    plot_data = item_data['plot_data']
+                plot_data = item_data.get('plot_data')
+                if plot_data and plot_data.get('predictions_file') and os.path.exists(plot_data['predictions_file']):
                     plot_button.clicked.connect(lambda checked, p=plot_data: self.show_model_plot(p))
                 else:
                     plot_button.setDisabled(True)
                     plot_button.setToolTip("Predictions file not found")
                 
-                button_layout.addWidget(plot_button)
-                self.results_table.setItemWidget(row, 11, button_widget)
+                self.results_table.setItemWidget(row, 11, plot_button)
             
             # Re-apply filters after sorting
             self.apply_filters()
@@ -628,9 +624,13 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             item.setText(9, max_error_display)                         # Test MAXE (mV)
             item.setText(10, r2_display)                               # R2
 
+            self.results_table.addTopLevelItem(item)
+
             # Create and set plot button
-            plot_button = QPushButton("Plot")
+            plot_button = QPushButton("Plot", self.results_table)
             plot_button.setStyleSheet("background-color: #663399; color: white; font-weight: bold; padding: 5px 15px; border-radius: 3px; border: none;")
+            
+            # Ensure plot_data is always created
             plot_data = {
                 'predictions_file': result.get('predictions_file', ''),
                 'model_info': f"{architecture}/{task}",
@@ -639,13 +639,20 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 'error_unit': error_unit,
                 'metrics': {'RMSE': rmse, 'MAXE': max_error, 'R2': r2}
             }
-            plot_button.clicked.connect(lambda: self.show_model_plot(plot_data))
-            self.results_table.setItemWidget(item, 11, plot_button)  # Column 11 for Plot
+
+            # Set the widget for the item AFTER adding the item to the tree
+            self.results_table.setItemWidget(item, 11, plot_button)
+
+            # Check if the predictions file exists before enabling the button
+            predictions_file = plot_data.get('predictions_file')
+            if predictions_file and os.path.exists(predictions_file):
+                plot_button.clicked.connect(lambda checked, p=plot_data: self.show_model_plot(p))
+            else:
+                plot_button.setDisabled(True)
+                plot_button.setToolTip("Predictions file not found or not yet generated.")
             
             # Store result for consolidated summary
             self.store_result_for_summary(result, rmse, max_error, r2, error_unit, train_loss, val_loss, epochs_trained, model_params)
-            
-            self.results_table.addTopLevelItem(item)
 
             # Store item DATA (not Qt objects) for filtering/sorting
             item_data = {
@@ -912,7 +919,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             # Store reference to prevent garbage collection
             self._plot_window = plot_window
             
-
+            
             
         except ImportError:
             print("[ERROR] Matplotlib is required for plotting. Please install it with: pip install matplotlib")
@@ -974,7 +981,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 return None
             
             # Read the training progress CSV
-            df = pd.read_csv(training_csv_path, comment='#')  # Handle comment lines
+            df = pd.read_csv(training_csv_path, comment='#', on_bad_lines='warn', engine='python')
             print(f"[DEBUG] Training progress CSV loaded with {len(df)} rows")
             
             if len(df) > 0:
@@ -1230,10 +1237,10 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 # Get testing metrics
                 mae = result.get('mae', float('nan'))
                 mse = result.get('mse', float('nan'))
-                rmse = result.get('rmse', float('nan'))
+                rmse = result.get('rmse_unconverted', float('nan'))
                 mape = result.get('mape', float('nan'))
                 r2 = result.get('r2', float('nan'))
-                max_error = result.get('max_error', float('nan'))
+                max_error = result.get('max_error_unconverted', float('nan'))
                 
                 # Apply unit conversion to test metrics (same as GUI logic)
                 if "voltage" in target_column.lower():

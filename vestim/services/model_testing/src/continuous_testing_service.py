@@ -363,15 +363,15 @@ class ContinuousTestingService:
             print(f"Loaded scaler from {scaler_path}")
             print(f"DEBUG - Scaler details:")
             print(f"  Type: {type(scaler)}")
-            print(f"  Feature names: {list(scaler.feature_names_in_) if hasattr(scaler, 'feature_names_in_') else 'None'}")
-            if hasattr(scaler, 'data_min_') and hasattr(scaler, 'data_max_'):
-                print(f"  data_min_: {scaler.data_min_}")
-                print(f"  data_max_: {scaler.data_max_}")
-            if hasattr(scaler, 'feature_range'):
-                print(f"  feature_range: {scaler.feature_range}")
-            if hasattr(scaler, 'mean_') and hasattr(scaler, 'scale_'):
-                print(f"  mean_: {scaler.mean_}")
-                print(f"  scale_: {scaler.scale_}")
+            print(f"  Feature names: {list(self.scaler.feature_names_in_) if hasattr(self.scaler, 'feature_names_in_') else 'None'}")
+            if hasattr(self.scaler, 'data_min_') and hasattr(self.scaler, 'data_max_'):
+                print(f"  data_min_: {self.scaler.data_min_}")
+                print(f"  data_max_: {self.scaler.data_max_}")
+            if hasattr(self.scaler, 'feature_range'):
+                print(f"  feature_range: {self.scaler.feature_range}")
+            if hasattr(self.scaler, 'mean_') and hasattr(self.scaler, 'scale_'):
+                print(f"  mean_: {self.scaler.mean_}")
+                print(f"  scale_: {self.scaler.scale_}")
             return scaler
             
         except Exception as e:
