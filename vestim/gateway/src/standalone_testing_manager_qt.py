@@ -30,6 +30,7 @@ class VEstimStandaloneTestingManager(QObject):
         self.data_augment_service = DataAugmentService()
         self.test_df = None
         self.overall_results = {}
+        self.padding_length = 0
     
     def start(self):
         """Start the testing process (called by test selection GUI)"""
@@ -244,6 +245,7 @@ class VEstimStandaloneTestingManager(QObject):
                 metadata = json.load(f)
             
             result_df = df.copy()
+            self.padding_length = 0
             
             # Apply resampling if needed
             resampling_info = metadata.get('resampling', {})
@@ -254,10 +256,12 @@ class VEstimStandaloneTestingManager(QObject):
             # Apply padding if needed
             padding_info = metadata.get('padding', {})
             if padding_info.get('applied', False):
-                self.progress.emit(f"Applying padding (length: {padding_info.get('length')})...")
+                padding_length = padding_info.get('length', 0)
+                self.padding_length = padding_length
+                self.progress.emit(f"Applying padding (length: {padding_length})...")
                 result_df = self.data_augment_service.pad_data(
-                    result_df, 
-                    padding_info.get('length'),
+                    result_df,
+                    padding_length,
                     resample_freq_for_time_padding=padding_info.get('resampling_frequency_for_padding')
                 )
             
@@ -550,6 +554,15 @@ class VEstimStandaloneTestingManager(QObject):
             # Ensure predictions are numpy array for subsequent processing
             if isinstance(predictions_normalized, torch.Tensor):
                 predictions_normalized = predictions_normalized.cpu().numpy()
+
+            # Remove padding from predictions if it was applied
+            if hasattr(self, 'padding_length') and self.padding_length > 0:
+                if len(predictions_normalized) > self.padding_length:
+                    self.progress.emit(f"  Removing {self.padding_length} padding predictions...")
+                    predictions_normalized = predictions_normalized[self.padding_length:]
+                    self.progress.emit(f"  ✓ Padding removed.")
+                else:
+                    self.progress.emit(f"  Warning: Predictions length ({len(predictions_normalized)}) is less than padding ({self.padding_length}). Cannot remove padding.")
             
             inference_time = time.time() - start_time
             

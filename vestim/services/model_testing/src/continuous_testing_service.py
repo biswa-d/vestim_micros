@@ -169,13 +169,21 @@ class ContinuousTestingService:
             else:
                 print("Using processed data (no normalization was applied during data augmentation)")
             
-            # ALWAYS add warmup samples for EVERY file since each file is an independent drive cycle
-            # Each test file starts fresh at ~100% SOC, so the model needs to warm up its hidden states
-            # before making predictions, regardless of whether it's the first file or not.
-            print(f"Adding {warmup_samples} warmup samples for test file (independent drive cycle)")
-            first_row = df_scaled.iloc[0]
-            df_warmup = pd.DataFrame([first_row] * warmup_samples, columns=df_scaled.columns)
-            df_test_full = pd.concat([df_warmup, df_scaled], ignore_index=True)
+            # Conditionally add warmup samples only for RNN-based models
+            df_test_full = df_scaled
+            if model_type != 'FNN':
+                # Each test file starts fresh at ~100% SOC, so the model needs to warm up its hidden states
+                # before making predictions, regardless of whether it's the first file or not.
+                print(f"Adding {warmup_samples} warmup samples for {model_type} model (independent drive cycle)")
+                if not df_scaled.empty:
+                    first_row = df_scaled.iloc[0]
+                    df_warmup = pd.DataFrame([first_row] * warmup_samples, columns=df_scaled.columns)
+                    df_test_full = pd.concat([df_warmup, df_scaled], ignore_index=True)
+                else:
+                    print("Warning: Test data is empty, cannot add warmup samples.")
+            else:
+                print("Skipping warmup samples for FNN model.")
+                warmup_samples = 0  # Do not use warmup for FNN models
             
             # Convert to tensor - each sample as a single timestep
             print(f"DEBUG: Creating X_all tensor on device: {self.device}")
