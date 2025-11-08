@@ -610,8 +610,8 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             item.setText(4, str(model_params))                         # #W&Bs
             
             # Format and set metrics
-            train_display = f"{train_loss:.2f} {train_unit}" if isinstance(train_loss, (int, float)) else "N/A"
-            val_display = f"{val_loss:.2f} {val_unit}" if isinstance(val_loss, (int, float)) else "N/A"
+            train_display = f"{train_loss:.2f}" if isinstance(train_loss, (int, float)) else "N/A"
+            val_display = f"{val_loss:.2f}" if isinstance(val_loss, (int, float)) else "N/A"
             epochs_display = str(epochs_trained) if epochs_trained != 'N/A' else "N/A"
             item.setText(5, train_display)                             # Best Train Loss
             item.setText(6, val_display)                               # Best Valid Loss
@@ -1155,44 +1155,41 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             return None
     
     def save_plot(self, fig, predictions_file):
-        """Save plot to test_results directory structure exactly like main testing loop"""
+        """Save plot to a 'plots' subdirectory within the standalone test results folder."""
         try:
             from PyQt5.QtWidgets import QFileDialog
-            import datetime
             
-            # Create test results directory structure like main testing loop
-            job_folder = os.path.dirname(os.path.dirname(predictions_file))  # Go up from model dir
-            test_results_dir = os.path.join(job_folder, 'test_results')
+            # The predictions file is in the 'new_test_result_{session_timestamp}' directory.
+            # We want to create a 'plots' folder inside that same directory.
+            test_result_dir = os.path.dirname(predictions_file)
+            plots_dir = os.path.join(test_result_dir, 'plots')
             
-            # Create timestamped results directory
-            timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-            timestamped_dir = os.path.join(test_results_dir, f'new_test_results_{timestamp}')
-            plots_dir = os.path.join(timestamped_dir, 'plots')
-            
-            # Create directories if they don't exist
+            # Create the plots directory if it doesn't exist
             os.makedirs(plots_dir, exist_ok=True)
             
-            # Generate default filename
+            # Generate a default filename for the plot
             file_name = os.path.splitext(os.path.basename(predictions_file))[0]
-            default_filename = f"{file_name}_test_plot.png"
+            default_filename = f"{file_name}_plot.png"
             default_path = os.path.join(plots_dir, default_filename)
             
-            # Show save dialog with default path in plots directory
+            # Show the save file dialog
             save_path, _ = QFileDialog.getSaveFileName(
-                self, "Save Plot", default_path, 
+                self, "Save Plot", default_path,
                 "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
             )
             
             if save_path:
-                # Ensure the directory exists for the chosen path
+                # Ensure the directory exists for the chosen path (user might navigate elsewhere)
                 save_dir = os.path.dirname(save_path)
                 os.makedirs(save_dir, exist_ok=True)
                 
                 # Save with high quality
-                fig.savefig(save_path, dpi=300, bbox_inches='tight', 
+                fig.savefig(save_path, dpi=300, bbox_inches='tight',
                           facecolor='white', edgecolor='none')
                 
-                rel_path = os.path.relpath(save_path, job_folder)
+                # Use the job folder path for a cleaner relative path in the log
+                job_folder = self.job_folder_path
+                rel_path = os.path.relpath(save_path, job_folder) if job_folder and job_folder in save_path else save_path
                 print(f"[PLOT SAVED] Plot saved successfully to: {rel_path}")
                 
         except Exception as e:

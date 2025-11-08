@@ -255,6 +255,17 @@ def display_hyperparameters(gui, params):
             except (ValueError, TypeError):
                 value_str = str(value)
         
+        # Consistent formatting for architecture parameters
+        is_arch_param = param in ['HIDDEN_LAYER_SIZES', 'FNN_HIDDEN_LAYERS', 'RNN_LAYER_SIZES']
+        if is_arch_param:
+            if isinstance(value, list):
+                # Handles cases where it's already a list (e.g., from task_info.json)
+                value_str = f"[{', '.join(map(str, value))}]"
+            elif isinstance(value, str):
+                # Handles string representations (e.g., from user input in setup GUI)
+                # This makes "128, 64" or "32,16,10" display as "[128, 64]" etc.
+                value_str = f"[{value}]"
+
         # Truncate very long parameter values to prevent GUI distortion
         MAX_DISPLAY_LENGTH = 60
         if len(value_str) > MAX_DISPLAY_LENGTH:

@@ -51,7 +51,19 @@ class VEstimStandaloneTestingManager(QObject):
                 self.job_metadata = json.load(f)
 
             self.progress.emit(f"Loading test data from {os.path.basename(self.test_data_path)}...")
-            self.test_df = pd.read_csv(self.test_data_path)
+            
+            # Add support for different file types
+            file_extension = os.path.splitext(self.test_data_path)[1].lower()
+            if file_extension == '.csv':
+                self.test_df = pd.read_csv(self.test_data_path)
+            elif file_extension in ['.xlsx', '.xls']:
+                self.test_df = pd.read_excel(self.test_data_path, sheet_name=0) # Default to first sheet
+            else:
+                # Fallback or error
+                self.error.emit(f"Unsupported file type: {file_extension}. Please use .csv or .xlsx.")
+                self.finished.emit()
+                return
+
             self.original_test_df = self.test_df.copy()  # Store original for later saving
             
             # Try to automatically apply augmentation steps
@@ -619,9 +631,20 @@ class VEstimStandaloneTestingManager(QObject):
                 actual_values = None
 
             # Determine where predictions should start
-            if model_type in ['LSTM', 'GRU'] or training_method == 'WholeSequenceFNN':
+            # Determine where predictions should start, now accounting for padding
+            padding_offset = self.padding_length if hasattr(self, 'padding_length') else 0
+
+            if model_type in ['LSTM', 'GRU']:
+                # For RNNs, warmup is handled during inference, so predictions start at index 0 of the original data
                 prediction_start_index = 0
-            else: # Sequential FNN
+            elif training_method == 'WholeSequenceFNN':
+                # Predictions align with original data after padding is removed, so start at 0
+                prediction_start_index = 0
+            else:  # Sequential FNN
+                # The first valid prediction corresponds to the end of the first sequence
+                # that is completely free of padded data.
+                # This is at `padding_length + lookback - 1` in the padded data,
+                # which corresponds to `lookback - 1` in the original data.
                 prediction_start_index = lookback - 1 if lookback > 0 else 0
 
             # Create a NaN-filled array for predictions that matches the original df length
