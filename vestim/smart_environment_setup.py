@@ -759,7 +759,8 @@ class SmartEnvironmentSetup:
             "tqdm>=4.66.5",
             "psutil>=6.0.0",
             "pillow>=10.4.0",
-            "joblib>=1.4.2"
+            "joblib>=1.4.2",
+            "openpyxl>=3.1.2"
         ]
         
         try:
