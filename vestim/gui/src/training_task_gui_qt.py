@@ -130,7 +130,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.main_layout = QVBoxLayout()
 
         # Title Label with dynamic model type
-        model_type = self.params.get("MODEL_TYPE", "Model")  # Get model type from params
+        model_type = task['hyperparams'].get("MODEL_TYPE", "Model")
         
         # Use the enhanced device name from task creation (CURRENT_DEVICE) or fallback to DEVICE_SELECTION
         device_name = task['hyperparams'].get('CURRENT_DEVICE', task['hyperparams'].get('DEVICE_SELECTION', "Device"))
@@ -212,7 +212,20 @@ class VEstimTrainingTaskGUI(QMainWindow):
         """)
         self.hyperparam_frame.setLayout(QVBoxLayout())
         self.main_layout.addWidget(self.hyperparam_frame)
-        self.display_hyperparameters(task['hyperparams'])
+        params_to_display = {}
+        # Prioritize keys from param_labels to ensure consistent order and relevance
+        for key in self.param_labels.keys():
+            if key in task['hyperparams']:
+                params_to_display[key] = task['hyperparams'][key]
+        
+        # Add any other important parameters that might not be in param_labels
+        for key, value in task['hyperparams'].items():
+            if key not in params_to_display:
+                # Add other relevant keys like NUM_LEARNABLE_PARAMS if they exist
+                if key in ["NUM_LEARNABLE_PARAMS", "CURRENT_DEVICE"]:
+                    params_to_display[key] = value
+        
+        self.display_hyperparameters(params_to_display)
 
         # Status Label
         self.status_label = QLabel("Starting training...")
