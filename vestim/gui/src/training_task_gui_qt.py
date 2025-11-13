@@ -212,20 +212,7 @@ class VEstimTrainingTaskGUI(QMainWindow):
         """)
         self.hyperparam_frame.setLayout(QVBoxLayout())
         self.main_layout.addWidget(self.hyperparam_frame)
-        params_to_display = {}
-        # Prioritize keys from param_labels to ensure consistent order and relevance
-        for key in self.param_labels.keys():
-            if key in task['hyperparams']:
-                params_to_display[key] = task['hyperparams'][key]
-        
-        # Add any other important parameters that might not be in param_labels
-        for key, value in task['hyperparams'].items():
-            if key not in params_to_display:
-                # Add other relevant keys like NUM_LEARNABLE_PARAMS if they exist
-                if key in ["NUM_LEARNABLE_PARAMS", "CURRENT_DEVICE"]:
-                    params_to_display[key] = value
-        
-        self.display_hyperparameters(params_to_display)
+        self.display_hyperparameters(task['hyperparams'])
 
         # Status Label
         self.status_label = QLabel("Starting training...")
