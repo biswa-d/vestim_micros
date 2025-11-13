@@ -1,0 +1,16 @@
+{
+    "filter_configs": [],
+    "column_formulas": [],
+    "noise_configs": [],
+    "resampling": {
+        "enabled": false,
+        "frequency": "0.1Hz"
+    },
+    "padding": {
+        "enabled": false,
+        "length": 10
+    },
+    "normalization": {
+        "enabled": true
+    }
+}

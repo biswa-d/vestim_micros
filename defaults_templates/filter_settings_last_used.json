@@ -1,1 +1,1 @@
-[{"column": "Current", "output_column_name": "I_filtered_1", "corner_frequency": 0.001, "sampling_rate": 1.0, "filter_order": 1}, {"column": "Voltage", "output_column_name": "V_filtered_1", "corner_frequency": 0.001, "sampling_rate": 1.0, "filter_order": 1}]
+[{"column": "Power", "output_column_name": "P_filtered_10", "corner_frequency": 0.01, "sampling_rate": 1.0, "filter_order": 1}, {"column": "Power", "output_column_name": "P_filtered_1", "corner_frequency": 0.001, "sampling_rate": 1.0, "filter_order": 1}]

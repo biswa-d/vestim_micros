@@ -272,7 +272,8 @@ class VEstimHyperParamManager:
                 # Model-type aware parameter validation
                 integer_params = ['BATCH_SIZE', 'MAX_EPOCHS', 'LR_DROP_PERIOD',
                                 'VALID_PATIENCE', 'VALID_FREQUENCY', 'REPETITIONS',
-                                'MAX_TRAIN_HOURS', 'MAX_TRAIN_MINUTES', 'MAX_TRAIN_SECONDS']
+                                'MAX_TRAIN_HOURS', 'MAX_TRAIN_MINUTES', 'MAX_TRAIN_SECONDS',
+                                'EXPLOIT_REPETITIONS', 'EXPLOIT_EPOCHS']
                 
                 # Add model-specific integer parameters
                 if model_type in ['LSTM', 'GRU']:
@@ -309,7 +310,7 @@ class VEstimHyperParamManager:
                             self.logger.error(f"Invalid integer value for {key}: {value}")
                             raise ValueError(f"Invalid value for {key}: Expected integers, got {value}")
 
-                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB', 'LR_PARAM', 'PLATEAU_FACTOR', 'FNN_DROPOUT_PROB']:
+                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB', 'LR_PARAM', 'PLATEAU_FACTOR', 'FNN_DROPOUT_PROB', 'EXPLOIT_LR', 'FINAL_LR']:
                     # Check if it's boundary format [min,max] first
                     if value.strip().startswith('[') and value.strip().endswith(']'):
                         # Boundary format validation for Optuna
@@ -453,6 +454,11 @@ class VEstimHyperParamManager:
             'COSINE_T0': {'type': 'int', 'min': 1},
             'COSINE_T_MULT': {'type': 'int', 'min': 1},
             'COSINE_ETA_MIN': {'type': 'float', 'min': 0.0},
+            # Exploit phase
+            'EXPLOIT_REPETITIONS': {'type': 'int', 'min': 0},
+            'EXPLOIT_EPOCHS': {'type': 'int', 'min': 0},
+            'EXPLOIT_LR': {'type': 'float', 'min': 1e-12},
+            'FINAL_LR': {'type': 'float', 'min': 0.0},
             # Device and data loading
             'NUM_WORKERS': {'type': 'int', 'min': 0},
             'PREFETCH_FACTOR': {'type': 'int', 'min': 1},
