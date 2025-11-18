@@ -412,11 +412,12 @@ class DataAugmentGUI(QMainWindow):
                 self.logger.error(f"Error saving filter settings: {e}", exc_info=True)
 
     def save_filter_settings_last_used(self):
-        if self.last_used_settings_file and self.filter_configs:
+        if self.last_used_settings_file:
             try:
                 os.makedirs(os.path.dirname(self.last_used_settings_file), exist_ok=True)
+                settings_to_save = self.filter_configs if self.filtering_checkbox.isChecked() else []
                 with open(self.last_used_settings_file, "w") as f:
-                    json.dump(self.filter_configs, f)
+                    json.dump(settings_to_save, f)
                 self.logger.info(f"Saved last used filter settings to {self.last_used_settings_file}")
             except Exception as e:
                 self.logger.error(f"Error saving last used filter settings: {e}", exc_info=True)
@@ -905,8 +906,8 @@ class DataAugmentGUI(QMainWindow):
         padding_length = self.padding_length_spinbox.value() if self.padding_checkbox.isChecked() else 0
         resampling_frequency = self.frequency_combo.currentText() if self.resampling_checkbox.isChecked() else None
         column_formulas = self.created_columns if self.column_creation_checkbox.isChecked() else None
-        filter_configs = self.filter_configs if self.filter_configs else None
-        noise_configs = self.noise_configs if self.noise_configs else None
+        filter_configs = self.filter_configs if self.filtering_checkbox.isChecked() else None
+        noise_configs = self.noise_configs if self.noise_injection_checkbox.isChecked() else None
         normalize_data_flag = self.normalization_checkbox.isChecked()
 
         self.augmentation_thread = QThread()
@@ -1065,6 +1066,9 @@ class DataAugmentGUI(QMainWindow):
         except Exception as e:
             self.logger.error(f"Error reading last used filter settings file: {e}")
             return
+        
+        if not loaded_settings:
+            self.filtering_checkbox.setChecked(False)
 
         if not self.train_df is None:
             available_columns = self.train_df.columns.tolist()

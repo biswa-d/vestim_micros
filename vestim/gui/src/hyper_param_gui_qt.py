@@ -1345,6 +1345,11 @@ class VEstimHyperParamGUI(QWidget):
         self.update_training_method() # FIXED:This will also handle batch size visibility
 
         # FIXED:Populate Max Training Time H, M, S fields from MAX_TRAINING_TIME_SECONDS
+        if "EXPLOIT_REPETITIONS" in self.params:
+            self.exploit_repetitions_entry.setText(str(self.params["EXPLOIT_REPETITIONS"]))
+        if "EXPLOIT_LR" in self.params:
+            self.exploit_lr_entry.setText(str(self.params["EXPLOIT_LR"]))
+            
         if "MAX_TRAINING_TIME_SECONDS" in self.params:
             try:
                 total_seconds = int(self.params["MAX_TRAINING_TIME_SECONDS"])

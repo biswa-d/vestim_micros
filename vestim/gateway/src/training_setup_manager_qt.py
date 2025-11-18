@@ -402,8 +402,8 @@ class VEstimTrainingSetupManager:
         job_normalization_metadata = self.load_job_normalization_metadata()
         max_training_time_seconds_arg = self.params.get('MAX_TRAINING_TIME_SECONDS', 0)
 
-        # Define parameters that can be grid-searched, excluding those handled by model building
-        grid_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'LR_PARAM', 'LR_PERIOD', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'BATCH_SIZE', 'OPTIMIZER_TYPE']
+        # Define parameters that can be grid-searched, including LOOKBACK for sequence length
+        grid_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'LR_PARAM', 'LR_PERIOD', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'BATCH_SIZE', 'OPTIMIZER_TYPE', 'LOOKBACK']
         
         param_grid = {}
         for key in grid_keys:
