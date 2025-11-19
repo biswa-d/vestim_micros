@@ -1344,11 +1344,34 @@ class VEstimHyperParamGUI(QWidget):
         self.update_scheduler_settings()
         self.update_training_method() # FIXED:This will also handle batch size visibility
 
+        # CRITICAL FIX: Re-apply loaded parameters AFTER update methods that recreate widgets
+        # update_model_params() and update_scheduler_settings() recreate widgets, losing loaded values
+        # This second pass ensures RNN_LAYER_SIZES, LR params, etc. reflect loaded JSON values
+        for param_name, entry in list(self.param_entries.items()):
+            if param_name in self.params:
+                value = self.params[param_name]
+                if isinstance(entry, QLineEdit):
+                    entry.setText(str(value))
+                elif isinstance(entry, QComboBox):
+                    index = entry.findText(str(value))
+                    if index != -1:
+                        entry.setCurrentIndex(index)
+
         # FIXED:Populate Max Training Time H, M, S fields from MAX_TRAINING_TIME_SECONDS
         if "EXPLOIT_REPETITIONS" in self.params:
             self.exploit_repetitions_entry.setText(str(self.params["EXPLOIT_REPETITIONS"]))
         if "EXPLOIT_LR" in self.params:
             self.exploit_lr_entry.setText(str(self.params["EXPLOIT_LR"]))
+        
+        # CRITICAL FIX: Explicitly update REPETITIONS (may be cleared by update methods)
+        if "REPETITIONS" in self.params:
+            if hasattr(self, 'repetitions_entry'):
+                self.repetitions_entry.setText(str(self.params["REPETITIONS"]))
+        
+        # CRITICAL FIX: Explicitly update INITIAL_LR (may be cleared by update methods)
+        if "INITIAL_LR" in self.params:
+            if hasattr(self, 'initial_lr_entry'):
+                self.initial_lr_entry.setText(str(self.params["INITIAL_LR"]))
             
         if "MAX_TRAINING_TIME_SECONDS" in self.params:
             try:

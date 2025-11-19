@@ -78,7 +78,7 @@ def train_one_task(task_cfg, progress_queue=None, job_folder=None, global_params
             })
         
         print(f"\n[PROCESS SUCCESS] Task {task_id} completed successfully | PID: {pid}")
-            
+    
     except Exception as e:
         print(f"\n[PROCESS ERROR] Task {task_id} failed | PID: {pid} | Error: {e}", file=sys.stderr)
         if progress_queue is not None:
@@ -109,6 +109,85 @@ def train_one_task(task_cfg, progress_queue=None, job_folder=None, global_params
         print(f"\n{'='*80}")
         print(f"[PROCESS END] Task {task_id} | PID: {pid} | Process will now terminate")
         print(f"{'='*80}\n")
+
+
+def train_one_task_optuna(task_cfg, progress_queue, result_queue, job_folder, global_params, trial_number):
+    """
+    Top-level function for running ONE Optuna trial in a completely isolated subprocess.
+    
+    This function MUST be at module level (not nested) for multiprocessing.spawn to work.
+    Each Optuna trial runs in its own process, ensuring complete resource cleanup after
+    the trial completes. This prevents "too many open files" errors during multi-trial
+    optimization (e.g., 50 trials = 50 clean process lifecycles).
+    
+    Architecture mirrors train_one_task() but sends results via result_queue instead of
+    storing in training_results dict (since each trial is isolated).
+    """
+    import sys
+    import platform
+    
+    task_id = task_cfg.get('task_id', 'unknown')
+    pid = os.getpid()
+    print(f"\n{'='*80}")
+    print(f"[OPTUNA PROCESS START] Trial {trial_number} | Task {task_id} | PID: {pid}")
+    print(f"{'='*80}\n")
+    
+    # Increase file descriptor limit on Linux
+    if platform.system() == "Linux":
+        try:
+            import resource
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            target = 8192
+            new_soft = min(max(soft, target), hard)
+            if new_soft != soft:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
+        except Exception as e:
+            print(f"[WARN] Could not adjust RLIMIT_NOFILE: {e}", file=sys.stderr)
+
+    # Reconstruct JobManager
+    job_manager = JobManager()
+    if job_folder:
+        job_manager.job_id = os.path.basename(job_folder)
+    
+    task_manager = TrainingTaskManager(job_manager=job_manager, global_params=global_params)
+    
+    try:
+        # Run Optuna training task
+        task_manager.process_task_with_queue(task_cfg, progress_queue)
+        
+        # Extract results and send via result_queue
+        final_results = task_cfg.get('results', {})
+        best_val_loss = final_results.get('best_validation_loss_normalized', float('inf'))
+        
+        result_data = {
+            'best_validation_loss': best_val_loss,
+            'pruned': False,
+            'trial_number': trial_number
+        }
+        
+        if result_queue is not None:
+            result_queue.put(result_data)
+            print(f"[OPTUNA SUBPROCESS] Trial {trial_number} result sent: {best_val_loss:.6f}")
+        
+        print(f"\n[OPTUNA PROCESS SUCCESS] Trial {trial_number} completed | PID: {pid}")
+        sys.exit(0)
+        
+    except Exception as e:
+        print(f"\n[OPTUNA PROCESS ERROR] Trial {trial_number} failed | PID: {pid}", file=sys.stderr)
+        print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        
+        # Send error result
+        if result_queue is not None:
+            result_queue.put({
+                'best_validation_loss': float('inf'),
+                'pruned': False,
+                'trial_number': trial_number,
+                'error': str(e)
+            })
+        
+        sys.exit(1)
 
 
 def format_time(seconds):

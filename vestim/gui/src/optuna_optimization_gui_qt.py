@@ -20,6 +20,8 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QObject
 from PyQt5.QtGui import QIcon, QFont
+import multiprocessing as mp
+import queue as pyqueue
 
 try:
     import optuna
@@ -51,7 +53,6 @@ class OptunaOptimizationThread(QThread):
         self.study = None
         self.should_stop = False
         self.completed_trials_data = []
-        self.current_task_manager = None
         self.pruning_initiated = False
         
         # Extract parameter ranges in boundary format [min,max]
@@ -293,12 +294,20 @@ class OptunaOptimizationThread(QThread):
     
     def _evaluate_params(self, params, trial):
         """
-        Evaluate parameters by running a full, robust training task for a single configuration.
-        This now uses the main application's TrainingTaskManager to ensure a perfect simulation.
-        """
-        self.log_message.emit(f"--- Evaluating Trial {trial.number} ---")
+        Evaluate parameters by running a full training task in an ISOLATED SUBPROCESS.
         
-        from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
+        Architecture for Optuna (matching regular training):
+        - Each trial spawns a separate child process
+        - Process runs train_one_task_optuna() in complete isolation
+        - After trial completes, process terminates and cleans up ALL resources
+        - Prevents "too many open files" error during multi-trial optimization
+        
+        This ensures that 50 Optuna trials = 50 clean process lifecycles, not 200+ 
+        accumulated DataLoader workers in a single thread.
+        """
+        self.log_message.emit(f"--- Evaluating Trial {trial.number} in isolated subprocess ---")
+        
+        from vestim.gateway.src.training_task_manager_qt import train_one_task_optuna
         from vestim.services.model_training.src.training_task_service import TrainingTaskService
 
         try:
@@ -354,7 +363,6 @@ class OptunaOptimizationThread(QThread):
                 'model': model,
                 'hyperparams': params,
                 'optuna_trial': trial,
-                'log_callback': self.log_message.emit,
                 'normalization_applied': self.params.get('normalization_applied', False),
                 'job_folder_augmented_from': self.job_manager.get_job_folder(),
                 'data_loader_params': data_loader_params,
@@ -366,21 +374,73 @@ class OptunaOptimizationThread(QThread):
                 'results': {}
             }
 
-            task_manager = TrainingTaskManager(global_params=self.params)
+            # Spawn isolated subprocess for this trial (prevents resource accumulation)
+            ctx = mp.get_context("spawn")
+            progress_queue = ctx.Queue()
+            result_queue = ctx.Queue()  # For receiving trial result
             
-            class SignalEmitter(QObject):
-                progress_signal = pyqtSignal(dict)
+            self.log_message.emit(f"Spawning subprocess for Optuna trial {trial.number}...")
             
-            emitter = SignalEmitter()
-            
-            self.current_task_manager = task_manager
-            try:
-                task_manager.process_task(training_task, emitter.progress_signal)
-            finally:
-                self.current_task_manager = None
+            p = ctx.Process(
+                target=train_one_task_optuna,
+                args=(
+                    training_task,
+                    progress_queue,
+                    result_queue,
+                    self.job_manager.get_job_folder(),
+                    self.params,
+                    trial.number  # Pass trial number for pruning checks
+                )
+            )
+            p.start()
+            self.log_message.emit(f"Subprocess spawned for trial {trial.number} | Child PID: {p.pid}")
 
-            final_results = training_task.get('results', {})
-            best_val_loss = final_results.get('best_validation_loss_normalized', float('inf'))
+            # Monitor subprocess and handle pruning
+            best_val_loss = float('inf')
+            try:
+                while p.is_alive():
+                    try:
+                        msg = progress_queue.get(timeout=0.5)
+                        # Check for pruning signal from subprocess
+                        if isinstance(msg, dict) and msg.get('pruned'):
+                            self.log_message.emit(f"Trial {trial.number} signaled pruning from subprocess")
+                            p.terminate()
+                            p.join(timeout=5)
+                            raise optuna.exceptions.TrialPruned()
+                        # Log other messages if needed
+                        if isinstance(msg, dict) and msg.get('status'):
+                            pass  # Could log status updates here
+                    except pyqueue.Empty:
+                        pass
+
+                # Drain remaining messages
+                while True:
+                    try:
+                        msg = progress_queue.get_nowait()
+                        if isinstance(msg, dict) and msg.get('pruned'):
+                            raise optuna.exceptions.TrialPruned()
+                    except pyqueue.Empty:
+                        break
+
+                p.join()
+                self.log_message.emit(f"Subprocess joined for trial {trial.number} | Exit code: {p.exitcode}")
+                
+                # Get result from subprocess
+                try:
+                    result_data = result_queue.get(timeout=2)
+                    best_val_loss = result_data.get('best_validation_loss', float('inf'))
+                    if result_data.get('pruned'):
+                        raise optuna.exceptions.TrialPruned()
+                except pyqueue.Empty:
+                    self.log_message.emit(f"Warning: No result received from subprocess for trial {trial.number}")
+                    best_val_loss = float('inf')
+
+            except optuna.exceptions.TrialPruned:
+                self.log_message.emit(f"--- Trial {trial.number} pruned. ---")
+                if p.is_alive():
+                    p.terminate()
+                    p.join(timeout=5)
+                raise
 
             if best_val_loss == float('inf'):
                 self.log_message.emit(f"Trial {trial.number} finished, but a valid validation loss was not found.")
@@ -417,10 +477,11 @@ class OptunaOptimizationThread(QThread):
         return sorted_trials[:n_configs]
     
     def stop_optimization(self):
-        """Stop the optimization"""
+        """Stop the optimization - gracefully terminate current subprocess"""
         self.should_stop = True
-        if self.current_task_manager:
-            self.current_task_manager.stop_task()
+        # Note: With process-per-trial architecture, we can't send stop signal via queue
+        # The current trial will complete, but no new trials will start
+        self.log_message.emit("Stop requested - current trial will complete, no new trials will start")
 
 
 class VEstimOptunaOptimizationGUI(QWidget):
