@@ -433,9 +433,22 @@ class VEstimTrainingSetupManager:
                 for i in range(1, repetitions + 1):
                     # Combine hyperparameters: start with model-specific, then override with global GUI params, then grid
                     # This ensures GUI params (like DEVICE_SELECTION, NUM_WORKERS) take precedence over model defaults
+                    # BUT preserve model-specific architecture params (RNN_LAYER_SIZES, HIDDEN_LAYER_SIZES)
                     task_hyperparams = {}
                     task_hyperparams.update(model_task['hyperparams'])  # Model-specific params (INPUT_SIZE, etc.)
+                    
+                    # Store the model-specific architecture before overwriting
+                    model_rnn_arch = model_task['hyperparams'].get('RNN_LAYER_SIZES')
+                    model_fnn_arch = model_task['hyperparams'].get('HIDDEN_LAYER_SIZES')
+                    
                     task_hyperparams.update(self.params)  # GUI params override model defaults
+                    
+                    # Restore model-specific architecture (don't let GUI's full list overwrite it)
+                    if model_rnn_arch is not None:
+                        task_hyperparams['RNN_LAYER_SIZES'] = model_rnn_arch
+                    if model_fnn_arch is not None:
+                        task_hyperparams['HIDDEN_LAYER_SIZES'] = model_fnn_arch
+                    
                     task_hyperparams.update(param_combination)  # Grid combination overrides everything
 
                     task_info = self._create_task_info(
@@ -746,9 +759,9 @@ class VEstimTrainingSetupManager:
         if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
             final_hyperparams['HIDDEN_UNITS'] = hidden_units
             final_hyperparams['LAYERS'] = layers
-            # Add RNN_LAYER_SIZES if available for better GUI display (e.g., "32,16")
-            if 'RNN_LAYER_SIZES' in hyperparams:
-                final_hyperparams['RNN_LAYER_SIZES'] = hyperparams['RNN_LAYER_SIZES']
+            # Add RNN_LAYER_SIZES from the model-specific config (not the full semicolon-separated list)
+            if 'RNN_LAYER_SIZES' in model_task['hyperparams']:
+                final_hyperparams['RNN_LAYER_SIZES'] = model_task['hyperparams']['RNN_LAYER_SIZES']
             final_hyperparams['LOOKBACK'] = hyperparams['LOOKBACK']
         elif model_type == 'FNN':
             final_hyperparams['HIDDEN_LAYER_SIZES'] = model_task['hyperparams']['HIDDEN_LAYER_SIZES']
