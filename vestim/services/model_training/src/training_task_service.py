@@ -93,12 +93,14 @@ class TrainingTaskService:
         
         # Reference code approach: hidden states will be reset to zeros at START of each batch
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
+            # Check stop signal every 10 batches for faster response (~every 1-2 seconds)
+            if batch_idx % 10 == 0 and stop_requested:
+                print(f"Stop requested during training at batch {batch_idx}")
+                break
+                
             # RESET hidden states to zeros for EVERY batch (reference code behavior)
             h_s, h_c = None, None
             z = None  # Initialize filter state for LPF models
-            if stop_requested:
-                print("Stop requested during training")
-                break
 
             start_batch_time = time.time()
             # Use the 'device' argument passed to the method, not self.device

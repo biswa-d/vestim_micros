@@ -1159,7 +1159,7 @@ class TrainingTaskManager:
                 self.logger.info("[SUBPROCESS] Graceful stop requested by GUI")
                 self.stop_requested = True
             
-            if self.stop_requested:  # Ensure thread safety here
+            if self.stop_requested:
                 self.logger.info("Training stopped by user")
                 break
             
@@ -1243,11 +1243,15 @@ class TrainingTaskManager:
 
             epoch_end_time = time.time()
             epoch_duration = epoch_end_time - epoch_start_time
-            formatted_epoch_time = format_time(epoch_duration)  # Convert epoch time to mm:ss format
+            formatted_epoch_time = format_time(epoch_duration)
 
+            # Check stop signal immediately after training phase
+            if hasattr(self, 'progress_queue') and check_for_stop_signal(self.progress_queue):
+                self.logger.info("[SUBPROCESS] Stop requested after training phase")
+                self.stop_requested = True
+            
             if self.stop_requested:
-                self.logger.info("Training stopped by user")
-                self.logger.info("Training stopped after training phase.")
+                self.logger.info("Training stopped by user after training phase")
                 break
 
             # Only validate at specified frequency

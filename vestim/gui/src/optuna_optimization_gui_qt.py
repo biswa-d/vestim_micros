@@ -54,6 +54,7 @@ class OptunaOptimizationThread(QThread):
         self.should_stop = False
         self.completed_trials_data = []
         self.pruning_initiated = False
+        self.current_process = None  # Track current subprocess for immediate termination
         
         # Extract parameter ranges in boundary format [min,max]
         self.param_ranges = {k: v for k, v in params.items()
@@ -393,12 +394,23 @@ class OptunaOptimizationThread(QThread):
                 )
             )
             p.start()
+            self.current_process = p  # Store for immediate termination if stop requested
             self.log_message.emit(f"Subprocess spawned for trial {trial.number} | Child PID: {p.pid}")
 
             # Monitor subprocess and handle pruning
             best_val_loss = float('inf')
             try:
                 while p.is_alive():
+                    # Check if user requested stop - terminate immediately
+                    if self.should_stop:
+                        self.log_message.emit(f"Stop requested - terminating trial {trial.number} immediately")
+                        p.terminate()
+                        p.join(timeout=5)
+                        if p.is_alive():
+                            p.kill()  # Force kill if needed
+                        self.log_message.emit(f"Trial {trial.number} terminated by user request")
+                        return float('inf')  # Return worst score to skip this trial
+                    
                     try:
                         msg = progress_queue.get(timeout=0.5)
                         # Check for pruning signal from subprocess
@@ -441,6 +453,8 @@ class OptunaOptimizationThread(QThread):
                     p.terminate()
                     p.join(timeout=5)
                 raise
+            finally:
+                self.current_process = None  # Clear reference after trial completes
 
             if best_val_loss == float('inf'):
                 self.log_message.emit(f"Trial {trial.number} finished, but a valid validation loss was not found.")
@@ -477,11 +491,18 @@ class OptunaOptimizationThread(QThread):
         return sorted_trials[:n_configs]
     
     def stop_optimization(self):
-        """Stop the optimization - gracefully terminate current subprocess"""
+        """Stop the optimization - immediately terminate current subprocess"""
         self.should_stop = True
-        # Note: With process-per-trial architecture, we can't send stop signal via queue
-        # The current trial will complete, but no new trials will start
-        self.log_message.emit("Stop requested - current trial will complete, no new trials will start")
+        self.log_message.emit("Stop requested - terminating current trial immediately...")
+        # Immediately terminate current subprocess if running
+        if self.current_process and self.current_process.is_alive():
+            self.log_message.emit(f"Terminating subprocess PID: {self.current_process.pid}")
+            self.current_process.terminate()
+            self.current_process.join(timeout=3)
+            if self.current_process.is_alive():
+                self.log_message.emit("Force killing subprocess...")
+                self.current_process.kill()
+            self.log_message.emit("Current trial terminated. Optimization stopped.")
 
 
 class VEstimOptunaOptimizationGUI(QWidget):

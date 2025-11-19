@@ -338,7 +338,10 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.log_text.setMinimumHeight(150)  # Set minimum height for better visibility
         
         # Add initial log entry
-        self.log_text.append(f"Repetition: {task['hyperparams']['REPETITIONS']}\n")
+        current_rep = task['hyperparams'].get('CURRENT_REPETITION', 1)
+        total_reps = task['hyperparams'].get('REPETITIONS', 1)
+        if total_reps > 1:
+            self.log_text.append(f"Repetition {current_rep} of {total_reps}\n")
         
         # Add log widget to layout
         log_layout.addWidget(self.log_text)
@@ -491,7 +494,10 @@ class VEstimTrainingTaskGUI(QMainWindow):
         """)
 
         # Insert initial logs with task repetition details
-        self.log_text.append(f"Repetition: {task['hyperparams']['REPETITIONS']}\n")
+        current_rep = task['hyperparams'].get('CURRENT_REPETITION', 1)
+        total_reps = task['hyperparams'].get('REPETITIONS', 1)
+        if total_reps > 1:
+            self.log_text.append(f"Repetition {current_rep} of {total_reps}\n")
 
         # Automatically scroll to the bottom of the log window
         self.log_text.moveCursor(self.log_text.textCursor().End)

@@ -80,17 +80,17 @@ class VEstimTrainingSetupManager:
             self.current_hyper_params = self.params
 
             if self.progress_signal:
-                self.progress_signal.emit("Creating training tasks from Optuna configs...")
+                self.progress_signal.emit("Creating training tasks from Optuna configs...", "", 0)
 
             self.create_tasks_from_optuna(optuna_configs, base_params)
 
             task_count = len(self.training_tasks)
             if self.progress_signal:
-                self.progress_signal.emit(f"Setup complete! {task_count} Optuna tasks created.")
+                self.progress_signal.emit(f"Setup complete! {task_count} Optuna tasks created.", "", 100)
         except Exception as e:
             self.logger.error(f"Error during Optuna setup: {str(e)}")
             if self.progress_signal:
-                self.progress_signal.emit(f"Error during setup: {str(e)}")
+                self.progress_signal.emit(f"Error during setup: {str(e)}", "", 0)
 
     def create_selected_model(self, model_type, model_params, model_path):
         """Creates and saves the selected model based on the dropdown selection."""
