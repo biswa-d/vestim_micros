@@ -1358,10 +1358,15 @@ class VEstimHyperParamGUI(QWidget):
                         entry.setCurrentIndex(index)
 
         # FIXED:Populate Max Training Time H, M, S fields from MAX_TRAINING_TIME_SECONDS
-        if "EXPLOIT_REPETITIONS" in self.params:
-            self.exploit_repetitions_entry.setText(str(self.params["EXPLOIT_REPETITIONS"]))
-        if "EXPLOIT_LR" in self.params:
-            self.exploit_lr_entry.setText(str(self.params["EXPLOIT_LR"]))
+        # CRITICAL FIX: Explicitly update ALL Exploit LR fields (may not be in loaded params)
+        if hasattr(self, 'exploit_lr_entry'):
+            self.exploit_lr_entry.setText(str(self.params.get("EXPLOIT_LR", "1e-5")))
+        if hasattr(self, 'final_lr_entry'):
+            self.final_lr_entry.setText(str(self.params.get("FINAL_LR", "1e-7")))
+        if hasattr(self, 'exploit_epochs_entry'):
+            self.exploit_epochs_entry.setText(str(self.params.get("EXPLOIT_EPOCHS", "5")))
+        if hasattr(self, 'exploit_repetitions_entry'):
+            self.exploit_repetitions_entry.setText(str(self.params.get("EXPLOIT_REPETITIONS", "0")))
         
         # CRITICAL FIX: Explicitly update REPETITIONS (may be cleared by update methods)
         if "REPETITIONS" in self.params:

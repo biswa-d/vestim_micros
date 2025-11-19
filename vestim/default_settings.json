@@ -1,8 +1,8 @@
 {
     "last_used": {
-        "train_folder": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/Tesla/LSTM/vestim_micros/output/job_20251118-222453/train_data/raw_data",
-        "val_folder": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/Tesla/LSTM/vestim_micros/output/job_20251118-222453/val_data/raw_data",
-        "test_folder": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/Tesla/LSTM/vestim_micros/output/job_20251118-222453/test_data/raw_data",
+        "train_folder": "/mnt/data1/dehuryb/data/Tesla/pybattml/train",
+        "val_folder": "/mnt/data1/dehuryb/data/Tesla/pybattml/valid",
+        "test_folder": "/mnt/data1/dehuryb/data/Tesla/pybattml/test",
         "file_format": "csv",
         "hyperparams": {
             "FEATURE_COLUMNS": [

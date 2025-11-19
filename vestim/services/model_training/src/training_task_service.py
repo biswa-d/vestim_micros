@@ -85,7 +85,8 @@ class TrainingTaskService:
         
         # Check if mixed precision training is enabled
         use_mixed_precision = task['hyperparams'].get('USE_MIXED_PRECISION', False) and device.type == 'cuda'
-        scaler = torch.amp.GradScaler('cuda') if use_mixed_precision else None
+        # FIXED: Use torch.cuda.amp.GradScaler instead of torch.amp.GradScaler
+        scaler = torch.cuda.amp.GradScaler() if use_mixed_precision else None
         
         if use_mixed_precision:
             print(f"Using mixed precision training (AMP) for epoch {epoch}")
