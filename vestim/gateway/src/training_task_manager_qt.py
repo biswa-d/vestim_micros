@@ -705,13 +705,16 @@ class TrainingTaskManager:
 
         # Enhanced data loading configuration from combined params
         # These values come from the hyperparam GUI and are stored in hyperparams.json
-        num_workers = int(combined_params.get('NUM_WORKERS', self.get_optimal_num_workers(model_type)))
-        pin_memory = bool(combined_params.get('PIN_MEMORY', True))
+        # Also check data_loader_params for backward compatibility
+        num_workers = int(combined_params.get('NUM_WORKERS', task['data_loader_params'].get('num_workers', self.get_optimal_num_workers(model_type))))
+        pin_memory = bool(combined_params.get('PIN_MEMORY', task['data_loader_params'].get('pin_memory', True)))
         
         # Prefetch factor: how many batches to pre-load per worker (user-configurable via GUI)
-        # Cap at 8 for safety even on high-RAM servers to avoid excessive memory usage
-        user_prefetch = int(combined_params.get('PREFETCH_FACTOR', 2 if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"] else 4))
-        prefetch_factor = min(user_prefetch, 8) if num_workers > 0 else None
+        # Check both hyperparams and data_loader_params (stored during task setup)
+        default_prefetch = 2 if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"] else 4
+        user_prefetch = int(combined_params.get('PREFETCH_FACTOR', task['data_loader_params'].get('prefetch_factor', default_prefetch)))
+        # Cap at user_prefetch value (no artificial limit) - user knows their system
+        prefetch_factor = user_prefetch if num_workers > 0 else None
         
         # Persistent workers: reuse worker processes across epochs for performance
         # User can disable via GUI, otherwise auto-enable when num_workers > 0
@@ -722,7 +725,7 @@ class TrainingTaskManager:
         self.logger.info(f"Initial data loading optimization settings for {model_type}:")
         self.logger.info(f"  - CPU Threads (NUM_WORKERS): {num_workers}")
         self.logger.info(f"  - Fast CPU-GPU Transfer (PIN_MEMORY): {pin_memory}")
-        self.logger.info(f"  - Batch Pre-loading (PREFETCH_FACTOR): {prefetch_factor} (user requested: {user_prefetch}, capped at 8)")
+        self.logger.info(f"  - Batch Pre-loading (PREFETCH_FACTOR): {prefetch_factor}")
         self.logger.info(f"  - Persistent Workers: {persistent_workers}")
         
         seed = int(task['hyperparams'].get('SEED', 2000))
