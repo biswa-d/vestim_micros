@@ -216,13 +216,16 @@ class TrainingTaskManager:
         # Initialize training service with CUDA Graphs if available and enabled
         use_cuda_graphs = self.global_params.get('USE_CUDA_GRAPHS', False)
         
-        # Auto-enable CUDA Graphs for FNN models on CUDA devices (smart default)
+        # Auto-enable CUDA Graphs for models on CUDA devices (smart default)
         if not use_cuda_graphs and self.global_params:
             model_type = self.global_params.get('MODEL_TYPE', 'LSTM')
             device_selection = self.global_params.get('DEVICE_SELECTION', 'cpu')
-            if model_type == 'FNN' and 'cuda' in device_selection.lower() and CUDA_GRAPHS_AVAILABLE:
+            # Enable for FNN, LSTM, and GRU - all can benefit from CUDA Graphs
+            if model_type in ['FNN', 'LSTM', 'GRU'] and 'cuda' in device_selection.lower() and CUDA_GRAPHS_AVAILABLE:
                 use_cuda_graphs = True
-                self.logger.info("Auto-enabling CUDA Graphs for FNN model on CUDA device")
+                self.logger.info(f"Auto-enabling CUDA Graphs for {model_type} model on CUDA device")
+                if model_type in ['LSTM', 'GRU']:
+                    self.logger.info(f"[{model_type}] Using CUDA Graphs with zero-initialized hidden states per batch")
         
         # Determine device based on global_params or fallback
         selected_device_str = self.global_params.get('DEVICE_SELECTION', 'cpu')  # FIXED: Default to 'cpu' instead of 'cuda:0'
@@ -622,22 +625,22 @@ class TrainingTaskManager:
             available_ram_gb = psutil.virtual_memory().available / (1024**3)  # GB
             
             # Model-specific recommendations
-            # LSTM/GRU: Lower workers due to sequence processing overhead
-            # FNN: Higher workers due to simpler data structure
+            # LSTM/GRU: With CUDA Graphs and modern GPUs, can handle more workers
+            # FNN: Can handle even more workers efficiently
             if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]:
                 if available_ram_gb < 8:
-                    recommended_workers = 0  # Single-process for low RAM
+                    recommended_workers = 2  # Minimal for low RAM
                 elif available_ram_gb < 16:
-                    recommended_workers = 2  # Conservative for RNN
+                    recommended_workers = 4  # Moderate for RNN
                 else:
-                    recommended_workers = min(4, cpu_cores // 2) if cpu_cores else 2
+                    recommended_workers = min(8, cpu_cores // 2) if cpu_cores else 4
             else:  # FNN and other models
                 if available_ram_gb < 8:
-                    recommended_workers = 2
-                elif available_ram_gb < 16:
                     recommended_workers = 4
+                elif available_ram_gb < 16:
+                    recommended_workers = 8
                 else:
-                    recommended_workers = min(8, cpu_cores) if cpu_cores else 4
+                    recommended_workers = min(16, cpu_cores) if cpu_cores else 8
             
             self.logger.info(f"Auto-configured NUM_WORKERS for {model_type}: {recommended_workers} (CPU cores: {cpu_cores}, Available RAM: {available_ram_gb:.1f}GB)")
             return recommended_workers
@@ -646,14 +649,14 @@ class TrainingTaskManager:
             # Fallback if psutil not available
             cpu_cores = os.cpu_count()
             if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]:
-                recommended_workers = min(2, cpu_cores // 2) if cpu_cores else 2
+                recommended_workers = min(4, cpu_cores // 2) if cpu_cores else 4
             else:
-                recommended_workers = min(4, cpu_cores) if cpu_cores else 4
+                recommended_workers = min(8, cpu_cores) if cpu_cores else 8
             self.logger.info(f"Auto-configured NUM_WORKERS for {model_type}: {recommended_workers} (CPU cores: {cpu_cores})")
             return recommended_workers
         except Exception as e:
             self.logger.warning(f"Error determining optimal workers, using default: {e}")
-            return 2 if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"] else 4
+            return 4 if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"] else 8
 
     def _cleanup_orphaned_workers(self):
         """Clean up orphaned DataLoader worker processes on Linux systems."""
@@ -711,7 +714,8 @@ class TrainingTaskManager:
         
         # Prefetch factor: how many batches to pre-load per worker (user-configurable via GUI)
         # Check both hyperparams and data_loader_params (stored during task setup)
-        default_prefetch = 2 if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"] else 4
+        # Increased LSTM default from 2 to 4 - modern GPUs can handle more pre-loading
+        default_prefetch = 4 if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"] else 4
         user_prefetch = int(combined_params.get('PREFETCH_FACTOR', task['data_loader_params'].get('prefetch_factor', default_prefetch)))
         # Cap at user_prefetch value (no artificial limit) - user knows their system
         prefetch_factor = user_prefetch if num_workers > 0 else None
@@ -1203,9 +1207,8 @@ class TrainingTaskManager:
             # train_epoch now returns: avg_batch_time, avg_loss (normalized), all_train_y_pred_normalized, all_train_y_true_normalized
             verbose = task.get('verbose', True)
             
-            # Use CUDA Graphs if available and enabled (only for FNN models on CUDA)
-            if (hasattr(self.training_service, 'train_epoch_with_graphs') and 
-                device.type == 'cuda' and model_type == 'FNN'):
+            # Use CUDA Graphs if available and enabled
+            if (hasattr(self.training_service, 'train_epoch_with_graphs') and device.type == 'cuda'):
                 
                 # Check if batch size has changed and reset CUDA graphs if necessary
                 current_batch_size = train_loader.batch_size
@@ -1223,18 +1226,27 @@ class TrainingTaskManager:
                     graphs_enabled = self.training_service.enable_cuda_graphs(device, use_mixed_precision)
                     if graphs_enabled:
                         # Send log message about CUDA Graphs
+                        graph_type = "LSTM" if model_type in ['LSTM', 'GRU'] else "FNN"
                         update_progress_callback.emit({
-                            'training_start_log_message': f"<span style='color: #ff6600;'><b>CUDA Graphs enabled!</b></span>"
+                            'training_start_log_message': f"<span style='color: #ff6600;'><b>CUDA Graphs enabled for {graph_type}!</b></span>"
                         })
                 
                 # Update the previous batch size for future tasks
                 self.previous_batch_size = current_batch_size
                 
-                avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch_with_graphs(
-                    model, train_loader, optimizer, epoch, device, self.stop_requested, task, verbose=verbose
-                )
+                # Use model-specific training method
+                if model_type in ['LSTM', 'GRU'] and hasattr(self.training_service, 'train_epoch_lstm_with_graphs'):
+                    # LSTM/GRU with CUDA Graphs
+                    avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch_lstm_with_graphs(
+                        model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task, verbose=verbose
+                    )
+                else:
+                    # FNN with CUDA Graphs
+                    avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch_with_graphs(
+                        model, train_loader, optimizer, epoch, device, self.stop_requested, task, verbose=verbose
+                    )
             else:
-                # Standard training
+                # Standard training (fallback)
                 avg_batch_time, train_loss_norm, epoch_train_preds_norm, epoch_train_trues_norm = self.training_service.train_epoch(
                     model, model_type, train_loader, optimizer, h_s, h_c, epoch, device, self.stop_requested, task, verbose=verbose
                 )

@@ -378,3 +378,138 @@ class CUDAGraphsTrainingService:
         """Fallback validate_epoch method for compatibility with standard training code."""
         # Just delegate to validate_epoch_with_graphs since they're essentially the same for validation
         return self.validate_epoch_with_graphs(model, val_loader, epoch, device, stop_requested, task, verbose=verbose)
+    
+    def train_epoch_lstm_with_graphs(self, model, model_type, train_loader, optimizer, h_s_initial, h_c_initial, 
+                                     epoch, device, stop_requested, task, verbose=True):
+        """
+        Train LSTM/GRU with CUDA Graphs optimization.
+        
+        Key insight: LSTM with fixed-length sequences and zero-initialized hidden states 
+        can use CUDA Graphs because:
+        1. Input shapes are constant (batch_size, seq_len, features)
+        2. Hidden states are re-initialized to zeros each batch (no carry-over)
+        3. No packed sequences - just padded tensors
+        """
+        model.train()
+        total_train_loss = []
+        all_train_y_pred = []
+        all_train_y_true = []
+        batch_times = []
+        
+        # For LSTM: h_s and h_c should be None or detached zeros
+        # We'll initialize them fresh for each batch (standard practice)
+        
+        # Get first batch for shape info
+        first_batch = next(iter(train_loader))
+        sample_input, sample_target = first_batch[0].to(device), first_batch[1].to(device)
+        
+        # Warmup and capture graph on first epoch or after reset
+        if self.train_graph is None and epoch == 1:
+            self.logger.info(f"[LSTM CUDA Graphs] Capturing computation graph for shapes: input={sample_input.shape}, target={sample_target.shape}")
+            try:
+                # Warmup iterations
+                for _ in range(3):
+                    optimizer.zero_grad(set_to_none=True)
+                    if model_type == 'LSTM':
+                        # LSTM returns (output, (h_n, c_n))
+                        output, (h_n, c_n) = model(sample_input)
+                    else:  # GRU
+                        output, h_n = model(sample_input)
+                    
+                    if output.shape != sample_target.shape:
+                        if output.ndim > sample_target.ndim and output.shape[-1] == 1:
+                            output = output.squeeze(-1)
+                    
+                    loss = self.criterion(output, sample_target)
+                    loss.backward()
+                    optimizer.step()
+                
+                torch.cuda.synchronize()
+                
+                # Capture the graph
+                self.static_input = torch.zeros_like(sample_input)
+                self.static_target = torch.zeros_like(sample_target)
+                
+                # Begin capture
+                self.train_graph = torch.cuda.CUDAGraph()
+                optimizer.zero_grad(set_to_none=True)
+                
+                with torch.cuda.graph(self.train_graph):
+                    if model_type == 'LSTM':
+                        output, (h_n, c_n) = model(self.static_input)
+                    else:  # GRU
+                        output, h_n = model(self.static_input)
+                    
+                    if output.shape != self.static_target.shape:
+                        if output.ndim > self.static_target.ndim and output.shape[-1] == 1:
+                            output = output.squeeze(-1)
+                    
+                    self.static_loss = self.criterion(output, self.static_target)
+                    self.static_loss.backward()
+                    optimizer.step()
+                    self.static_output = output
+                
+                self.logger.info(f"[LSTM CUDA Graphs] Successfully captured training graph!")
+                
+            except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
+                self.logger.warning(f"[LSTM CUDA Graphs] Capture failed: {e}. Falling back to standard training.")
+                self.graphs_enabled = False
+                torch.cuda.empty_cache()
+                raise e
+        
+        # Training loop
+        try:
+            for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
+                if stop_requested:
+                    self.logger.info("Training stopped by user")
+                    break
+                
+                start_time = time.time()
+                X_batch = X_batch.to(device, non_blocking=True)
+                y_batch = y_batch.to(device, non_blocking=True)
+                
+                # Check shape compatibility
+                if (self.train_graph is not None and 
+                    X_batch.shape == self.static_input.shape and 
+                    y_batch.shape == self.static_target.shape):
+                    # Use CUDA graph
+                    self.static_input.copy_(X_batch)
+                    self.static_target.copy_(y_batch)
+                    self.train_graph.replay()
+                    
+                    loss = self.static_loss
+                    output = self.static_output
+                else:
+                    # Fallback for mismatched shapes (e.g., last batch)
+                    optimizer.zero_grad()
+                    if model_type == 'LSTM':
+                        output, (h_n, c_n) = model(X_batch)
+                    else:  # GRU
+                        output, h_n = model(X_batch)
+                    
+                    if output.shape != y_batch.shape:
+                        if output.ndim > y_batch.ndim and output.shape[-1] == 1:
+                            output = output.squeeze(-1)
+                    
+                    loss = self.criterion(output, y_batch)
+                    loss.backward()
+                    optimizer.step()
+                
+                # Collect metrics
+                total_train_loss.append(loss.item())
+                all_train_y_pred.append(output.detach())
+                all_train_y_true.append(y_batch.detach())
+                
+                batch_times.append(time.time() - start_time)
+        
+        except Exception as e:
+            self.logger.error(f"[LSTM CUDA Graphs] Training error: {e}")
+            raise e
+        
+        avg_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0.0
+        avg_loss = sum(total_train_loss) / len(total_train_loss) if total_train_loss else float('nan')
+        all_train_y_pred = torch.cat(all_train_y_pred, dim=0) if all_train_y_pred else None
+        all_train_y_true = torch.cat(all_train_y_true, dim=0) if all_train_y_true else None
+        
+        return avg_batch_time, avg_loss, all_train_y_pred, all_train_y_true
+
