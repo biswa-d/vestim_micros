@@ -88,18 +88,18 @@ elif model_type == "GRU":
 ### Placement Timing
 
 The detachment must happen:
-- ✅ **After** `optimizer.step()` - weights are already updated
-- ✅ **Before** appending to loss history - ensures clean state
-- ✅ **Before** next batch iteration - prevents graph accumulation
+-  **After** `optimizer.step()` - weights are already updated
+-  **Before** appending to loss history - ensures clean state
+-  **Before** next batch iteration - prevents graph accumulation
 
 ## Expected Results
 
 With this fix, LSTM training should:
-- ✅ Show smooth, monotonic validation loss curves similar to FNN
-- ✅ No sudden spikes or instability
-- ✅ Lower memory usage during training
-- ✅ More consistent convergence behavior
-- ✅ Better exploit mode performance (since model weights remain stable)
+-  Show smooth, monotonic validation loss curves similar to FNN
+-  No sudden spikes or instability
+-  Lower memory usage during training
+-  More consistent convergence behavior
+-  Better exploit mode performance (since model weights remain stable)
 
 ## Testing Recommendations
 

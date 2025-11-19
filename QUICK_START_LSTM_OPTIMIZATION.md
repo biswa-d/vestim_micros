@@ -22,29 +22,29 @@ NUM_WORKERS: Auto        (Adapts to your RAM)
 
 ---
 
-## 🎯 What Was Changed (Automatically Applied)
+##   What Was Changed (Automatically Applied)
 
-### ✅ Enabled cuDNN Benchmark
+###  Enabled cuDNN Benchmark
 - Auto-tunes CUDA kernels for your hardware
 - **Free 10-30% speedup** with zero downsides
 - Works automatically when training starts
 
-### ✅ Optimized CPU Threading
+###  Optimized CPU Threading
 - Prevents CPU oversubscription
 - Balances PyTorch ops vs DataLoader workers
 - Improves system responsiveness
 
-### ✅ Smart Worker Configuration
+###  Smart Worker Configuration
 - **LSTM models:** Max 4 workers (vs FNN's 8)
 - **Low RAM (<8GB):** Automatically uses 0 workers
 - **Prevents OOM errors** by adapting to resources
 
-### ✅ Efficient Hidden States
+###  Efficient Hidden States
 - Reuses memory instead of recreating tensors
 - ~30% less memory allocation overhead
 - Faster batch processing
 
-### ✅ Reduced Cache Clearing
+###  Reduced Cache Clearing
 - Clears CUDA cache every 50 batches (not every batch)
 - Less synchronization overhead
 - 3-5% speedup
@@ -90,7 +90,7 @@ The optimizations are conservative and shouldn't affect stability, but if needed
 
 ---
 
-## 📊 Benchmark Results
+##      Benchmark Results
 
 ### Your System Should See:
 - **LSTM Training:** 40-60% faster per epoch
@@ -114,9 +114,9 @@ Even with optimizations, LSTM will be slower than FNN - this is expected.
 **Detailed docs:** See `LSTM_PERFORMANCE_OPTIMIZATIONS.md`
 
 **Questions?** The optimizations are:
-- ✅ Safe & stable
-- ✅ Automatically applied
-- ✅ Adaptive to your hardware
-- ✅ Reversible if needed
+-  Safe & stable
+-  Automatically applied
+-  Adaptive to your hardware
+-  Reversible if needed
 
-**Ready to train!** 🚀
+**Ready to train!**  

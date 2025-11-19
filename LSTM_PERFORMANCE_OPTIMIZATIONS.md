@@ -5,7 +5,7 @@ This document describes the low-hanging fruit optimizations implemented to speed
 
 ---
 
-## ✅ Implemented Optimizations (Safe & Stable)
+##  Implemented Optimizations (Safe & Stable)
 
 ### 1. **cuDNN Benchmark Mode** (FREE SPEEDUP!)
 **What:** Enables PyTorch's cuDNN auto-tuner to find the fastest convolution/RNN algorithms for your specific hardware.
@@ -107,7 +107,7 @@ if batch_idx % 50 == 0:
 
 ---
 
-## 📊 Recommended Hyperparameters
+##      Recommended Hyperparameters
 
 ### Use the optimized template:
 ```bash
@@ -141,7 +141,7 @@ defaults_templates/hyperparams_lstm_optimized.json
 
 ---
 
-## 🎯 Performance Expectations
+##   Performance Expectations
 
 ### Before Optimizations:
 - **LSTM:** ~19 sec/epoch (200 batch size, 400 lookback)
@@ -217,33 +217,33 @@ htop
 
 ---
 
-## 🚫 What We Did NOT Change (Stability Priority)
+##     What We Did NOT Change (Stability Priority)
 
 These optimizations were considered but NOT implemented to avoid destabilizing training:
 
-### ❌ Packed Sequences
+###    Packed Sequences
 - **Why not:** Only beneficial for variable-length sequences
 - **Your data:** Fixed-length sequences (no benefit)
 
-### ❌ torch.compile()
+###    torch.compile()
 - **Why not:** PyTorch 2.0+ feature, may have compatibility issues
 - **Risk:** Compilation errors, harder debugging
 
-### ❌ Gradient Checkpointing
+###    Gradient Checkpointing
 - **Why not:** Trades memory for compute time (training would be SLOWER)
 - **When useful:** Only if OOM with smallest batch size
 
-### ❌ Model Architecture Changes
+###    Model Architecture Changes
 - **Why not:** Could affect accuracy, requires retraining/validation
 - **Examples:** Switching to GRU, using LSTM projection
 
-### ❌ Mixed Precision (Already Supported)
+###    Mixed Precision (Already Supported)
 - **Status:** Already in your code via `USE_MIXED_PRECISION` flag
 - **No changes needed:** Just set it to `true` in hyperparams
 
 ---
 
-## 📈 Monitoring Performance
+##  Monitoring Performance
 
 ### Track These Metrics:
 
@@ -261,7 +261,7 @@ Your training already logs batch times. Compare:
 
 ---
 
-## 🔄 Rollback Instructions
+##    Rollback Instructions
 
 If optimizations cause issues:
 
@@ -294,10 +294,10 @@ If optimizations cause issues:
 ## 🎓 Summary
 
 **Implemented optimizations are:**
-- ✅ **Safe** - No risk to training stability
-- ✅ **Automatic** - Applied without user intervention
-- ✅ **Adaptive** - Adjust based on hardware resources
-- ✅ **Reversible** - Can be disabled if needed
+-  **Safe** - No risk to training stability
+-  **Automatic** - Applied without user intervention
+-  **Adaptive** - Adjust based on hardware resources
+-  **Reversible** - Can be disabled if needed
 
 **Expected results:**
 - **40-60% faster training** with recommended hyperparams

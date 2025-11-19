@@ -4,7 +4,7 @@
 
 VEstim is a comprehensive machine learning tool for battery voltage estimation using LSTM, GRU, and FNN (Feed-Forward Neural Network) models. This tool provides an intuitive graphical interface for the complete machine learning workflow: data import, preprocessing, hyperparameter tuning, model training, and testing.
 
-## 🚀 Quick Start Guide
+##   Quick Start Guide
 
 ### Your First Model Training
 
@@ -70,7 +70,7 @@ VEstim includes sample battery data files to help you get started:
 **GUI: Data Augmentation Window**
 
 1. **Configure Preprocessing Options**:
-   - ✅ **Enable data normalization** (Recommended - checked by default)
+   -  **Enable data normalization** (Recommended - checked by default)
    - **Resampling**: Choose time interval for data resampling (e.g., 1 second)
    - **File Format**: Confirm output format (CSV recommended)
 
@@ -176,7 +176,7 @@ VEstim includes sample battery data files to help you get started:
 
 ---
 
-## 📊 Understanding Your Results
+##      Understanding Your Results
 
 ### Output Files Structure
 
@@ -288,7 +288,7 @@ job_20250711-140144/
 
 ---
 
-## 🎯 Best Practices
+##   Best Practices
 
 ### Data Quality
 - Use high-quality, consistent battery test data
@@ -351,7 +351,7 @@ VEstim predicts future voltage values based on historical patterns in:
 
 ---
 
-## 💾 Data Management
+##     Data Management
 
 ### Backup Important Files
 - Trained models (`model.pth` files)
@@ -367,7 +367,7 @@ VEstim predicts future voltage values based on historical patterns in:
 
 ---
 
-## 🔄 Updating Default Settings
+##    Updating Default Settings
 
 VEstim remembers your preferences:
 - **Last used folders** - Automatically loads your recent data folders

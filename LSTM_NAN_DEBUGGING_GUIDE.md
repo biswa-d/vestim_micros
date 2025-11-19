@@ -154,12 +154,12 @@ If you see this, try:
 ## Additional Safeguards Already in Place
 
 Your code already has good protections:
-- ✅ Xavier initialization for weights (prevents initial explosion)
-- ✅ Orthogonal initialization for hidden-to-hidden weights (prevents vanishing gradients)
-- ✅ Loss checking before backprop (skips bad batches)
-- ✅ Gradient norm checking after clipping (skips invalid gradients)
-- ✅ Mixed precision support (better numerical stability on GPU)
-- ✅ Hidden state detachment (prevents graph accumulation)
+-  Xavier initialization for weights (prevents initial explosion)
+-  Orthogonal initialization for hidden-to-hidden weights (prevents vanishing gradients)
+-  Loss checking before backprop (skips bad batches)
+-  Gradient norm checking after clipping (skips invalid gradients)
+-  Mixed precision support (better numerical stability on GPU)
+-  Hidden state detachment (prevents graph accumulation)
 
 ## Summary of Changes Made
 

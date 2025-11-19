@@ -4,7 +4,7 @@
 
 After analyzing the codebase, I've identified several areas where we can optimize performance without changing the GUI or core functionality. These optimizations target the training loop, data loading, and tensor operations.
 
-## 🔴 Critical Performance Issues Found
+##    Critical Performance Issues Found
 
 ### 1. **Redundant GPU→CPU Synchronization Calls (HIGH IMPACT)**
 
@@ -99,40 +99,40 @@ result_df = df.copy()  # Deep copy of entire DataFrame
 - `PREFETCH_FACTOR`: 2-4 (good)
 - `PERSISTENT_WORKERS`: Conditional (good)
 
-**Already Optimized**: The dataloader configuration is well-tuned! ✅
+**Already Optimized**: The dataloader configuration is well-tuned! 
 
 ---
 
-## 🟢 Already Optimized (No Action Needed)
+##   Already Optimized (No Action Needed)
 
-### ✅ Gradient Clipping
+###  Gradient Clipping
 - Using `clip_grad_norm_` with `max_norm=0.5` ✓
 - Applied after `scaler.unscale_()` in mixed precision ✓
 
-### ✅ Mixed Precision Training
+###  Mixed Precision Training
 - Using `torch.amp.autocast('cuda')` ✓
 - GradScaler properly configured ✓
 
-### ✅ Hidden State Detachment
+###  Hidden State Detachment
 - `.detach()` called after optimizer.step() ✓
 - Prevents gradient graph accumulation ✓
 
-### ✅ No Gradient Context for Validation
+###  No Gradient Context for Validation
 - Using `with torch.no_grad():` ✓
 - Disables autograd during validation ✓
 
-### ✅ DataLoader Worker Management
+###  DataLoader Worker Management
 - Auto-configures workers based on CPU/RAM ✓
 - Cleans up orphaned processes ✓
 
 ---
 
-## 📊 Recommended Optimization Priority
+##      Recommended Optimization Priority
 
 ### **Phase 1: Quick Wins (Immediate - 10-15% faster)**
-1. ✅ **Fix redundant .item() calls** - 5-10% speedup
-2. ✅ **Add non_blocking=True to GPU transfers** - 3-5% speedup
-3. ✅ **Reduce validation logging frequency** - 1-2% speedup
+1.  **Fix redundant .item() calls** - 5-10% speedup
+2.  **Add non_blocking=True to GPU transfers** - 3-5% speedup
+3.  **Reduce validation logging frequency** - 1-2% speedup
 
 ### **Phase 2: Medium Effort (Next Sprint - 5-10% faster)**
 4. **Pre-allocate hidden state tensors** - 2-4% speedup
@@ -179,8 +179,8 @@ X_batch, y_batch = X_batch.to(device, non_blocking=True), y_batch.to(device, non
 ```
 
 **Requirements**:
-- ✅ `pin_memory=True` in DataLoader (already enabled)
-- ✅ Doesn't break correctness (data still transferred before use)
+-  `pin_memory=True` in DataLoader (already enabled)
+-  Doesn't break correctness (data still transferred before use)
 
 **Impact**: ~3-5% faster validation
 
@@ -200,27 +200,27 @@ if log_callback and batch_idx % 100 == 0:
 
 ---
 
-## 🚫 What NOT to Optimize
+##     What NOT to Optimize
 
-### ❌ Don't Reduce Gradient Clipping
+###    Don't Reduce Gradient Clipping
 - Current `max_norm=0.5` is critical for LSTM stability
 - Already optimally placed after `scaler.unscale_()`
 
-### ❌ Don't Remove Hidden State Reset
+###    Don't Remove Hidden State Reset
 - Resetting h_s/h_c to zeros every batch is intentional (reference code behavior)
 - Critical for sequence-to-sequence training correctness
 
-### ❌ Don't Disable Mixed Precision
+###    Don't Disable Mixed Precision
 - Already provides ~2-3x speedup
 - Well-implemented with proper scaler usage
 
-### ❌ Don't Increase Batch Size Blindly
+###    Don't Increase Batch Size Blindly
 - Can hurt convergence quality
 - Already auto-configured based on memory
 
 ---
 
-## 📈 Expected Overall Performance Gain
+##  Expected Overall Performance Gain
 
 **Conservative Estimate**: 10-15% faster training  
 **Optimistic Estimate**: 15-20% faster training  
@@ -235,7 +235,7 @@ if log_callback and batch_idx % 100 == 0:
 
 ---
 
-## ✅ Testing Plan
+##  Testing Plan
 
 1. **Benchmark Before Changes**
    - Run 100 epochs on known dataset
@@ -289,9 +289,9 @@ View results: `tensorboard --logdir=./profiler_logs`
 
 We found several optimization opportunities that can provide **10-20% training speedup** without changing functionality:
 
-1. ✅ **Eliminate redundant GPU→CPU syncs** (biggest impact)
-2. ✅ **Use async GPU transfers** (easy win)
-3. ✅ **Reduce logging frequency** (simple fix)
+1.  **Eliminate redundant GPU→CPU syncs** (biggest impact)
+2.  **Use async GPU transfers** (easy win)
+3.  **Reduce logging frequency** (simple fix)
 4. ⏭️ **Pre-allocate hidden states** (Phase 2)
 5. ⏭️ **Optimize DataFrame ops** (Phase 2)
 

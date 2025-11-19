@@ -12,11 +12,11 @@ The PyBattML installer is designed to be **universally compatible** across diffe
 
 | Hardware Type | GPU Models | CUDA Version | PyTorch Variant | Status |
 |---------------|------------|-------------|-----------------|---------|
-| **No GPU** | CPU-only | N/A | CPU-only | ✅ Full Support |
-| **Consumer GPUs** | GTX 1060+, RTX 20/30/40 series | 11.8+ | cu118/cu121/cu124 | ✅ Full Support |
-| **High-end Consumer** | RTX 3080/3090/4080/4090/5070 | 12.1+ | cu121/cu124 | ✅ Full Support |
-| **Enterprise/Server** | Tesla V100, A100, H100 | 11.8+ | cu118/cu121/cu124 | ✅ Full Support |
-| **Workstation** | Quadro RTX series, A4000+ | 11.8+ | cu118/cu121/cu124 | ✅ Full Support |
+| **No GPU** | CPU-only | N/A | CPU-only |  Full Support |
+| **Consumer GPUs** | GTX 1060+, RTX 20/30/40 series | 11.8+ | cu118/cu121/cu124 |  Full Support |
+| **High-end Consumer** | RTX 3080/3090/4080/4090/5070 | 12.1+ | cu121/cu124 |  Full Support |
+| **Enterprise/Server** | Tesla V100, A100, H100 | 11.8+ | cu118/cu121/cu124 |  Full Support |
+| **Workstation** | Quadro RTX series, A4000+ | 11.8+ | cu118/cu121/cu124 |  Full Support |
 
 ---
 
@@ -105,9 +105,9 @@ def install_torch(log_file):
 
 | OS | GPU Support | CUDA Support | Status |
 |----|-------------|--------------|---------|
-| **Windows 10/11** | NVIDIA, AMD (CPU fallback) | Full CUDA support | ✅ Primary |
-| **Linux (Ubuntu/CentOS)** | NVIDIA, AMD (CPU fallback) | Full CUDA support | ✅ Server Ready |
-| **macOS** | Apple Silicon (Metal), Intel (CPU) | No CUDA (CPU/Metal) | ✅ CPU/Metal |
+| **Windows 10/11** | NVIDIA, AMD (CPU fallback) | Full CUDA support |  Primary |
+| **Linux (Ubuntu/CentOS)** | NVIDIA, AMD (CPU fallback) | Full CUDA support |  Server Ready |
+| **macOS** | Apple Silicon (Metal), Intel (CPU) | No CUDA (CPU/Metal) |  CPU/Metal |
 
 ### **Server Environment Compatibility**
 
@@ -254,16 +254,16 @@ def verify_installation():
 
 ---
 
-## **Conclusion** ✅
+## **Conclusion** 
 
 **The PyBattML installer is universally compatible** across:
 
-- ✅ **No GPU Systems**: Full CPU-only functionality
-- ✅ **Consumer GPUs**: RTX 3060, 4070, 5070, etc.
-- ✅ **High-end Consumer**: RTX 4090, RTX 5070 Ti, etc.  
-- ✅ **Enterprise Hardware**: V100, A100, H100 servers
-- ✅ **Cloud Platforms**: AWS, GCP, Azure GPU instances
-- ✅ **Workstations**: Quadro RTX, professional cards
+-  **No GPU Systems**: Full CPU-only functionality
+-  **Consumer GPUs**: RTX 3060, 4070, 5070, etc.
+-  **High-end Consumer**: RTX 4090, RTX 5070 Ti, etc.  
+-  **Enterprise Hardware**: V100, A100, H100 servers
+-  **Cloud Platforms**: AWS, GCP, Azure GPU instances
+-  **Workstations**: Quadro RTX, professional cards
 
 The smart detection system ensures **optimal performance** regardless of hardware configuration, making PyBattML accessible to researchers with any computational setup.
 
