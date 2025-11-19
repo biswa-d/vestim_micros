@@ -21,6 +21,95 @@ except ImportError as e:
     print(f"CUDA Graphs optimization not available: {e}")
     CUDA_GRAPHS_AVAILABLE = False
 import logging
+import multiprocessing as mp
+import platform, sys
+
+def train_one_task(task_cfg, progress_queue=None, job_folder=None, global_params=None):
+    """
+    This function runs the entire training for one task in a separate process.
+    Each task runs in its own isolated process which is terminated after completion,
+    ensuring all resources (including DataLoader workers) are properly freed.
+    
+    Args:
+        task_cfg: Task configuration dictionary
+        progress_queue: Multiprocessing queue for sending progress updates to GUI
+        job_folder: Path to job folder
+        global_params: Global parameters dictionary
+    """
+    import os
+    task_id = task_cfg.get('task_id', 'unknown')
+    pid = os.getpid()
+    print(f"\n{'='*80}")
+    print(f"[PROCESS START] Task {task_id} | PID: {pid}")
+    print(f"{'='*80}\n")
+    
+    if platform.system() == "Linux":
+        try:
+            import resource
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            target = 8192
+            new_soft = min(max(soft, target), hard)
+            if new_soft != soft:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
+        except Exception as e:
+            print(f"[WARN] Could not adjust RLIMIT_NOFILE: {e}", file=sys.stderr)
+
+    # Reconstruct a minimal JobManager and set the job_id from the job_folder path
+    # This ensures the child process uses the correct job folder
+    job_manager = JobManager()
+    if job_folder:
+        # Extract job_id from the job_folder path
+        job_manager.job_id = os.path.basename(job_folder)
+        
+    task_manager = TrainingTaskManager(job_manager=job_manager, global_params=global_params)
+    
+    try:
+        # Run the task - the task_manager.process_task already sends updates via progress_queue
+        task_manager.process_task_with_queue(task_cfg, progress_queue)
+        
+        # Send completion message with training results
+        if progress_queue is not None:
+            # Get the training results from the task manager (populated during training)
+            training_results = task_manager.training_results.get(task_id, {})
+            print(f"[SUBPROCESS] Sending training results for task {task_id}: {training_results}")
+            progress_queue.put({
+                "status": "done",
+                "training_results": training_results  # Include training results in completion message
+            })
+        
+        print(f"\n[PROCESS SUCCESS] Task {task_id} completed successfully | PID: {pid}")
+            
+    except Exception as e:
+        print(f"\n[PROCESS ERROR] Task {task_id} failed | PID: {pid} | Error: {e}", file=sys.stderr)
+        if progress_queue is not None:
+            progress_queue.put({'task_error': str(e)})
+        raise  # Re-raise to ensure the process exits with non-zero code
+    finally:
+        # Explicit cleanup to ensure resources are freed before process termination
+        print(f"\n[CLEANUP START] Task {task_id} | PID: {pid}")
+        try:
+            # Clear CUDA cache if using GPU
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                print(f"[CLEANUP] CUDA cache cleared | PID: {pid}")
+            
+            # Force garbage collection
+            gc.collect()
+            print(f"[CLEANUP] Garbage collection completed | PID: {pid}")
+            
+            # Delete the task_manager to close any open file handles
+            del task_manager
+            del job_manager
+            print(f"[CLEANUP] Managers deleted | PID: {pid}")
+            
+        except Exception as cleanup_error:
+            print(f"[WARN] Error during cleanup: {cleanup_error}", file=sys.stderr)
+        
+        print(f"\n{'='*80}")
+        print(f"[PROCESS END] Task {task_id} | PID: {pid} | Process will now terminate")
+        print(f"{'='*80}\n")
+
 
 def format_time(seconds):
     """Convert seconds to mm:ss format."""
@@ -115,6 +204,26 @@ class TrainingTaskManager:
         # WandB disabled for distribution
         self.use_wandb = False  # WandB functionality removed
         self.wandb_enabled = False
+
+    def train_one_task(self, task_cfg, progress_queue=None):
+        train_one_task(task_cfg, progress_queue, self.job_manager.get_job_folder(), self.global_params)
+    
+    def process_task_with_queue(self, task, progress_queue):
+        """
+        Process a task using a multiprocessing queue instead of PyQt signals.
+        This is used when running tasks in separate processes.
+        """
+        # Store the progress queue for stop signal checking
+        self.progress_queue = progress_queue
+        
+        # Create a simple callback wrapper that puts messages in the queue
+        class QueueCallback:
+            def emit(self, data):
+                if progress_queue is not None:
+                    progress_queue.put(data)
+        
+        # Call the existing process_task method with our queue-based callback
+        self.process_task(task, QueueCallback())
 
     def log_to_csv(self, task, epoch, train_loss, val_loss, elapsed_time, current_lr, best_val_loss, delta_t_epoch):
         """Log richer data to CSV file."""
@@ -255,22 +364,6 @@ class TrainingTaskManager:
             
             self.logger.error(f"Error during task processing: {str(e)}", exc_info=True)
             update_progress_callback.emit({'task_error': str(e)})
-        finally:
-            # Explicitly shut down DataLoader workers and clean up resources to prevent file descriptor leaks on Linux.
-            self.logger.info(f"Cleaning up DataLoader resources for task {task.get('task_id', 'N/A')}")
-            try:
-                if train_loader:
-                    if hasattr(train_loader, '_shutdown_workers'):
-                        train_loader._shutdown_workers()
-                    del train_loader
-                if val_loader:
-                    if hasattr(val_loader, '_shutdown_workers'):
-                        val_loader._shutdown_workers()
-                    del val_loader
-                gc.collect()
-                self.logger.info("Successfully cleaned up DataLoader resources and performed garbage collection.")
-            except Exception as cleanup_error:
-                self.logger.error(f"Error during DataLoader resource cleanup: {cleanup_error}")
 
     def setup_job_logging(self, task):
         """
@@ -532,17 +625,25 @@ class TrainingTaskManager:
         model_type = combined_params.get('MODEL_TYPE', 'LSTM')
 
         # Enhanced data loading configuration from combined params
+        # These values come from the hyperparam GUI and are stored in hyperparams.json
         num_workers = int(combined_params.get('NUM_WORKERS', self.get_optimal_num_workers(model_type)))
         pin_memory = bool(combined_params.get('PIN_MEMORY', True))
-        # Adjust prefetch_factor based on model type: lower for RNN (less data per iteration)
-        default_prefetch = 2 if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"] else 4
-        prefetch_factor = int(combined_params.get('PREFETCH_FACTOR', default_prefetch))
-        persistent_workers = bool(combined_params.get('PERSISTENT_WORKERS', num_workers > 0))
+        
+        # Prefetch factor: how many batches to pre-load per worker (user-configurable via GUI)
+        # Cap at 8 for safety even on high-RAM servers to avoid excessive memory usage
+        user_prefetch = int(combined_params.get('PREFETCH_FACTOR', 2 if model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"] else 4))
+        prefetch_factor = min(user_prefetch, 8) if num_workers > 0 else None
+        
+        # Persistent workers: reuse worker processes across epochs for performance
+        # User can disable via GUI, otherwise auto-enable when num_workers > 0
+        # Safe because subprocess-per-task ensures all workers are killed after task completion
+        user_persistent = combined_params.get('PERSISTENT_WORKERS', None)
+        persistent_workers = bool(user_persistent) if user_persistent is not None else (num_workers > 0)
 
         self.logger.info(f"Initial data loading optimization settings for {model_type}:")
         self.logger.info(f"  - CPU Threads (NUM_WORKERS): {num_workers}")
         self.logger.info(f"  - Fast CPU-GPU Transfer (PIN_MEMORY): {pin_memory}")
-        self.logger.info(f"  - Batch Pre-loading (PREFETCH_FACTOR): {prefetch_factor}")
+        self.logger.info(f"  - Batch Pre-loading (PREFETCH_FACTOR): {prefetch_factor} (user requested: {user_prefetch}, capped at 8)")
         self.logger.info(f"  - Persistent Workers: {persistent_workers}")
         
         seed = int(task['hyperparams'].get('SEED', 2000))
@@ -572,17 +673,18 @@ class TrainingTaskManager:
                     self.logger.warning(f"Data size ({total_size_mb:.2f} MB) exceeds 300 MB on Windows. Forcing num_workers=0 to avoid shared memory errors.")
                     num_workers = 0
                     prefetch_factor = None
-                    persistent_workers = False
+                    persistent_workers = False  # Must be False when num_workers=0
                 elif total_size_mb > 300:
                     self.logger.warning(f"Data size ({total_size_mb:.2f} MB) is large. Proceeding with user-defined num_workers={num_workers} on non-Windows OS.")
+                    # Keep the prefetch_factor and persistent_workers from combined_params (already set above)
 
                 train_loader = self.data_loader_service._create_loader_from_tensors(
                     train_X, train_y, int(task['data_loader_params'].get('batch_size', 32)),
-                    num_workers, True, "train", pin_memory, prefetch_factor, persistent_workers
+                    num_workers, True, "train", pin_memory=pin_memory, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers
                 )
                 val_loader = self.data_loader_service._create_loader_from_tensors(
                     val_X, val_y, int(task['data_loader_params'].get('batch_size', 32)),
-                    num_workers, False, "validation", pin_memory, prefetch_factor, persistent_workers
+                    num_workers, False, "validation", pin_memory=pin_memory, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers
                 )
 
             except Exception as e:
@@ -600,6 +702,9 @@ class TrainingTaskManager:
         else:
             self.logger.info(f"Using standard data loader creation for model type: {model_type}")
             self.logger.info(f"Following reference code: sequences will be shuffled during training")
+            # Use the optimization settings already configured above
+            # persistent_workers is True when num_workers > 0, ensuring performance while
+            # subprocess-per-task architecture guarantees cleanup
             
             train_loader, val_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
                 job_folder_path=job_folder_path, training_method=training_method, feature_cols=feature_cols,
@@ -681,47 +786,11 @@ class TrainingTaskManager:
                 else:
                     # Non-CUDA error with CUDA Graphs - re-raise original error
                     self.logger.error(f"Non-CUDA error occurred during CUDA Graphs training: {str(e)}")
-                    raise e
+                    raise
             else:
                 # Not using CUDA Graphs or different training service - re-raise original error
-                raise e
-        except Exception as e:
-            self.logger.error(f"Error during training for task {task.get('task_id', 'N/A')}: {str(e)}", exc_info=True)
-            task['results'] = {
-                'best_train_loss_normalized': float('inf'),
-                'best_train_loss_denormalized': float('inf'),
-                'best_validation_loss_normalized': float('inf'),
-                'best_validation_loss_denormalized': float('inf'),
-                'error': str(e),
-                'completed_epochs': task.get('results', {}).get('completed_epochs', 0)
-            }
-            update_progress_callback.emit({'task_error': str(e)})
+                raise
         finally:
-            try:
-                # Enhanced DataLoader cleanup
-                if 'train_loader' in locals() and train_loader is not None:
-                    # Force cleanup of DataLoader workers
-                    if hasattr(train_loader, '_shutdown_workers'):
-                        train_loader._shutdown_workers()
-                    del train_loader
-                    
-                if 'val_loader' in locals() and val_loader is not None:
-                    # Force cleanup of DataLoader workers  
-                    if hasattr(val_loader, '_shutdown_workers'):
-                        val_loader._shutdown_workers()
-                    del val_loader
-                
-                # Force garbage collection
-                import gc
-                gc.collect()
-                
-                # Additional cleanup for Linux systems
-                self._cleanup_orphaned_workers()
-                
-                self.logger.info("Enhanced dataloader cleanup and garbage collection completed")
-            except Exception as cleanup_error:
-                self.logger.warning(f"Error during dataloader cleanup: {cleanup_error}")
-            
             best_model_path_final = task.get('training_params', {}).get('best_model_path', 'N/A')
             job_folder_final = self.job_manager.get_job_folder()
             if best_model_path_final != 'N/A' and job_folder_final in best_model_path_final:
@@ -739,6 +808,28 @@ class TrainingTaskManager:
             self.logger.info("Performed initial garbage collection before starting new training task")
         except Exception as initial_cleanup_error:
             self.logger.warning(f"Error during initial cleanup: {initial_cleanup_error}")
+        
+        # Helper function to check for stop signal from progress queue
+        def check_for_stop_signal(progress_queue):
+            """Check if GUI sent stop signal via queue."""
+            if progress_queue is None:
+                return False
+            try:
+                import queue as pyqueue
+                while True:
+                    try:
+                        msg = progress_queue.get_nowait()
+                        if isinstance(msg, dict) and msg.get('stop_signal'):
+                            self.logger.info("[SUBPROCESS] Received graceful stop signal from GUI")
+                            return True
+                        # Put back any other messages
+                        progress_queue.put(msg)
+                        break
+                    except pyqueue.Empty:
+                        break
+            except Exception as e:
+                self.logger.warning(f"Error checking stop signal: {e}")
+            return False
         
         self.logger.info(f"--- Starting _run_training_loop for task: {task['task_id']} ---")
         self.logger.info(f"--- Starting run_training for task: {task['task_id']} ---") # Added detailed log
@@ -984,6 +1075,11 @@ class TrainingTaskManager:
 
         # Training loop
         for epoch in range(1, max_epochs + 1):
+            # Check for graceful stop signal from GUI first
+            if hasattr(self, 'progress_queue') and check_for_stop_signal(self.progress_queue):
+                self.logger.info("[SUBPROCESS] Graceful stop requested by GUI")
+                self.stop_requested = True
+            
             if self.stop_requested:  # Ensure thread safety here
                 self.logger.info("Training stopped by user")
                 break
@@ -1343,6 +1439,15 @@ class TrainingTaskManager:
                 setattr(self, f'_task_{task["task_id"]}_last_val_rmse_orig', val_rmse_for_gui)
                 update_progress_callback.emit(progress_data)
                 self.logger.info(f"GUI updated for validation epoch {epoch} (ValidFreq={valid_freq})")
+                
+                # Check for stop signal after validation completes
+                if hasattr(self, 'progress_queue') and check_for_stop_signal(self.progress_queue):
+                    self.logger.info("[SUBPROCESS] Graceful stop requested after validation")
+                    self.stop_requested = True
+                
+                if self.stop_requested:
+                    self.logger.info("Training stopped by user after validation phase.")
+                    break
 
                 if patience_counter > current_patience:
                     exploit_repetitions = hyperparams["EXPLOIT_REPETITIONS"]
@@ -2013,9 +2118,10 @@ class TrainingTaskManager:
         """Saves a detailed summary of the completed training task and stores it."""
         try:
             task_id = task['task_id']
-            task_dir = task.get('model_dir')
+            # Use task_dir (includes hyperparam subfolder) so each configuration has separate results
+            task_dir = task.get('task_dir') or task.get('model_dir')
             if not task_dir:
-                self.logger.warning(f"No model_dir found for task {task_id}. Skipping summary save.")
+                self.logger.warning(f"No task_dir or model_dir found for task {task_id}. Skipping summary save.")
                 return
             summary_file_path = os.path.join(task_dir, 'training_summary.json')
 
@@ -2076,7 +2182,7 @@ class TrainingTaskManager:
             # Store the results in the manager's dictionary for passing to the testing GUI
             self.training_results[task_id] = {
                 'best_train_loss': best_train_loss_denorm,
-                'best_validation_loss': best_validation_loss_denorm,
+                'best_validation_loss': best_validation_loss_denorm,  # Match key expected by testing manager
                 'completed_epochs': final_epoch,
             }
             self.logger.info(f"Saved training summary for task {task_id} to {summary_file_path}")

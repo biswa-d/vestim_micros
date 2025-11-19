@@ -63,14 +63,14 @@ def display_hyperparameters(gui, params):
             training_method = current_params.get('TRAINING_METHOD', '')
             return str(training_method) == 'Sequence-to-Sequence'
         
-        # Hide exploitation parameters when exploitation is disabled (Exploit Epochs = 0)
-        exploit_epochs = current_params.get('EXPLOIT_EPOCHS', 0)
+        # Hide exploitation parameters when exploitation is disabled (EXPLOIT_REPETITIONS = 0)
+        exploit_repetitions = current_params.get('EXPLOIT_REPETITIONS', 0)
         try:
-            exploit_epochs_val = float(exploit_epochs)
+            exploit_reps_val = int(exploit_repetitions)
         except (ValueError, TypeError):
-            exploit_epochs_val = 0
+            exploit_reps_val = 0
         
-        if param_key in ['EXPLOIT_LR', 'EXPLOIT_EPOCHS', 'EXPLOIT_REPETITIONS'] and exploit_epochs_val == 0:
+        if param_key in ['EXPLOIT_LR', 'EXPLOIT_EPOCHS', 'EXPLOIT_REPETITIONS'] and exploit_reps_val == 0:
             return False
 
         always_relevant = {
@@ -80,7 +80,7 @@ def display_hyperparameters(gui, params):
             'VALID_PATIENCE', 'VALID_FREQUENCY',
             'CURRENT_DEVICE', 'USE_MIXED_PRECISION',
             'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN',
-            'INFERENCE_FILTER_TYPE', 'PIN_MEMORY',
+            'INFERENCE_FILTER_TYPE', 'PIN_MEMORY', 'PREFETCH_FACTOR',
             'DROPOUT_PROB', 'WEIGHT_DECAY', 'NORMALIZATION_APPLIED', 'FINAL_LR'
         }
 

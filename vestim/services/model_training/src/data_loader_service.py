@@ -127,14 +127,8 @@ class DataLoaderService:
         pin_memory_flag = torch.cuda.is_available()
         prefetch_factor_value = 2 if optimized_num_workers > 0 else None
         
-        # Configure persistent workers - disable on Linux to prevent process accumulation
-        import platform
-        persistent_workers_enabled = (
-            optimized_num_workers > 0 and 
-            platform.system() == 'Windows'  # Only enable persistent workers on Windows
-        )
-        
-        self.logger.info(f"DataLoader settings: num_workers={optimized_num_workers}, pin_memory={pin_memory_flag}, persistent_workers={persistent_workers_enabled} (OS: {platform.system()})")
+        persistent_workers_enabled = False
+        self.logger.info(f"DataLoader settings: num_workers={optimized_num_workers}, pin_memory={pin_memory_flag}, persistent_workers={persistent_workers_enabled} (overridden to False)")
         
         train_loader = DataLoader(
             dataset,
@@ -363,7 +357,7 @@ class DataLoaderService:
             num_workers=optimized_num_workers,
             pin_memory=pin_memory_flag,
             prefetch_factor=prefetch_factor_value,
-            persistent_workers=False if optimized_num_workers == 0 else True
+            persistent_workers=False
         )
         
         return loader
@@ -534,7 +528,7 @@ class DataLoaderService:
             num_workers=optimized_num_workers,
             pin_memory=pin_memory_flag,
             prefetch_factor=prefetch_factor_value,
-            persistent_workers=False if optimized_num_workers == 0 else True
+            persistent_workers=False
         )
         
         val_loader = DataLoader(
@@ -545,7 +539,7 @@ class DataLoaderService:
             num_workers=optimized_num_workers,
             pin_memory=pin_memory_flag,
             prefetch_factor=prefetch_factor_value,
-            persistent_workers=False if optimized_num_workers == 0 else True
+            persistent_workers=False
         )
         
         # Clean up
@@ -587,7 +581,7 @@ class DataLoaderService:
                                                  seed: int = None, model_type: str = "LSTM",
                                                  create_test_loader: bool = True,
                                                  pin_memory: bool = None,
-                                                 prefetch_factor: int = 2,
+                                                 prefetch_factor: int = None,
                                                  persistent_workers: bool = None,
                                                  return_data_size: bool = False):
         if seed is None:
@@ -663,7 +657,7 @@ class DataLoaderService:
         return self._create_loader_from_tensors(combined_X, combined_y, batch_size, num_workers, data_type == "train", data_type)
 
     def _create_loader_from_tensors(self, X, y, batch_size: int, num_workers: int, shuffle: bool, data_type: str,
-                                   pin_memory: bool = None, prefetch_factor: int = 2, persistent_workers: bool = None):
+                                   pin_memory: bool = None, prefetch_factor: int = None, persistent_workers: bool = None):
         """Helper method to create a DataLoader from tensors."""
         if X.size == 0 or y.size == 0:
             self.logger.warning(f"Empty {data_type} data. Creating empty DataLoader.")

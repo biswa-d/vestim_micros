@@ -398,28 +398,55 @@ class VEstimTestingManager:
                     best_valid_loss = 'N/A'
                     completed_epochs = 'N/A'
                     
-                    # Try to read from training_results first (in-memory from training GUI)
-                    training_result = self.training_results.get(task['task_id'], {})
+                    # Try to get training results from the passed dictionary first
+                    task_id = task.get('task_id')
+                    print(f"[TESTING MGR] Looking for training results for task {task_id}")
+                    print(f"[TESTING MGR] Available task IDs in training_results: {list(self.training_results.keys())}")
+                    training_result = self.training_results.get(task_id, {})
+                    print(f"[TESTING MGR] Retrieved training_result: {training_result}")
+                    
+                    best_train_loss = 'N/A'
+                    best_valid_loss = 'N/A'
+                    completed_epochs = 'N/A'
+                    
                     if training_result:
                         best_train_loss = training_result.get('best_train_loss', 'N/A')
                         best_valid_loss = training_result.get('best_validation_loss', 'N/A')
                         completed_epochs = training_result.get('completed_epochs', 'N/A')
+                        print(f"[TESTING MGR] Using in-memory results: train={best_train_loss}, valid={best_valid_loss}, epochs={completed_epochs}")
                     
-                    # If not available in memory, try to read from training summary JSON file on disk
-                    if best_train_loss == 'N/A' or best_valid_loss == 'N/A':
+                    # If not available in memory (or empty), ALWAYS try to read from training summary JSON file on disk
+                    print(f"[TESTING MGR] Disk fallback check: training_result={bool(training_result)}, best_train_loss={best_train_loss}, best_valid_loss={best_valid_loss}")
+                    if not training_result or best_train_loss == 'N/A' or best_valid_loss == 'N/A':
+                        print(f"[TESTING MGR] *** TRIGGERING DISK FALLBACK *** Attempting to read from disk...")
                         try:
+                            # training_summary.json is saved in task_dir (includes hyperparam subfolder) for per-config results
                             task_dir = task.get('task_dir') or task.get('model_dir')
+                            print(f"[TESTING MGR] Task directory: {task_dir}")
                             if task_dir:
                                 summary_file = os.path.join(task_dir, 'training_summary.json')
+                                print(f"[TESTING MGR] Looking for summary file: {summary_file}")
                                 if os.path.exists(summary_file):
+                                    print(f"[TESTING MGR] *** FOUND FILE *** Reading training_summary.json...")
                                     with open(summary_file, 'r') as f:
                                         summary_data = json.load(f)
+                                        print(f"[TESTING MGR] Raw summary_data keys: {summary_data.keys()}")
                                         best_train_loss = summary_data.get('best_train_loss_denormalized', 'N/A')
                                         best_valid_loss = summary_data.get('best_validation_loss_denormalized', 'N/A')
                                         completed_epochs = summary_data.get('completed_epochs', 'N/A')
+                                        print(f"[TESTING MGR] *** SUCCESSFULLY LOADED *** train={best_train_loss}, valid={best_valid_loss}, epochs={completed_epochs}")
                                         self.logger.info(f"Loaded training results from disk for task {task['task_id']}: train={best_train_loss}, val={best_valid_loss}, epochs={completed_epochs}")
+                                else:
+                                    print(f"[TESTING MGR] *** FILE NOT FOUND *** training_summary.json NOT FOUND at {summary_file}")
+                            else:
+                                print(f"[TESTING MGR] *** NO DIRECTORY *** No task_dir or model_dir found in task")
                         except Exception as e:
+                            print(f"[TESTING MGR] *** ERROR READING FILE *** {e}")
+                            import traceback
+                            traceback.print_exc()
                             self.logger.warning(f"Could not read training summary from disk for task {task['task_id']}: {e}")
+                    else:
+                        print(f"[TESTING MGR] *** SKIPPING DISK FALLBACK *** Using in-memory results")
 
                     summary_row = {
                         "Sl.No": f"{idx + 1}.{test_file_index + 1}",

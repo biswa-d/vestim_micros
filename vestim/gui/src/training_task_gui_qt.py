@@ -13,9 +13,11 @@ import logging
 import os
 import matplotlib.pyplot as plt
 
+import multiprocessing as mp
+import queue as pyqueue  # to catch Empty
 # Import local services
 from vestim.services.model_training.src.training_task_service import TrainingTaskService
-from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager
+from vestim.gateway.src.training_task_manager_qt import TrainingTaskManager, train_one_task
 from vestim.gateway.src.training_setup_manager_qt import VEstimTrainingSetupManager
 from vestim.gateway.src.job_manager_qt import JobManager
 from vestim.gui.src.testing_gui_qt import VEstimTestingGUI
@@ -23,23 +25,117 @@ from vestim.gateway.src.testing_manager_qt import VEstimTestingManager
 
 
 class TrainingThread(QThread):
-    # Custom signals to emit data back to the main GUI
-    update_epoch_signal = pyqtSignal(dict)  # Signal to send progress data (e.g., after each epoch)
-    task_completed_signal = pyqtSignal()  # Signal when the task is completed
-    task_error_signal = pyqtSignal(str)  # Signal for any error during the task
+    """
+    QThread that spawns an isolated child process for each training task.
+    
+    Architecture:
+    - Main GUI Process: Contains this QThread and orchestrates the workflow
+    - QThread: Prevents UI freezing, manages the child process lifecycle
+    - Child Process: Isolated process that runs train_one_task() for ONE task
+    
+    For a 30-task job, this creates and destroys 30 separate child processes
+    sequentially. Each process cleanup ensures all resources (DataLoader workers,
+    file handles, GPU memory) are properly freed, preventing "too many open files"
+    errors on Linux systems.
+    
+    Model persistence: Models are saved to disk by each child process, not passed
+    through memory. Testing phase loads models from their saved file paths.
+    """
+    update_epoch_signal = pyqtSignal(dict)
+    task_completed_signal = pyqtSignal()
+    task_error_signal = pyqtSignal(str)
 
-    def __init__(self, task, training_task_manager):
-        super().__init__()
-        self.task = task
-        self.training_task_manager = training_task_manager
+    def __init__(self, task_cfg, job_folder, global_params, parent=None):
+        super().__init__(parent)
+        self.task_cfg = task_cfg
+        self.job_folder = job_folder
+        self.global_params = global_params
+        self.stop_requested = False
 
     def run(self):
         try:
-            # Process the task in the background
-            self.training_task_manager.process_task(self.task, self.update_epoch_signal)
-            self.task_completed_signal.emit()  # Emit signal when the task is completed
+            ctx = mp.get_context("spawn")
+            progress_queue = ctx.Queue()
+            
+            task_id = self.task_cfg.get('task_id', 'unknown')
+            print(f"\n[GUI THREAD] Spawning subprocess for task {task_id}...")
+            
+            # Use the top-level train_one_task function for multiprocessing
+            # Pass only picklable data (no PyQt objects)
+            p = ctx.Process(
+                target=train_one_task,
+                args=(
+                    self.task_cfg,
+                    progress_queue,
+                    self.job_folder,
+                    self.global_params
+                )
+            )
+            p.start()
+            print(f"[GUI THREAD] Subprocess spawned for task {task_id} | Child PID: {p.pid}")
+
+            # Read progress until process finishes
+            stop_signal_sent = False
+            while p.is_alive():
+                try:
+                    msg = progress_queue.get(timeout=0.5)
+                    # forward to GUI
+                    self.update_epoch_signal.emit(msg)
+                except pyqueue.Empty:
+                    pass
+
+                if getattr(self, "stop_requested", False):
+                    if not stop_signal_sent:
+                        # First attempt: Send graceful stop signal via queue
+                        print(f"[GUI THREAD] Sending graceful stop signal to subprocess {task_id}...")
+                        try:
+                            progress_queue.put({'stop_signal': True})
+                        except:
+                            pass
+                        stop_signal_sent = True
+                        stop_signal_time = time.time()
+                    elif time.time() - stop_signal_time > 30:
+                        # After 30 seconds of graceful shutdown attempt, force terminate
+                        print(f"[GUI THREAD] Graceful shutdown timeout (30s). Force terminating subprocess {task_id}...")
+                        p.terminate()
+                        p.join(timeout=5)
+                        if p.is_alive():
+                            p.kill()  # Last resort
+                        self.task_error_signal.emit("Training stopped by user (forced termination).")
+                        return
+
+            # Drain any remaining messages and capture training results
+            training_results_for_task = None
+            while True:
+                try:
+                    msg = progress_queue.get_nowait()
+                    # Check if this message contains training results
+                    if 'training_results' in msg:
+                        training_results_for_task = msg['training_results']
+                        print(f"[GUI THREAD] Received training results for task {task_id}: {training_results_for_task}")
+                    self.update_epoch_signal.emit(msg)
+                except pyqueue.Empty:
+                    break
+
+            p.join()
+            print(f"[GUI THREAD] Subprocess joined for task {task_id} | Exit code: {p.exitcode}")
+            
+            if p.exitcode == 0:
+                print(f"[GUI THREAD] Task {task_id} completed successfully, process terminated cleanly")
+                # Store the training results in task config so it can be accessed later
+                if training_results_for_task:
+                    self.task_cfg['training_results'] = training_results_for_task
+                self.task_completed_signal.emit()
+            else:
+                print(f"[GUI THREAD] Task {task_id} failed with exit code {p.exitcode}")
+                self.task_error_signal.emit(f"Child process exited with code {p.exitcode}")
+
         except Exception as e:
-            self.task_error_signal.emit(str(e))  # Emit error message
+            print(f"[GUI THREAD ERROR] Exception in TrainingThread: {e}")
+            self.task_error_signal.emit(str(e))
+            
+    def stop(self):
+        self.stop_requested = True
 
 
 class VEstimTrainingTaskGUI(QMainWindow):
@@ -415,7 +511,9 @@ class VEstimTrainingTaskGUI(QMainWindow):
             self.show_proceed_to_testing_button()
             return
 
-        self.status_label.setText(f"Task {self.current_task_index + 1}/{len(self.task_list)} is running. LSTM model being trained...")
+        # Get model type from task hyperparams for dynamic status message
+        model_type = self.task_list[self.current_task_index]['hyperparams'].get('MODEL_TYPE', 'Model')
+        self.status_label.setText(f"Task {self.current_task_index + 1}/{len(self.task_list)} is running. {model_type} model being trained...")
         self.status_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: #004d99;")
 
         # Start processing tasks sequentially
@@ -425,7 +523,12 @@ class VEstimTrainingTaskGUI(QMainWindow):
         self.clear_plot()
 
         # Start the training task in a background thread
-        self.training_thread = TrainingThread(self.task_list[self.current_task_index], self.training_task_manager)
+        # Pass only picklable data (job_folder and params), not the manager object
+        self.training_thread = TrainingThread(
+            self.task_list[self.current_task_index],
+            self.job_manager.get_job_folder(),
+            self.params
+        )
 
         # Pass the thread reference to the training_task_manager
         self.training_task_manager.training_thread = self.training_thread
@@ -654,9 +757,11 @@ class VEstimTrainingTaskGUI(QMainWindow):
         # Stop the timer
         self.timer_running = False
 
-        # Send stop request to the task manager
-        self.training_task_manager.stop_task()
-        print("Stop request sent to training task manager")
+        # Send stop request to the training thread
+        if hasattr(self, 'training_thread') and self.training_thread:
+            self.training_thread.stop()
+        
+        print("Stop request sent to training thread")
 
         # Immediate GUI update to reflect the stopping state
         self.status_label.setText("Stopping Training...")
@@ -707,9 +812,15 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
         self.timer_running = False
 
+        # Store training results from the completed task
+        current_task = self.task_list[self.current_task_index]
+        task_id = current_task.get('task_id', f'task_{self.current_task_index + 1}')
+        if 'training_results' in current_task:
+            self.training_results[task_id] = current_task['training_results']
+            print(f"[GUI] Stored training results for task {task_id}: {self.training_results[task_id]}")
+
         # Save the training plot for the current task
         try:
-            task_id = self.task_list[self.current_task_index].get('task_id', f'task_{self.current_task_index + 1}')
             # Use 'task_dir' which is the specific directory for this task's artifacts
             save_dir = self.task_list[self.current_task_index].get('task_dir', self.job_manager.get_job_folder()) # Fallback to job folder if task_dir is missing
             
@@ -813,7 +924,12 @@ class VEstimTrainingTaskGUI(QMainWindow):
 
     def transition_to_testing_gui(self):
         self.auto_proceed_timer.stop()
-        training_results = self.training_task_manager.get_training_results()
+        # Use training results collected from subprocess completion messages
+        training_results = self.training_results
+        print(f"[GUI] Transitioning to testing with training_results: {training_results}")
+        print(f"[GUI] Training results keys: {list(training_results.keys())}")
+        for task_id, results in training_results.items():
+            print(f"[GUI]   {task_id}: {results}")
 
         # Get the job folder from the job manager
         job_folder = self.job_manager.get_job_folder()
