@@ -590,13 +590,24 @@ class VEstimTrainingSetupManager:
                         prefix = ''.join([c for c in key if c.isupper()]) or key[:2]
                         name_parts.append(f"{prefix}{value}")
             else:
+                # Get model type to determine if we need sequence length
+                model_type = hyperparams.get('MODEL_TYPE', 'FNN')
+                
                 bs = int(hyperparams.get('BATCH_SIZE', 0))
+                name_parts.append(f"B{bs}")
+                
+                # For LSTM/GRU, add sequence length (LOOKBACK) which is essential
+                if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
+                    lookback = hyperparams.get('LOOKBACK', 'N/A')
+                    if lookback != 'N/A':
+                        name_parts.append(f"L{lookback}")
+                
                 optimizer_type = hyperparams.get('OPTIMIZER_TYPE', 'Adam')
                 optimizer_abbrev = 'AdW' if 'adamw' in optimizer_type.lower() else 'Adam'
                 scheduler_type = hyperparams.get('SCHEDULER_TYPE', 'StepLR')
                 scheduler_map = {'StepLR': 'SLR', 'ReduceLROnPlateau': 'RLROP'}
                 scheduler_name = scheduler_map.get(scheduler_type, scheduler_type)
-                name_parts.extend([f"B{bs}", optimizer_abbrev, f"LR_{scheduler_name}"])
+                name_parts.extend([optimizer_abbrev, f"LR_{scheduler_name}"])
                 vp = hyperparams.get('VALID_PATIENCE', 'N/A')
                 name_parts.append(f"VP{vp}")
             

@@ -407,6 +407,28 @@ class CUDAGraphsTrainingService:
         if self.train_graph is None and epoch == 1:
             self.logger.info(f"[LSTM CUDA Graphs] Capturing computation graph for shapes: input={sample_input.shape}, target={sample_target.shape}")
             try:
+                # CRITICAL: Clear any previous CUDA errors before warmup to prevent capture failure
+                torch.cuda.synchronize()
+                try:
+                    # Attempt a simple operation to clear error state
+                    _ = torch.zeros(1, device=device)
+                    torch.cuda.synchronize()
+                except RuntimeError as e:
+                    self.logger.warning(f"[LSTM CUDA Graphs] Clearing previous CUDA error: {e}")
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    # Try again
+                    _ = torch.zeros(1, device=device)
+                    torch.cuda.synchronize()
+                
+                self.logger.info(f"[LSTM CUDA Graphs] Starting warmup iterations...")
+                
+                # CRITICAL: Flatten LSTM parameters for CUDA graphs compatibility
+                # This ensures weights are stored in a contiguous format required by graphs
+                if hasattr(model, 'lstm'):
+                    model.lstm.flatten_parameters()
+                    self.logger.info(f"[LSTM CUDA Graphs] Flattened LSTM parameters for graph compatibility")
+                
                 # Warmup iterations
                 for _ in range(3):
                     optimizer.zero_grad(set_to_none=True)
@@ -425,15 +447,40 @@ class CUDAGraphsTrainingService:
                     optimizer.step()
                 
                 torch.cuda.synchronize()
+                self.logger.info(f"[LSTM CUDA Graphs] Warmup completed successfully")
+                
+                # CRITICAL: Clear cache and synchronize before creating static tensors
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
                 
                 # Capture the graph
                 self.static_input = torch.zeros_like(sample_input)
                 self.static_target = torch.zeros_like(sample_target)
                 
-                # Begin capture
+                # CRITICAL: Do one more forward pass with the static tensors before capture
+                # This ensures all memory allocations are done outside the graph
+                self.logger.info(f"[LSTM CUDA Graphs] Pre-allocating memory with static tensors...")
+                optimizer.zero_grad(set_to_none=True)
+                if model_type == 'LSTM':
+                    output, (h_n, c_n) = model(self.static_input)
+                else:  # GRU
+                    output, h_n = model(self.static_input)
+                
+                if output.shape != self.static_target.shape:
+                    if output.ndim > self.static_target.ndim and output.shape[-1] == 1:
+                        output = output.squeeze(-1)
+                
+                loss = self.criterion(output, self.static_target)
+                loss.backward()
+                optimizer.step()
+                torch.cuda.synchronize()
+                self.logger.info(f"[LSTM CUDA Graphs] Pre-allocation completed")
+                
+                # Now capture the graph
                 self.train_graph = torch.cuda.CUDAGraph()
                 optimizer.zero_grad(set_to_none=True)
                 
+                self.logger.info(f"[LSTM CUDA Graphs] Beginning graph capture...")
                 with torch.cuda.graph(self.train_graph):
                     if model_type == 'LSTM':
                         output, (h_n, c_n) = model(self.static_input)
