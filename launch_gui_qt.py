@@ -125,8 +125,16 @@ _active_dataloaders = []
 _qt_application = None
 
 def cleanup_dataloader_processes():
-    """Clean up any remaining DataLoader worker processes."""
+    """Clean up any remaining DataLoader worker processes and close log handlers."""
     try:
+        # Close all logging handlers to release file locks
+        root_logger = logging.getLogger()
+        for handler in root_logger.handlers[:]:
+            try:
+                handler.close()
+            except Exception:
+                pass
+        
         if platform.system() != 'Linux':
             return  # Windows handles this automatically
             
