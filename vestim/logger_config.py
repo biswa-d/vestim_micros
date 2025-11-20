@@ -2,6 +2,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import sys
 import os # Import the os module
+import platform
 
 def setup_logger(log_file='default.log'):
     logger = logging.getLogger()
@@ -27,7 +28,13 @@ def setup_logger(log_file='default.log'):
     logger.addHandler(console_handler)
 
     # Rotating File Handler (5 MB max, keep 3 backups)
-    file_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=3)
+    # On Windows, RotatingFileHandler can fail when trying to rotate due to file locks
+    # Use a custom handler that delays rotation to avoid PermissionError
+    if platform.system() == 'Windows':
+        # Use delayed=True to avoid file locking issues during rotation on Windows
+        file_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=3, delay=True)
+    else:
+        file_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=3)
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')) # Corrected back to %(message)s
     logger.addHandler(file_handler)
@@ -56,7 +63,11 @@ def configure_job_specific_logging(job_folder_path, log_file_name='job.log'):
     # Ensure the directory for the job log file exists
     os.makedirs(os.path.dirname(job_log_file), exist_ok=True)
         
-    job_file_handler = RotatingFileHandler(job_log_file, maxBytes=5*1024*1024, backupCount=3)
+    # On Windows, use delayed=True to avoid file locking issues during rotation
+    if platform.system() == 'Windows':
+        job_file_handler = RotatingFileHandler(job_log_file, maxBytes=5*1024*1024, backupCount=3, delay=True)
+    else:
+        job_file_handler = RotatingFileHandler(job_log_file, maxBytes=5*1024*1024, backupCount=3)
     job_file_handler.setLevel(logging.DEBUG) # Or INFO, as per requirements
     job_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')) # Moved %(name)s
     logger.addHandler(job_file_handler)
