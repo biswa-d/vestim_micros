@@ -196,7 +196,14 @@ class VEstimTestingManager:
                     
                     # Get lookback value for warmup
                     lookback_val = task.get('hyperparams', {}).get('LOOKBACK', 200) # Default if not found
-                    lookback_val = int(lookback_val) if lookback_val else 200  # Ensure it's an integer
+                    # Handle FNN models that have 'N/A' for lookback, and ensure integer type
+                    if lookback_val == 'N/A' or lookback_val is None or lookback_val == '':
+                        lookback_val = 200  # Default for FNN or missing values
+                    else:
+                        try:
+                            lookback_val = int(lookback_val)
+                        except (ValueError, TypeError):
+                            lookback_val = 200  # Fallback if conversion fails
                     
                     if use_continuous_testing:
                         # Use continuous testing - no test loader needed
