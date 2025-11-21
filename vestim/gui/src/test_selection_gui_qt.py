@@ -185,73 +185,13 @@ class TestSelectionGUI(QMainWindow):
         return True
 
     def add_test_files(self):
-        if not self.job_folder_path:
-            QMessageBox.warning(self, "Job Folder Not Selected", "Please select a job folder before adding test files.")
-            return
-
-        hyperparams_path = os.path.join(self.job_folder_path, 'hyperparams.json')
-        if not os.path.exists(hyperparams_path):
-            QMessageBox.warning(self, "Invalid Job Folder", "Could not find hyperparams.json in the selected job folder.")
-            return
-
-        try:
-            with open(hyperparams_path, 'r') as f:
-                hyperparams = json.load(f)
-            
-            required_columns = set(hyperparams.get("FEATURE_COLUMNS", []))
-            target_column = hyperparams.get("TARGET_COLUMN")
-            if target_column:
-                required_columns.add(target_column)
-
-            if not required_columns:
-                QMessageBox.warning(self, "No Columns Defined", "The hyperparams.json file does not define any feature or target columns.")
-                return
-        except Exception as e:
-            QMessageBox.critical(self, "Error Reading Hyperparameters", f"Could not read or parse hyperparams.json:\n{str(e)}")
-            return
-
         files, _ = QFileDialog.getOpenFileNames(self, "Select Test Data Files", "", "Data Files (*.csv *.xlsx *.mat)")
-        
         for file in files:
-            if file in self.test_files:
-                continue
-
-            try:
-                if file.endswith('.csv'):
-                    df = pd.read_csv(file, nrows=0)
-                    file_columns = set(df.columns)
-                elif file.endswith('.xlsx'):
-                    df = pd.read_excel(file, nrows=0)
-                    file_columns = set(df.columns)
-                elif file.endswith('.mat'):
-                    QMessageBox.information(self, "MAT File", ".mat file columns cannot be validated at this stage. Please ensure it has the correct structure.")
-                    # Add without validation
-                    self.test_files.append(file)
-                    item = QListWidgetItem(os.path.basename(file))
-                    item.setToolTip(file)
-                    self.files_list.addItem(item)
-                    continue
-                else:
-                    # Skip unsupported files
-                    continue
-
-                missing_columns = required_columns - file_columns
-                
-                if missing_columns:
-                    QMessageBox.warning(self, "Column Mismatch",
-                                      f"The file '{os.path.basename(file)}' is missing required columns:\n\n"
-                                      f"{', '.join(sorted(list(missing_columns)))}\n\n"
-                                      "Please select a file with the correct columns.")
-                else:
-                    # All required columns are present, add the file
-                    self.test_files.append(file)
-                    item = QListWidgetItem(os.path.basename(file))
-                    item.setToolTip(file)
-                    self.files_list.addItem(item)
-
-            except Exception as e:
-                QMessageBox.critical(self, "Error Reading File", f"Could not read columns from {os.path.basename(file)}:\n{str(e)}")
-
+            if file not in self.test_files:
+                self.test_files.append(file)
+                item = QListWidgetItem(os.path.basename(file))
+                item.setToolTip(file)  # Show full path on hover
+                self.files_list.addItem(item)
         self.check_ready()
 
     def clear_test_files(self):
