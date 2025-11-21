@@ -154,24 +154,36 @@ class VEstimStandaloneTestingManager(QObject):
                     self.progress.emit("✓ Scaler loaded successfully")
                     normalized_columns = self.job_metadata.get('normalized_columns')
                     
-                    # Pre-process columns before scaling to handle non-numeric types like timedelta
-                    for col in normalized_columns:
-                        if col in self.test_df.columns and self.test_df[col].dtype == 'object':
-                            try:
-                                # Attempt to convert timedelta-like strings to total seconds
-                                self.test_df[col] = pd.to_timedelta(self.test_df[col]).dt.total_seconds()
-                                self.progress.emit(f"Converted timedelta column '{col}' to seconds before scaling.")
-                            except (ValueError, TypeError):
+                    # Only normalize columns that actually exist in the test data
+                    # (augmentation may not have been applied yet for raw test files)
+                    available_normalized_cols = [col for col in normalized_columns if col in self.test_df.columns]
+                    missing_cols = [col for col in normalized_columns if col not in self.test_df.columns]
+                    
+                    if missing_cols:
+                        self.progress.emit(f"Warning: Some normalized columns not found in test data: {missing_cols}")
+                        self.progress.emit("This is normal if you're using a raw test file without augmentation.")
+                    
+                    if not available_normalized_cols:
+                        self.progress.emit("Warning: No normalized columns found in test data. Skipping normalization.")
+                    else:
+                        # Pre-process columns before scaling to handle non-numeric types like timedelta
+                        for col in available_normalized_cols:
+                            if col in self.test_df.columns and self.test_df[col].dtype == 'object':
                                 try:
-                                    # Fallback for other non-numeric objects
-                                    self.test_df[col] = pd.to_numeric(self.test_df[col], errors='coerce')
-                                    self.progress.emit(f"Coerced object column '{col}' to numeric before scaling.")
+                                    # Attempt to convert timedelta-like strings to total seconds
+                                    self.test_df[col] = pd.to_timedelta(self.test_df[col]).dt.total_seconds()
+                                    self.progress.emit(f"Converted timedelta column '{col}' to seconds before scaling.")
                                 except (ValueError, TypeError):
-                                    self.error.emit(f"Column '{col}' could not be converted to a numeric type for scaling.")
-                                    return
+                                    try:
+                                        # Fallback for other non-numeric objects
+                                        self.test_df[col] = pd.to_numeric(self.test_df[col], errors='coerce')
+                                        self.progress.emit(f"Coerced object column '{col}' to numeric before scaling.")
+                                    except (ValueError, TypeError):
+                                        self.error.emit(f"Column '{col}' could not be converted to a numeric type for scaling.")
+                                        return
 
-                    self.test_df[normalized_columns] = scaler.transform(self.test_df[normalized_columns])
-                    self.progress.emit("Normalization applied successfully.")
+                        self.test_df[available_normalized_cols] = scaler.transform(self.test_df[available_normalized_cols])
+                        self.progress.emit(f"Normalization applied to {len(available_normalized_cols)} columns successfully.")
                 else:
                     self.progress.emit("Warning: Failed to load scaler, predictions will be on normalized scale")
             else:
@@ -280,10 +292,19 @@ class VEstimStandaloneTestingManager(QObject):
             # Apply filters
             applied_filters = metadata.get('applied_filters', [])
             for filter_config in applied_filters:
-                self.progress.emit(f"Applying Butterworth filter to '{filter_config['column']}'...")
+                column_to_filter = filter_config['column']
+                # Check if column exists, if not provide helpful error
+                if column_to_filter not in result_df.columns:
+                    available_cols = ', '.join(result_df.columns.tolist())
+                    raise ValueError(
+                        f"Filter requires column '{column_to_filter}' but it's not in test data.\n"
+                        f"Available columns: {available_cols}\n"
+                        f"Make sure your test file has the same raw column names as training data."
+                    )
+                self.progress.emit(f"Applying Butterworth filter to '{column_to_filter}'...")
                 result_df = self.data_augment_service.apply_butterworth_filter(
                     result_df,
-                    column_name=filter_config['column'],
+                    column_name=column_to_filter,
                     corner_frequency=filter_config['corner_frequency'],
                     sampling_rate=filter_config['sampling_rate'],
                     filter_order=filter_config['filter_order'],
