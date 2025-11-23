@@ -629,8 +629,20 @@ class VEstimHyperParamGUI(QWidget):
             self.model_param_container.addWidget(lstm_layer_sizes_label)
             self.model_param_container.addWidget(self.lstm_layer_sizes_entry)
 
+            # LSTM Dropout
+            lstm_dropout_label = QLabel("LSTM Dropout Prob:")
+            lstm_dropout_label.setStyleSheet("font-size: 9pt;")
+            lstm_dropout_label.setToolTip("Dropout probability between LSTM layers (0.0 to 1.0). Only applied if num_layers > 1.")
+            self.lstm_dropout_entry = QLineEdit(self.params.get("LSTM_DROPOUT_PROB", "0.2"))
+            self.lstm_dropout_entry.setToolTip("e.g., 0.2 for 20% dropout between layers")
+            self.lstm_dropout_entry.textChanged.connect(self.on_param_text_changed)
+
+            self.model_param_container.addWidget(lstm_dropout_label)
+            self.model_param_container.addWidget(self.lstm_dropout_entry)
+
             # Store in param_entries using new parameter name
             model_params["RNN_LAYER_SIZES"] = self.lstm_layer_sizes_entry
+            model_params["LSTM_DROPOUT_PROB"] = self.lstm_dropout_entry
 
         # FIXED:**GRU Parameters**
         elif selected_model == "GRU":
@@ -657,8 +669,20 @@ class VEstimHyperParamGUI(QWidget):
             self.model_param_container.addWidget(gru_layer_sizes_label)
             self.model_param_container.addWidget(self.gru_layer_sizes_entry)
 
+            # GRU Dropout
+            gru_dropout_label = QLabel("GRU Dropout Prob:")
+            gru_dropout_label.setStyleSheet("font-size: 9pt;")
+            gru_dropout_label.setToolTip("Dropout probability between GRU layers (0.0 to 1.0). Only applied if num_layers > 1.")
+            self.gru_dropout_entry = QLineEdit(self.params.get("GRU_DROPOUT_PROB", "0.2"))
+            self.gru_dropout_entry.setToolTip("e.g., 0.2 for 20% dropout between layers")
+            self.gru_dropout_entry.textChanged.connect(self.on_param_text_changed)
+
+            self.model_param_container.addWidget(gru_dropout_label)
+            self.model_param_container.addWidget(self.gru_dropout_entry)
+
             # Store in param_entries using new parameter name
             model_params["RNN_LAYER_SIZES"] = self.gru_layer_sizes_entry
+            model_params["GRU_DROPOUT_PROB"] = self.gru_dropout_entry
 
         elif selected_model == "FNN":
             fnn_hidden_layers_label = QLabel("FNN Hidden Layers:")

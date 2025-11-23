@@ -9,7 +9,7 @@
     "MODEL_TYPE": "LSTM",
     "LAYERS": "2",
     "HIDDEN_UNITS": "32",
-    "DROPOUT_PROB": "0.2",
+    "LSTM_DROPOUT_PROB": "0.2",
     "LSTM_USE_LAYERNORM": false,
     "TRAINING_METHOD": "Sequence-to-Sequence",
     "LOOKBACK": "150",

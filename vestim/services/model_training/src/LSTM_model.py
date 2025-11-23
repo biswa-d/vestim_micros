@@ -17,13 +17,10 @@ class LSTMModel(nn.Module):
             hidden_units,
             num_layers,
             batch_first=True,
-            dropout=dropout_prob if num_layers > 1 else 0
+            dropout=dropout_prob if num_layers > 1 else 0  # Dropout only between LSTM layers
         ).to(self.device)
 
-        # Define a dropout layer for the outputs
-        self.dropout = nn.Dropout(p=dropout_prob)
-
-        # Define the fully connected layer
+        # Define the fully connected layer (NO additional output dropout - already handled by LSTM)
         self.fc = nn.Linear(hidden_units, 1).to(self.device)
         
         # No output activation (reference code: Junran Chen)
@@ -45,8 +42,14 @@ class LSTMModel(nn.Module):
                 # Hidden-hidden weights: Orthogonal for RNNs (prevents vanishing/exploding gradients)
                 nn.init.orthogonal_(param.data)
             elif 'bias' in name:
-                # Bias terms: small constant
+                # LSTM bias initialization: set forget gate bias to 1.0 for better gradient flow
+                # LSTM has 4 gates (input, forget, output, cell), biases are concatenated
+                # bias_ih and bias_hh both have shape [4*hidden_size]
+                hidden_size = param.data.size(0) // 4
+                # Initialize all biases to 0
                 nn.init.constant_(param.data, 0.0)
+                # Set forget gate bias to 1.0 (indices hidden_size to 2*hidden_size)
+                param.data[hidden_size:2*hidden_size].fill_(1.0)
         
         # Initialize the fully connected layer
         nn.init.xavier_uniform_(self.fc.weight)
@@ -62,9 +65,6 @@ class LSTMModel(nn.Module):
             out, (h_s, h_c) = self.lstm(x)
         else:
             out, (h_s, h_c) = self.lstm(x, (h_s, h_c))
-
-        # Apply dropout to the outputs of the LSTM
-        out = self.dropout(out)
 
         # Pass the output through the fully connected layer
         # Apply the fully connected layer to the last time step only (for sequence-to-one prediction)

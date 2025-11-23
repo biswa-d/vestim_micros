@@ -11,6 +11,7 @@
     "TRAINING_METHOD": "Sequence-to-Sequence",
     "LOOKBACK": "100,200",
     "RNN_LAYER_SIZES": "64,32;128,64",
+    "LSTM_DROPOUT_PROB": "0.1,0.2",
     "BATCH_TRAINING": true,
     "BATCH_SIZE": "64,128",
     "VALID_PATIENCE": "180",

@@ -94,10 +94,10 @@ class LSTMModel(nn.Module):
             hidden_units,
             num_layers,
             batch_first=True,
-            dropout=dropout_prob if num_layers > 1 else 0
+            dropout=dropout_prob if num_layers > 1 else 0  # Dropout only between LSTM layers
         ).to(self.device)
 
-        self.dropout = nn.Dropout(p=dropout_prob)
+        # NO additional output dropout layer - dropout is already handled between LSTM layers
         self.fc = nn.Linear(hidden_units, 1).to(self.device)
         
         if self.apply_clipped_relu:
@@ -108,7 +108,7 @@ class LSTMModel(nn.Module):
     def forward(self, x, h_s=None, h_c=None):
         x = x.to(self.device)
         out, (h_s, h_c) = self.lstm(x, (h_s, h_c))
-        out = self.dropout(out)
+        # NO output dropout - already handled between LSTM layers
         out = self.fc(out[:, -1, :])
         out = self.final_activation(out)
         return out, (h_s, h_c)

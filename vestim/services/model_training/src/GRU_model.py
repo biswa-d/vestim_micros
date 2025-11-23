@@ -50,15 +50,10 @@ class GRUModel(nn.Module):
                 hidden_size=hidden_units,
                 num_layers=num_layers,
                 batch_first=True, # Expects input: (batch, seq, feature)
-                dropout=dropout_prob if num_layers > 1 else 0.0
+                dropout=dropout_prob if num_layers > 1 else 0.0  # Dropout only between GRU layers
             ).to(self.device)
 
-        # Optional: A dropout layer before the final fully connected layer
-        if dropout_prob > 0:
-            self.dropout = nn.Dropout(p=dropout_prob).to(self.device)
-        else:
-            self.dropout = None
-
+        # NO additional output dropout layer - dropout is already handled between GRU layers
         self.fc = nn.Linear(hidden_units, output_size).to(self.device)
         
         if self.apply_clipped_relu:
@@ -119,9 +114,6 @@ class GRUModel(nn.Module):
         out, h_n = self.gru(x, h_0)
         # out shape: (batch_size, seq_len, hidden_units)
         # h_n shape: (num_layers, batch_size, hidden_units)
-
-        if self.dropout:
-            out = self.dropout(out) # Apply dropout to the GRU outputs
 
         # Apply the fully connected layer to the last time step only (for sequence-to-one prediction)
         # This matches the behavior of LSTMModel and avoids shape mismatches during training

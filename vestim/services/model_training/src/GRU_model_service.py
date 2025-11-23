@@ -51,7 +51,9 @@ class GRUModelService:
             num_layers = int(params.get("GRU_LAYERS") or params.get("LAYERS", 1))
         
         output_size = params.get("OUTPUT_SIZE", 1)
-        dropout_prob = params.get("DROPOUT_PROB", 0.0)
+        # Use GRU-specific dropout parameter (similar to FNN_DROPOUT_PROB)
+        # Falls back to DROPOUT_PROB for backward compatibility, then to 0.2 default
+        dropout_prob = float(params.get("GRU_DROPOUT_PROB", params.get("DROPOUT_PROB", 0.2)))
         apply_clipped_relu = params.get("normalization_applied", False)
         use_layer_norm = params.get("GRU_USE_LAYERNORM", False)
         
