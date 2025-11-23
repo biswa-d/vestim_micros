@@ -80,7 +80,14 @@ def _preflight_check_torch():
         except Exception:
             is_main = True
         if is_main:
-            print(f"Detected PyTorch {getattr(torch, '__version__', 'unknown')} | CUDA built: {getattr(getattr(torch, 'backends', None), 'cuda', None) and torch.backends.cuda.is_built()} | CUDA avail: {torch.cuda.is_available() if hasattr(torch, 'cuda') else 'n/a'}")
+            # CRITICAL: Do NOT call torch.cuda.is_available() in the main process!
+            # On Windows with multiprocessing spawn, calling torch.cuda.is_available()
+            # initializes the CUDA context in the parent process, which corrupts the
+            # CUDA state in child processes. This causes "operation failed due to a
+            # previous error during capture" when using CUDA Graphs in subprocesses.
+            # Check CUDA built status only (doesn't initialize CUDA context)
+            cuda_built = getattr(getattr(torch, 'backends', None), 'cuda', None) and torch.backends.cuda.is_built()
+            print(f"Detected PyTorch {getattr(torch, '__version__', 'unknown')} | CUDA built: {cuda_built} | CUDA avail: (checked in subprocess)")
         return True
     except OSError as e:
         if sys.platform == "win32" and ("WinError 1114" in str(e) or "c10.dll" in str(e)):

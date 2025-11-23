@@ -324,7 +324,9 @@ class OptunaOptimizationThread(QThread):
 
             torch = _safe_import_torch()
             try:
-                use_cuda = bool(torch and torch.cuda.is_available())
+                # CRITICAL: Don't call torch.cuda.is_available() in GUI process on Windows
+                # Check if CUDA is built instead (doesn't initialize CUDA context)
+                use_cuda = bool(torch and hasattr(torch, 'backends') and hasattr(torch.backends, 'cuda') and torch.backends.cuda.is_built())
             except Exception:
                 use_cuda = False
             device_str = self.params.get('DEVICE_SELECTION', 'cuda:0' if use_cuda else 'cpu')

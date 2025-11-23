@@ -216,13 +216,24 @@ class TrainingTaskManager:
         # Initialize training service with CUDA Graphs if available and enabled
         use_cuda_graphs = self.global_params.get('USE_CUDA_GRAPHS', False)
         
-        # Auto-enable CUDA Graphs for FNN models on CUDA devices (smart default)
-        if not use_cuda_graphs and self.global_params:
+        # CRITICAL: Force disable CUDA Graphs on Windows due to multiprocessing + CUDA incompatibility
+        # On Windows with spawn, CUDA Graphs cause "operation failed due to previous error during capture"
+        # This is a known issue with CUDA Graphs + Windows multiprocessing - NOT user-overridable
+        if platform.system() == 'Windows' and use_cuda_graphs:
+            self.logger.warning("=" * 80)
+            self.logger.warning("⚠️  CUDA Graphs requested but DISABLED on Windows")
+            self.logger.warning("CUDA Graphs are incompatible with Windows multiprocessing (spawn mode).")
+            self.logger.warning("Using standard training instead. CUDA Graphs only available on Linux.")
+            self.logger.warning("=" * 80)
+            use_cuda_graphs = False  # Force disable on Windows
+        
+        # Auto-enable CUDA Graphs for FNN models on CUDA devices (smart default) - but not on Windows
+        if not use_cuda_graphs and self.global_params and platform.system() != 'Windows':
             model_type = self.global_params.get('MODEL_TYPE', 'LSTM')
             device_selection = self.global_params.get('DEVICE_SELECTION', 'cpu')
             if model_type == 'FNN' and 'cuda' in device_selection.lower() and CUDA_GRAPHS_AVAILABLE:
                 use_cuda_graphs = True
-                self.logger.info("Auto-enabling CUDA Graphs for FNN model on CUDA device")
+                self.logger.info("Auto-enabling CUDA Graphs for FNN model on CUDA device (Linux only)")
         
         # Determine device based on global_params or fallback
         selected_device_str = self.global_params.get('DEVICE_SELECTION', 'cpu')  # FIXED: Default to 'cpu' instead of 'cuda:0'
@@ -254,12 +265,14 @@ class TrainingTaskManager:
         if use_cuda_graphs and CUDA_GRAPHS_AVAILABLE:
             # FIXED: Pass the device to CUDA Graphs service so it respects GUI selection
             self.training_service = CUDAGraphsTrainingService(device=self.device)
-            self.logger.info("CUDA Graphs training service initialized for RTX 5070 optimization")
+            self.logger.info("CUDA Graphs training service initialized for GPU optimization")
         else:
             # FIXED: Pass the device to TrainingTaskService so it respects GUI selection
             self.training_service = TrainingTaskService(device=self.device)
             if use_cuda_graphs and not CUDA_GRAPHS_AVAILABLE:
                 self.logger.warning("CUDA Graphs requested but not available, using standard training")
+            elif platform.system() == 'Windows':
+                self.logger.info("Using standard training service (CUDA Graphs disabled on Windows)")
             else:
                 self.logger.info("Using standard training service")
         

@@ -28,6 +28,16 @@ class TrainingTaskService:
             torch.backends.cudnn.benchmark = True
             torch.backends.cudnn.enabled = True
             print("Enabled cuDNN benchmark mode for optimized CUDA operations")
+
+            # Enable TensorFloat-32 (TF32) for NVIDIA Ampere GPUs (RTX 30xx, RTX 40xx, RTX 50xx, A100)
+            # TF32 provides ~10-20% speedup with minimal accuracy impact
+            # Uses 19 bits precision instead of full FP32, but maintains same range
+            try:
+                torch.set_float32_matmul_precision('high')  # or 'highest' for more precision
+                print("Enabled TensorFloat-32 (TF32) for faster matrix operations on Ampere+ GPUs")
+            except AttributeError:
+                # PyTorch < 1.12 doesn't have this feature
+                print("TF32 not available (requires PyTorch >= 1.12)")
         
         # Optimize CPU threading for PyTorch operations
         # Prevents oversubscription when using multiple DataLoader workers
@@ -231,7 +241,8 @@ class TrainingTaskService:
                 if h_s is not None:
                     h_s = h_s.detach()
                 
-            total_train_loss.append(loss.item())
+            # Keep loss on GPU to avoid synchronization - will sync once at end of epoch
+            total_train_loss.append(loss.detach())
             
             # Store predictions and true values - keep on GPU for speed
             all_train_y_pred_normalized.append(y_pred.detach())
@@ -241,14 +252,17 @@ class TrainingTaskService:
             batch_time = end_batch_time - start_batch_time
             batch_times.append(batch_time)
 
-            if verbose and batch_idx % log_freq == 0 and batch_times:
+            # OPTIMIZATION: Reduce terminal logging frequency to avoid GPU→CPU sync overhead
+            # GUI updates happen every epoch (not affected by this)
+            # Only log terminal messages every 200 batches instead of 100
+            if verbose and batch_idx % (log_freq * 2) == 0 and batch_times:
                 log_callback = task.get('log_callback')
                 if log_callback:
+                    # GUI callback - keep this frequent for user feedback
                     log_callback(f"  Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}")
                 else:
-                    print(f"Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}, Input: {X_batch.shape}, Pred: {y_pred.shape}")
-
-            del X_batch, y_batch, y_pred, loss
+                    # Terminal logging - reduce frequency
+                    print(f"Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}")
             
             # CRITICAL: For shuffled sequence training, RESET hidden states to None after each batch
             # Shuffled sequences are temporally disconnected, so carrying hidden states
@@ -260,12 +274,13 @@ class TrainingTaskService:
                 h_s, h_c = None, None
             elif model_type == "GRU":
                 h_s = None
-            
-            # Only clear CUDA cache periodically to avoid overhead
-            if device.type == 'cuda' and batch_idx % 50 == 0:
-                torch.cuda.empty_cache()
 
+        # Calculate average batch time
         avg_epoch_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0
+
+        # Convert loss tensors to scalar - single GPU→CPU sync at end of epoch
+        if total_train_loss and torch.is_tensor(total_train_loss[0]):
+            total_train_loss = [l.item() for l in total_train_loss]
         avg_loss = sum(total_train_loss) / len(total_train_loss) if total_train_loss else float('nan')
         
         # Concatenate all batch tensors
@@ -363,20 +378,23 @@ class TrainingTaskService:
 
                     loss = self.criterion(y_pred, y_batch)
 
-                total_val_loss.append(loss.item()) # Accumulate loss per batch (matches training approach)
+                # Keep loss on GPU to avoid synchronization
+                total_val_loss.append(loss.detach())
                 
                 # Store predictions and true values - keep on GPU for speed
                 all_val_y_pred_normalized.append(y_pred.detach())
                 all_val_y_true_normalized.append(y_batch.detach())
 
-                if verbose and batch_idx % log_freq == 0:
+                # OPTIMIZATION: Reduce validation terminal logging to minimize GPU→CPU syncs
+                # GUI updates happen every validation epoch (not affected)
+                if verbose and batch_idx % (log_freq * 2) == 0:
                     log_callback = task.get('log_callback')
                     if log_callback:
+                        # GUI callback - keep frequent for user feedback
                         log_callback(f"  Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")
                     else:
+                        # Terminal logging - reduced frequency
                         print(f"Validation Epoch: {epoch}, Batch: {batch_idx}/{len(val_loader)}, Loss: {loss.item():.4f}")
-
-                del X_batch, y_batch, y_pred, loss
                 
                 # CRITICAL: For shuffled sequence validation, RESET hidden states to None
                 # Shuffled sequences are temporally disconnected, so carrying hidden states
@@ -387,11 +405,10 @@ class TrainingTaskService:
                     h_s, h_c = None, None
                 elif model_type == "GRU":
                     h_s = None
-                
-                # Only clear CUDA cache periodically to avoid overhead
-                if device.type == 'cuda' and batch_idx % 50 == 0:
-                    torch.cuda.empty_cache()
         
+        # Convert loss tensors to scalar - single GPU→CPU sync at end of validation
+        if total_val_loss and torch.is_tensor(total_val_loss[0]):
+            total_val_loss = [l.item() for l in total_val_loss]
         avg_loss = sum(total_val_loss) / len(total_val_loss) if total_val_loss else float('nan')
         
         # Concatenate all batch tensors

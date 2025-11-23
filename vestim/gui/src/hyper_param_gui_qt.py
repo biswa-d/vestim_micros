@@ -629,8 +629,20 @@ class VEstimHyperParamGUI(QWidget):
             self.model_param_container.addWidget(lstm_layer_sizes_label)
             self.model_param_container.addWidget(self.lstm_layer_sizes_entry)
 
+            # LSTM Dropout
+            lstm_dropout_label = QLabel("LSTM Dropout Prob:")
+            lstm_dropout_label.setStyleSheet("font-size: 9pt;")
+            lstm_dropout_label.setToolTip("Dropout probability between LSTM layers (0.0 to 1.0). Only applied if num_layers > 1.")
+            self.lstm_dropout_entry = QLineEdit(self.params.get("LSTM_DROPOUT_PROB", "0.2"))
+            self.lstm_dropout_entry.setToolTip("e.g., 0.2 for 20% dropout between layers")
+            self.lstm_dropout_entry.textChanged.connect(self.on_param_text_changed)
+
+            self.model_param_container.addWidget(lstm_dropout_label)
+            self.model_param_container.addWidget(self.lstm_dropout_entry)
+
             # Store in param_entries using new parameter name
             model_params["RNN_LAYER_SIZES"] = self.lstm_layer_sizes_entry
+            model_params["LSTM_DROPOUT_PROB"] = self.lstm_dropout_entry
 
         # FIXED:**GRU Parameters**
         elif selected_model == "GRU":
@@ -657,8 +669,20 @@ class VEstimHyperParamGUI(QWidget):
             self.model_param_container.addWidget(gru_layer_sizes_label)
             self.model_param_container.addWidget(self.gru_layer_sizes_entry)
 
+            # GRU Dropout
+            gru_dropout_label = QLabel("GRU Dropout Prob:")
+            gru_dropout_label.setStyleSheet("font-size: 9pt;")
+            gru_dropout_label.setToolTip("Dropout probability between GRU layers (0.0 to 1.0). Only applied if num_layers > 1.")
+            self.gru_dropout_entry = QLineEdit(self.params.get("GRU_DROPOUT_PROB", "0.2"))
+            self.gru_dropout_entry.setToolTip("e.g., 0.2 for 20% dropout between layers")
+            self.gru_dropout_entry.textChanged.connect(self.on_param_text_changed)
+
+            self.model_param_container.addWidget(gru_dropout_label)
+            self.model_param_container.addWidget(self.gru_dropout_entry)
+
             # Store in param_entries using new parameter name
             model_params["RNN_LAYER_SIZES"] = self.gru_layer_sizes_entry
+            model_params["GRU_DROPOUT_PROB"] = self.gru_dropout_entry
 
         elif selected_model == "FNN":
             fnn_hidden_layers_label = QLabel("FNN Hidden Layers:")
@@ -1022,16 +1046,24 @@ class VEstimHyperParamGUI(QWidget):
         device_options = ["CPU"]
         torch = _safe_import_torch()
         try:
-            if torch and torch.cuda.is_available():
-                for i in range(torch.cuda.device_count()):
-                    device_options.append(f"cuda:{i}")
+            # CRITICAL: On Windows with multiprocessing spawn, calling torch.cuda.is_available()
+            # in the main GUI process initializes CUDA context, which corrupts child processes.
+            # Only check if CUDA is built (doesn't initialize context), not if it's available.
+            if torch and hasattr(torch, 'backends') and hasattr(torch.backends, 'cuda'):
+                if torch.backends.cuda.is_built():
+                    # Assume CUDA devices exist if built - actual check happens in subprocess
+                    # Most modern systems with CUDA-enabled PyTorch have at least one GPU
+                    device_options.append("cuda:0")
+                    # Optionally add more CUDA devices (users can manually edit if needed)
+                    device_options.append("cuda:1")  # In case of multi-GPU
         except Exception as _gpu_e:
             # If querying CUDA fails (e.g., missing DLLs), silently fall back to CPU
             pass
         self.device_combo.addItems(device_options)
-        self.device_combo.setToolTip("Select CPU for compatibility, GPU for faster training.")
+        self.device_combo.setToolTip("Select CPU for compatibility, GPU for faster training. Actual GPU availability checked at training time.")
         try:
-            default_device = "cuda:0" if (torch and torch.cuda.is_available()) else "CPU"
+            # Default to CPU to be safe - user can select CUDA if they know they have a GPU
+            default_device = "CPU"
         except Exception:
             default_device = "CPU"
         if default_device in device_options:
@@ -1042,7 +1074,8 @@ class VEstimHyperParamGUI(QWidget):
         form_layout.addRow(device_label, self.device_combo)
 
         try:
-            if torch and torch.cuda.is_available():
+            # Only show mixed precision option if CUDA is built (not checking availability)
+            if torch and hasattr(torch, 'backends') and hasattr(torch.backends, 'cuda') and torch.backends.cuda.is_built():
                 self.mixed_precision_checkbox = QCheckBox("Use Mixed Precision Training")
                 self.mixed_precision_checkbox.setChecked(True)
                 self.mixed_precision_checkbox.setToolTip("Enable automatic mixed precision (AMP) to accelerate GPU training.")
@@ -1854,6 +1887,8 @@ class VEstimHyperParamGUI(QWidget):
             # Regularization / dropout
             "WEIGHT_DECAY": {"type": "float", "min": 0.0},
             "FNN_DROPOUT_PROB": {"type": "float", "min": 0.0, "max": 1.0},
+            "LSTM_DROPOUT_PROB": {"type": "float", "min": 0.0, "max": 1.0},
+            "GRU_DROPOUT_PROB": {"type": "float", "min": 0.0, "max": 1.0},
             # Exploit
             "EXPLOIT_EPOCHS": {"type": "int", "min": 0},
             "EXPLOIT_REPETITIONS": {"type": "int", "min": 0},
