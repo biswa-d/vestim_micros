@@ -243,7 +243,7 @@ class OptunaOptimizationThread(QThread):
             "GRU_LAYERS", "GRU_HIDDEN_UNITS"
         }
         float_log_params = {"INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR"}
-        float_params = {"FNN_DROPOUT_PROB", "DROPOUT_PROB"}
+        float_params = {"FNN_DROPOUT_PROB", "DROPOUT_PROB", "LSTM_DROPOUT_PROB", "GRU_DROPOUT_PROB"}
 
         for param_name, param_value in self.params.items():
             if param_name in handled_params:
