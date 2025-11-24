@@ -848,6 +848,12 @@ class TrainingTaskManager:
                     self.logger.info("Attempting to fall back to standard training with CUDA state reset.")
                     
                     try:
+                        # Move model to CPU first to avoid corrupted CUDA state
+                        model = task.get('model')
+                        if model is not None:
+                            model.cpu()
+                            self.logger.info("Moved model to CPU to escape corrupted CUDA state")
+                        
                         # Complete CUDA state cleanup
                         torch.cuda.empty_cache()
                         torch.cuda.synchronize()
@@ -858,19 +864,26 @@ class TrainingTaskManager:
                         import gc
                         gc.collect()
                         
+                        # Reload the untrained model from CPU (avoiding corrupted CUDA memory)
+                        untrained_model_path = task.get('untrained_model_path')
+                        if untrained_model_path and os.path.exists(untrained_model_path):
+                            # Load to CPU first, then move to CUDA after cleanup
+                            state_dict = torch.load(untrained_model_path, map_location='cpu')
+                            model.load_state_dict(state_dict)
+                            self.logger.info(f"Reloaded untrained model state from {untrained_model_path} (via CPU)")
+                        else:
+                            self.logger.warning("Untrained model template not found. Continuing with current model state.")
+                        
+                        # Now move model back to CUDA with clean state
+                        if model is not None:
+                            model.to(device)
+                            self.logger.info(f"Moved model back to {device} after CUDA reset")
+                        
                         # Switch to standard training service
                         self.training_service = TrainingTaskService(device=self.device)
                         self.logger.info("Switched to standard TrainingTaskService with CUDA state reset.")
                         
                         update_progress_callback.emit({'status': 'CUDA Graphs failed. Falling back to standard training...'})
-                        
-                        # Reload the untrained model from the saved template
-                        untrained_model_path = task.get('untrained_model_path')
-                        if untrained_model_path and os.path.exists(untrained_model_path):
-                            task['model'].load_state_dict(torch.load(untrained_model_path, map_location=device))
-                            self.logger.info(f"Reloaded untrained model state from {untrained_model_path} for fallback training")
-                        else:
-                            self.logger.warning("Untrained model template not found. Continuing with current model state.")
                         
                         # Retry with standard training
                         self._run_training_loop(task, update_progress_callback, train_loader, val_loader, device)
