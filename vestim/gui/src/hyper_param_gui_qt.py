@@ -1048,14 +1048,20 @@ class VEstimHyperParamGUI(QWidget):
         try:
             # CRITICAL: On Windows with multiprocessing spawn, calling torch.cuda.is_available()
             # in the main GUI process initializes CUDA context, which corrupts child processes.
-            # Only check if CUDA is built (doesn't initialize context), not if it's available.
-            if torch and hasattr(torch, 'backends') and hasattr(torch.backends, 'cuda'):
-                if torch.backends.cuda.is_built():
-                    # Assume CUDA devices exist if built - actual check happens in subprocess
-                    # Most modern systems with CUDA-enabled PyTorch have at least one GPU
+            # We can safely call torch.cuda.device_count() which doesn't initialize CUDA context,
+            # unlike torch.cuda.is_available() which does.
+            if torch and hasattr(torch, 'cuda'):
+                try:
+                    # device_count() is safe - it queries CUDA without initializing context
+                    num_gpus = torch.cuda.device_count()
+                    if num_gpus > 0:
+                        # Add all available CUDA devices
+                        for gpu_id in range(num_gpus):
+                            device_options.append(f"cuda:{gpu_id}")
+                except Exception:
+                    # If device_count() fails, fall back to assuming 2 GPUs
                     device_options.append("cuda:0")
-                    # Optionally add more CUDA devices (users can manually edit if needed)
-                    device_options.append("cuda:1")  # In case of multi-GPU
+                    device_options.append("cuda:1")
         except Exception as _gpu_e:
             # If querying CUDA fails (e.g., missing DLLs), silently fall back to CPU
             pass
