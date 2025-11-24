@@ -1046,16 +1046,29 @@ class VEstimHyperParamGUI(QWidget):
         device_options = ["CPU"]
         torch = _safe_import_torch()
         try:
-            if torch and torch.cuda.is_available():
-                for i in range(torch.cuda.device_count()):
-                    device_options.append(f"cuda:{i}")
+            # CRITICAL: On Windows with multiprocessing spawn, calling torch.cuda.is_available()
+            # in the main GUI process initializes CUDA context, which corrupts child processes.
+            # We can safely call torch.cuda.device_count() which doesn't initialize CUDA context.
+            if torch and hasattr(torch, 'cuda'):
+                try:
+                    # device_count() is safe - it queries CUDA without initializing context
+                    num_gpus = torch.cuda.device_count()
+                    if num_gpus > 0:
+                        # Add all available CUDA devices
+                        for gpu_id in range(num_gpus):
+                            device_options.append(f"cuda:{gpu_id}")
+                except Exception:
+                    # If device_count() fails, fall back to assuming 2 GPUs
+                    device_options.append("cuda:0")
+                    device_options.append("cuda:1")
         except Exception as _gpu_e:
             # If querying CUDA fails (e.g., missing DLLs), silently fall back to CPU
             pass
         self.device_combo.addItems(device_options)
-        self.device_combo.setToolTip("Select CPU for compatibility, GPU for faster training.")
+        self.device_combo.setToolTip("Select CPU for compatibility, GPU for faster training. Actual GPU availability checked at training time.")
         try:
-            default_device = "cuda:0" if (torch and torch.cuda.is_available()) else "CPU"
+            # Default to CPU to be safe - user can select CUDA if they know they have a GPU
+            default_device = "CPU"
         except Exception:
             default_device = "CPU"
         if default_device in device_options:

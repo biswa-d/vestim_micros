@@ -81,7 +81,8 @@ def display_hyperparameters(gui, params):
             'CURRENT_DEVICE', 'USE_MIXED_PRECISION',
             'MAX_TRAINING_TIME_SECONDS', 'FEATURE_COLUMNS', 'TARGET_COLUMN',
             'INFERENCE_FILTER_TYPE', 'PIN_MEMORY', 'PREFETCH_FACTOR',
-            'DROPOUT_PROB', 'WEIGHT_DECAY', 'NORMALIZATION_APPLIED', 'FINAL_LR'
+            'DROPOUT_PROB', 'LSTM_DROPOUT_PROB', 'GRU_DROPOUT_PROB', 'FNN_DROPOUT_PROB',
+            'WEIGHT_DECAY', 'NORMALIZATION_APPLIED', 'FINAL_LR'
         }
 
         if param_key in always_relevant:
@@ -101,7 +102,7 @@ def display_hyperparameters(gui, params):
             if param_key in lstm_gru_params:
                 return True
         elif model_type == 'FNN':
-            fnn_params = {'FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB', 'HIDDEN_LAYER_SIZES', 'DROPOUT_PROB'}
+            fnn_params = {'FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB', 'HIDDEN_LAYER_SIZES'}
             if param_key in fnn_params:
                 return True
             if param_key in {'LOOKBACK', 'LAYERS', 'HIDDEN_UNITS'}:
@@ -147,7 +148,7 @@ def display_hyperparameters(gui, params):
     elif model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
         preferred_key_groups += [
             ['RNN_LAYER_SIZES'],
-            ['DROPOUT_PROB'],
+            ['LSTM_DROPOUT_PROB', 'GRU_DROPOUT_PROB', 'DROPOUT_PROB'],
             ['WEIGHT_DECAY']
         ]
 
