@@ -600,7 +600,11 @@ class VEstimTrainingSetupManager:
                 if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
                     lookback = hyperparams.get('LOOKBACK', 'N/A')
                     if lookback != 'N/A':
-                        name_parts.append(f"L{lookback}")
+                        try:
+                            lb_val = int(lookback)
+                            name_parts.append(f"L{lb_val}")
+                        except (ValueError, TypeError):
+                            pass  # Skip if not a valid integer
                 
                 optimizer_type = hyperparams.get('OPTIMIZER_TYPE', 'Adam')
                 optimizer_abbrev = 'AdW' if 'adamw' in optimizer_type.lower() else 'Adam'
@@ -610,6 +614,11 @@ class VEstimTrainingSetupManager:
                 name_parts.extend([optimizer_abbrev, f"LR_{scheduler_name}"])
                 vp = hyperparams.get('VALID_PATIENCE', 'N/A')
                 name_parts.append(f"VP{vp}")
+            
+            # Add a short unique ID to prevent collisions when all parameters are identical
+            # This ensures different tasks (even with same hyperparams) remain distinguishable
+            unique_id = f"id{uuid.uuid4().hex[:5]}"  # e.g., "id3a7f2"
+            name_parts.append(unique_id)
             
             return '_'.join(name_parts).replace('.', 'p')
         except Exception as e:
