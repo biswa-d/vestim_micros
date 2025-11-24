@@ -574,13 +574,6 @@ def inverse_transform_single_column(normalized_values, scaler, target_column, no
             data_max = data_max_array[target_col_index]
             denormalized = values * (data_max - data_min) + data_min
             
-            # Debug: Check for unusual normalized values that might indicate scaling issues
-            if len(values) > 0:
-                val_min, val_max = np.min(values), np.max(values)
-                if val_min < -0.1 or val_max > 1.1:
-                    print(f"WARNING: Normalized values outside expected [0,1] range: min={val_min:.6f}, max={val_max:.6f}")
-                    print(f"This suggests the model output is not properly normalized or there's a scaling issue")
-            
             # Only print range info once per column per session to reduce log spam
             if not hasattr(inverse_transform_single_column, '_printed_ranges'):
                 inverse_transform_single_column._printed_ranges = set()
