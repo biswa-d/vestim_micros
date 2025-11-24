@@ -590,15 +590,35 @@ class VEstimTrainingSetupManager:
                         prefix = ''.join([c for c in key if c.isupper()]) or key[:2]
                         name_parts.append(f"{prefix}{value}")
             else:
+                # Always include batch size and lookback (sequence length) as they're critical identifiers
                 bs = int(hyperparams.get('BATCH_SIZE', 0))
+                name_parts.append(f"B{bs}")
+                
+                # Add lookback (sequence length) if present (important for LSTM/GRU)
+                lookback = hyperparams.get('LOOKBACK')
+                if lookback and str(lookback).strip().upper() != 'N/A':
+                    try:
+                        lb_val = int(lookback)
+                        name_parts.append(f"L{lb_val}")
+                    except (ValueError, TypeError):
+                        pass  # Skip if lookback is not a valid integer
+                
+                # Optimizer and scheduler info
                 optimizer_type = hyperparams.get('OPTIMIZER_TYPE', 'Adam')
                 optimizer_abbrev = 'AdW' if 'adamw' in optimizer_type.lower() else 'Adam'
                 scheduler_type = hyperparams.get('SCHEDULER_TYPE', 'StepLR')
                 scheduler_map = {'StepLR': 'SLR', 'ReduceLROnPlateau': 'RLROP'}
                 scheduler_name = scheduler_map.get(scheduler_type, scheduler_type)
-                name_parts.extend([f"B{bs}", optimizer_abbrev, f"LR_{scheduler_name}"])
+                name_parts.extend([optimizer_abbrev, f"LR_{scheduler_name}"])
+                
+                # Add validation patience
                 vp = hyperparams.get('VALID_PATIENCE', 'N/A')
                 name_parts.append(f"VP{vp}")
+            
+            # Add a short unique ID to prevent collisions when all parameters are identical
+            # This ensures different tasks (even with same hyperparams) remain distinguishable
+            unique_id = f"id{uuid.uuid4().hex[:5]}"  # e.g., "id3a7f2"
+            name_parts.append(unique_id)
             
             return '_'.join(name_parts).replace('.', 'p')
         except Exception as e:
