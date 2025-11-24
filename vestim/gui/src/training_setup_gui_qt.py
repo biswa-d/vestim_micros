@@ -75,7 +75,9 @@ class VEstimTrainSetupGUI(QWidget):
             "LOOKBACK": "Lookback Sequence Length", "REPETITIONS": "Repetitions",
             "NUM_WORKERS": "# CPU Threads", "PIN_MEMORY": "Fast CPU-GPU Transfer",
             "PREFETCH_FACTOR": "Batch Pre-loading", "USE_CUDA_GRAPHS": "CUDA Graphs",
-            "USE_MIXED_PRECISION": "Mixed Precision"
+            "USE_MIXED_PRECISION": "Mixed Precision",
+            "LSTM_DROPOUT_PROB": "LSTM Dropout", "GRU_DROPOUT_PROB": "GRU Dropout", 
+            "FNN_DROPOUT_PROB": "FNN Dropout"
         }
 
         self.logger.info("Initializing VEstimTrainSetupGUI")

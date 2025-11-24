@@ -47,7 +47,8 @@ class LSTMModelService:
             hidden_units = int(params.get("HIDDEN_UNITS", 10))
             num_layers = int(params.get("LAYERS", 1))
         
-        dropout_prob = params.get("DROPOUT_PROB", 0.5)
+        # Use model-specific dropout parameter (LSTM_DROPOUT_PROB) with sensible default
+        dropout_prob = float(params.get("LSTM_DROPOUT_PROB", params.get("DROPOUT_PROB", 0.2)))
         apply_clipped_relu = params.get("normalization_applied", False)
         use_layer_norm = params.get("LSTM_USE_LAYERNORM", False)
         
