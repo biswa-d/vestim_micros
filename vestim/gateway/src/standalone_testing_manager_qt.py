@@ -621,12 +621,10 @@ class VEstimStandaloneTestingManager(QObject):
             
             # --- New, unified data alignment logic ---
             self.progress.emit("  Aligning predictions with original data...")
-            final_df = self.original_test_df.copy()
             
-            # Initialize actual_values from the full original dataframe
-            if target_column in final_df.columns:
-                actual_values = final_df[target_column].values
-                final_df[f'True_{target_display}'] = actual_values
+            # Get actual values from original dataframe
+            if target_column in self.original_test_df.columns:
+                actual_values = self.original_test_df[target_column].values
             else:
                 actual_values = None
 
@@ -648,7 +646,7 @@ class VEstimStandaloneTestingManager(QObject):
                 prediction_start_index = lookback - 1 if lookback > 0 else 0
 
             # Create a NaN-filled array for predictions that matches the original df length
-            predictions_aligned = np.full(len(final_df), np.nan)
+            predictions_aligned = np.full(len(self.original_test_df), np.nan)
 
             # Calculate how many predictions can be placed into the aligned array
             num_preds_to_place = min(len(predictions_final), len(predictions_aligned) - prediction_start_index)
@@ -657,8 +655,6 @@ class VEstimStandaloneTestingManager(QObject):
             if num_preds_to_place > 0:
                 predictions_aligned[prediction_start_index : prediction_start_index + num_preds_to_place] = predictions_final[:num_preds_to_place]
 
-            # Assign the aligned predictions to the dataframe
-            final_df[f'Predicted_{target_display}'] = predictions_aligned
             predicted_values = predictions_aligned # This array now has NaNs
 
             # --- End of new logic ---
@@ -678,16 +674,22 @@ class VEstimStandaloneTestingManager(QObject):
                 with np.errstate(invalid='ignore'):
                     errors_raw = predicted_values - actual_values
                 errors_display = errors_raw * error_multiplier
-                final_df[f'Error ({error_unit})'] = errors_display
                 
-                if target_column in final_df.columns and f'True_{target_display}' in final_df.columns:
-                    final_df = final_df.drop(columns=[target_column])
+                # Create a clean dataframe with only essential data for predictions CSV
+                # Generate time axis assuming 1 Hz sampling frequency (can be made configurable later)
+                sampling_freq_hz = 1.0  # Default to 1 Hz
+                time_hours = np.arange(len(actual_values)) / (sampling_freq_hz * 3600.0)  # Convert to hours
                 
-                essential_columns = [col for col in self.original_test_df.columns if col in final_df.columns and col != target_column]
-                essential_columns.extend([f'True_{target_display}', f'Predicted_{target_display}', f'Error ({error_unit})'])
-                final_df = final_df[[col for col in essential_columns if col in final_df.columns]]
+                final_df = pd.DataFrame({
+                    'Time (h)': time_hours,
+                    f'True_{target_display}': actual_values,
+                    f'Predicted_{target_display}': predicted_values,
+                    f'Error ({error_unit})': errors_display
+                })
             else:
                 actual_values_for_metrics = None # Ensure this is defined
+                # Create minimal dataframe even if predictions failed
+                final_df = pd.DataFrame({'Error': ['No predictions generated']})
             
             # Save predictions file
             predictions_file = os.path.join(test_result_dir, f"{test_file_name}_predictions.csv")

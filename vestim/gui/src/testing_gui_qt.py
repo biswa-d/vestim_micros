@@ -476,14 +476,17 @@ class VEstimTestingGUI(QMainWindow):
 
             x_axis, x_label = (df.index, "Sample Index")
 
-            # 1) Prefer explicit seconds if present (no guessing)
-            for cand in ("Time (s)", "Time_s", "Seconds", "time_s"):
-                if cand in df.columns:
-                    x_axis, x_label = df[cand], "Time (seconds)"
-                    break
-            else:
-                # 2) Your existing logic, but with Excel-serial handling
-                if timestamp_col:
+            # 1) Prefer Time (h) column if present (clean, generated time axis)
+            if "Time (h)" in df.columns:
+                x_axis, x_label = df["Time (h)"], "Time (hours)"
+            # 2) Fall back to explicit seconds if present
+            elif any(cand in df.columns for cand in ("Time (s)", "Time_s", "Seconds", "time_s")):
+                for cand in ("Time (s)", "Time_s", "Seconds", "time_s"):
+                    if cand in df.columns:
+                        x_axis, x_label = df[cand], "Time (seconds)"
+                        break
+            # 3) Last resort: try to parse timestamp columns
+            elif timestamp_col:
                     try:
                         ts = df[timestamp_col]
                         if pd.api.types.is_numeric_dtype(ts):
