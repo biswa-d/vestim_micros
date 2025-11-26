@@ -98,7 +98,7 @@ def display_hyperparameters(gui, params):
             # Explicitly hide legacy redundancy for RNNs
             if param_key in {'LAYERS', 'HIDDEN_UNITS'}:
                 return False
-            lstm_gru_params = {'LOOKBACK', 'RNN_LAYER_SIZES'}
+            lstm_gru_params = {'LOOKBACK', 'RNN_LAYER_SIZES', 'LSTM_DROPOUT_PROB', 'GRU_DROPOUT_PROB'}
             if param_key in lstm_gru_params:
                 return True
         elif model_type == 'FNN':

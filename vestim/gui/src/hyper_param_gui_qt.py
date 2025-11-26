@@ -1558,28 +1558,36 @@ class VEstimHyperParamGUI(QWidget):
 
         # Collect values from stored param entries - ONLY if visible and enabled
         for param, entry in self.param_entries.items():
-            # Skip hidden or disabled fields to prevent collecting stale values
-            if not entry.isVisible():
+            try:
+                # Skip hidden or disabled fields to prevent collecting stale values
+                if not entry.isVisible():
+                    continue
+                    
+                if isinstance(entry, QLineEdit):
+                    if entry.isEnabled():  # Only collect from enabled text fields
+                        value = entry.text().strip()
+                        # Always collect dropout parameters even if "0" or empty (use default)
+                        if param in ["LSTM_DROPOUT_PROB", "GRU_DROPOUT_PROB", "FNN_DROPOUT_PROB"]:
+                            new_params[param] = value if value else "0.0"
+                        elif value:  # Only add non-empty values for other params
+                            new_params[param] = value
+                elif isinstance(entry, QComboBox):
+                    if entry.isEnabled():
+                        new_params[param] = entry.currentText()
+                elif isinstance(entry, QListWidget) and param == "OPTIMIZER_TYPE":
+                    selected_optimizers = [item.text() for item in entry.selectedItems()]
+                    new_params[param] = ",".join(selected_optimizers)
+                elif isinstance(entry, QCheckBox):
+                    if entry.isVisible():  # Checkboxes can be visible but unchecked
+                        new_params[param] = entry.isChecked()
+                elif isinstance(entry, QListWidget):
+                    selected_items = [item.text() for item in entry.selectedItems()]
+                    if selected_items:  # Only add if items are selected
+                        new_params[param] = selected_items
+            except RuntimeError:
+                # Widget has been deleted (C++ object deleted) - skip it
+                self.logger.debug(f"Skipping deleted widget for parameter: {param}")
                 continue
-                
-            if isinstance(entry, QLineEdit):
-                if entry.isEnabled():  # Only collect from enabled text fields
-                    value = entry.text().strip()
-                    if value:  # Only add non-empty values
-                        new_params[param] = value
-            elif isinstance(entry, QComboBox):
-                if entry.isEnabled():
-                    new_params[param] = entry.currentText()
-            elif isinstance(entry, QListWidget) and param == "OPTIMIZER_TYPE":
-                selected_optimizers = [item.text() for item in entry.selectedItems()]
-                new_params[param] = ",".join(selected_optimizers)
-            elif isinstance(entry, QCheckBox):
-                if entry.isVisible():  # Checkboxes can be visible but unchecked
-                    new_params[param] = entry.isChecked()
-            elif isinstance(entry, QListWidget):
-                selected_items = [item.text() for item in entry.selectedItems()]
-                if selected_items:  # Only add if items are selected
-                    new_params[param] = selected_items
 
         # Conditionally remove inference filter params if 'None' is selected
         if new_params.get("INFERENCE_FILTER_TYPE") == "None":
