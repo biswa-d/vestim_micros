@@ -101,6 +101,15 @@ class TrainingTaskService:
         if use_mixed_precision:
             print(f"Using mixed precision training (AMP) for epoch {epoch}")
         
+        # PERFORMANCE OPTIMIZATION: Pre-allocate hidden state tensors to avoid repeated allocations
+        # These will be reset to zeros each batch (reference code behavior)
+        max_batch_size = train_loader.batch_size
+        if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
+            h_s_buffer = torch.zeros(model.num_layers, max_batch_size, model.hidden_units, device=device)
+            h_c_buffer = torch.zeros(model.num_layers, max_batch_size, model.hidden_units, device=device)
+        elif model_type == "GRU":
+            h_s_buffer = torch.zeros(model.num_layers, max_batch_size, model.hidden_units, device=device)
+        
         # Reference code approach: hidden states will be reset to zeros at START of each batch
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
             # Check stop signal every 10 batches for faster response (~every 1-2 seconds)
@@ -123,19 +132,22 @@ class TrainingTaskService:
                 with torch.amp.autocast('cuda'):
                     # Forward pass with mixed precision
                     if model_type == "LSTM_LPF":
-                        if h_s is None or h_c is None: # Ensure hidden states are initialized
-                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                        y_pred, (h_s, h_c), z = model(X_batch, h_s, h_c, z)
+                        # Reset pre-allocated tensors to zeros (faster than reallocating)
+                        actual_batch_size = X_batch.size(0)
+                        h_s_buffer[:, :actual_batch_size, :].zero_()
+                        h_c_buffer[:, :actual_batch_size, :].zero_()
+                        y_pred, (h_s, h_c), z = model(X_batch, h_s_buffer[:, :actual_batch_size, :], h_c_buffer[:, :actual_batch_size, :], z)
                     if model_type in ["LSTM", "LSTM_EMA"]:
-                        # Always initialize to zeros (reset every batch - reference code)
-                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                        h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                        y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
+                        # Reset pre-allocated tensors to zeros (faster than reallocating)
+                        actual_batch_size = X_batch.size(0)
+                        h_s_buffer[:, :actual_batch_size, :].zero_()
+                        h_c_buffer[:, :actual_batch_size, :].zero_()
+                        y_pred, (h_s, h_c) = model(X_batch, h_s_buffer[:, :actual_batch_size, :], h_c_buffer[:, :actual_batch_size, :])
                     elif model_type == "GRU":
-                        # Always initialize to zeros (reset every batch - reference code)
-                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                        y_pred, h_s = model(X_batch, h_s)
+                        # Reset pre-allocated tensor to zeros (faster than reallocating)
+                        actual_batch_size = X_batch.size(0)
+                        h_s_buffer[:, :actual_batch_size, :].zero_()
+                        y_pred, h_s = model(X_batch, h_s_buffer[:, :actual_batch_size, :])
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
                     else:
@@ -177,19 +189,22 @@ class TrainingTaskService:
             else:
                 # Standard precision training
                 if model_type == "LSTM_LPF":
-                    if h_s is None or h_c is None:
-                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                        h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                    y_pred, (h_s, h_c), z = model(X_batch, h_s, h_c, z)
+                    # Reset pre-allocated tensors to zeros (faster than reallocating)
+                    actual_batch_size = X_batch.size(0)
+                    h_s_buffer[:, :actual_batch_size, :].zero_()
+                    h_c_buffer[:, :actual_batch_size, :].zero_()
+                    y_pred, (h_s, h_c), z = model(X_batch, h_s_buffer[:, :actual_batch_size, :], h_c_buffer[:, :actual_batch_size, :], z)
                 elif model_type in ["LSTM", "LSTM_EMA"]:
-                    # Always initialize to zeros (reset every batch - reference code)
-                    h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                    h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                    y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
+                    # Reset pre-allocated tensors to zeros (faster than reallocating)
+                    actual_batch_size = X_batch.size(0)
+                    h_s_buffer[:, :actual_batch_size, :].zero_()
+                    h_c_buffer[:, :actual_batch_size, :].zero_()
+                    y_pred, (h_s, h_c) = model(X_batch, h_s_buffer[:, :actual_batch_size, :], h_c_buffer[:, :actual_batch_size, :])
                 elif model_type == "GRU":
-                    # Always initialize to zeros (reset every batch - reference code)
-                    h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                    y_pred, h_s = model(X_batch, h_s)
+                    # Reset pre-allocated tensor to zeros (faster than reallocating)
+                    actual_batch_size = X_batch.size(0)
+                    h_s_buffer[:, :actual_batch_size, :].zero_()
+                    y_pred, h_s = model(X_batch, h_s_buffer[:, :actual_batch_size, :])
                 elif model_type == "FNN":
                     y_pred = model(X_batch)
                 else:
@@ -305,6 +320,14 @@ class TrainingTaskService:
         if use_mixed_precision:
             print(f"Using mixed precision for validation in epoch {epoch}")
         
+        # PERFORMANCE OPTIMIZATION: Pre-allocate hidden state tensors to avoid repeated allocations
+        max_batch_size = val_loader.batch_size
+        if model_type in ["LSTM", "LSTM_EMA", "LSTM_LPF"]:
+            h_s_buffer = torch.zeros(model.num_layers, max_batch_size, model.hidden_units, device=device)
+            h_c_buffer = torch.zeros(model.num_layers, max_batch_size, model.hidden_units, device=device)
+        elif model_type == "GRU":
+            h_s_buffer = torch.zeros(model.num_layers, max_batch_size, model.hidden_units, device=device)
+        
         # Reference code approach: hidden states will be reset to zeros at START of each batch
         with torch.no_grad():
             for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
@@ -321,19 +344,22 @@ class TrainingTaskService:
                 if use_mixed_precision:
                     with torch.amp.autocast('cuda'):
                         if model_type == "LSTM_LPF":
-                            if h_s is None or h_c is None:
-                                h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                                h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            y_pred, (h_s, h_c), z = model(X_batch, h_s, h_c, z)
+                            # Reset pre-allocated tensors to zeros
+                            actual_batch_size = X_batch.size(0)
+                            h_s_buffer[:, :actual_batch_size, :].zero_()
+                            h_c_buffer[:, :actual_batch_size, :].zero_()
+                            y_pred, (h_s, h_c), z = model(X_batch, h_s_buffer[:, :actual_batch_size, :], h_c_buffer[:, :actual_batch_size, :], z)
                         elif model_type in ["LSTM", "LSTM_EMA"]:
-                            # Always initialize to zeros (reset every batch - reference code)
-                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
+                            # Reset pre-allocated tensors to zeros
+                            actual_batch_size = X_batch.size(0)
+                            h_s_buffer[:, :actual_batch_size, :].zero_()
+                            h_c_buffer[:, :actual_batch_size, :].zero_()
+                            y_pred, (h_s, h_c) = model(X_batch, h_s_buffer[:, :actual_batch_size, :], h_c_buffer[:, :actual_batch_size, :])
                         elif model_type == "GRU":
-                            # Always initialize to zeros (reset every batch - reference code)
-                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units, device=device)
-                            y_pred, h_s = model(X_batch, h_s)
+                            # Reset pre-allocated tensor to zeros
+                            actual_batch_size = X_batch.size(0)
+                            h_s_buffer[:, :actual_batch_size, :].zero_()
+                            y_pred, h_s = model(X_batch, h_s_buffer[:, :actual_batch_size, :])
                         elif model_type == "FNN":
                             y_pred = model(X_batch)
                         else:
@@ -350,19 +376,22 @@ class TrainingTaskService:
                         loss = self.criterion(y_pred, y_batch)
                 else:
                     if model_type == "LSTM_LPF":
-                        if h_s is None or h_c is None:
-                            h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                            h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                        y_pred, (h_s, h_c), z = model(X_batch, h_s, h_c, z)
+                        # Reset pre-allocated tensors to zeros
+                        actual_batch_size = X_batch.size(0)
+                        h_s_buffer[:, :actual_batch_size, :].zero_()
+                        h_c_buffer[:, :actual_batch_size, :].zero_()
+                        y_pred, (h_s, h_c), z = model(X_batch, h_s_buffer[:, :actual_batch_size, :], h_c_buffer[:, :actual_batch_size, :], z)
                     elif model_type in ["LSTM", "LSTM_EMA"]:
-                        # Always initialize to zeros (reset every batch - reference code)
-                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                        h_c = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                        y_pred, (h_s, h_c) = model(X_batch, h_s, h_c)
+                        # Reset pre-allocated tensors to zeros
+                        actual_batch_size = X_batch.size(0)
+                        h_s_buffer[:, :actual_batch_size, :].zero_()
+                        h_c_buffer[:, :actual_batch_size, :].zero_()
+                        y_pred, (h_s, h_c) = model(X_batch, h_s_buffer[:, :actual_batch_size, :], h_c_buffer[:, :actual_batch_size, :])
                     elif model_type == "GRU":
-                        # Always initialize to zeros (reset every batch - reference code)
-                        h_s = torch.zeros(model.num_layers, X_batch.size(0), model.hidden_units).to(device)
-                        y_pred, h_s = model(X_batch, h_s)
+                        # Reset pre-allocated tensor to zeros
+                        actual_batch_size = X_batch.size(0)
+                        h_s_buffer[:, :actual_batch_size, :].zero_()
+                        y_pred, h_s = model(X_batch, h_s_buffer[:, :actual_batch_size, :])
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
                     else:
