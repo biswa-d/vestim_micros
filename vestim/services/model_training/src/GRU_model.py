@@ -68,6 +68,9 @@ class GRUModel(nn.Module):
         
         # Initialize weights properly to prevent gradient issues
         self._initialize_weights()
+        
+        # Store whether to apply output dropout (only for multi-layer models)
+        self.apply_output_dropout = (num_layers > 1 and dropout_prob > 0)
 
     def _initialize_weights(self):
         """Initialize weights using Xavier/Glorot initialization to prevent gradient issues."""
@@ -120,8 +123,10 @@ class GRUModel(nn.Module):
         # out shape: (batch_size, seq_len, hidden_units)
         # h_n shape: (num_layers, batch_size, hidden_units)
 
-        if self.dropout:
-            out = self.dropout(out) # Apply dropout to the GRU outputs
+        # Apply dropout to the GRU outputs only for multi-layer models
+        # Single-layer models don't benefit from output dropout and it hurts performance
+        if self.apply_output_dropout:
+            out = self.dropout(out)
 
         # Apply the fully connected layer to the last time step only (for sequence-to-one prediction)
         # This matches the behavior of LSTMModel and avoids shape mismatches during training

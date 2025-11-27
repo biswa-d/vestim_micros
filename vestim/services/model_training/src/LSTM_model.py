@@ -30,6 +30,9 @@ class LSTMModel(nn.Module):
         
         # Initialize weights properly to prevent gradient issues and flat loss
         self._initialize_weights()
+        
+        # Store whether to apply output dropout (only for multi-layer models)
+        self.apply_output_dropout = (num_layers > 1)
 
     def _initialize_weights(self):
         """
@@ -63,8 +66,10 @@ class LSTMModel(nn.Module):
         else:
             out, (h_s, h_c) = self.lstm(x, (h_s, h_c))
 
-        # Apply dropout to the outputs of the LSTM
-        out = self.dropout(out)
+        # Apply dropout to the outputs of the LSTM only for multi-layer models
+        # Single-layer models don't benefit from output dropout and it hurts performance
+        if self.apply_output_dropout:
+            out = self.dropout(out)
 
         # Pass the output through the fully connected layer
         # Apply the fully connected layer to the last time step only (for sequence-to-one prediction)

@@ -48,7 +48,8 @@ class LSTMModelService:
             num_layers = int(params.get("LAYERS", 1))
         
         # Use model-specific dropout parameter (LSTM_DROPOUT_PROB) with sensible default
-        dropout_prob = float(params.get("LSTM_DROPOUT_PROB", params.get("DROPOUT_PROB", 0.2)))
+        # Default is 0.0 to avoid over-regularization, especially for single-layer models
+        dropout_prob = float(params.get("LSTM_DROPOUT_PROB", params.get("DROPOUT_PROB", 0.0)))
         apply_clipped_relu = params.get("normalization_applied", False)
         use_layer_norm = params.get("LSTM_USE_LAYERNORM", False)
         
