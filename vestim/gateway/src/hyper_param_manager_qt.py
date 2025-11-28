@@ -366,19 +366,37 @@ class VEstimHyperParamManager:
         if initial_lr_str:
             # Check if it's boundary format or actual value
             if not (initial_lr_str.strip().startswith('[') and initial_lr_str.strip().endswith(']')):
-                try:
-                    initial_lr_val = float(initial_lr_str)
-                    if initial_lr_val <= 0:
-                        error_msg = f"INITIAL_LR must be positive, got {initial_lr_val}. Please enter a valid learning rate (e.g., 0.001, 0.0001)."
-                        self.logger.error(error_msg)
-                        raise ValueError(error_msg)
-                except ValueError as e:
-                    if "could not convert" in str(e):
-                        error_msg = f"INITIAL_LR must be a valid number, got '{initial_lr_str}'"
-                        self.logger.error(error_msg)
-                        raise ValueError(error_msg)
-                    else:
-                        raise
+                # Check for comma-separated values (grid search)
+                if ',' in initial_lr_str:
+                    try:
+                        lr_values = [float(v.strip()) for v in initial_lr_str.split(',')]
+                        invalid_values = [v for v in lr_values if v <= 0]
+                        if invalid_values:
+                            error_msg = f"INITIAL_LR values must all be positive, got invalid values: {invalid_values}"
+                            self.logger.error(error_msg)
+                            raise ValueError(error_msg)
+                    except ValueError as e:
+                        if "could not convert" in str(e):
+                            error_msg = f"INITIAL_LR must be valid numbers separated by commas (e.g., 0.0001, 0.001, 0.01), got '{initial_lr_str}'"
+                            self.logger.error(error_msg)
+                            raise ValueError(error_msg)
+                        else:
+                            raise
+                else:
+                    # Single value validation
+                    try:
+                        initial_lr_val = float(initial_lr_str)
+                        if initial_lr_val <= 0:
+                            error_msg = f"INITIAL_LR must be positive, got {initial_lr_val}. Please enter a valid learning rate (e.g., 0.001, 0.0001)."
+                            self.logger.error(error_msg)
+                            raise ValueError(error_msg)
+                    except ValueError as e:
+                        if "could not convert" in str(e):
+                            error_msg = f"INITIAL_LR must be a valid number, got '{initial_lr_str}'"
+                            self.logger.error(error_msg)
+                            raise ValueError(error_msg)
+                        else:
+                            raise
         
         # === Validation for exploit parameters ===
         exploit_epochs_str = validated_params.get('EXPLOIT_EPOCHS', '')
