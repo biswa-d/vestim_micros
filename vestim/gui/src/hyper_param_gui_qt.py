@@ -767,9 +767,9 @@ class VEstimHyperParamGUI(QWidget):
         # FIXED:**Initial Learning Rate (Common Parameter)**
         initial_lr_label = QLabel("Initial LR:")
         initial_lr_label.setStyleSheet("font-size: 9pt;")
-        initial_lr_label.setToolTip("The starting learning rate for the optimizer.")
+        initial_lr_label.setToolTip("The starting learning rate for the optimizer. Use comma-separated values for grid search (e.g., 0.0001, 0.001, 0.01).")
         self.initial_lr_entry = QLineEdit(self.params.get("INITIAL_LR", "0.0001"))
-        self.initial_lr_entry.setToolTip("Lower values may stabilize training but slow convergence.")
+        self.initial_lr_entry.setToolTip("Lower values may stabilize training but slow convergence. Use comma-separated values for grid search (e.g., 0.0001, 0.001, 0.01).")
         self.initial_lr_entry.textChanged.connect(self.on_param_text_changed)
         self.param_entries["INITIAL_LR"] = self.initial_lr_entry
 
@@ -866,7 +866,7 @@ class VEstimHyperParamGUI(QWidget):
         self.update_scheduler_settings()
 
     def update_scheduler_settings(self):
-        """Updates the displayed scheduler parameters dynamically."""
+        """Updates the displayed scheduler parameters dynamically and sets defaults if empty."""
         selected_scheduler = self.param_entries["SCHEDULER_TYPE"].currentText()
 
         if selected_scheduler == "StepLR":
@@ -875,6 +875,12 @@ class VEstimHyperParamGUI(QWidget):
             self.lr_param_entry.setVisible(True)
             self.lr_period_label.setVisible(True)
             self.lr_period_entry.setVisible(True)
+            
+            # Set defaults if empty
+            if not self.lr_param_entry.text().strip():
+                self.lr_param_entry.setText("0.1")
+            if not self.lr_period_entry.text().strip():
+                self.lr_period_entry.setText("10")
 
             self.plateau_patience_label.setVisible(False)
             self.plateau_patience_entry.setVisible(False)
@@ -901,6 +907,12 @@ class VEstimHyperParamGUI(QWidget):
             self.plateau_factor_label.setVisible(True)
             self.plateau_factor_entry.setVisible(True)
             
+            # Set defaults if empty
+            if not self.plateau_patience_entry.text().strip():
+                self.plateau_patience_entry.setText("10")
+            if not self.plateau_factor_entry.text().strip():
+                self.plateau_factor_entry.setText("0.1")
+            
             self.cosine_t0_label.setVisible(False)
             self.cosine_t0_entry.setVisible(False)
             self.cosine_tmult_label.setVisible(False)
@@ -925,6 +937,14 @@ class VEstimHyperParamGUI(QWidget):
             self.cosine_tmult_entry.setVisible(True)
             self.cosine_eta_min_label.setVisible(True)
             self.cosine_eta_min_entry.setVisible(True)
+            
+            # Set defaults if empty
+            if not self.cosine_t0_entry.text().strip():
+                self.cosine_t0_entry.setText("10")
+            if not self.cosine_tmult_entry.text().strip():
+                self.cosine_tmult_entry.setText("2")
+            if not self.cosine_eta_min_entry.text().strip():
+                self.cosine_eta_min_entry.setText("1e-6")
 
 
     def add_validation_criteria(self, layout):
@@ -1739,31 +1759,65 @@ class VEstimHyperParamGUI(QWidget):
                 field.setStyleSheet("")  # Clear any error styling
                 return
             
-            try:
-                value = float(text)
-                if value < 0 or (not allow_zero and value == 0):
-                    # Invalid: negative or zero (when not allowed)
-                    field.setStyleSheet("border: 2px solid #FF4444; background-color: #FFE6E6;")
-                    if value == 0:
-                        field.setToolTip(f"⚠️ {field_name} cannot be zero! Training will fail. Enter a positive value like 0.001 or 1e-4.")
+            # Check if comma-separated values (grid search)
+            if ',' in text:
+                try:
+                    values = [float(v.strip()) for v in text.split(',')]
+                    # Validate each value
+                    invalid_values = [v for v in values if v < 0 or (not allow_zero and v == 0)]
+                    if invalid_values:
+                        field.setStyleSheet("border: 2px solid #FF4444; background-color: #FFE6E6;")
+                        if any(v == 0 for v in invalid_values):
+                            field.setToolTip(f"⚠️ {field_name} values cannot be zero! Enter positive values like 0.0001, 0.001, 0.01")
+                        else:
+                            field.setToolTip(f"⚠️ {field_name} values cannot be negative!")
+                        self.error_fields.add(field)
                     else:
-                        field.setToolTip(f"⚠️ {field_name} cannot be negative!")
+                        # All values valid
+                        field.setStyleSheet("")  # Clear error styling
+                        if field in self.error_fields:
+                            self.error_fields.remove(field)
+                        # Restore original tooltip
+                        if field_name == "INITIAL_LR":
+                            field.setToolTip("Lower values may stabilize training but slow convergence. Use comma-separated values for grid search (e.g., 0.0001, 0.001, 0.01).")
+                        elif field_name == "EXPLOIT_LR":
+                            field.setToolTip("Learning rate for exploitation phase (finetuning near convergence).")
+                        elif field_name == "FINAL_LR":
+                            field.setToolTip("Target learning rate at end of scheduler (optional).")
+                except ValueError:
+                    # Invalid format in comma-separated list
+                    field.setStyleSheet("border: 2px solid #FF4444; background-color: #FFE6E6;")
+                    field.setToolTip(f"⚠️ {field_name} must be valid numbers separated by commas (e.g., 0.0001, 0.001, 0.01)")
                     self.error_fields.add(field)
-                else:
-                    # Valid
-                    field.setStyleSheet("")  # Clear error styling
-                    # Restore original tooltip
-                    if field_name == "INITIAL_LR":
-                        field.setToolTip("The starting learning rate for the optimizer.")
-                    elif field_name == "EXPLOIT_LR":
-                        field.setToolTip("Learning rate for exploitation phase (finetuning near convergence).")
-                    elif field_name == "FINAL_LR":
-                        field.setToolTip("Target learning rate at end of scheduler (optional).")
-            except ValueError:
-                # Invalid format
-                field.setStyleSheet("border: 2px solid #FF4444; background-color: #FFE6E6;")
-                field.setToolTip(f"⚠️ {field_name} must be a valid number!")
-                self.error_fields.add(field)
+            else:
+                # Single value validation
+                try:
+                    value = float(text)
+                    if value < 0 or (not allow_zero and value == 0):
+                        # Invalid: negative or zero (when not allowed)
+                        field.setStyleSheet("border: 2px solid #FF4444; background-color: #FFE6E6;")
+                        if value == 0:
+                            field.setToolTip(f"⚠️ {field_name} cannot be zero! Training will fail. Enter a positive value like 0.001 or 1e-4.")
+                        else:
+                            field.setToolTip(f"⚠️ {field_name} cannot be negative!")
+                        self.error_fields.add(field)
+                    else:
+                        # Valid
+                        field.setStyleSheet("")  # Clear error styling
+                        if field in self.error_fields:
+                            self.error_fields.remove(field)
+                        # Restore original tooltip
+                        if field_name == "INITIAL_LR":
+                            field.setToolTip("Lower values may stabilize training but slow convergence. Use comma-separated values for grid search (e.g., 0.0001, 0.001, 0.01).")
+                        elif field_name == "EXPLOIT_LR":
+                            field.setToolTip("Learning rate for exploitation phase (finetuning near convergence).")
+                        elif field_name == "FINAL_LR":
+                            field.setToolTip("Target learning rate at end of scheduler (optional).")
+                except ValueError:
+                    # Invalid format
+                    field.setStyleSheet("border: 2px solid #FF4444; background-color: #FFE6E6;")
+                    field.setToolTip(f"⚠️ {field_name} must be a valid number!")
+                    self.error_fields.add(field)
         except RuntimeError:
             # Widget has been deleted by Qt, skip validation
             pass
