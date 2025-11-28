@@ -150,6 +150,9 @@ cython_debug/
 # Logs
 logs/
 *.log
+data_augment_service.log*
+data_augment_manager.log*
+data_augment.log*
 
 # Ignore data directories
 data/
