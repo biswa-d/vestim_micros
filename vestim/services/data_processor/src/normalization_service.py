@@ -510,6 +510,21 @@ def inverse_transform_data(data_df, scaler, feature_columns):
         # Convert to NumPy array, ensuring correct column order for inverse_transform
         data_to_inverse_transform_df = data_copy[transformable_cols]
         
+        # Coerce any object-type columns to numeric before scaling (handles timedelta/string formats)
+        for col in data_to_inverse_transform_df.columns:
+            if data_to_inverse_transform_df[col].dtype == 'object':
+                try:
+                    # Attempt to convert timedelta-like strings to total seconds
+                    data_to_inverse_transform_df[col] = pd.to_timedelta(data_to_inverse_transform_df[col]).dt.total_seconds()
+                    print(f"Converted timedelta column '{col}' to seconds before inverse_transform.")
+                except (ValueError, TypeError):
+                    try:
+                        # Fallback for other non-numeric objects
+                        data_to_inverse_transform_df[col] = pd.to_numeric(data_to_inverse_transform_df[col], errors='coerce')
+                        print(f"Coerced object column '{col}' to numeric before inverse_transform.")
+                    except (ValueError, TypeError):
+                        print(f"Warning: Column '{col}' could not be converted to numeric; inverse_transform may fail.")
+        
         # Inverse transform the data
         inverse_transformed_data = scaler.inverse_transform(data_to_inverse_transform_df)
         
