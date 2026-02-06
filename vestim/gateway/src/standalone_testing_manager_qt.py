@@ -166,24 +166,58 @@ class VEstimStandaloneTestingManager(QObject):
                     if not available_normalized_cols:
                         self.progress.emit("Warning: No normalized columns found in test data. Skipping normalization.")
                     else:
-                        # Pre-process columns before scaling to handle non-numeric types like timedelta
-                        for col in available_normalized_cols:
-                            if col in self.test_df.columns and self.test_df[col].dtype == 'object':
+                        # Get the actual columns that the scaler was trained on
+                        scaler_features = list(scaler.feature_names_in_) if hasattr(scaler, 'feature_names_in_') else available_normalized_cols
+                        self.progress.emit(f"[DEBUG] Scaler feature_names_in_: {scaler_features}")
+                        self.progress.emit(f"[DEBUG] Test DataFrame columns: {list(self.test_df.columns)}")
+                        self.progress.emit(f"[DEBUG] Test DataFrame dtypes:\n{self.test_df.dtypes}")
+                        
+                        # Pre-process object-type columns (like 'Prog Time', 'Step Time') to numeric
+                        # before calling scaler.transform(), since the scaler was trained on numeric values
+                        for col in self.test_df.columns:
+                            col_dtype_str = str(self.test_df[col].dtype)
+                            if col in scaler_features and col_dtype_str in ('object', 'string', 'str'):
+                                self.progress.emit(f"[DEBUG] Found object column in scaler: '{col}'")
+                                # Convert MM:SS.S format (e.g., '56:43.4') to total seconds
                                 try:
-                                    # Attempt to convert timedelta-like strings to total seconds
-                                    self.test_df[col] = pd.to_timedelta(self.test_df[col]).dt.total_seconds()
-                                    self.progress.emit(f"Converted timedelta column '{col}' to seconds before scaling.")
-                                except (ValueError, TypeError):
-                                    try:
-                                        # Fallback for other non-numeric objects
+                                    sample_val = str(self.test_df[col].iloc[0]) if len(self.test_df) > 0 else ""
+                                    self.progress.emit(f"[DEBUG] Sample value from '{col}': {sample_val}")
+                                    if ':' in sample_val:
+                                        self.progress.emit(f"[DEBUG] Detected ':' in '{col}', converting MM:SS format")
+                                        # MM:SS.S format - convert to total seconds
+                                        def mm_ss_to_seconds(x):
+                                            if isinstance(x, str) and ':' in x:
+                                                parts = x.split(':')
+                                                return int(parts[0]) * 60 + float(parts[1])
+                                            return float(x) if x != '' else np.nan
+                                        
+                                        self.test_df[col] = self.test_df[col].apply(mm_ss_to_seconds)
+                                        self.progress.emit(f"[DEBUG] After conversion, '{col}' dtype: {self.test_df[col].dtype}")
+                                        self.progress.emit(f"Converted '{col}' from MM:SS format to seconds.")
+                                    else:
+                                        self.progress.emit(f"[DEBUG] No ':' found, trying generic numeric conversion for '{col}'")
+                                        # Try generic numeric conversion
                                         self.test_df[col] = pd.to_numeric(self.test_df[col], errors='coerce')
-                                        self.progress.emit(f"Coerced object column '{col}' to numeric before scaling.")
-                                    except (ValueError, TypeError):
-                                        self.error.emit(f"Column '{col}' could not be converted to a numeric type for scaling.")
-                                        return
+                                        self.progress.emit(f"[DEBUG] After to_numeric, '{col}' dtype: {self.test_df[col].dtype}")
+                                        self.progress.emit(f"Converted '{col}' to numeric.")
+                                except (ValueError, TypeError, AttributeError) as e:
+                                    self.progress.emit(f"[ERROR] Could not convert '{col}': {e}")
 
-                        self.test_df[available_normalized_cols] = scaler.transform(self.test_df[available_normalized_cols])
-                        self.progress.emit(f"Normalization applied to {len(available_normalized_cols)} columns successfully.")
+                        # Only transform columns that the scaler knows about
+                        cols_to_transform = [col for col in scaler_features if col in self.test_df.columns]
+                        self.progress.emit(f"[DEBUG] Columns to transform: {cols_to_transform}")
+                        
+                        if cols_to_transform:
+                            # Final dtype check before transform
+                            self.progress.emit(f"[DEBUG] Final dtypes before scaler.transform():")
+                            for col in cols_to_transform:
+                                self.progress.emit(f"[DEBUG]   {col}: {self.test_df[col].dtype}")
+                            
+                            self.test_df[cols_to_transform] = scaler.transform(self.test_df[cols_to_transform])
+                            self.progress.emit(f"Normalization applied to {len(cols_to_transform)} columns.")
+                        else:
+                            self.progress.emit("Warning: No columns could be matched with scaler.")
+
                 else:
                     self.progress.emit("Warning: Failed to load scaler, predictions will be on normalized scale")
             else:
