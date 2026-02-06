@@ -113,6 +113,7 @@ env/
 venv/
 testenv/
 packenv/
+build_env/
 new_env/
 jobs/
 .vestim_web/
