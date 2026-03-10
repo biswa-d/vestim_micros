@@ -921,7 +921,12 @@ class SmartEnvironmentSetup:
             if sys.platform == "win32":
                 launcher_path = self.install_dir / "launch_pybattml.bat"
                 venv_python = self.install_config["venv_python"]
-                main_script = self.install_dir / "launch_gui_qt.py"
+                configured_entrypoint = self.install_config.get("main_entrypoint")
+                main_script = Path(configured_entrypoint) if configured_entrypoint else (self.install_dir / "launch_gui_qt.py")
+                if not main_script.exists() and main_script.suffix == ".pyc":
+                    fallback_script = self.install_dir / "launch_gui_qt.py"
+                    if fallback_script.exists():
+                        main_script = fallback_script
                 
                 # Get venv paths for PATH
                 venv_scripts_path = self.venv_dir / "Scripts"
@@ -975,7 +980,12 @@ if errorlevel 1 (
                 # Linux/Mac launcher (similar structure)
                 launcher_path = self.install_dir / "launch_vestim.sh"
                 venv_python = self.install_config["venv_python"]
-                main_script = self.install_dir / "launch_gui_qt.py"
+                configured_entrypoint = self.install_config.get("main_entrypoint")
+                main_script = Path(configured_entrypoint) if configured_entrypoint else (self.install_dir / "launch_gui_qt.py")
+                if not main_script.exists() and main_script.suffix == ".pyc":
+                    fallback_script = self.install_dir / "launch_gui_qt.py"
+                    if fallback_script.exists():
+                        main_script = fallback_script
                 
                 launcher_content = f'''#!/bin/bash
 echo "Starting Vestim..."
@@ -1018,6 +1028,64 @@ export VESTIM_PROJECT_DIR="{self.project_dir}"
             self.log(f"Failed to create launcher script: {e}", "ERROR")
             return False
 
+    def harden_installed_code(self) -> bool:
+        """Compile installed app to bytecode and remove plaintext .py sources."""
+        self.log("=== Hardening Installed Application Code ===")
+
+        try:
+            venv_python = self.install_config.get("venv_python")
+            if not venv_python or not Path(venv_python).exists():
+                self.log("Venv Python not available for hardening step.", "WARNING")
+                return False
+
+            vestim_dir = self.install_dir / "vestim"
+            launch_py = self.install_dir / "launch_gui_qt.py"
+            launch_pyc = self.install_dir / "launch_gui_qt.pyc"
+
+            if vestim_dir.exists():
+                subprocess.run([
+                    venv_python, "-m", "compileall", "-q", "-f", str(vestim_dir)
+                ], check=True, timeout=300)
+                self.log("Compiled vestim package to bytecode.")
+            else:
+                self.log("Vestim package directory not found for hardening.", "WARNING")
+
+            if launch_py.exists():
+                subprocess.run([
+                    venv_python,
+                    "-c",
+                    "import py_compile,sys; py_compile.compile(sys.argv[1], cfile=sys.argv[2], doraise=True)",
+                    str(launch_py),
+                    str(launch_pyc)
+                ], check=True, timeout=60)
+                self.log(f"Compiled launcher entrypoint to bytecode: {launch_pyc}")
+
+            removed_count = 0
+            if vestim_dir.exists():
+                for py_file in vestim_dir.rglob("*.py"):
+                    try:
+                        py_file.unlink()
+                        removed_count += 1
+                    except Exception as delete_err:
+                        self.log(f"Could not remove source file {py_file}: {delete_err}", "WARNING")
+
+            if launch_py.exists() and launch_pyc.exists():
+                try:
+                    launch_py.unlink()
+                    removed_count += 1
+                except Exception as delete_err:
+                    self.log(f"Could not remove launcher source file {launch_py}: {delete_err}", "WARNING")
+
+            self.install_config["main_entrypoint"] = str(launch_pyc if launch_pyc.exists() else launch_py)
+            self.save_config()
+
+            self.log(f"Hardening complete. Removed {removed_count} plaintext .py files.")
+            return True
+
+        except Exception as e:
+            self.log(f"Failed to harden installed code: {e}", "WARNING")
+            return False
+
     def create_desktop_shortcut(self) -> bool:
         """Create desktop shortcut for easy access"""
         self.log("=== Creating Desktop Shortcut ===")
@@ -1037,12 +1105,25 @@ export VESTIM_PROJECT_DIR="{self.project_dir}"
                 
                 # Get icon path
                 icon_path = self.install_config.get("icon_path", "")
+
+                # Prefer an EXE target for better Windows taskbar pin support
+                target_path = launcher_path
+                target_args = ""
+                venv_python = self.install_config.get("venv_python", "")
+                main_entrypoint = self.install_config.get("main_entrypoint", str(self.install_dir / "launch_gui_qt.py"))
+                if venv_python:
+                    pythonw_path = str(Path(venv_python).with_name("pythonw.exe"))
+                    if Path(pythonw_path).exists() and Path(main_entrypoint).exists():
+                        target_path = pythonw_path
+                        target_args = f'"{main_entrypoint}"'
+                        self.log(f"Using pythonw.exe shortcut target for pin-friendly behavior: {pythonw_path}")
                 
                 # Create desktop shortcut using PowerShell
                 ps_command = f'''
 $WshShell = New-Object -comObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut("{shortcut_path}")
-$Shortcut.TargetPath = "{launcher_path}"
+$Shortcut.TargetPath = "{target_path}"
+$Shortcut.Arguments = "{target_args}"
 $Shortcut.WorkingDirectory = "{self.install_dir}"
 $Shortcut.Description = "PyBattML - Python Battery Modeling Library"'''
                 
@@ -1068,7 +1149,8 @@ $Shortcut.Save()
                     ps_command_start = f'''
 $WshShell = New-Object -comObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut("{start_menu_shortcut}")
-$Shortcut.TargetPath = "{launcher_path}"
+$Shortcut.TargetPath = "{target_path}"
+$Shortcut.Arguments = "{target_args}"
 $Shortcut.WorkingDirectory = "{self.install_dir}"
 $Shortcut.Description = "PyBattML - Python Battery Modeling Library"'''
                     
@@ -1576,6 +1658,10 @@ reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML
             # Install GPU packages
             if not self.install_gpu_specific_packages():
                 self.log("GPU package installation failed, but continuing...", "WARNING")
+
+            # Compile installed application to bytecode and remove plaintext sources
+            if not self.harden_installed_code():
+                self.log("Code hardening step failed, continuing with plaintext sources.", "WARNING")
             
             # Create launcher
             if not self.create_launcher_script():

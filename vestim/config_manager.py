@@ -44,10 +44,7 @@ class ConfigManager:
 
         # 2. Check for vestim_config.json
         try:
-            if getattr(sys, 'frozen', False):
-                app_root = Path(sys.executable).parent
-            else:
-                app_root = Path(__file__).parent.parent
+            app_root = self._get_app_root_dir()
 
             config_path = app_root / "vestim_config.json"
 
@@ -82,6 +79,21 @@ class ConfigManager:
         self._projects_dir = self._get_default_projects_dir()
         self._data_dir = self._get_default_data_dir()
         self._defaults_dir = self._get_default_defaults_dir()
+
+    def _get_app_root_dir(self) -> Path:
+        """Resolve application root directory across source, pyc (__pycache__), and frozen runs."""
+        if getattr(sys, 'frozen', False):
+            return Path(sys.executable).parent
+
+        module_path = Path(__file__).resolve()
+        package_dir = module_path.parent
+
+        # When running from .pyc, __file__ may be under vestim/__pycache__/
+        if package_dir.name == "__pycache__":
+            package_dir = package_dir.parent
+
+        # package_dir is expected to be .../vestim, app root is its parent
+        return package_dir.parent
         
         # Only show message for compiled executable, be quiet during development
         if getattr(sys, 'frozen', False):
@@ -231,15 +243,10 @@ class ConfigManager:
     def _save_default_settings(self):
         """Save default settings to configuration file"""
         try:
-            # Determine where to save the settings
-            if getattr(sys, 'frozen', False):
-                # Running as compiled executable - save in projects directory
-                projects_dir = self.get_projects_directory()
-                settings_path = Path(projects_dir) / "default_settings.json"
-            else:
-                # Running as script - save in script directory
-                app_dir = Path(__file__).parent
-                settings_path = app_dir / "default_settings.json"
+            # Always persist user/runtime defaults in the projects directory so
+            # startup loading and runtime saving use the same file location.
+            projects_dir = self.get_projects_directory()
+            settings_path = Path(projects_dir) / "default_settings.json"
             
             with open(settings_path, 'w') as f:
                 json.dump(self._default_settings, f, indent=4)
@@ -344,13 +351,7 @@ class ConfigManager:
         """Load hyperparameters from the root hyperparams.json file if it exists"""
         try:
             # Look for hyperparams.json in application root directory
-            if getattr(sys, 'frozen', False):
-                # Running as compiled executable
-                app_dir = Path(sys.executable).parent
-            else:
-                # Running as script - look in repository root
-                script_dir = Path(__file__).parent  # vestim/
-                app_dir = script_dir.parent  # repo root
+            app_dir = self._get_app_root_dir()
             
             hyperparams_path = app_dir / "hyperparams.json"
             
