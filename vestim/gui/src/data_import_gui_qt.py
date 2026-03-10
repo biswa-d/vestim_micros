@@ -362,8 +362,7 @@ class DataImportGUI(QMainWindow):
             self.auto_select_all_files(self.test_list_widget)
 
     def select_train_folder(self):
-        # Get default data directory from config, fallback to current directory
-        default_dir = get_data_directory() or os.getcwd()
+        default_dir = self._get_folder_dialog_start_dir("train")
         new_folder = QFileDialog.getExistingDirectory(self, "Select Training Folder", default_dir)
         if new_folder:
             self.train_folder_path = new_folder
@@ -371,14 +370,12 @@ class DataImportGUI(QMainWindow):
             self.populate_file_list(new_folder, self.train_list_widget, selected_format)
             self.auto_select_all_files(self.train_list_widget)
             self.update_button_text(self.train_select_button, new_folder, "Train")
-            self.populate_file_list(new_folder, self.train_list_widget, selected_format)
-            self.auto_select_all_files(self.train_list_widget)
+            update_last_used_folders(train_folder=self.train_folder_path, file_format=selected_format)
             logger.info(f"Selected training folder: {new_folder}. Populated for format: {selected_format}.")
         self.check_folders_selected()
 
     def select_test_folder(self):
-        # Get default data directory from config, fallback to current directory
-        default_dir = get_data_directory() or os.getcwd()
+        default_dir = self._get_folder_dialog_start_dir("test")
         new_folder = QFileDialog.getExistingDirectory(self, "Select Testing Folder", default_dir)
         if new_folder:
             self.test_folder_path = new_folder
@@ -386,14 +383,12 @@ class DataImportGUI(QMainWindow):
             self.populate_file_list(new_folder, self.test_list_widget, selected_format)
             self.auto_select_all_files(self.test_list_widget)
             self.update_button_text(self.test_select_button, new_folder, "Test")
-            self.populate_file_list(new_folder, self.test_list_widget, selected_format)
-            self.auto_select_all_files(self.test_list_widget)
+            update_last_used_folders(test_folder=self.test_folder_path, file_format=selected_format)
             logger.info(f"Selected testing folder: {new_folder}. Populated for format: {selected_format}.")
         self.check_folders_selected()
 
     def select_val_folder(self):
-        # Get default data directory from config, fallback to current directory
-        default_dir = get_data_directory() or os.getcwd()
+        default_dir = self._get_folder_dialog_start_dir("val")
         new_folder = QFileDialog.getExistingDirectory(self, "Select Validation Folder", default_dir)
         if new_folder:
             self.val_folder_path = new_folder
@@ -401,8 +396,7 @@ class DataImportGUI(QMainWindow):
             self.populate_file_list(new_folder, self.val_list_widget, selected_format)
             self.auto_select_all_files(self.val_list_widget)
             self.update_button_text(self.val_select_button, new_folder, "Validation")
-            self.populate_file_list(new_folder, self.val_list_widget, selected_format)
-            self.auto_select_all_files(self.val_list_widget)
+            update_last_used_folders(val_folder=self.val_folder_path, file_format=selected_format)
             logger.info(f"Selected validation folder: {new_folder}. Populated for format: {selected_format}.")
         self.check_folders_selected()
 
@@ -616,9 +610,9 @@ class DataImportGUI(QMainWindow):
                 self.data_source_combo.setCurrentIndex(format_index)
             
             # Load default folder paths
-            train_folder = default_settings.get("train_folder", "")
-            val_folder = default_settings.get("val_folder", "")
-            test_folder = default_settings.get("test_folder", "")
+            train_folder = self._resolve_startup_folder(default_settings.get("train_folder", ""), "train")
+            val_folder = self._resolve_startup_folder(default_settings.get("val_folder", ""), "val")
+            test_folder = self._resolve_startup_folder(default_settings.get("test_folder", ""), "test")
             
             # Auto-populate folders if they exist and contain files
             if train_folder and os.path.exists(train_folder):
@@ -652,6 +646,52 @@ class DataImportGUI(QMainWindow):
                 
         except Exception as e:
             logger.error(f"Error loading default settings: {e}")
+
+    def _get_folder_dialog_start_dir(self, folder_kind):
+        """Get initial directory for folder dialogs: current selection -> last used -> root fallback."""
+        current_path_map = {
+            "train": self.train_folder_path,
+            "val": self.val_folder_path,
+            "test": self.test_folder_path,
+        }
+        current_path = current_path_map.get(folder_kind, "")
+        if current_path and os.path.isdir(current_path):
+            return current_path
+
+        default_settings = get_default_folders()
+        settings_key_map = {
+            "train": "train_folder",
+            "val": "val_folder",
+            "test": "test_folder",
+        }
+        last_used = default_settings.get(settings_key_map.get(folder_kind, ""), "")
+        resolved = self._resolve_startup_folder(last_used, folder_kind)
+        if resolved:
+            return resolved
+
+        return get_data_directory() or os.getcwd()
+
+    def _resolve_startup_folder(self, preferred_path, folder_kind):
+        """Resolve startup folder with fallback to root train/valid/test-style folders."""
+        if preferred_path and os.path.isdir(preferred_path):
+            return preferred_path
+
+        data_root = get_data_directory()
+        if not data_root:
+            return ""
+
+        fallback_candidates = {
+            "train": ["train", "train_data"],
+            "val": ["valid", "validation", "val", "val_data"],
+            "test": ["test", "test_data"],
+        }
+
+        for candidate in fallback_candidates.get(folder_kind, []):
+            candidate_path = os.path.join(data_root, candidate)
+            if os.path.isdir(candidate_path):
+                return candidate_path
+
+        return ""
     
     def auto_select_all_files(self, list_widget):
         """Automatically select all files in a list widget"""
