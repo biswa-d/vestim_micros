@@ -35,13 +35,14 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from vestim.gui.src.adaptive_gui_utils import display_hyperparameters
 
 class VEstimStandaloneTestingGUI(QMainWindow):
-    def __init__(self, job_folder_path, session_timestamp=None):
+    def __init__(self, job_folder_path, session_timestamp=None, inference_filter_override=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         
         # Initialize variables
         self.job_folder_path = job_folder_path
         self.session_timestamp = session_timestamp or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.inference_filter_override = inference_filter_override or {}
         self.results_list = []
         self.results_data = []  # Store all results for consolidated summary
         self.all_tree_items = []  # Store all items for filtering
@@ -367,6 +368,10 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             if os.path.exists(hyperparams_file):
                 with open(hyperparams_file, 'r') as f:
                     hyperparams = json.load(f)
+                
+                # Apply inference filter override if present
+                if self.inference_filter_override:
+                    hyperparams.update(self.inference_filter_override)
                 
                 # Use EXACT same hyperparameters display method as main testing GUI
                 self.display_hyperparameters(hyperparams)

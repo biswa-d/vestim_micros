@@ -5,12 +5,14 @@ import pandas as pd
 import datetime
 import traceback
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton,
-                             QLabel, QFileDialog, QWidget, QListWidget, QListWidgetItem, QMessageBox, QTextEdit)
+                             QLabel, QFileDialog, QWidget, QListWidget, QListWidgetItem, QMessageBox, QTextEdit,
+                             QGroupBox, QFormLayout, QComboBox, QLineEdit)
 from PyQt5.QtCore import Qt
 from vestim.gui.src.adaptive_gui_utils import get_adaptive_stylesheet, scale_widget_size
 from vestim.gateway.src.standalone_testing_manager_qt import VEstimStandaloneTestingManager
 from vestim.gui.src.standalone_augmentation_gui_qt import StandaloneAugmentationGUI
 from vestim.gui.src.standalone_testing_gui_qt import VEstimStandaloneTestingGUI
+from vestim.config_manager import get_output_directory
 
 class TestSelectionGUI(QMainWindow):
     def __init__(self):
@@ -20,6 +22,7 @@ class TestSelectionGUI(QMainWindow):
         self.test_files = []
         self.current_file_index = 0
         self.session_timestamp = None  # Will be set when testing starts
+        self.inference_filter_override = None
         self.initUI()
 
     def initUI(self):
@@ -88,6 +91,9 @@ class TestSelectionGUI(QMainWindow):
         self.files_list = QListWidget()
         self.files_list.setMaximumHeight(200)
         self.main_layout.addWidget(self.files_list)
+
+        # Inference filter override section
+        self.create_inference_filter_section()
 
         # Run button
         self.run_test_button = QPushButton("Start Testing")
@@ -162,8 +168,156 @@ class TestSelectionGUI(QMainWindow):
         self.run_test_button.setStyleSheet(run_button_style)
         self.central_widget.setStyleSheet("background-color: #f8f9fa;")
 
+    def create_inference_filter_section(self):
+        """Add optional inference filter override controls for standalone testing."""
+        filter_group = QGroupBox("Inference Filter (Standalone Override)")
+        filter_group.setStyleSheet(get_adaptive_stylesheet("""
+            QGroupBox {
+                font-size: 11pt;
+                font-weight: bold;
+                color: #0b6337;
+                border: 1px solid #ced4da;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 12px;
+                background-color: #ffffff;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """))
+
+        group_layout = QVBoxLayout(filter_group)
+        info_label = QLabel(
+            "Override post-inference smoothing used during standalone testing. "
+            "This does not retrain the model; it only changes prediction filtering."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet(get_adaptive_stylesheet("color: #6c757d; font-size: 9pt;"))
+        group_layout.addWidget(info_label)
+
+        form_layout = QFormLayout()
+        self.filter_type_combo = QComboBox()
+        self.filter_type_combo.addItems(["None", "Moving Average", "Exponential Moving Average", "Savitzky-Golay"])
+        self.filter_type_combo.currentTextChanged.connect(self.update_inference_filter_inputs)
+
+        self.filter_window_entry = QLineEdit("101")
+        self.filter_window_entry.setPlaceholderText("e.g., 101")
+
+        self.filter_alpha_entry = QLineEdit("0.1")
+        self.filter_alpha_entry.setPlaceholderText("e.g., 0.1")
+
+        self.filter_polyorder_entry = QLineEdit("3")
+        self.filter_polyorder_entry.setPlaceholderText("e.g., 3")
+
+        form_layout.addRow("Filter Type:", self.filter_type_combo)
+        form_layout.addRow("Window Size:", self.filter_window_entry)
+        form_layout.addRow("Alpha (EMA):", self.filter_alpha_entry)
+        form_layout.addRow("Poly Order:", self.filter_polyorder_entry)
+        group_layout.addLayout(form_layout)
+
+        self.main_layout.addWidget(filter_group)
+        self.update_inference_filter_inputs()
+
+    def update_inference_filter_inputs(self):
+        """Show only relevant parameter inputs for selected filter type."""
+        selected_filter = self.filter_type_combo.currentText()
+        is_ma = selected_filter == "Moving Average"
+        is_ema = selected_filter == "Exponential Moving Average"
+        is_savgol = selected_filter == "Savitzky-Golay"
+
+        self.filter_window_entry.setVisible(is_ma or is_savgol)
+        self.filter_alpha_entry.setVisible(is_ema)
+        self.filter_polyorder_entry.setVisible(is_savgol)
+
+    def _load_filter_defaults_from_job(self):
+        """Load inference filter defaults from selected job's hyperparams.json."""
+        if not self.job_folder_path:
+            return
+
+        hyperparams_path = os.path.join(self.job_folder_path, 'hyperparams.json')
+        if not os.path.exists(hyperparams_path):
+            return
+
+        try:
+            with open(hyperparams_path, 'r') as f:
+                hyperparams = json.load(f)
+
+            filter_type = str(hyperparams.get('INFERENCE_FILTER_TYPE', 'None'))
+            if filter_type not in ["None", "Moving Average", "Exponential Moving Average", "Savitzky-Golay"]:
+                filter_type = "None"
+
+            self.filter_type_combo.setCurrentText(filter_type)
+            self.filter_window_entry.setText(str(hyperparams.get('INFERENCE_FILTER_WINDOW_SIZE', 101)))
+            self.filter_alpha_entry.setText(str(hyperparams.get('INFERENCE_FILTER_ALPHA', 0.1)))
+            self.filter_polyorder_entry.setText(str(hyperparams.get('INFERENCE_FILTER_POLYORDER', 3)))
+            self.update_inference_filter_inputs()
+
+        except Exception as e:
+            self.log_widget.append(f"Warning: Could not load filter defaults from hyperparams.json: {e}")
+
+    def _build_filter_override_from_ui(self):
+        """Validate and build inference filter override settings from UI fields."""
+        filter_type = self.filter_type_combo.currentText()
+        override = {'INFERENCE_FILTER_TYPE': filter_type}
+
+        if filter_type == 'Moving Average':
+            window_size = int(self.filter_window_entry.text().strip())
+            if window_size < 1:
+                raise ValueError("Window Size must be >= 1")
+            override['INFERENCE_FILTER_WINDOW_SIZE'] = window_size
+
+        elif filter_type == 'Exponential Moving Average':
+            alpha = float(self.filter_alpha_entry.text().strip())
+            if alpha <= 0 or alpha > 1:
+                raise ValueError("Alpha must be > 0 and <= 1")
+            override['INFERENCE_FILTER_ALPHA'] = alpha
+
+        elif filter_type == 'Savitzky-Golay':
+            window_size = int(self.filter_window_entry.text().strip())
+            polyorder = int(self.filter_polyorder_entry.text().strip())
+            if window_size < 3:
+                raise ValueError("Window Size for Savitzky-Golay must be >= 3")
+            if polyorder < 1:
+                raise ValueError("Poly Order must be >= 1")
+            override['INFERENCE_FILTER_WINDOW_SIZE'] = window_size
+            override['INFERENCE_FILTER_POLYORDER'] = polyorder
+
+        return override
+
+    def _save_testing_settings_reference(self):
+        """Save standalone testing settings to the session output directory for traceability."""
+        if not self.job_folder_path or not self.session_timestamp:
+            return
+
+        session_dir = os.path.join(self.job_folder_path, f'new_test_{self.session_timestamp}_files')
+        os.makedirs(session_dir, exist_ok=True)
+
+        settings_path = os.path.join(session_dir, 'standalone_testing_settings.txt')
+        with open(settings_path, 'w', encoding='utf-8') as f:
+            f.write("Standalone Testing Settings\n")
+            f.write("=" * 40 + "\n")
+            f.write(f"Session Timestamp: {self.session_timestamp}\n")
+            f.write(f"Job Folder: {self.job_folder_path}\n")
+            f.write(f"Filter Type: {self.inference_filter_override.get('INFERENCE_FILTER_TYPE', 'None')}\n")
+
+            if 'INFERENCE_FILTER_WINDOW_SIZE' in self.inference_filter_override:
+                f.write(f"Filter Window Size: {self.inference_filter_override['INFERENCE_FILTER_WINDOW_SIZE']}\n")
+            if 'INFERENCE_FILTER_ALPHA' in self.inference_filter_override:
+                f.write(f"Filter Alpha: {self.inference_filter_override['INFERENCE_FILTER_ALPHA']}\n")
+            if 'INFERENCE_FILTER_POLYORDER' in self.inference_filter_override:
+                f.write(f"Filter Poly Order: {self.inference_filter_override['INFERENCE_FILTER_POLYORDER']}\n")
+
+            f.write("\nSelected Test Files:\n")
+            for test_file in self.test_files:
+                f.write(f"- {test_file}\n")
+
     def select_job_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Job Folder")
+        # Get default starting directory (project directory where jobs are created)
+        default_dir = get_output_directory() or os.getcwd()
+        folder = QFileDialog.getExistingDirectory(self, "Select Job Folder", default_dir)
         if folder:
             # Validate job folder
             if not self._validate_job_folder(folder):
@@ -174,6 +328,7 @@ class TestSelectionGUI(QMainWindow):
                 
             self.job_folder_path = folder
             self.job_path_label.setText(f"Job Folder: {os.path.basename(folder)}")
+            self._load_filter_defaults_from_job()
             self.check_ready()
     
     def _validate_job_folder(self, folder):
@@ -207,9 +362,16 @@ class TestSelectionGUI(QMainWindow):
         if not self.test_files:
             QMessageBox.warning(self, "No Files", "Please select at least one test file.")
             return
+
+        try:
+            self.inference_filter_override = self._build_filter_override_from_ui()
+        except Exception as e:
+            QMessageBox.warning(self, "Invalid Filter Settings", f"Please correct inference filter settings:\n{e}")
+            return
         
         # Generate session timestamp for consistent folder organization
         self.session_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._save_testing_settings_reference()
         
         # Disable the button and clear log
         self.run_test_button.setEnabled(False)
@@ -218,6 +380,9 @@ class TestSelectionGUI(QMainWindow):
         
         # Process all selected files with a single GUI
         self.log_widget.append(f"Starting testing with {len(self.test_files)} file(s)")
+        self.log_widget.append(
+            f"Using inference filter override: {self.inference_filter_override.get('INFERENCE_FILTER_TYPE', 'None')}"
+        )
         
         # Launch the testing GUI ONCE to show results from all files
         self.log_widget.append("Launching standalone testing GUI...")
@@ -248,7 +413,12 @@ class TestSelectionGUI(QMainWindow):
             QApplication.processEvents()
             
             # The manager will handle augmentation and testing for this file
-            self.testing_manager = VEstimStandaloneTestingManager(self.job_folder_path, test_file, self.session_timestamp)
+            self.testing_manager = VEstimStandaloneTestingManager(
+                self.job_folder_path,
+                test_file,
+                self.session_timestamp,
+                self.inference_filter_override
+            )
             
             # Connect to manager signals for progress updates
             self.testing_manager.progress.connect(self.update_log)
@@ -408,8 +578,12 @@ class TestSelectionGUI(QMainWindow):
         try:
             print(f"[DEBUG] Creating VEstimStandaloneTestingGUI with job_folder_path={self.job_folder_path}, session_timestamp={self.session_timestamp}")
             
-            # Create the GUI only once to show results from all files - pass session timestamp
-            self.testing_gui = VEstimStandaloneTestingGUI(self.job_folder_path, self.session_timestamp)
+            # Create the GUI only once to show results from all files - pass session timestamp and filter override
+            self.testing_gui = VEstimStandaloneTestingGUI(
+                self.job_folder_path,
+                self.session_timestamp,
+                self.inference_filter_override
+            )
             self.results_gui = self.testing_gui
             
             print(f"[DEBUG] VEstimStandaloneTestingGUI created successfully: {type(self.testing_gui)}")

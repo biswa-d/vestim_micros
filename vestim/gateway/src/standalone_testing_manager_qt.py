@@ -22,11 +22,12 @@ class VEstimStandaloneTestingManager(QObject):
     results_ready = pyqtSignal(dict)
     augmentation_required = pyqtSignal(pd.DataFrame, list)
 
-    def __init__(self, job_folder_path, test_data_path, session_timestamp=None):
+    def __init__(self, job_folder_path, test_data_path, session_timestamp=None, inference_filter_override=None):
         super().__init__()
         self.job_folder_path = job_folder_path
         self.test_data_path = test_data_path
         self.session_timestamp = session_timestamp or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.inference_filter_override = inference_filter_override or {}
         self.data_augment_service = DataAugmentService()
         self.test_df = None
         self.overall_results = {}
@@ -65,6 +66,11 @@ class VEstimStandaloneTestingManager(QObject):
                 return
 
             self.original_test_df = self.test_df.copy()  # Store original for later saving
+            
+            # Clean test data: convert columns to numeric (removes datetime strings, etc.)
+            # This matches the preprocessing done during normal training
+            self.progress.emit("Cleaning test data (converting to numeric)...")
+            self.test_df = self._clean_test_data(self.test_df)
             
             # Try to automatically apply augmentation steps
             if os.path.exists(self.aug_metadata_path):
@@ -169,21 +175,30 @@ class VEstimStandaloneTestingManager(QObject):
                         # Get the actual columns that the scaler was trained on
                         scaler_features = list(scaler.feature_names_in_) if hasattr(scaler, 'feature_names_in_') else available_normalized_cols
                         self.progress.emit(f"[DEBUG] Scaler feature_names_in_: {scaler_features}")
-                        self.progress.emit(f"[DEBUG] Test DataFrame columns: {list(self.test_df.columns)}")
+                        self.progress.emit(f"[DEBUG] Test DataFrame columns BEFORE adjustment: {list(self.test_df.columns)}")
+                        
+                        # Add back any missing scaler features as NaN columns
+                        # This is needed because sklearn's scaler checks for exact feature name match
+                        missing_features = [col for col in scaler_features if col not in self.test_df.columns]
+                        if missing_features:
+                            self.progress.emit(f"[DEBUG] Scaler requires these missing columns, adding as NaN: {missing_features}")
+                            for col in missing_features:
+                                self.test_df[col] = np.nan
+                        
+                        # Reorder test_df columns to match scaler's expected order
+                        self.test_df = self.test_df[scaler_features]
+                        self.progress.emit(f"[DEBUG] Test DataFrame columns AFTER reorder: {list(self.test_df.columns)}")
                         self.progress.emit(f"[DEBUG] Test DataFrame dtypes:\n{self.test_df.dtypes}")
                         
-                        # Pre-process object-type columns (like 'Prog Time', 'Step Time') to numeric
-                        # before calling scaler.transform(), since the scaler was trained on numeric values
+                        # Pre-process object-type columns to numeric before transform
                         for col in self.test_df.columns:
                             col_dtype_str = str(self.test_df[col].dtype)
-                            if col in scaler_features and col_dtype_str in ('object', 'string', 'str'):
-                                self.progress.emit(f"[DEBUG] Found object column in scaler: '{col}'")
-                                # Convert MM:SS.S format (e.g., '56:43.4') to total seconds
+                            if col_dtype_str in ('object', 'string', 'str'):
+                                self.progress.emit(f"[DEBUG] Found object column: '{col}'")
                                 try:
                                     sample_val = str(self.test_df[col].iloc[0]) if len(self.test_df) > 0 else ""
-                                    self.progress.emit(f"[DEBUG] Sample value from '{col}': {sample_val}")
+                                    self.progress.emit(f"[DEBUG] Sample value: {sample_val}")
                                     if ':' in sample_val:
-                                        self.progress.emit(f"[DEBUG] Detected ':' in '{col}', converting MM:SS format")
                                         # MM:SS.S format - convert to total seconds
                                         def mm_ss_to_seconds(x):
                                             if isinstance(x, str) and ':' in x:
@@ -192,31 +207,25 @@ class VEstimStandaloneTestingManager(QObject):
                                             return float(x) if x != '' else np.nan
                                         
                                         self.test_df[col] = self.test_df[col].apply(mm_ss_to_seconds)
-                                        self.progress.emit(f"[DEBUG] After conversion, '{col}' dtype: {self.test_df[col].dtype}")
                                         self.progress.emit(f"Converted '{col}' from MM:SS format to seconds.")
                                     else:
-                                        self.progress.emit(f"[DEBUG] No ':' found, trying generic numeric conversion for '{col}'")
                                         # Try generic numeric conversion
                                         self.test_df[col] = pd.to_numeric(self.test_df[col], errors='coerce')
-                                        self.progress.emit(f"[DEBUG] After to_numeric, '{col}' dtype: {self.test_df[col].dtype}")
                                         self.progress.emit(f"Converted '{col}' to numeric.")
                                 except (ValueError, TypeError, AttributeError) as e:
                                     self.progress.emit(f"[ERROR] Could not convert '{col}': {e}")
-
-                        # Only transform columns that the scaler knows about
-                        cols_to_transform = [col for col in scaler_features if col in self.test_df.columns]
-                        self.progress.emit(f"[DEBUG] Columns to transform: {cols_to_transform}")
                         
-                        if cols_to_transform:
-                            # Final dtype check before transform
-                            self.progress.emit(f"[DEBUG] Final dtypes before scaler.transform():")
-                            for col in cols_to_transform:
-                                self.progress.emit(f"[DEBUG]   {col}: {self.test_df[col].dtype}")
-                            
-                            self.test_df[cols_to_transform] = scaler.transform(self.test_df[cols_to_transform])
-                            self.progress.emit(f"Normalization applied to {len(cols_to_transform)} columns.")
-                        else:
-                            self.progress.emit("Warning: No columns could be matched with scaler.")
+                        # Final dtype check before transform
+                        self.progress.emit(f"[DEBUG] Final dtypes before scaler.transform():")
+                        for col in scaler_features:
+                            self.progress.emit(f"[DEBUG]   {col}: {self.test_df[col].dtype}")
+                        
+                        try:
+                            self.test_df[scaler_features] = scaler.transform(self.test_df[scaler_features])
+                            self.progress.emit(f"✓ Normalization applied to {len(scaler_features)} columns.")
+                        except Exception as e:
+                            self.progress.emit(f"[ERROR] Scaler transform failed: {e}")
+                            raise
 
                 else:
                     self.progress.emit("Warning: Failed to load scaler, predictions will be on normalized scale")
@@ -256,6 +265,9 @@ class VEstimStandaloneTestingManager(QObject):
             
             # Use the session timestamp that was passed to constructor
             self.progress.emit(f"\nStandalone test session: {self.session_timestamp}")
+            if self.inference_filter_override:
+                selected_filter = self.inference_filter_override.get('INFERENCE_FILTER_TYPE', 'None')
+                self.progress.emit(f"Using standalone inference filter override: {selected_filter}")
 
             
             # Test each model using existing task structure
@@ -467,7 +479,10 @@ class VEstimStandaloneTestingManager(QObject):
             # Extract model configuration from task_info
             model_metadata = task_info.get('model_metadata', {})
             model_type = model_metadata.get('model_type', task_info.get('model_type', 'FNN'))
-            hyperparams = task_info.get('hyperparams', {})
+            hyperparams = dict(task_info.get('hyperparams', {}))
+            if self.inference_filter_override:
+                hyperparams.update(self.inference_filter_override)
+                task_info['hyperparams'] = hyperparams
             data_config = task_info.get('data_config', {})
             training_config = task_info.get('training_config', {})
             
@@ -654,6 +669,9 @@ class VEstimStandaloneTestingManager(QObject):
             test_result_dir = os.path.join(task_path, f'new_test_result_{self.session_timestamp}')
             os.makedirs(test_result_dir, exist_ok=True)
             
+            # Save test settings to this model's result directory
+            self._save_test_settings_to_result_dir(test_result_dir, arch_name, task_name, model_type, target_column)
+            
             test_file_name = os.path.splitext(os.path.basename(self.test_data_path))[0]
             
             # Determine target column display name and error units (match main loop logic)
@@ -804,6 +822,50 @@ class VEstimStandaloneTestingManager(QObject):
             task_name = task_info.get('task_name', 'Unknown')
             self.progress.emit(f"  ✓ Cleaned up memory for task {task_name}")
 
+    def _save_test_settings_to_result_dir(self, test_result_dir, arch_name, task_name, model_type, target_column):
+        """Save test settings to individual model result directory for reference."""
+        try:
+            settings_path = os.path.join(test_result_dir, f'test_settings_{self.session_timestamp}.txt')
+            
+            with open(settings_path, 'w', encoding='utf-8') as f:
+                f.write("Standalone Test Settings\n")
+                f.write("=" * 60 + "\n\n")
+                
+                f.write(f"Test Session Timestamp: {self.session_timestamp}\n")
+                f.write(f"Model Architecture: {arch_name}\n")
+                f.write(f"Model Task: {task_name}\n")
+                f.write(f"Model Type: {model_type}\n")
+                f.write(f"Target Column: {target_column}\n")
+                f.write(f"Test Data File: {os.path.basename(self.test_data_path)}\n")
+                f.write(f"Job Folder: {os.path.basename(self.job_folder_path)}\n\n")
+                
+                f.write("Inference Filter Settings (Applied for this test):\n")
+                f.write("-" * 60 + "\n")
+                
+                filter_type = self.inference_filter_override.get('INFERENCE_FILTER_TYPE', 'None')
+                f.write(f"Filter Type: {filter_type}\n")
+                
+                if filter_type == 'Moving Average':
+                    window_size = self.inference_filter_override.get('INFERENCE_FILTER_WINDOW_SIZE', 'N/A')
+                    f.write(f"Window Size: {window_size}\n")
+                elif filter_type == 'Exponential Moving Average':
+                    alpha = self.inference_filter_override.get('INFERENCE_FILTER_ALPHA', 'N/A')
+                    f.write(f"Alpha: {alpha}\n")
+                elif filter_type == 'Savitzky-Golay':
+                    window_size = self.inference_filter_override.get('INFERENCE_FILTER_WINDOW_SIZE', 'N/A')
+                    polyorder = self.inference_filter_override.get('INFERENCE_FILTER_POLYORDER', 'N/A')
+                    f.write(f"Window Size: {window_size}\n")
+                    f.write(f"Polynomial Order: {polyorder}\n")
+                
+                f.write("\n" + "=" * 60 + "\n")
+                f.write("Note: These settings were applied as post-inference filters.\n")
+                f.write("The model weights remain unchanged from training.\n")
+            
+            self.progress.emit(f"  ✓ Test settings saved to: test_settings_{self.session_timestamp}.txt")
+            
+        except Exception as e:
+            self.progress.emit(f"  Warning: Could not save test settings: {e}")
+
     def _extract_training_metrics(self, task_path, task_info):
         """Extract training metrics from training logs and task results."""
         training_metrics = {
@@ -850,6 +912,77 @@ class VEstimStandaloneTestingManager(QObject):
         except Exception as e:
             self.progress.emit(f"    Warning: Could not extract training metrics: {e}")
             return training_metrics
+    
+    def _clean_test_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Clean test data by removing timestamp columns and converting to numeric.
+        This mirrors the preprocessing done in data_processor_qt_csv._process_standard_csv()
+        
+        During normal training, all test files are processed through _process_standard_csv
+        which converts to numeric and removes non-numeric columns like Date_Time.
+        Standalone testing must do the same preprocessing.
+        
+        Args:
+            df: Raw test DataFrame from CSV/Excel file
+            
+        Returns:
+            Cleaned DataFrame with timestamp columns removed and numeric data
+        """
+        try:
+            cleaned_df = df.copy()
+            columns_removed = []
+            columns_converted = []
+            
+            # First, identify and REMOVE any timestamp/datetime columns
+            # These have different formats across files and cause conversion errors
+            # They're removed in normal training preprocessing anyway
+            timestamp_keywords = ['date_time', 'timestamp', 'time', 'datetime']
+            cols_to_drop = []
+            
+            for col in cleaned_df.columns:
+                col_lower = col.lower().replace(' ', '_').replace('(', '').replace(')', '')
+                if any(keyword in col_lower for keyword in timestamp_keywords):
+                    cols_to_drop.append(col)
+                    columns_removed.append(f"'{col}' (timestamp/datetime column)")
+            
+            # Drop the timestamp columns
+            if cols_to_drop:
+                cleaned_df = cleaned_df.drop(columns=cols_to_drop)
+                self.progress.emit(f"[DATA CLEANING] Removed timestamp columns: {', '.join(columns_removed)}")
+            
+            # Now convert all remaining columns to numeric
+            for col in cleaned_df.columns:
+                original_dtype = cleaned_df[col].dtype
+                cleaned_df[col] = pd.to_numeric(cleaned_df[col], errors='coerce')
+                
+                # Track conversions
+                if original_dtype != cleaned_df[col].dtype:
+                    if not cleaned_df[col].isnull().all():
+                        columns_converted.append(f"'{col}' ({original_dtype.__name__} → numeric)")
+            
+            # Drop rows where all values are NaN
+            initial_rows = len(cleaned_df)
+            cleaned_df.dropna(how='all', inplace=True)
+            dropped_rows = initial_rows - len(cleaned_df)
+            
+            # Log results
+            if columns_converted or dropped_rows > 0:
+                if columns_converted:
+                    self.progress.emit(f"[DATA CLEANING] Converted to numeric: {', '.join(columns_converted)}")
+                if dropped_rows > 0:
+                    self.progress.emit(f"[DATA CLEANING] Dropped {dropped_rows} rows with all NaN")
+            
+            self.progress.emit(f"✓ Test data cleaned. Final shape: {cleaned_df.shape}")
+            
+            if cleaned_df.empty:
+                raise ValueError("Test data is empty after cleaning")
+            
+            return cleaned_df
+            
+        except Exception as e:
+            self.progress.emit(f"ERROR during data cleaning: {e}")
+            raise ValueError(f"Could not clean test data: {e}")
+
     
     def _create_sequences(self, data, lookback):
         X = []
