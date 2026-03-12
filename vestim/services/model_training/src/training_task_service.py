@@ -150,6 +150,9 @@ class TrainingTaskService:
                         y_pred, h_s = model(X_batch, h_s_buffer[:, :actual_batch_size, :])
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
+                    elif model_type == "NARX":
+                        # NARX uses forward(x_current, y_previous=None)
+                        y_pred = model(X_batch)
                     else:
                         raise ValueError(f"Unsupported model_type in train_epoch: {model_type}")
 
@@ -207,6 +210,10 @@ class TrainingTaskService:
                     y_pred, h_s = model(X_batch, h_s_buffer[:, :actual_batch_size, :])
                 elif model_type == "FNN":
                     y_pred = model(X_batch)
+                elif model_type == "NARX":
+                    # NARX uses forward(x_current, y_previous=None)
+                    # y_previous is inferred from batch structure or initialized to zeros
+                    y_pred = model(X_batch)
                 else:
                     raise ValueError(f"Unsupported model_type in train_epoch: {model_type}")
 
@@ -255,6 +262,7 @@ class TrainingTaskService:
             elif model_type == "GRU":
                 if h_s is not None:
                     h_s = h_s.detach()
+            # NARX and FNN don't have hidden states, so no detaching needed
                 
             # Keep loss on GPU to avoid synchronization - will sync once at end of epoch
             total_train_loss.append(loss.detach())
@@ -289,6 +297,7 @@ class TrainingTaskService:
                 h_s, h_c = None, None
             elif model_type == "GRU":
                 h_s = None
+            # NARX and FNN don't use hidden states, so no reset needed
 
         # Calculate average batch time
         avg_epoch_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0
@@ -334,7 +343,6 @@ class TrainingTaskService:
                 # RESET hidden states to zeros for EVERY batch (reference code behavior)
                 h_s, h_c = None, None
                 z = None  # Initialize filter state for LPF models
-                if stop_requested:
                     print("Stop requested during validation")
                     break
                 
@@ -361,6 +369,8 @@ class TrainingTaskService:
                             h_s_buffer[:, :actual_batch_size, :].zero_()
                             y_pred, h_s = model(X_batch, h_s_buffer[:, :actual_batch_size, :])
                         elif model_type == "FNN":
+                            y_pred = model(X_batch)
+                        elif model_type == "NARX":
                             y_pred = model(X_batch)
                         else:
                             raise ValueError(f"Unsupported model_type in validate_epoch: {model_type}")

@@ -714,4 +714,109 @@ class DataAugmentService:
             
         except Exception as e:
             self.logger.error(f"Error applying noise injection to column '{column_name}': {e}", exc_info=True)
+            return df    
+    def remove_padding(self, df: pd.DataFrame, padding_length: int) -> pd.DataFrame:
+        """
+        Remove padded rows from the beginning of a DataFrame.
+        
+        This is used after filtering to restore the original data shape,
+        ensuring that padded initialization values don't affect training/testing.
+        
+        Args:
+            df: The DataFrame with padding to remove.
+            padding_length: Number of padded rows to remove from the beginning.
+            
+        Returns:
+            pd.DataFrame: The DataFrame with padding rows removed.
+        """
+        if padding_length <= 0:
+            self.logger.info("Padding length is zero or negative, returning original DataFrame.")
             return df
+        
+        if padding_length >= len(df):
+            self.logger.warning(f"Padding length ({padding_length}) >= DataFrame length ({len(df)}). Returning empty DataFrame.")
+            return pd.DataFrame(columns=df.columns)
+        
+        result_df = df.iloc[padding_length:].reset_index(drop=True)
+        self.logger.info(f"Removed {padding_length} padding rows. Original shape: {df.shape}, New shape: {result_df.shape}")
+        
+        return result_df
+    
+    def apply_filter_with_padding(self, df: pd.DataFrame, column_name: str, corner_frequency: float, 
+                                  sampling_rate: float, filter_order: int = 4, 
+                                  output_column_name: str = None,
+                                  auto_padding: bool = True,
+                                  manual_padding_length: int = None) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        """
+        Apply filtering with automatic padding to eliminate edge effects.
+        
+        Workflow:
+        1. Calculate optimal padding length (if auto_padding=True)
+        2. Apply padding to the data
+        3. Apply Butterworth filter
+        4. Remove the padding rows
+        5. Return filtered data and metadata about the operation
+        
+        This ensures filtered columns don't start from near-zero and have proper signal characteristics
+        from the  beginning of the dataset.
+        
+        Args:
+            df: Input DataFrame
+            column_name: Column to filter
+            corner_frequency: Butterworth corner frequency in Hz
+            sampling_rate: Sampling rate in Hz
+            filter_order: Filter order
+            output_column_name: Optional new column name for filtered data
+            auto_padding: If True, calculates padding from filter specs; if False, uses manual_padding_length
+            manual_padding_length: Padding length if auto_padding=False
+            
+        Returns:
+            Tuple of (filtered_df, metadata_dict) where metadata includes padding info
+        """
+        from vestim.services.data_processor.src.filter_padding_calculator import FilterPaddingCalculator
+        
+        self.logger.info(f"Applying filter with padding to column '{column_name}'")
+        
+        # Determine padding length
+        if auto_padding:
+            filter_config = {
+                'type': 'butterworth',
+                'corner_frequency': corner_frequency,
+                'sampling_rate': sampling_rate,
+                'order': filter_order
+            }
+            padding_length = FilterPaddingCalculator.calculate_padding_length(
+                [filter_config], 
+                sampling_rate=sampling_rate
+            )
+            self.logger.info(f"Auto-calculated padding: {padding_length} samples")
+        else:
+            padding_length = manual_padding_length or 0
+            self.logger.info(f"Using manual padding: {padding_length} samples")
+        
+        metadata = {
+            'filtering_applied': True,
+            'filter_type': 'butterworth',
+            'corner_frequency': corner_frequency,
+            'sampling_rate': sampling_rate,
+            'filter_order': filter_order,
+            'padding_applied': padding_length > 0,
+            'padding_length': padding_length,
+            'output_column': output_column_name or column_name
+        }
+        
+        # Apply padding if needed
+        if padding_length > 0:
+            df = self.pad_data(df, padding_length, resample_freq_for_time_padding=f"{sampling_rate}Hz")
+            self.logger.info(f"Padded data to shape: {df.shape}")
+        
+        # Apply filter
+        df = self.apply_butterworth_filter(df, column_name, corner_frequency, sampling_rate, filter_order, output_column_name)
+        self.logger.info(f"Applied Butterworth filter to column '{column_name}'")
+        
+        # Remove padding
+        if padding_length > 0:
+            df = self.remove_padding(df, padding_length)
+            self.logger.info(f"Removed padding. Final shape: {df.shape}")
+        
+        return df, metadata

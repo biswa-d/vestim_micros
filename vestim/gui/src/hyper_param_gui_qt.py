@@ -548,9 +548,9 @@ class VEstimHyperParamGUI(QWidget):
         model_label.setToolTip("Select a model architecture for training.")
 
         self.model_combo = QComboBox()
-        model_options = ["LSTM", "FNN", "GRU"]
+        model_options = ["LSTM", "FNN", "GRU", "NARX"]
         self.model_combo.addItems(model_options)
-        self.model_combo.setToolTip("LSTM for time-series, FNN for non-sequential data, GRU for memory-efficient training, LSTM_EMA and LSTM_LPF for filtered outputs.")
+        self.model_combo.setToolTip("LSTM for time-series, FNN for non-sequential data, GRU for memory-efficient training, NARX for nonlinear autoregressive with exogenous inputs, LSTM_EMA and LSTM_LPF for filtered outputs.")
 
         # FIXED:**Model-Specific Parameters Placeholder**
         self.model_param_container = QVBoxLayout()
@@ -717,6 +717,49 @@ class VEstimHyperParamGUI(QWidget):
             model_params["FNN_HIDDEN_LAYERS"] = self.fnn_hidden_layers_entry
             model_params["FNN_DROPOUT_PROB"] = self.fnn_dropout_entry
             model_params["FNN_ACTIVATION"] = self.fnn_activation_combo
+
+        elif selected_model == "NARX":
+            narx_hidden_layers_label = QLabel("NARX Hidden Layers:")
+            narx_hidden_layers_label.setStyleSheet("font-size: 9pt;")
+            narx_hidden_layers_label.setToolTip("Define NARX hidden layer sizes (Nonlinear Autoregressive with eXogenous inputs). Example: 128,64,32.")
+            self.narx_hidden_layers_entry = QLineEdit(self.params.get("HIDDEN_LAYER_SIZES", "128,64"))
+            self.narx_hidden_layers_entry.setToolTip("Comma-separated hidden layer sizes. Example: '128,64,32'")
+            self.narx_hidden_layers_entry.textChanged.connect(self.on_param_text_changed)
+            
+            narx_dropout_label = QLabel("NARX Dropout Prob:")
+            narx_dropout_label.setStyleSheet("font-size: 9pt;")
+            narx_dropout_label.setToolTip("Dropout probability for NARX layers (0.0 to 1.0).")
+            self.narx_dropout_entry = QLineEdit(self.params.get("DROPOUT_PROB", "0.1"))
+            self.narx_dropout_entry.setToolTip("e.g., 0.1 for 10% dropout")
+            self.narx_dropout_entry.textChanged.connect(self.on_param_text_changed)
+            
+            narx_delay_label = QLabel("NARX Output Delay:")
+            narx_delay_label.setStyleSheet("font-size: 9pt;")
+            narx_delay_label.setToolTip("Number of previous output timesteps to use (autoregressive order). Default: 1")
+            self.narx_delay_entry = QLineEdit(self.params.get("OUTPUT_DELAY", "1"))
+            self.narx_delay_entry.setToolTip("Autoregressive order: how many previous predictions to use. Example: '1' or '2'")
+            self.narx_delay_entry.textChanged.connect(self.on_param_text_changed)
+            
+            narx_activation_label = QLabel("Activation Function:")
+            narx_activation_label.setStyleSheet("font-size: 9pt;")
+            narx_activation_label.setToolTip("Select the activation function for hidden layers.")
+            self.narx_activation_combo = QComboBox()
+            self.narx_activation_combo.addItems(["ReLU", "GELU"])
+            
+            self.model_param_container.addWidget(narx_hidden_layers_label)
+            self.model_param_container.addWidget(self.narx_hidden_layers_entry)
+            self.model_param_container.addWidget(narx_dropout_label)
+            self.model_param_container.addWidget(self.narx_dropout_entry)
+            self.model_param_container.addWidget(narx_delay_label)
+            self.model_param_container.addWidget(self.narx_delay_entry)
+            self.model_param_container.addWidget(narx_activation_label)
+            self.model_param_container.addWidget(self.narx_activation_combo)
+            
+            # Store in model_params
+            model_params["HIDDEN_LAYER_SIZES"] = self.narx_hidden_layers_entry
+            model_params["DROPOUT_PROB"] = self.narx_dropout_entry
+            model_params["OUTPUT_DELAY"] = self.narx_delay_entry
+            model_params["activation"] = self.narx_activation_combo
 
         # Register current model-specific QLineEdit parameters in self.param_entries
         # FIXED:This ensures self.param_entries only contains widgets relevant to the *current* model type
