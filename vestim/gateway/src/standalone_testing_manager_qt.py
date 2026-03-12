@@ -12,6 +12,7 @@ from vestim.services.data_processor.src.data_augment_service import DataAugmentS
 from vestim.services.model_training.src.FNN_model import FNNModel
 from vestim.services.model_training.src.LSTM_model import LSTMModel
 from vestim.services.model_training.src.GRU_model import GRUModel
+from vestim.services.model_training.src.NARX_model import NARXModel
 from vestim.services.model_testing.src.testing_service import apply_inference_filter
 from vestim.services.data_processor.src import normalization_service as norm_svc
 
@@ -538,6 +539,20 @@ class VEstimStandaloneTestingManager(QObject):
                     device=device,
                     dropout_prob=float(hyperparams.get('GRU_DROPOUT_PROB', 0.0)),
                     apply_clipped_relu=apply_clipped_relu
+                )
+            elif model_type == 'NARX':
+                hidden_sizes = hyperparams.get('HIDDEN_LAYER_SIZES', [128, 64])
+                output_delay = int(hyperparams.get('OUTPUT_DELAY', 1))
+                apply_clipped_relu = hyperparams.get('normalization_applied', False)
+                model = NARXModel(
+                    input_size=input_size,
+                    output_size=hyperparams.get('OUTPUT_SIZE', 1),
+                    hidden_layer_sizes=hidden_sizes,
+                    output_delay=output_delay,
+                    dropout_prob=float(hyperparams.get('DROPOUT_PROB', 0.0)),
+                    apply_clipped_relu=apply_clipped_relu,
+                    activation_function=hyperparams.get('activation', 'ReLU'),
+                    device=device
                 )
             else:
                 raise ValueError(f"Unsupported model type: {model_type}")
