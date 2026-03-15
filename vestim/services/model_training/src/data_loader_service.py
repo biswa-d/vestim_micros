@@ -36,12 +36,16 @@ class DataLoaderService:
         :param concatenate_raw_data: For "SequenceRNN", if True, concatenates raw data before sequencing.
         :param train_split: Fraction of data to use for training.
         :param seed: Random seed for reproducibility.
-        :param model_type: Type of model (LSTM, GRU, FNN) - affects data loading strategy.
+        :param model_type: Type of model (LSTM, GRU, FNN, NARX) - affects data loading strategy.
         :return: A tuple of (train_loader, val_loader) PyTorch DataLoader objects.
         """
-        # Special handling for FNN models with batch training
+        # Special handling for stateless feedforward models
         if model_type == "FNN":
             return self.create_fnn_batch_data_loaders(
+                folder_path, feature_cols, target_col, batch_size, num_workers, train_split, seed
+            )
+        if model_type == "NARX":
+            return self.create_narx_batch_data_loaders(
                 folder_path, feature_cols, target_col, batch_size, num_workers, train_split, seed
             )
         
@@ -362,6 +366,117 @@ class DataLoaderService:
         
         return loader
 
+    def _build_narx_teacher_forcing_arrays(self, X_data: np.ndarray, y_data: np.ndarray, output_delay: int):
+        """Create teacher-forcing NARX arrays (x_current, y_previous, y_current)."""
+        if output_delay <= 0:
+            raise ValueError("output_delay must be >= 1 for NARX")
+
+        n_samples = len(y_data)
+        if n_samples == 0:
+            return X_data, np.empty((0, output_delay), dtype=np.float32), y_data.reshape(-1, 1)
+
+        y_col = y_data.reshape(-1, 1).astype(np.float32)
+        y_prev = np.zeros((n_samples, output_delay), dtype=np.float32)
+
+        # y_previous columns: [y(t-1), y(t-2), ..., y(t-output_delay)]
+        first_val = float(y_col[0, 0])
+        for d in range(1, output_delay + 1):
+            shifted = np.empty((n_samples,), dtype=np.float32)
+            shifted[:d] = first_val
+            shifted[d:] = y_col[:-d, 0]
+            y_prev[:, d - 1] = shifted
+
+        return X_data.astype(np.float32), y_prev, y_col
+
+    def _load_narx_folder_data(self, folder_path: str, feature_cols: list, target_col: str, output_delay: int):
+        """Load and build NARX teacher-forcing arrays from all CSVs in a folder."""
+        if not os.path.exists(folder_path):
+            return np.empty((0, len(feature_cols)), dtype=np.float32), np.empty((0, output_delay), dtype=np.float32), np.empty((0, 1), dtype=np.float32)
+
+        csv_files = sorted([os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith('.csv')])
+        all_x, all_y_prev, all_y = [], [], []
+
+        for file_path in csv_files:
+            try:
+                df = pd.read_csv(file_path)
+                if df.empty:
+                    continue
+
+                missing_cols = [col for col in feature_cols + [target_col] if col not in df.columns]
+                if missing_cols:
+                    self.logger.warning(f"Missing columns {missing_cols} in {file_path}. Skipping file.")
+                    continue
+
+                x_data = df[feature_cols].values.astype(np.float32)
+                y_data = df[target_col].values.astype(np.float32)
+                x_file, y_prev_file, y_file = self._build_narx_teacher_forcing_arrays(x_data, y_data, output_delay)
+                all_x.append(x_file)
+                all_y_prev.append(y_prev_file)
+                all_y.append(y_file)
+            except Exception as e:
+                self.logger.error(f"Error processing NARX file {file_path}: {e}")
+
+        if not all_x:
+            return np.empty((0, len(feature_cols)), dtype=np.float32), np.empty((0, output_delay), dtype=np.float32), np.empty((0, 1), dtype=np.float32)
+
+        return np.vstack(all_x), np.vstack(all_y_prev), np.vstack(all_y)
+
+    def _create_narx_loader_from_tensors(self, X, y_prev, y, batch_size: int, num_workers: int, shuffle: bool, data_type: str,
+                                         pin_memory: bool = None, prefetch_factor: int = None, persistent_workers: bool = None):
+        """Create DataLoader for NARX with explicit y_previous teacher-forcing tensor."""
+        if X.size == 0 or y.size == 0:
+            empty_dataset = TensorDataset(torch.empty(0), torch.empty(0), torch.empty(0))
+            return DataLoader(empty_dataset, batch_size=batch_size)
+
+        X_tensor = torch.from_numpy(X).float()
+        y_prev_tensor = torch.from_numpy(y_prev).float()
+        y_tensor = torch.from_numpy(y).float()
+        dataset = TensorDataset(X_tensor, y_prev_tensor, y_tensor)
+
+        if pin_memory is None:
+            pin_memory = torch.cuda.is_available()
+        if persistent_workers is None:
+            persistent_workers = num_workers > 0
+        prefetch_factor_value = prefetch_factor if num_workers > 0 else None
+
+        loader = DataLoader(
+            dataset=dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            drop_last=True if data_type in ["train", "validation"] else False,
+            prefetch_factor=prefetch_factor_value,
+            persistent_workers=persistent_workers
+        )
+        return loader
+
+    def create_narx_batch_data_loaders(self, folder_path: str, feature_cols: list, target_col: str,
+                                       batch_size: int, num_workers: int, train_split: float = 0.7,
+                                       seed: int = None, output_delay: int = 1):
+        """Create train/val loaders for NARX using teacher-forcing feedback inputs."""
+        if seed is None:
+            seed = int(datetime.now().timestamp())
+
+        X, y_prev, y = self._load_narx_folder_data(folder_path, feature_cols, target_col, output_delay)
+        if X.size == 0:
+            empty_dataset = TensorDataset(torch.empty(0), torch.empty(0), torch.empty(0))
+            empty_loader = DataLoader(empty_dataset, batch_size=batch_size)
+            return empty_loader, empty_loader
+
+        np.random.seed(seed)
+        indices = np.arange(len(X))
+        np.random.shuffle(indices)
+        train_count = int(len(indices) * train_split)
+        train_idx, val_idx = indices[:train_count], indices[train_count:]
+
+        X_train, y_prev_train, y_train = X[train_idx], y_prev[train_idx], y[train_idx]
+        X_val, y_prev_val, y_val = X[val_idx], y_prev[val_idx], y[val_idx]
+
+        train_loader = self._create_narx_loader_from_tensors(X_train, y_prev_train, y_train, batch_size, num_workers, True, "train")
+        val_loader = self._create_narx_loader_from_tensors(X_val, y_prev_val, y_val, batch_size, num_workers, False, "validation")
+        return train_loader, val_loader
+
     def create_temporal_sequence_data_loaders(self, folder_path: str, feature_cols: list, target_col: str,
                                             batch_size: int, num_workers: int, lookback: int,
                                             concatenate_raw_data: bool, train_split: float = 0.7, 
@@ -579,6 +694,7 @@ class DataLoaderService:
                                                  lookback: int = None,
                                                  concatenate_raw_data: bool = False,
                                                  seed: int = None, model_type: str = "LSTM",
+                                                 narx_output_delay: int = 1,
                                                  create_test_loader: bool = True,
                                                  pin_memory: bool = None,
                                                  prefetch_factor: int = None,
@@ -592,22 +708,38 @@ class DataLoaderService:
         train_folder = os.path.join(job_folder_path, 'train_data', 'processed_data')
         val_folder = os.path.join(job_folder_path, 'val_data', 'processed_data')
 
-        train_X, train_y, _ = self.get_processed_data(train_folder, training_method, feature_cols, target_col, lookback, concatenate_raw_data, model_type)
-        val_X, val_y, _ = self.get_processed_data(val_folder, training_method, feature_cols, target_col, lookback, concatenate_raw_data, model_type)
+        if model_type == "NARX":
+            train_X, train_y_prev, train_y = self._load_narx_folder_data(train_folder, feature_cols, target_col, narx_output_delay)
+            val_X, val_y_prev, val_y = self._load_narx_folder_data(val_folder, feature_cols, target_col, narx_output_delay)
+        else:
+            train_X, train_y, _ = self.get_processed_data(train_folder, training_method, feature_cols, target_col, lookback, concatenate_raw_data, model_type)
+            val_X, val_y, _ = self.get_processed_data(val_folder, training_method, feature_cols, target_col, lookback, concatenate_raw_data, model_type)
 
-        total_size_mb = (train_X.nbytes + train_y.nbytes + val_X.nbytes + val_y.nbytes) / (1024 * 1024)
+        if model_type == "NARX":
+            total_size_mb = (train_X.nbytes + train_y_prev.nbytes + train_y.nbytes + val_X.nbytes + val_y_prev.nbytes + val_y.nbytes) / (1024 * 1024)
+        else:
+            total_size_mb = (train_X.nbytes + train_y.nbytes + val_X.nbytes + val_y.nbytes) / (1024 * 1024)
         if return_data_size:
             # If only the size is needed, we can return early
             return None, None, total_size_mb
 
-        # Reference code approach: BOTH train and validation use SubsetRandomSampler (both shuffled!)
-        train_loader = self._create_loader_from_tensors(train_X, train_y, batch_size, num_workers, True, "train", pin_memory, prefetch_factor, persistent_workers)
-        val_loader = self._create_loader_from_tensors(val_X, val_y, batch_size, num_workers, True, "validation", pin_memory, prefetch_factor, persistent_workers)
+        if model_type == "NARX":
+            train_loader = self._create_narx_loader_from_tensors(train_X, train_y_prev, train_y, batch_size, num_workers, True, "train", pin_memory, prefetch_factor, persistent_workers)
+            val_loader = self._create_narx_loader_from_tensors(val_X, val_y_prev, val_y, batch_size, num_workers, False, "validation", pin_memory, prefetch_factor, persistent_workers)
+        else:
+            # Reference code approach: BOTH train and validation use SubsetRandomSampler (both shuffled!)
+            train_loader = self._create_loader_from_tensors(train_X, train_y, batch_size, num_workers, True, "train", pin_memory, prefetch_factor, persistent_workers)
+            val_loader = self._create_loader_from_tensors(val_X, val_y, batch_size, num_workers, True, "validation", pin_memory, prefetch_factor, persistent_workers)
 
         if create_test_loader:
             test_folder = os.path.join(job_folder_path, 'test_data', 'processed_data')
-            test_X, test_y, test_timestamps = self.get_processed_data(test_folder, "Whole Sequence", feature_cols, target_col, return_timestamp=True)
-            test_loader = self._create_loader_from_tensors(test_X, test_y, batch_size, num_workers, False, "test", pin_memory, prefetch_factor, persistent_workers)
+            if model_type == "NARX":
+                test_X, test_y_prev, test_y = self._load_narx_folder_data(test_folder, feature_cols, target_col, narx_output_delay)
+                test_loader = self._create_narx_loader_from_tensors(test_X, test_y_prev, test_y, batch_size, num_workers, False, "test", pin_memory, prefetch_factor, persistent_workers)
+                test_timestamps = None
+            else:
+                test_X, test_y, test_timestamps = self.get_processed_data(test_folder, "Whole Sequence", feature_cols, target_col, return_timestamp=True)
+                test_loader = self._create_loader_from_tensors(test_X, test_y, batch_size, num_workers, False, "test", pin_memory, prefetch_factor, persistent_workers)
             return train_loader, val_loader, test_loader, test_timestamps
         
         return train_loader, val_loader

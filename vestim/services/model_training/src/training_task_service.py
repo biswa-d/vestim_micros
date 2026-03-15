@@ -83,7 +83,7 @@ class TrainingTaskService:
 
         conn.commit()
         conn.close()
-        
+
     def train_epoch(self, model, model_type, train_loader, optimizer, h_s_initial, h_c_initial, epoch, device, stop_requested, task, verbose=True):
         """Train the model for a single epoch, adapting to model type."""
         model.train()
@@ -111,11 +111,21 @@ class TrainingTaskService:
             h_s_buffer = torch.zeros(model.num_layers, max_batch_size, model.hidden_units, device=device)
         
         # Reference code approach: hidden states will be reset to zeros at START of each batch
-        for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
+        for batch_idx, batch in enumerate(train_loader):
             # Check stop signal every 10 batches for faster response (~every 1-2 seconds)
             if batch_idx % 10 == 0 and stop_requested:
                 print(f"Stop requested during training at batch {batch_idx}")
                 break
+
+            if model_type == "NARX":
+                if len(batch) == 3:
+                    X_batch, y_prev_batch, y_batch = batch
+                else:
+                    X_batch, y_batch = batch
+                    y_prev_batch = None
+            else:
+                X_batch, y_batch = batch
+                y_prev_batch = None
                 
             # RESET hidden states to zeros for EVERY batch (reference code behavior)
             h_s, h_c = None, None
@@ -124,6 +134,8 @@ class TrainingTaskService:
             start_batch_time = time.time()
             # Use the 'device' argument passed to the method, not self.device
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+            if y_prev_batch is not None:
+                y_prev_batch = y_prev_batch.to(device)
             
             optimizer.zero_grad()
 
@@ -151,8 +163,7 @@ class TrainingTaskService:
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
                     elif model_type == "NARX":
-                        # NARX uses forward(x_current, y_previous=None)
-                        y_pred = model(X_batch)
+                        y_pred = model(X_batch, y_prev_batch)
                     else:
                         raise ValueError(f"Unsupported model_type in train_epoch: {model_type}")
 
@@ -211,9 +222,7 @@ class TrainingTaskService:
                 elif model_type == "FNN":
                     y_pred = model(X_batch)
                 elif model_type == "NARX":
-                    # NARX uses forward(x_current, y_previous=None)
-                    # y_previous is inferred from batch structure or initialized to zeros
-                    y_pred = model(X_batch)
+                    y_pred = model(X_batch, y_prev_batch)
                 else:
                     raise ValueError(f"Unsupported model_type in train_epoch: {model_type}")
 
@@ -339,14 +348,27 @@ class TrainingTaskService:
         
         # Reference code approach: hidden states will be reset to zeros at START of each batch
         with torch.no_grad():
-            for batch_idx, (X_batch, y_batch) in enumerate(val_loader):
+            for batch_idx, batch in enumerate(val_loader):
                 # RESET hidden states to zeros for EVERY batch (reference code behavior)
                 h_s, h_c = None, None
                 z = None  # Initialize filter state for LPF models
+                if stop_requested:
                     print("Stop requested during validation")
                     break
+
+                if model_type == "NARX":
+                    if len(batch) == 3:
+                        X_batch, y_prev_batch, y_batch = batch
+                    else:
+                        X_batch, y_batch = batch
+                        y_prev_batch = None
+                else:
+                    X_batch, y_batch = batch
+                    y_prev_batch = None
                 
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                if y_prev_batch is not None:
+                    y_prev_batch = y_prev_batch.to(device)
 
                 # Use AMP autocast context manager when mixed precision is enabled
                 if use_mixed_precision:
@@ -371,7 +393,7 @@ class TrainingTaskService:
                         elif model_type == "FNN":
                             y_pred = model(X_batch)
                         elif model_type == "NARX":
-                            y_pred = model(X_batch)
+                            y_pred = model(X_batch, y_prev_batch)
                         else:
                             raise ValueError(f"Unsupported model_type in validate_epoch: {model_type}")
                         
@@ -404,6 +426,8 @@ class TrainingTaskService:
                         y_pred, h_s = model(X_batch, h_s_buffer[:, :actual_batch_size, :])
                     elif model_type == "FNN":
                         y_pred = model(X_batch)
+                    elif model_type == "NARX":
+                        y_pred = model(X_batch, y_prev_batch)
                     else:
                         raise ValueError(f"Unsupported model_type in validate_epoch: {model_type}")
                     
@@ -457,6 +481,57 @@ class TrainingTaskService:
             all_val_y_true_normalized = torch.cat(all_val_y_true_normalized, dim=0)
             
         return avg_loss, all_val_y_pred_normalized, all_val_y_true_normalized
+
+    def evaluate_narx_closed_loop(self, model, data_loader, output_delay, device):
+        """Evaluate NARX in closed-loop rollout mode over loader order.
+
+        Returns:
+            (mse_norm, y_pred_norm, y_true_norm)
+        """
+        model.eval()
+        if output_delay <= 0:
+            output_delay = 1
+
+        x_batches = []
+        y_batches = []
+
+        with torch.no_grad():
+            for batch in data_loader:
+                if len(batch) == 3:
+                    x_batch, _, y_batch = batch
+                else:
+                    x_batch, y_batch = batch
+
+                x_batches.append(x_batch)
+                y_batches.append(y_batch)
+
+        if not x_batches or not y_batches:
+            return float('nan'), torch.empty(0), torch.empty(0)
+
+        x_all = torch.cat(x_batches, dim=0).to(device)
+        y_true = torch.cat(y_batches, dim=0).to(device)
+
+        if y_true.ndim == 1:
+            y_true = y_true.unsqueeze(1)
+
+        output_size = y_true.shape[1]
+        first_y = y_true[0:1]
+        y_prev = first_y.repeat(1, output_delay * output_size)
+
+        preds = []
+        for idx in range(x_all.size(0)):
+            x_t = x_all[idx:idx+1]
+            y_pred = model(x_t, y_prev)
+            preds.append(y_pred)
+
+            if output_delay > 1:
+                y_prev = torch.cat([y_pred.detach(), y_prev[:, :-output_size]], dim=1)
+            else:
+                y_prev = y_pred.detach()
+
+        y_pred_all = torch.cat(preds, dim=0)
+        mse_norm = self.criterion(y_pred_all, y_true).item()
+        return mse_norm, y_pred_all.detach().cpu(), y_true.detach().cpu()
 
     def save_model(self, model, model_path):
         """Save the model to disk."""

@@ -107,6 +107,12 @@ def display_hyperparameters(gui, params):
                 return True
             if param_key in {'LOOKBACK', 'LAYERS', 'HIDDEN_UNITS'}:
                 return False
+        elif model_type == 'NARX':
+            narx_params = {'HIDDEN_LAYER_SIZES', 'OUTPUT_DELAY', 'DROPOUT_PROB', 'activation'}
+            if param_key in narx_params:
+                return True
+            if param_key in {'LOOKBACK', 'LAYERS', 'HIDDEN_UNITS', 'FNN_HIDDEN_LAYERS'}:
+                return False
         
         if scheduler_type == 'StepLR':
             if param_key in {'LR_DROP_PERIOD', 'LR_PERIOD', 'LR_DROP_FACTOR', 'LR_PARAM'}:
@@ -143,6 +149,14 @@ def display_hyperparameters(gui, params):
             ['HIDDEN_LAYER_SIZES', 'FNN_HIDDEN_LAYERS'],
             ['FNN_ACTIVATION'],
             ['DROPOUT_PROB', 'FNN_DROPOUT_PROB'],
+            ['WEIGHT_DECAY']
+        ]
+    elif model_type == 'NARX':
+        preferred_key_groups += [
+            ['HIDDEN_LAYER_SIZES'],
+            ['OUTPUT_DELAY'],
+            ['activation'],
+            ['DROPOUT_PROB'],
             ['WEIGHT_DECAY']
         ]
     elif model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:

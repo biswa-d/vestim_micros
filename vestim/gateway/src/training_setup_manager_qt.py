@@ -1,10 +1,12 @@
 import os, uuid, time
 import json
+import re
 from itertools import product
 from vestim.gateway.src.hyper_param_manager_qt import VEstimHyperParamManager
 from vestim.services.model_training.src.LSTM_model_service import LSTMModelService
 from vestim.services.model_training.src.GRU_model_service import GRUModelService
 from vestim.services.model_training.src.FNN_model_service import FNNModelService
+from vestim.services.model_training.src.NARX_model_service import NARXModelService
 from vestim.gateway.src.job_manager_qt import JobManager
 import logging
 import torch
@@ -30,6 +32,7 @@ class VEstimTrainingSetupManager:
             self.lstm_model_service = LSTMModelService()  # Initialize your model service here
             self.gru_model_service = GRUModelService()  # Initialize GRU model service
             self.fnn_model_service = FNNModelService()  # Initialize FNN model service
+            self.narx_model_service = NARXModelService()  # Initialize NARX model service
             self.job_manager = job_manager  # JobManager should be passed in or initialized separately
             self.models = []  # Store model information
             self.training_tasks = []  # Store created tasks
@@ -101,6 +104,7 @@ class VEstimTrainingSetupManager:
             "LSTM_LPF": self.lstm_model_service.create_and_save_lstm_model,
             "GRU": self.gru_model_service.create_and_save_gru_model,
             "FNN": self.fnn_model_service.create_and_save_fnn_model,
+            "NARX": self.narx_model_service.create_and_save_narx_model,
         }
         model_params['MODEL_TYPE'] = model_type
 
@@ -149,6 +153,9 @@ class VEstimTrainingSetupManager:
                 # For FNN models, use FNN-specific parameters
                 hidden_units_value = str(self.params.get('FNN_HIDDEN_LAYERS', '128,64'))
                 layers_value = "1"  # FNN doesn't use layers like RNN, set to 1 for consistency
+            elif model_type == "NARX":
+                hidden_units_value = str(self.params.get('HIDDEN_LAYER_SIZES', '128,64'))
+                layers_value = "1"  # NARX is stateless like FNN
             else:
                 # For LSTM and other models, check RNN_LAYER_SIZES first, then standard parameters
                 rnn_layer_sizes = self.params.get('RNN_LAYER_SIZES')
@@ -172,8 +179,8 @@ class VEstimTrainingSetupManager:
 
             self.logger.info(f"Building {model_type} models with INPUT_SIZE={input_size}, OUTPUT_SIZE={output_size}")
 
-            if model_type == "FNN":
-                # For FNN models, hidden_units_value contains layer configurations
+            if model_type in ["FNN", "NARX"]:
+                # For FNN/NARX models, hidden_units_value contains layer configurations
                 # Support both formats:
                 # 1. Semicolon-separated: "128,64;100,50,25" 
                 # 2. Bracket format: "[128,64,32], [100,50,25]"
@@ -182,68 +189,93 @@ class VEstimTrainingSetupManager:
                 # Check if using bracket format
                 if '[' in hidden_units_value and ']' in hidden_units_value:
                     # Parse bracket format: [128,64,32], [100,50,25]
-                    import re
                     bracket_matches = re.findall(r'\[([^\]]+)\]', hidden_units_value)
                     for match in bracket_matches:
                         if match.strip():
                             fnn_configs.append(match.strip())
                 else:
-                    # Parse semicolon format: 128,64;100,50,25
-                    for config in hidden_units_value.split(';'):
+                    # Parse semicolon/colon format: 128,64;100,50,25 or 128,64:100,50,25
+                    split_pattern = ';' if ';' in hidden_units_value else ':' if ':' in hidden_units_value else None
+                    configs_raw = hidden_units_value.split(split_pattern) if split_pattern else [hidden_units_value]
+                    for config in configs_raw:
                         if config.strip():
                             fnn_configs.append(config.strip())
                 
                 # If no valid configs found, treat the whole string as a single config
                 if not fnn_configs:
                     fnn_configs = [hidden_units_value.strip()]
+
+                narx_delays = [1]
+                if model_type == "NARX":
+                    output_delay_raw = str(self.params.get('OUTPUT_DELAY', '1')).strip()
+                    if ',' in output_delay_raw:
+                        narx_delays = [int(v.strip()) for v in output_delay_raw.split(',') if v.strip()]
+                    else:
+                        narx_delays = [int(output_delay_raw)] if output_delay_raw else [1]
                 
-                self.logger.info(f"Found {len(fnn_configs)} FNN configuration(s): {fnn_configs}")
+                total_variants = len(fnn_configs) * (len(narx_delays) if model_type == "NARX" else 1)
+                self.logger.info(f"Found {len(fnn_configs)} {model_type} hidden-layer configuration(s): {fnn_configs}")
+                if model_type == "NARX":
+                    self.logger.info(f"Found {len(narx_delays)} NARX output-delay option(s): {narx_delays}")
                 
-                # Process each FNN configuration
+                # Process each FNN/NARX configuration (for NARX: across all output delays)
+                variant_idx = 0
                 for config_idx, fnn_config in enumerate(fnn_configs):
-                    hidden_units = fnn_config  # This is the config string like "128,64"
-                    layers = 1  # Not applicable for FNN, but set for consistency
-                    
-                    self.logger.info(f"Creating FNN model {config_idx + 1}/{len(fnn_configs)} with layer configuration: {hidden_units}")
-                    
-                    # Create model directory
-                    layer_config = str(hidden_units).replace(',', '_')
-                    model_dir_name = self._generate_model_dir_name({'MODEL_TYPE': model_type, 'FNN_UNITS': hidden_units})
-                    model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', model_dir_name)
-                    os.makedirs(model_dir, exist_ok=True)
+                    hidden_units = fnn_config  # e.g., "128,64"
+                    delay_iter = narx_delays if model_type == "NARX" else [1]
 
-                    model_name = "untrained_model_template.pth"
-                    model_path = os.path.join(model_dir, model_name)
+                    for delay in delay_iter:
+                        variant_idx += 1
+                        self.logger.info(
+                            f"Creating {model_type} model {variant_idx}/{total_variants} with layer configuration: {hidden_units}"
+                            + (f", output_delay={delay}" if model_type == "NARX" else "")
+                        )
 
-                    # FNN model uses different parameter structure
-                    hidden_layer_sizes = [int(h.strip()) for h in str(hidden_units).split(',')]
-                    dropout_prob = float(self.params.get('FNN_DROPOUT_PROB', '0.1'))
-                    model_params = {
-                        "INPUT_SIZE": input_size,
-                        "OUTPUT_SIZE": output_size,
-                        "HIDDEN_LAYER_SIZES": hidden_layer_sizes,
-                        "DROPOUT_PROB": dropout_prob,
-                        "normalization_applied": self.load_job_normalization_metadata().get('normalization_applied', False)
-                    }
+                        model_dir_name = self._generate_model_dir_name({
+                            'MODEL_TYPE': model_type,
+                            'FNN_UNITS': hidden_units,
+                            'HIDDEN_LAYER_SIZES': hidden_units,
+                            'OUTPUT_DELAY': delay if model_type == 'NARX' else 1
+                        })
+                        model_dir = os.path.join(self.job_manager.get_job_folder(), 'models', model_dir_name)
+                        os.makedirs(model_dir, exist_ok=True)
 
-                    # Create and save the model
-                    model = self.create_selected_model(model_type, model_params, model_path)
+                        model_name = "untrained_model_template.pth"
+                        model_path = os.path.join(model_dir, model_name)
 
-                    # Store model information for FNN
-                    self.models.append({
-                        'model': model,
-                        'model_type': model_type,
-                        'model_dir': model_dir,
-                        "FEATURE_COLUMNS": feature_columns,
-                        "TARGET_COLUMN": target_column,
-                        'hyperparams': {
-                            'INPUT_SIZE': input_size,
-                            'OUTPUT_SIZE': output_size,
-                            'HIDDEN_LAYER_SIZES': hidden_layer_sizes,
-                            'DROPOUT_PROB': dropout_prob,
-                            'model_path': model_path
+                        hidden_layer_sizes = [int(h.strip()) for h in str(hidden_units).split(',')]
+                        dropout_prob = float(self.params.get('FNN_DROPOUT_PROB', '0.1')) if model_type == "FNN" else float(self.params.get('DROPOUT_PROB', '0.1'))
+                        model_params = {
+                            "INPUT_SIZE": input_size,
+                            "OUTPUT_SIZE": output_size,
+                            "HIDDEN_LAYER_SIZES": hidden_layer_sizes,
+                            "DROPOUT_PROB": dropout_prob,
+                            "normalization_applied": self.load_job_normalization_metadata().get('normalization_applied', False)
                         }
-                    })
+                        if model_type == "NARX":
+                            model_params["OUTPUT_DELAY"] = int(delay)
+                            model_params["activation"] = self.params.get('activation', 'ReLU')
+
+                        # Create and save the model
+                        model = self.create_selected_model(model_type, model_params, model_path)
+
+                        # Store model information for FNN/NARX
+                        self.models.append({
+                            'model': model,
+                            'model_type': model_type,
+                            'model_dir': model_dir,
+                            "FEATURE_COLUMNS": feature_columns,
+                            "TARGET_COLUMN": target_column,
+                            'hyperparams': {
+                                'INPUT_SIZE': input_size,
+                                'OUTPUT_SIZE': output_size,
+                                'HIDDEN_LAYER_SIZES': hidden_layer_sizes,
+                                'DROPOUT_PROB': dropout_prob,
+                                'OUTPUT_DELAY': model_params.get('OUTPUT_DELAY', None),
+                                'activation': model_params.get('activation', None),
+                                'model_path': model_path
+                            }
+                        })
             else:
                 # For RNN models (LSTM/GRU)
                 # Check if using RNN_LAYER_SIZES (new format: "64,32;128,64")
@@ -251,7 +283,7 @@ class VEstimTrainingSetupManager:
                 
                 if rnn_layer_sizes:
                     # New format: Parse semicolon-separated architectures
-                    architectures = [arch.strip() for arch in str(rnn_layer_sizes).split(';') if arch.strip()]
+                    architectures = [arch.strip() for arch in re.split(r'[;:]', str(rnn_layer_sizes)) if arch.strip()]
                     self.logger.info(f"Found {len(architectures)} RNN architecture(s): {architectures}")
                     
                     for arch_idx, arch_config in enumerate(architectures):
@@ -440,6 +472,7 @@ class VEstimTrainingSetupManager:
                     # Store the model-specific architecture before overwriting
                     model_rnn_arch = model_task['hyperparams'].get('RNN_LAYER_SIZES')
                     model_fnn_arch = model_task['hyperparams'].get('HIDDEN_LAYER_SIZES')
+                    model_narx_delay = model_task['hyperparams'].get('OUTPUT_DELAY')
                     
                     task_hyperparams.update(self.params)  # GUI params override model defaults
                     
@@ -448,6 +481,8 @@ class VEstimTrainingSetupManager:
                         task_hyperparams['RNN_LAYER_SIZES'] = model_rnn_arch
                     if model_fnn_arch is not None:
                         task_hyperparams['HIDDEN_LAYER_SIZES'] = model_fnn_arch
+                    if model_narx_delay is not None:
+                        task_hyperparams['OUTPUT_DELAY'] = model_narx_delay
                     
                     task_hyperparams.update(param_combination)  # Grid combination overrides everything
 
@@ -505,6 +540,17 @@ class VEstimTrainingSetupManager:
             else:
                 model_params["HIDDEN_LAYER_SIZES"] = fnn_units # Should already be a list of ints
             model_params["DROPOUT_PROB"] = float(hyperparams.get("FNN_DROPOUT_PROB", 0.1))
+        elif model_type == "NARX":
+            narx_units = hyperparams.get("HIDDEN_LAYER_SIZES")
+            if isinstance(narx_units, str):
+                model_params["HIDDEN_LAYER_SIZES"] = [int(s.strip()) for s in narx_units.split(',')]
+            elif isinstance(narx_units, int):
+                model_params["HIDDEN_LAYER_SIZES"] = [narx_units]
+            else:
+                model_params["HIDDEN_LAYER_SIZES"] = narx_units if narx_units else [128, 64]
+            model_params["DROPOUT_PROB"] = float(hyperparams.get("DROPOUT_PROB", 0.1))
+            model_params["OUTPUT_DELAY"] = int(hyperparams.get("OUTPUT_DELAY", 1))
+            model_params["activation"] = hyperparams.get("activation", "ReLU")
 
         model = self.create_selected_model(model_type, model_params, model_path)
         
@@ -570,6 +616,11 @@ class VEstimTrainingSetupManager:
                 fnn_units = hyperparams.get('FNN_UNITS', hyperparams.get('HIDDEN_LAYER_SIZES', []))
                 hidden_layers_str = '_'.join(map(str, fnn_units)) if isinstance(fnn_units, list) else str(fnn_units).replace(',', '_')
                 name_parts.append(f"FNN_{hidden_layers_str}")
+            elif model_type == 'NARX':
+                narx_units = hyperparams.get('HIDDEN_LAYER_SIZES', [])
+                hidden_layers_str = '_'.join(map(str, narx_units)) if isinstance(narx_units, list) else str(narx_units).replace(',', '_')
+                output_delay = hyperparams.get('OUTPUT_DELAY', 1)
+                name_parts.append(f"NARX_{hidden_layers_str}_D{output_delay}")
             
             sanitized_name = '_'.join(name_parts).replace('.', 'p')
             if rank is not None and n_best is not None:
@@ -614,6 +665,10 @@ class VEstimTrainingSetupManager:
                 # Add validation patience
                 vp = hyperparams.get('VALID_PATIENCE', 'N/A')
                 name_parts.append(f"VP{vp}")
+
+                # For NARX include output delay as a key differentiator
+                if str(hyperparams.get('MODEL_TYPE', '')).upper() == 'NARX':
+                    name_parts.append(f"D{hyperparams.get('OUTPUT_DELAY', 'NA')}")
             
             # Add a short unique ID to prevent collisions when all parameters are identical
             # This ensures different tasks (even with same hyperparams) remain distinguishable
@@ -687,18 +742,35 @@ class VEstimTrainingSetupManager:
                 model_type,
                 layer_sizes=layer_sizes_list  # Pass variable layer sizes if available
             )
-        else:  # FNN model
+        else:  # FNN/NARX model
             hidden_layer_sizes = model_task['hyperparams']['HIDDEN_LAYER_SIZES']
             dropout_prob = model_task['hyperparams']['DROPOUT_PROB']
-            # For FNN, calculate parameters differently
-            num_learnable_params = self.calculate_fnn_learnable_parameters(
-                input_size,
-                hidden_layer_sizes,
-                output_size
-            )
+            if model_type == 'NARX':
+                output_delay = int(model_task['hyperparams'].get('OUTPUT_DELAY', 1))
+                num_learnable_params = self.calculate_fnn_learnable_parameters(
+                    input_size + (output_delay * output_size),
+                    hidden_layer_sizes,
+                    output_size
+                )
+            else:
+                # For FNN, calculate parameters differently
+                num_learnable_params = self.calculate_fnn_learnable_parameters(
+                    input_size,
+                    hidden_layer_sizes,
+                    output_size
+                )
             # Set dummy values for compatibility with existing code
             hidden_units = len(hidden_layer_sizes)  # Number of layers as a proxy
             layers = 1  # FNN doesn't have "layers" in the RNN sense
+
+        # Prefer exact parameter count from instantiated model to avoid formula drift,
+        # especially for NARX variants where effective input includes output-delay feedback.
+        try:
+            exact_num_params = sum(p.numel() for p in model_task['model'].parameters() if p.requires_grad)
+            if exact_num_params > 0:
+                num_learnable_params = int(exact_num_params)
+        except Exception as e:
+            self.logger.warning(f"Could not compute exact parameter count from model instance: {e}. Using estimated count.")
 
         # Build a clean hyperparameter dictionary for the final task
         final_hyperparams = {
@@ -790,7 +862,16 @@ class VEstimTrainingSetupManager:
             if final_hyperparams['TRAINING_METHOD'] != 'Sequence-to-Sequence':
                  final_hyperparams['LOOKBACK'] = 'N/A'
             else:
-                 final_hyperparams['LOOKBACK'] = hyperparams['LOOKBACK']
+                  final_hyperparams['LOOKBACK'] = hyperparams.get('LOOKBACK', 'N/A')
+        elif model_type == 'NARX':
+            final_hyperparams['HIDDEN_LAYER_SIZES'] = model_task['hyperparams']['HIDDEN_LAYER_SIZES']
+            final_hyperparams['DROPOUT_PROB'] = model_task['hyperparams']['DROPOUT_PROB']
+            final_hyperparams['OUTPUT_DELAY'] = model_task['hyperparams'].get('OUTPUT_DELAY', 1)
+            final_hyperparams['activation'] = model_task['hyperparams'].get('activation', 'ReLU')
+            final_hyperparams['LOOKBACK'] = 'N/A'
+
+        # Hard-guard against cross-model hyperparameter leakage
+        final_hyperparams = self._sanitize_hyperparams_by_model(final_hyperparams, model_type)
             
             # Determine lookback for data loader, defaulting to 0 if not applicable
         if final_hyperparams.get('LOOKBACK') == 'N/A':
@@ -940,20 +1021,43 @@ class VEstimTrainingSetupManager:
     def validate_parameters(self, params):
         """Validate and convert parameters to appropriate types."""
         try:
+            model_type = params.get('MODEL_TYPE', 'LSTM')
             validated = {
-                # Integer conversions
-                'LAYERS': int(params['LAYERS']),
-                'HIDDEN_UNITS': int(params['HIDDEN_UNITS']),
+                'MODEL_TYPE': model_type,
                 'BATCH_SIZE': int(params['BATCH_SIZE']),
-                
-                # Removed TRAIN_VAL_SPLIT as we now use separate train/val/test folders
-                
-                # String parameters (for potential comma-separated values)
                 'INITIAL_LR': str(params['INITIAL_LR']),
-                'LR_PARAM': str(params['LR_PARAM']),
                 'MAX_EPOCHS': str(params.get('MAX_EPOCHS', '100')),
-                # ... other parameters ...
             }
+
+            if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
+                validated['LAYERS'] = int(params['LAYERS'])
+                validated['HIDDEN_UNITS'] = int(params['HIDDEN_UNITS'])
+            elif model_type == 'NARX':
+                validated['OUTPUT_DELAY'] = int(params.get('OUTPUT_DELAY', 1))
+
+            if 'LR_PARAM' in params and str(params.get('LR_PARAM', '')).strip() != '':
+                validated['LR_PARAM'] = str(params['LR_PARAM'])
+
             return validated
         except (ValueError, KeyError) as e:
             raise ValueError(f"Parameter validation failed: {str(e)}")
+
+    def _sanitize_hyperparams_by_model(self, hyperparams, model_type):
+        """Remove model-irrelevant keys to prevent cross-model confusion in task_info."""
+        cleaned = hyperparams.copy()
+
+        rnn_only = {'RNN_LAYER_SIZES', 'LAYERS', 'HIDDEN_UNITS', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS'}
+        fnn_gui_only = {'FNN_HIDDEN_LAYERS', 'FNN_ACTIVATION', 'FNN_DROPOUT_PROB'}
+        narx_only = {'OUTPUT_DELAY', 'activation'}
+
+        if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
+            for key in (fnn_gui_only | {'HIDDEN_LAYER_SIZES'} | narx_only):
+                cleaned.pop(key, None)
+        elif model_type == 'FNN':
+            for key in (rnn_only | fnn_gui_only | narx_only):
+                cleaned.pop(key, None)
+        elif model_type == 'NARX':
+            for key in (rnn_only | fnn_gui_only):
+                cleaned.pop(key, None)
+
+        return cleaned

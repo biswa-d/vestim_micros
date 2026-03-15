@@ -318,6 +318,7 @@ class OptunaOptimizationThread(QThread):
                 "LSTM": "vestim.services.model_training.src.LSTM_model_service.LSTMModelService",
                 "GRU": "vestim.services.model_training.src.GRU_model_service.GRUModelService",
                 "FNN": "vestim.services.model_training.src.FNN_model_service.FNNModelService",
+                "NARX": "vestim.services.model_training.src.NARX_model_service.NARXModelService",
             }
             model_service_class = self._get_class_from_string(model_service_map[params['MODEL_TYPE']])
             model_service = model_service_class()

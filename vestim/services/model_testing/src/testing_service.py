@@ -7,6 +7,7 @@ from scipy.signal import savgol_filter
 from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN # Keep imports for type hinting if model object is used
 from vestim.services.model_training.src.GRU_model import GRUModel # Add GRU model import
 from vestim.services.model_training.src.FNN_model import FNNModel # Add FNN model import
+from vestim.services.model_training.src.NARX_model import NARXModel # Add NARX model import
 from vestim.services.data_processor.src import normalization_service as norm_svc # Added for normalization
 import json # For potentially loading metadata
 
@@ -129,6 +130,22 @@ class VEstimTestingService:
                     # Store predictions and true values
                     all_predictions.append(y_out.cpu().numpy())
                     y_test_normalized_list.append(y_batch.cpu().numpy())
+            elif model_type == "NARX":
+                # NARX testing: prefer provided teacher-forcing y_previous, fallback to zeros if unavailable
+                for batch in test_loader:
+                    if len(batch) == 3:
+                        X_batch, y_prev_batch, y_batch = batch
+                        y_prev_batch = y_prev_batch.to(self.device)
+                    else:
+                        X_batch, y_batch = batch
+                        y_prev_batch = None
+
+                    X_batch = X_batch.to(self.device)
+                    y_batch = y_batch.to(self.device)
+                    y_out = model(X_batch, y_prev_batch)
+
+                    all_predictions.append(y_out.cpu().numpy())
+                    y_test_normalized_list.append(y_batch.cpu().numpy())
             else:
                 # RNN testing: REFERENCE CODE APPROACH - Initialize ONCE and CARRY FORWARD states!
                 # This is critical: states should accumulate across ALL test sequences
@@ -164,7 +181,7 @@ class VEstimTestingService:
                         y_test_normalized_list.append(y_true.cpu().numpy())
 
             # Convert all batch predictions to a single array
-            if model_type == "FNN":
+            if model_type in ["FNN", "NARX"]:
                 # For FNN, predictions come in batches, so concatenate them directly
                 y_pred_normalized = np.concatenate(all_predictions).flatten()
                 y_test_normalized = np.concatenate(y_test_normalized_list).flatten()
@@ -319,7 +336,7 @@ class VEstimTestingService:
                     num_layers=hyperparams['LAYERS'],
                     device=self.device,
                     dropout_prob=hyperparams.get('DROPOUT_PROB', 0.0),
-                    apply_clipped_relu=hyperparams.get('normalization_applied', False)
+                    apply_clipped_relu=bool(hyperparams.get('NARX_APPLY_CLIPPED_RELU', False)),
                 )
             elif model_type == 'FNN':
                 model = FNNModel(
@@ -328,6 +345,17 @@ class VEstimTestingService:
                     hidden_layer_sizes=hyperparams['HIDDEN_LAYER_SIZES'],
                     dropout_prob=hyperparams.get('DROPOUT_PROB', 0.0),
                     apply_clipped_relu=hyperparams.get('normalization_applied', False)
+                )
+            elif model_type == 'NARX':
+                model = NARXModel(
+                    input_size=hyperparams['INPUT_SIZE'],
+                    output_size=hyperparams['OUTPUT_SIZE'],
+                    hidden_layer_sizes=hyperparams['HIDDEN_LAYER_SIZES'],
+                    output_delay=hyperparams.get('OUTPUT_DELAY', 1),
+                    dropout_prob=hyperparams.get('DROPOUT_PROB', 0.0),
+                    apply_clipped_relu=hyperparams.get('normalization_applied', False),
+                    activation_function=hyperparams.get('activation', 'ReLU'),
+                    device=self.device
                 )
             else:
                 raise ValueError(f"Unsupported model type: {model_type}")

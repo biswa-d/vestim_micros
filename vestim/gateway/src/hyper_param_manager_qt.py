@@ -43,7 +43,8 @@ class VEstimHyperParamManager:
         model_specific_requirements = {
             'LSTM': ['LOOKBACK'],  # RNN_LAYER_SIZES or (LAYERS + HIDDEN_UNITS) checked separately
             'GRU': ['LOOKBACK'],   # RNN_LAYER_SIZES or (LAYERS + HIDDEN_UNITS) checked separately
-            'FNN': ['FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB']
+            'FNN': ['FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB'],
+            'NARX': ['HIDDEN_LAYER_SIZES', 'OUTPUT_DELAY']  # NARX (Nonlinear Autoregressive eXogenous)
         }
 
         # Define scheduler-specific requirements
@@ -151,7 +152,8 @@ class VEstimHyperParamManager:
         model_specific_tunable_keys = {
             'LSTM': ['RNN_LAYER_SIZES', 'LAYERS', 'HIDDEN_UNITS', 'LOOKBACK'],  # RNN_LAYER_SIZES takes precedence
             'GRU': ['RNN_LAYER_SIZES', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS', 'LOOKBACK'],  # RNN_LAYER_SIZES takes precedence
-            'FNN': ['FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB']  # FNN does not use LOOKBACK
+            'FNN': ['FNN_HIDDEN_LAYERS', 'FNN_DROPOUT_PROB'],  # FNN does not use LOOKBACK
+            'NARX': ['HIDDEN_LAYER_SIZES', 'OUTPUT_DELAY', 'DROPOUT_PROB']  # NARX is stateless like FNN
         }
 
         # Define scheduler-specific tunable keys
@@ -186,15 +188,15 @@ class VEstimHyperParamManager:
                         # Grid search format for FNN - allow it
                         pass
                     else:
-                        msg = f"Invalid format for '{key}' in Exhaustive Search mode. Brackets [] are not allowed. Use comma-separated values (e.g., '5,10,15') or semicolon-separated architectures for FNN_HIDDEN_LAYERS (e.g., '64,32;128,64')."
+                        msg = f"Invalid format for '{key}' in Exhaustive Search mode. Brackets [] are not allowed. Use comma-separated values (e.g., '5,10,15'). For architecture lists, use semicolon/colon-separated configs (e.g., '64,32;128,64' or '64,32:128,64')."
                         self.logger.error(msg)
                         return False, msg
         
-        # Additional check: FNN should not have LOOKBACK parameter
-        if model_type == 'FNN' and 'LOOKBACK' in params:
+        # Additional check: FNN and NARX should not have LOOKBACK parameter
+        if model_type in ['FNN', 'NARX'] and 'LOOKBACK' in params:
             lookback_val = params.get('LOOKBACK', '').strip()
             if lookback_val:  # Only reject if not empty
-                msg = "Invalid parameter 'LOOKBACK' for FNN model. LOOKBACK is only applicable to RNN models (LSTM/GRU)."
+                msg = f"Invalid parameter 'LOOKBACK' for {model_type} model. LOOKBACK is only applicable to RNN models (LSTM/GRU)."
                 self.logger.error(msg)
                 return False, msg
         
@@ -246,6 +248,36 @@ class VEstimHyperParamManager:
                             [int(unit.strip()) for unit in arch.split(',')]
                     except ValueError:
                         return False, f"Invalid architecture in 'FNN_HIDDEN_LAYERS' for Grid Search: '{arch}'. Each layer size must be an integer."
+
+        elif model_type == 'NARX':
+            narx_hidden_layers_str = str(params.get('HIDDEN_LAYER_SIZES', '')).strip()
+            if search_mode == 'optuna':
+                if narx_hidden_layers_str.count('[') == 2 and narx_hidden_layers_str.count(']') == 2:
+                    try:
+                        import re
+                        matches = re.findall(r'\[(.*?)\]', narx_hidden_layers_str)
+                        if len(matches) != 2:
+                            return False, "Invalid HIDDEN_LAYER_SIZES format for NARX. Expected two bound lists."
+                        min_bounds = [int(x.strip()) for x in matches[0].split(',') if x.strip()]
+                        max_bounds = [int(x.strip()) for x in matches[1].split(',') if x.strip()]
+                        if len(min_bounds) != len(max_bounds):
+                            return False, "NARX HIDDEN_LAYER_SIZES min/max dimension mismatch."
+                    except (ValueError, IndexError):
+                        return False, "Invalid number format in NARX HIDDEN_LAYER_SIZES bound lists."
+            elif search_mode == 'grid' and narx_hidden_layers_str:
+                try:
+                    import re
+                    if '[' in narx_hidden_layers_str and ']' in narx_hidden_layers_str:
+                        architectures = [m.strip() for m in re.findall(r'\[([^\]]+)\]', narx_hidden_layers_str) if m.strip()]
+                    else:
+                        split_pattern = ';' if ';' in narx_hidden_layers_str else ':' if ':' in narx_hidden_layers_str else None
+                        architectures = [a.strip() for a in narx_hidden_layers_str.split(split_pattern)] if split_pattern else [narx_hidden_layers_str]
+                    for arch in architectures:
+                        if not arch:
+                            continue
+                        [int(unit.strip()) for unit in arch.split(',') if unit.strip()]
+                except ValueError:
+                    return False, "Invalid NARX HIDDEN_LAYER_SIZES. Use comma-separated layer sizes and semicolon/colon between configs."
 
         return True, ""
 
@@ -483,6 +515,8 @@ class VEstimHyperParamManager:
             # Regularization / dropout
             'WEIGHT_DECAY': {'type': 'float', 'min': 0.0},
             'FNN_DROPOUT_PROB': {'type': 'float', 'min': 0.0, 'max': 1.0},
+            'DROPOUT_PROB': {'type': 'float', 'min': 0.0, 'max': 1.0},
+            'OUTPUT_DELAY': {'type': 'int', 'min': 1},
             # Inference filter params
             'INFERENCE_FILTER_WINDOW_SIZE': {'type': 'int', 'min': 1},
             'INFERENCE_FILTER_ALPHA': {'type': 'float', 'min': 0.0, 'max': 1.0},
@@ -566,12 +600,30 @@ class VEstimHyperParamManager:
         if model_type == 'FNN':
             params_to_filter.pop('LAYERS', None)
             params_to_filter.pop('HIDDEN_UNITS', None)
+            params_to_filter.pop('RNN_LAYER_SIZES', None)
+            params_to_filter.pop('GRU_LAYERS', None)
+            params_to_filter.pop('GRU_HIDDEN_UNITS', None)
+            params_to_filter.pop('OUTPUT_DELAY', None)
+            params_to_filter.pop('activation', None)
             if training_method == 'WholeSequenceFNN':
                 params_to_filter.pop('LOOKBACK', None)
+        elif model_type == 'NARX':
+            params_to_filter.pop('LAYERS', None)
+            params_to_filter.pop('HIDDEN_UNITS', None)
+            params_to_filter.pop('FNN_HIDDEN_LAYERS', None)
+            params_to_filter.pop('FNN_ACTIVATION', None)
+            params_to_filter.pop('FNN_DROPOUT_PROB', None)
+            params_to_filter.pop('RNN_LAYER_SIZES', None)
+            params_to_filter.pop('GRU_LAYERS', None)
+            params_to_filter.pop('GRU_HIDDEN_UNITS', None)
+            params_to_filter.pop('LOOKBACK', None)
         elif model_type in ['LSTM', 'GRU']:
             params_to_filter.pop('FNN_HIDDEN_LAYERS', None)
             params_to_filter.pop('FNN_ACTIVATION', None)
             params_to_filter.pop('FNN_DROPOUT_PROB', None)
+            params_to_filter.pop('HIDDEN_LAYER_SIZES', None)
+            params_to_filter.pop('OUTPUT_DELAY', None)
+            params_to_filter.pop('activation', None)
 
         if int(params_to_filter.get('MAX_TRAINING_TIME_SECONDS', 0)) == 0:
             params_to_filter.pop('MAX_TRAINING_TIME_SECONDS', None)
@@ -585,6 +637,8 @@ class VEstimHyperParamManager:
             "MODEL_TYPE", "TRAINING_METHOD", "LOOKBACK",
             # FNN Specific
             "FNN_HIDDEN_LAYERS", "FNN_ACTIVATION", "FNN_DROPOUT_PROB",
+            # NARX Specific
+            "HIDDEN_LAYER_SIZES", "OUTPUT_DELAY", "DROPOUT_PROB", "activation",
             # RNN Specific (NEW: RNN_LAYER_SIZES takes precedence over legacy LAYERS/HIDDEN_UNITS)
             "RNN_LAYER_SIZES", "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS",
             # Training Core

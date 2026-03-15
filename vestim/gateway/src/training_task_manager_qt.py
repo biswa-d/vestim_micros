@@ -231,9 +231,9 @@ class TrainingTaskManager:
         if not use_cuda_graphs and self.global_params and platform.system() != 'Windows':
             model_type = self.global_params.get('MODEL_TYPE', 'LSTM')
             device_selection = self.global_params.get('DEVICE_SELECTION', 'cpu')
-            if model_type == 'FNN' and 'cuda' in device_selection.lower() and CUDA_GRAPHS_AVAILABLE:
+            if model_type in ['FNN', 'NARX'] and 'cuda' in device_selection.lower() and CUDA_GRAPHS_AVAILABLE:
                 use_cuda_graphs = True
-                self.logger.info("Auto-enabling CUDA Graphs for FNN model on CUDA device (Linux only)")
+                self.logger.info(f"Auto-enabling CUDA Graphs for {model_type} model on CUDA device (Linux only)")
         
         # Determine device based on global_params or fallback
         selected_device_str = self.global_params.get('DEVICE_SELECTION', 'cpu')  # FIXED: Default to 'cpu' instead of 'cuda:0'
@@ -382,6 +382,8 @@ class TrainingTaskManager:
                 essential_keys.extend(['RNN_LAYER_SIZES', 'LAYERS', 'HIDDEN_UNITS', 'GRU_LAYERS', 'GRU_HIDDEN_UNITS'])
             elif model_type == 'FNN':
                 essential_keys.extend(['HIDDEN_LAYER_SIZES', 'DROPOUT_PROB'])
+            elif model_type == 'NARX':
+                essential_keys.extend(['HIDDEN_LAYER_SIZES', 'DROPOUT_PROB', 'OUTPUT_DELAY', 'activation'])
             
             h_params_summary = {
                 k: task_hyperparams.get(k) for k in essential_keys if k in task_hyperparams
@@ -456,6 +458,7 @@ class TrainingTaskManager:
             
             self.logger.error(f"Error during task processing: {str(e)}", exc_info=True)
             update_progress_callback.emit({'task_error': str(e)})
+            raise
 
     def setup_job_logging(self, task):
         """
@@ -746,17 +749,25 @@ class TrainingTaskManager:
         model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM')
         job_folder_path = self.job_manager.get_job_folder()
 
+        # Stateless models (FNN/NARX) should not use sequence lookback data prep.
+        effective_training_method = training_method
+        if model_type in ['FNN', 'NARX'] and training_method == 'Sequence-to-Sequence':
+            self.logger.info(
+                f"Overriding training method from '{training_method}' to 'Whole Sequence' for stateless model type '{model_type}'."
+            )
+            effective_training_method = 'Whole Sequence'
+
         if model_type in ['LSTM', 'GRU'] and training_method == "Sequence-to-Sequence":
             try:
                 train_X, train_y, _ = self.data_loader_service.get_processed_data(
                     os.path.join(job_folder_path, 'train_data', 'processed_data'),
-                    training_method, feature_cols, target_col,
+                    effective_training_method, feature_cols, target_col,
                     lookback=int(task['data_loader_params'].get('lookback', 50)),
                     model_type=model_type
                 )
                 val_X, val_y, _ = self.data_loader_service.get_processed_data(
                     os.path.join(job_folder_path, 'val_data', 'processed_data'),
-                    training_method, feature_cols, target_col,
+                    effective_training_method, feature_cols, target_col,
                     lookback=int(task['data_loader_params'].get('lookback', 50)),
                     model_type=model_type
                 )
@@ -788,9 +799,10 @@ class TrainingTaskManager:
                 prefetch_factor = None
                 persistent_workers = False
                 train_loader, val_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
-                    job_folder_path=job_folder_path, training_method=training_method, feature_cols=feature_cols,
+                    job_folder_path=job_folder_path, training_method=effective_training_method, feature_cols=feature_cols,
                     target_col=target_col, batch_size=int(task['data_loader_params'].get('batch_size', 32)),
                     num_workers=num_workers, lookback=int(task['data_loader_params'].get('lookback', 50)),
+                    narx_output_delay=int(task['hyperparams'].get('OUTPUT_DELAY', 1)),
                     seed=seed, model_type=model_type, create_test_loader=False, pin_memory=pin_memory,
                     prefetch_factor=prefetch_factor, persistent_workers=persistent_workers
                 )
@@ -802,10 +814,11 @@ class TrainingTaskManager:
             # subprocess-per-task architecture guarantees cleanup
             
             train_loader, val_loader = self.data_loader_service.create_data_loaders_from_separate_folders(
-                job_folder_path=job_folder_path, training_method=training_method, feature_cols=feature_cols,
+                job_folder_path=job_folder_path, training_method=effective_training_method, feature_cols=feature_cols,
                 target_col=target_col, batch_size=int(task['data_loader_params'].get('batch_size', 32)),
                 num_workers=num_workers, lookback=int(task['data_loader_params'].get('lookback', 50)),
-                concatenate_raw_data=(training_method == 'Whole Sequence' and model_type in ['LSTM', 'GRU']),
+                concatenate_raw_data=(effective_training_method == 'Whole Sequence' and model_type in ['LSTM', 'GRU']),
+                narx_output_delay=int(task['hyperparams'].get('OUTPUT_DELAY', 1)),
                 seed=seed, model_type=model_type, create_test_loader=False, pin_memory=pin_memory,
                 prefetch_factor=prefetch_factor, persistent_workers=persistent_workers
             )
@@ -1093,7 +1106,7 @@ class TrainingTaskManager:
         use_cuda_graphs = (
             hasattr(self.training_service, 'train_epoch_with_graphs') and 
             device.type == 'cuda' and 
-            model_type == 'FNN'
+            model_type in ['FNN', 'NARX']
         )
 
         # Resolve weight decay (string from GUI -> float)
@@ -1231,7 +1244,7 @@ class TrainingTaskManager:
             
             # Use CUDA Graphs if available and enabled (only for FNN models on CUDA)
             if (hasattr(self.training_service, 'train_epoch_with_graphs') and 
-                device.type == 'cuda' and model_type == 'FNN'):
+                device.type == 'cuda' and model_type in ['FNN', 'NARX']):
                 
                 # Check if batch size has changed and reset CUDA graphs if necessary
                 current_batch_size = train_loader.batch_size
@@ -1309,7 +1322,7 @@ class TrainingTaskManager:
                 
                 # Use CUDA Graphs validation if available
                 if (hasattr(self.training_service, 'validate_epoch_with_graphs') and 
-                    device.type == 'cuda' and model_type == 'FNN'):
+                    device.type == 'cuda' and model_type in ['FNN', 'NARX']):
                     val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch_with_graphs(
                         model, val_loader, epoch, device, self.stop_requested, task, verbose=verbose
                     )
@@ -1318,6 +1331,25 @@ class TrainingTaskManager:
                     val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
                         model, model_type, val_loader, h_s_val, h_c_val, epoch, device, self.stop_requested, task, verbose=verbose
                     )
+
+                if model_type == 'NARX' and task.get('hyperparams', {}).get('NARX_USE_CLOSED_LOOP_VAL', False):
+                    try:
+                        output_delay = int(task.get('hyperparams', {}).get('OUTPUT_DELAY', 1))
+                        closed_loop_val_loss_norm, cl_preds_norm, cl_trues_norm = self.training_service.evaluate_narx_closed_loop(
+                            model=model,
+                            data_loader=val_loader,
+                            output_delay=output_delay,
+                            device=device
+                        )
+                        if np.isfinite(closed_loop_val_loss_norm):
+                            val_loss_norm = float(closed_loop_val_loss_norm)
+                            epoch_val_preds_norm = cl_preds_norm
+                            epoch_val_trues_norm = cl_trues_norm
+                            self.logger.info(
+                                f"NARX closed-loop validation enabled | epoch={epoch} | val_loss_norm={val_loss_norm:.6f}"
+                            )
+                    except Exception as narx_cl_err:
+                        self.logger.warning(f"NARX closed-loop validation failed at epoch {epoch}: {narx_cl_err}")
                 
                 val_loss_history.append(val_loss_norm)
 
@@ -1584,7 +1616,7 @@ class TrainingTaskManager:
                                 use_cuda_graphs = (
                                     hasattr(self.training_service, 'train_epoch_with_graphs') and 
                                     device.type == 'cuda' and 
-                                    model_type == 'FNN'
+                                    model_type in ['FNN', 'NARX']
                                 )
                                 
                                 if use_cuda_graphs:
@@ -1652,7 +1684,7 @@ class TrainingTaskManager:
                         
                         # Use CUDA Graphs validation if available, same as main training loop
                         if (hasattr(self.training_service, 'validate_epoch_with_graphs') and 
-                            device.type == 'cuda' and model_type == 'FNN'):
+                            device.type == 'cuda' and model_type in ['FNN', 'NARX']):
                             val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch_with_graphs(
                                 model, val_loader, epoch, device, self.stop_requested, task, verbose=False
                             )
@@ -1925,7 +1957,7 @@ class TrainingTaskManager:
             use_cuda_graphs = False
             model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM')
             
-            if model_type == 'FNN' and device.type == 'cuda':
+            if model_type in ['FNN', 'NARX'] and device.type == 'cuda':
                 self.logger.info("CUDA graphs disabled for Optuna trials (incompatible with dynamic architecture search)")
             
             # Most of this setup is identical to run_training
@@ -2018,6 +2050,24 @@ class TrainingTaskManager:
                     val_loss_norm, epoch_val_preds_norm, epoch_val_trues_norm = self.training_service.validate_epoch(
                         model, model_type, val_loader, None, None, epoch, device, self.stop_requested, task, verbose=verbose
                     )
+
+                    if model_type == 'NARX' and task.get('hyperparams', {}).get('NARX_USE_CLOSED_LOOP_VAL', False):
+                        try:
+                            output_delay = int(task.get('hyperparams', {}).get('OUTPUT_DELAY', 1))
+                            closed_loop_val_loss_norm, _, _ = self.training_service.evaluate_narx_closed_loop(
+                                model=model,
+                                data_loader=val_loader,
+                                output_delay=output_delay,
+                                device=device
+                            )
+                            if np.isfinite(closed_loop_val_loss_norm):
+                                val_loss_norm = float(closed_loop_val_loss_norm)
+                                self.logger.info(
+                                    f"Optuna NARX closed-loop validation enabled | epoch={epoch} | val_loss_norm={val_loss_norm:.6f}"
+                                )
+                        except Exception as narx_cl_err:
+                            self.logger.warning(f"Optuna NARX closed-loop validation failed at epoch {epoch}: {narx_cl_err}")
+
                     # --- OPTUNA PRUNING LOGIC ---
                     log_callback = task.get('log_callback')
                     if log_callback:
@@ -2087,6 +2137,12 @@ class TrainingTaskManager:
             # FNN-specific parameters - HIDDEN_LAYERS is already a string, no conversion needed
             # FNN doesn't use LAYERS or HIDDEN_UNITS parameters
             pass
+        elif model_type == 'NARX':
+            if 'OUTPUT_DELAY' in hyperparams:
+                hyperparams['OUTPUT_DELAY'] = int(hyperparams['OUTPUT_DELAY'])
+            narx_layers = hyperparams.get('HIDDEN_LAYER_SIZES')
+            if isinstance(narx_layers, str):
+                hyperparams['HIDDEN_LAYER_SIZES'] = [int(x.strip()) for x in narx_layers.split(',') if x.strip()]
         
         # Update scheduler parameter names to match task info
         if hyperparams['SCHEDULER_TYPE'] == 'StepLR':
@@ -2211,7 +2267,7 @@ class TrainingTaskManager:
                             default_val = int((min_val + max_val) / 2)
                         else:
                             # For floats, use the geometric mean for learning rates, arithmetic mean for others
-                            if param_name in ["INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR", "FNN_DROPOUT_PROB"]:
+                            if param_name in ["INITIAL_LR", "LR_PARAM", "PLATEAU_FACTOR", "FNN_DROPOUT_PROB", "DROPOUT_PROB", "LSTM_DROPOUT_PROB", "GRU_DROPOUT_PROB"]:
                                 # Use geometric mean for learning rates and probabilities
                                 import math
                                 default_val = math.sqrt(min_val * max_val)
@@ -2400,6 +2456,11 @@ class LSTMModel(nn.Module):
                 elif model_type == 'FNN':
                     export_dict['hyperparams']['hidden_layer_sizes'] = task['hyperparams']['HIDDEN_LAYER_SIZES']
                     export_dict['hyperparams']['dropout_prob'] = task['hyperparams']['DROPOUT_PROB']
+                elif model_type == 'NARX':
+                    export_dict['hyperparams']['hidden_layer_sizes'] = task['hyperparams']['HIDDEN_LAYER_SIZES']
+                    export_dict['hyperparams']['dropout_prob'] = task['hyperparams']['DROPOUT_PROB']
+                    export_dict['hyperparams']['output_delay'] = task['hyperparams'].get('OUTPUT_DELAY', 1)
+                    export_dict['hyperparams']['activation'] = task['hyperparams'].get('activation', 'ReLU')
 
                 # Save the export dictionary
                 torch.save(export_dict, export_path)
@@ -2414,6 +2475,11 @@ class LSTMModel(nn.Module):
 - Layers: {task['hyperparams']['LAYERS']}"""
                 elif model_type == 'FNN':
                     arch_details = f"""- Hidden Layer Sizes: {task['hyperparams']['HIDDEN_LAYER_SIZES']}
+- Dropout Probability: {task['hyperparams']['DROPOUT_PROB']}"""
+                elif model_type == 'NARX':
+                    arch_details = f"""- Hidden Layer Sizes: {task['hyperparams']['HIDDEN_LAYER_SIZES']}
+- Output Delay: {task['hyperparams'].get('OUTPUT_DELAY', 1)}
+- Activation: {task['hyperparams'].get('activation', 'ReLU')}
 - Dropout Probability: {task['hyperparams']['DROPOUT_PROB']}"""
                 else:
                     arch_details = "- Architecture details: See model metadata"

@@ -197,7 +197,7 @@ class VEstimHyperParamGUI(QWidget):
 
         instructions_label = QLabel(
             "Please enter values for model parameters:\n"
-            "• For Grid Search: Use comma-separated values (e.g., 1,2,5) or semicolons for multiple configs ([64,128];[32,64])\n"
+            "• For Grid Search: Use comma-separated values (e.g., 1,2,5) or semicolons/colons for multiple configs ([64,128];[32,64] or [64,128]:[32,64])\n"
             "• For Optuna Search: Use boundary format [min,max] for core hyperparameters (e.g., [1,5] for layers, [0.001,0.1] for learning rate)\n"
             "• Time and validation parameters (patience, frequency) can use single values for both methods\n"
             "Refer to the guide above for more details."
@@ -437,7 +437,8 @@ class VEstimHyperParamGUI(QWidget):
         self.training_method_combo.addItems(training_options)
         self.training_method_combo.setToolTip(
             "Sequence-to-Sequence: Processes data in fixed time steps.\n"
-            "Whole Sequence: Uses the entire sequence for training."
+            "Whole Sequence: Uses the entire sequence for training.\n"
+            "FNN/NARX models are stateless and use batch mode (sequence controls hidden)."
         )
 
         # Lookback parameter (only for sequence-to-sequence)
@@ -450,7 +451,7 @@ class VEstimHyperParamGUI(QWidget):
         # Batch training option (checkbox)
         self.batch_training_checkbox = QCheckBox("Enable Batch Training")
         self.batch_training_checkbox.setChecked(True)  # Default is checked
-        self.batch_training_checkbox.setToolTip("Enable mini-batch training. This is required for FNN and recommended for sequence-based methods.")
+        self.batch_training_checkbox.setToolTip("Enable mini-batch training. This is required for FNN/NARX and recommended for sequence-based methods.")
         self.batch_training_checkbox.stateChanged.connect(self.update_batch_size_visibility)
 
         # Batch size entry (initially enabled as checkbox is checked by default)
@@ -493,18 +494,18 @@ class VEstimHyperParamGUI(QWidget):
         current_model_type = self.model_combo.currentText() # FIXED:Assuming self.model_combo exists and is accessible
 
         is_rnn_model = current_model_type in ["LSTM", "GRU", "LSTM_EMA", "LSTM_LPF"]
-        is_fnn_model = current_model_type == "FNN"
+        is_fnn_model = current_model_type in ["FNN", "NARX"]
         is_whole_sequence_rnn = (current_training_method == "Whole Sequence" and is_rnn_model)
         is_sequence_to_sequence = (current_training_method == "Sequence-to-Sequence")
 
-        # FIXED:For FNN, hide sequence-related options
+        # FIXED:For FNN/NARX (stateless models), hide sequence-related options
         if is_fnn_model:
             self.lookback_label.setVisible(False)
             self.lookback_entry.setVisible(False)
             self.training_method_label.setVisible(False)
             self.training_method_combo.setVisible(False)
             
-            # FIXED:FNN requires batch training
+            # FIXED:Stateless models require batch training
             self.batch_training_checkbox.setChecked(True)
             self.batch_training_checkbox.setEnabled(True)
             if self.batch_size_entry.text().strip() in ["", "100"]:
@@ -550,7 +551,7 @@ class VEstimHyperParamGUI(QWidget):
         self.model_combo = QComboBox()
         model_options = ["LSTM", "FNN", "GRU", "NARX"]
         self.model_combo.addItems(model_options)
-        self.model_combo.setToolTip("LSTM for time-series, FNN for non-sequential data, GRU for memory-efficient training, NARX for nonlinear autoregressive with exogenous inputs, LSTM_EMA and LSTM_LPF for filtered outputs.")
+        self.model_combo.setToolTip("LSTM for time-series, FNN for non-sequential data, GRU for memory-efficient training, NARX for nonlinear autoregressive with exogenous inputs (stateless). For architecture lists, use semicolon or colon separators.")
 
         # FIXED:**Model-Specific Parameters Placeholder**
         self.model_param_container = QVBoxLayout()
@@ -584,8 +585,9 @@ class VEstimHyperParamGUI(QWidget):
         # Updated to use RNN_LAYER_SIZES instead of separate LAYERS/HIDDEN_UNITS fields
         rnn_specific_keys = ["RNN_LAYER_SIZES", "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS"] # FIXED:Include both new and legacy keys
         fnn_specific_keys = ["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB", "FNN_ACTIVATION"] # FIXED:Add FNN specific QLineEdit keys
+        narx_specific_keys = ["HIDDEN_LAYER_SIZES", "DROPOUT_PROB", "OUTPUT_DELAY", "activation"]
         
-        all_model_specific_keys = rnn_specific_keys + fnn_specific_keys
+        all_model_specific_keys = rnn_specific_keys + fnn_specific_keys + narx_specific_keys
         
         for key_to_remove in all_model_specific_keys:
             if key_to_remove in self.param_entries:
@@ -721,9 +723,9 @@ class VEstimHyperParamGUI(QWidget):
         elif selected_model == "NARX":
             narx_hidden_layers_label = QLabel("NARX Hidden Layers:")
             narx_hidden_layers_label.setStyleSheet("font-size: 9pt;")
-            narx_hidden_layers_label.setToolTip("Define NARX hidden layer sizes (Nonlinear Autoregressive with eXogenous inputs). Example: 128,64,32.")
+            narx_hidden_layers_label.setToolTip("Define NARX hidden layer sizes. Single config: 128,64,32. Multiple configs: use semicolons/colons (128,64;100,50 or 128,64:100,50) or bracket lists ([128,64], [100,50]).")
             self.narx_hidden_layers_entry = QLineEdit(self.params.get("HIDDEN_LAYER_SIZES", "128,64"))
-            self.narx_hidden_layers_entry.setToolTip("Comma-separated hidden layer sizes. Example: '128,64,32'")
+            self.narx_hidden_layers_entry.setToolTip("Single: '128,64,32' | Multiple with semicolons/colons: '128,64;100,50' or '128,64:100,50' | Multiple with brackets: '[128,64], [100,50]'")
             self.narx_hidden_layers_entry.textChanged.connect(self.on_param_text_changed)
             
             narx_dropout_label = QLabel("NARX Dropout Prob:")

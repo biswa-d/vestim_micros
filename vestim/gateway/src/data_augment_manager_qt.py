@@ -138,6 +138,17 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             df_temp_for_stats = pd.read_csv(train_file_path_for_stats)
                             if resampling_frequency and resampling_frequency != 'None' and not df_temp_for_stats.empty:
                                 df_temp_for_stats = self.service.resample_data(df_temp_for_stats, resampling_frequency)
+
+                            # Apply padding before filters to avoid filter start-up transients,
+                            # then remove padding so it does not affect normalization statistics.
+                            stats_padding_applied = False
+                            if padding_length and padding_length > 0 and df_temp_for_stats is not None and not df_temp_for_stats.empty:
+                                df_temp_for_stats = self.service.pad_data(
+                                    df_temp_for_stats,
+                                    padding_length,
+                                    resample_freq_for_time_padding=resampling_frequency
+                                )
+                                stats_padding_applied = True
                             
                             if filter_configs and df_temp_for_stats is not None and not df_temp_for_stats.empty:
                                 for config in filter_configs:
@@ -150,6 +161,9 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                         filter_order=config.get('filter_order', 4),
                                         output_column_name=output_column_name
                                     )
+
+                            if stats_padding_applied and df_temp_for_stats is not None and not df_temp_for_stats.empty:
+                                df_temp_for_stats = self.service.remove_padding(df_temp_for_stats, padding_length)
 
                             if column_formulas and df_temp_for_stats is not None and not df_temp_for_stats.empty:
                                 df_temp_for_stats = self.service.create_columns(df_temp_for_stats, column_formulas)
@@ -247,6 +261,13 @@ class DataAugmentManager(QObject): # Inherit from QObject
                         df = self.service.resample_data(df, resampling_frequency)
                         if df is not None and not df.empty:
                             actual_resampling_frequency_for_padding = resampling_frequency
+
+                    # Apply padding BEFORE filtering to suppress filter transients,
+                    # then remove it right after filtering.
+                    main_padding_applied = False
+                    if padding_length and padding_length > 0 and df is not None and not df.empty:
+                        df = self.service.pad_data(df, padding_length, resample_freq_for_time_padding=actual_resampling_frequency_for_padding)
+                        main_padding_applied = True
                     
                     if filter_configs and df is not None and not df.empty:
                         for config in filter_configs:
@@ -261,6 +282,9 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                 )
                             except Exception as e_filter:
                                 self.logger.error(f"Error applying filter for {file_path}: {e_filter}", exc_info=True)
+
+                    if main_padding_applied and df is not None and not df.empty:
+                        df = self.service.remove_padding(df, padding_length)
                    
                     formula_error_occurred = False
                     if column_formulas and df is not None and not df.empty:
@@ -295,9 +319,6 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             except Exception as e_noise:
                                 self.logger.error(f"Error applying noise injection for {file_path}: {e_noise}", exc_info=True)
                     
-                    if not formula_error_occurred and padding_length and padding_length > 0 and df is not None and not df.empty:
-                        df = self.service.pad_data(df, padding_length, resample_freq_for_time_padding=actual_resampling_frequency_for_padding)
-
                     if not formula_error_occurred and normalize_data and global_scaler and df is not None and not df.empty:
                         try:
                             df = self.service.apply_normalization(df, global_scaler, actual_columns_to_normalize)

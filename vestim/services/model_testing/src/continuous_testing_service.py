@@ -84,13 +84,16 @@ class ContinuousTestingService:
             # We need the model to start fresh for each independent test file.
             model_metadata = task.get('model_metadata', {})
             model_type = model_metadata.get('model_type', 'LSTM')
+            hyperparams = task.get('hyperparams', {})
             
-            if model_type == 'FNN':
-                # FNN models don't use hidden states
+            if model_type == 'FNN' or model_type == 'NARX':
+                # FNN and NARX models don't use hidden states (both are stateless)
                 self.hidden_states = {
-                    'model_type': 'FNN'
+                    'model_type': model_type
                 }
-                print(f"No hidden states needed for FNN model")
+                if model_type == 'NARX':
+                    output_delay = int(task.get('hyperparams', {}).get('OUTPUT_DELAY', 1))
+                    self.hidden_states['y_prev'] = torch.zeros((1, output_delay), dtype=torch.float32, device=self.device)
             elif model_type == 'GRU':
                 # GRU: defer hidden init to model on first forward (supports variable layer sizes)
                 self.hidden_states = {
@@ -133,7 +136,6 @@ class ContinuousTestingService:
             
             # Fallback: check hyperparams if not in job_metadata
             if not normalization_applied:
-                hyperparams = task.get('hyperparams', {})
                 normalization_applied = hyperparams.get('NORMALIZATION_APPLIED', False)
                 if normalization_applied:
                     print("Found normalization flag in hyperparams")
@@ -169,9 +171,21 @@ class ContinuousTestingService:
             else:
                 print("Using processed data (no normalization was applied during data augmentation)")
             
+            # For NARX: initialize y_prev with the first true target value, not zeros.
+            # During training, _build_narx_teacher_forcing_arrays fills y_prev[0..d] = y[0] (first_val).
+            # Starting y_prev=0 when SOC begins at ~100% (normalized ~1.0) causes massive initial error
+            # that cascades through the entire closed-loop inference sequence.
+            if model_type == 'NARX' and target_col in df_scaled.columns and not df_scaled.empty:
+                first_y_val = float(df_scaled[target_col].iloc[0])
+                narx_output_delay = int(task.get('hyperparams', {}).get('OUTPUT_DELAY', 1))
+                self.hidden_states['y_prev'] = torch.full(
+                    (1, narx_output_delay), first_y_val, dtype=torch.float32, device=self.device
+                )
+                print(f"NARX y_prev initialized with first target value: {first_y_val:.6f} (was zeros)")
+
             # Conditionally add warmup samples only for RNN-based models
             df_test_full = df_scaled
-            if model_type != 'FNN':
+            if model_type not in ['FNN', 'NARX']:
                 # Each test file starts fresh at ~100% SOC, so the model needs to warm up its hidden states
                 # before making predictions, regardless of whether it's the first file or not.
                 print(f"Adding {warmup_samples} warmup samples for {model_type} model (independent drive cycle)")
@@ -182,7 +196,7 @@ class ContinuousTestingService:
                 else:
                     print("Warning: Test data is empty, cannot add warmup samples.")
             else:
-                print("Skipping warmup samples for FNN model.")
+                print(f"Skipping warmup samples for {model_type} model.")
                 warmup_samples = 0  # Do not use warmup for FNN models
             
             # Convert to tensor - each sample as a single timestep
@@ -205,6 +219,20 @@ class ContinuousTestingService:
                         # FNN forward pass - reshape to (batch_size, features)
                         x_flat = x_t.view(1, -1)  # Shape: (1, features)
                         y_pred = self.model_instance(x_flat)
+                    elif self.hidden_states['model_type'] == 'NARX':
+                        # NARX closed-loop inference: feed previous predictions autoregressively
+                        x_flat = x_t.view(1, -1)
+                        y_prev = self.hidden_states.get('y_prev')
+                        y_pred = self.model_instance(x_flat, y_prev)
+
+                        output_delay = int(task.get('hyperparams', {}).get('OUTPUT_DELAY', 1))
+                        if output_delay > 1:
+                            self.hidden_states['y_prev'] = torch.cat([
+                                y_pred.detach(),
+                                y_prev[:, :-1]
+                            ], dim=1)
+                        else:
+                            self.hidden_states['y_prev'] = y_pred.detach()
                     elif self.hidden_states['model_type'] == 'GRU':
                         # GRU forward pass with persistent hidden states
                         # Debug: Check tensor devices before forward pass
@@ -504,6 +532,7 @@ class ContinuousTestingService:
             from vestim.services.model_training.src.LSTM_model import LSTMModel
             from vestim.services.model_training.src.GRU_model import GRUModel
             from vestim.services.model_training.src.FNN_model import FNNModel
+            from vestim.services.model_training.src.NARX_model import NARXModel
             from vestim.services.model_training.src.LSTM_model_filterable import LSTM_EMA, LSTM_LPF
             
             # Get model parameters from the definitive hyperparams dictionary
@@ -529,6 +558,23 @@ class ContinuousTestingService:
                 hidden_layer_sizes = hyperparams['HIDDEN_LAYER_SIZES']
                 dropout_prob = hyperparams.get('DROPOUT_PROB', 0.0)
                 model = FNNModel(input_size, output_size, hidden_layer_sizes, dropout_prob, apply_clipped_relu=apply_clipped_relu)
+                model.to(self.device)
+            elif model_type == 'NARX':
+                # For NARX models (stateless like FNN)
+                hidden_layer_sizes = hyperparams['HIDDEN_LAYER_SIZES']
+                output_delay = hyperparams.get('OUTPUT_DELAY', 1)
+                dropout_prob = hyperparams.get('DROPOUT_PROB', 0.0)
+                activation_fn = hyperparams.get('activation', 'ReLU')
+                model = NARXModel(
+                    input_size=input_size,
+                    output_size=output_size,
+                    hidden_layer_sizes=hidden_layer_sizes,
+                    output_delay=output_delay,
+                    dropout_prob=dropout_prob,
+                    apply_clipped_relu=apply_clipped_relu,
+                    activation_function=activation_fn,
+                    device=self.device
+                )
                 model.to(self.device)
             else:
                 # Fallback for unknown model types - this should not be reached if hyperparams are correct

@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QHBoxLayout, QVBoxLayout, QPushButton, QWidget, QFrame, QTextEdit, QGridLayout, QGroupBox, QMessageBox
+    QApplication, QMainWindow, QLabel, QHBoxLayout, QVBoxLayout, QPushButton, QWidget, QFrame, QTextEdit, QGridLayout, QGroupBox, QMessageBox, QScrollArea
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 import json, time
@@ -218,11 +218,15 @@ class VEstimTrainingTaskGUI(QMainWindow):
         """)
 
     def build_gui(self, task):
-        # Create a main widget to set as central widget in QMainWindow
-        container = QWidget()
-        self.setCentralWidget(container)
+        # Create a scrollable central widget so bottom action buttons remain reachable
+        central_widget = QWidget()
+        central_layout = QVBoxLayout(central_widget)
+        central_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create a main layout
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+
+        container = QWidget()
         self.main_layout = QVBoxLayout()
 
         # Title Label with dynamic model type
@@ -380,8 +384,11 @@ class VEstimTrainingTaskGUI(QMainWindow):
         proceed_button_layout.addStretch(1)
         self.main_layout.addLayout(proceed_button_layout)
 
-        # Set the layout
+        # Set content layout and connect scroll area
         container.setLayout(self.main_layout)
+        scroll_area.setWidget(container)
+        central_layout.addWidget(scroll_area)
+        self.setCentralWidget(central_widget)
 
     def display_hyperparameters(self, task_params):
         from vestim.gui.src.adaptive_gui_utils import display_hyperparameters

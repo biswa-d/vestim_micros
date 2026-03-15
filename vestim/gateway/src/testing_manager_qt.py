@@ -579,6 +579,14 @@ class VEstimTestingManager:
                 arch_suffix = f"FNN{'_'.join(map(str, hidden_layers))}"
             else:
                 arch_suffix = f"FNN{str(hidden_layers).replace(',', '_')}"
+        elif model_type == 'NARX':
+            hidden_layers = hyperparams.get('HIDDEN_LAYER_SIZES', 'NA')
+            output_delay = hyperparams.get('OUTPUT_DELAY', 'NA')
+            if isinstance(hidden_layers, list):
+                hidden_repr = '_'.join(map(str, hidden_layers))
+            else:
+                hidden_repr = str(hidden_layers).replace(',', '_')
+            arch_suffix = f"NARX{hidden_repr}_D{output_delay}"
         else:
             arch_suffix = f"{model_type}_NA"
 
@@ -589,6 +597,8 @@ class VEstimTestingManager:
         # Create parameter string for hash (include model-specific params)
         if model_type in ['LSTM', 'GRU']:
             param_string = f"{layers}_{hidden_units}_{batch_size}_{lookback}_{lr}_{valid_patience}_{max_epochs}"
+        elif model_type == 'NARX':
+            param_string = f"{hidden_layers}_{hyperparams.get('OUTPUT_DELAY', 'NA')}_{batch_size}_{lookback}_{lr}_{valid_patience}_{max_epochs}"
         else:  # FNN
             param_string = f"{hidden_layers}_{batch_size}_{lookback}_{lr}_{valid_patience}_{max_epochs}"
             

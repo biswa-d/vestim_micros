@@ -543,7 +543,7 @@ class VEstimStandaloneTestingManager(QObject):
             elif model_type == 'NARX':
                 hidden_sizes = hyperparams.get('HIDDEN_LAYER_SIZES', [128, 64])
                 output_delay = int(hyperparams.get('OUTPUT_DELAY', 1))
-                apply_clipped_relu = hyperparams.get('normalization_applied', False)
+                apply_clipped_relu = bool(hyperparams.get('NARX_APPLY_CLIPPED_RELU', False))
                 model = NARXModel(
                     input_size=input_size,
                     output_size=hyperparams.get('OUTPUT_SIZE', 1),
@@ -618,6 +618,49 @@ class VEstimStandaloneTestingManager(QObject):
 
                         predictions_normalized = np.array(y_preds_list).reshape(-1, 1)
 
+                elif model_type == 'NARX':
+                    # NARX closed-loop inference: use rolling previous predictions as feedback.
+                    data_to_process = test_df[feature_columns].values.astype(np.float32)
+                    output_delay = int(hyperparams.get('OUTPUT_DELAY', 1))
+                    self.progress.emit(f"  [NARX DEBUG] output_delay={output_delay}, samples={len(data_to_process)}")
+                    self.progress.emit(f"  [NARX DEBUG] feature_columns={feature_columns}")
+                    self.progress.emit(f"  [NARX DEBUG] target_column='{target_column}', in test_df={target_column in test_df.columns}")
+                    if target_column in test_df.columns:
+                        self.progress.emit(f"  [NARX DEBUG] test_df[target_column] first 5: {list(test_df[target_column].iloc[:5].values)}")
+
+                    if len(data_to_process) > 0:
+                        # Initialize y_prev with the first TRUE target value, not zeros.
+                        # During training, _build_narx_teacher_forcing_arrays sets y_prev[0] = y[0] (first_val).
+                        # Starting from zeros when SOC begins at ~100% (normalized ~1.0) creates a
+                        # massive initial error that cascades through the entire closed-loop sequence.
+                        if target_column in test_df.columns:
+                            first_y = float(test_df[target_column].iloc[0])
+                        else:
+                            first_y = 0.0
+                        self.progress.emit(f"  [NARX DEBUG] first_y (normalized) = {first_y:.6f}")
+                        y_prev = torch.full((1, output_delay), first_y, dtype=torch.float32, device=device)
+                        y_preds_list = []
+
+                        for i in range(len(data_to_process)):
+                            x_t = torch.tensor(data_to_process[i], dtype=torch.float32, device=device).view(1, -1)
+                            y_pred = model(x_t, y_prev)
+                            y_preds_list.append(y_pred.detach().cpu().numpy())
+
+                            if i < 5:
+                                self.progress.emit(f"  [NARX DEBUG] step {i}: x_t[0]={float(data_to_process[i][0]):.4f}, y_prev={y_prev.cpu().numpy().tolist()}, y_pred={float(y_pred.detach().cpu().numpy()):.6f}")
+
+                            if output_delay > 1:
+                                y_prev = torch.cat([y_pred.detach(), y_prev[:, :-1]], dim=1)
+                            else:
+                                y_prev = y_pred.detach()
+
+                        predictions_normalized = np.vstack(y_preds_list) if y_preds_list else np.array([])
+                        if len(predictions_normalized) > 0:
+                            self.progress.emit(f"  [NARX DEBUG] predictions_normalized first 5: {predictions_normalized[:5].flatten().tolist()}")
+                            self.progress.emit(f"  [NARX DEBUG] predictions_normalized stats: min={float(predictions_normalized.min()):.4f}, max={float(predictions_normalized.max()):.4f}, mean={float(predictions_normalized.mean()):.4f}")
+                    else:
+                        predictions_normalized = np.array([])
+
                 else:  # FNN and other models - use batched inference
                     from torch.utils.data import TensorDataset, DataLoader
                     
@@ -677,6 +720,9 @@ class VEstimStandaloneTestingManager(QObject):
                     predictions_normalized, scaler, target_column, job_metadata.get('normalized_columns')
                 )
                 self.progress.emit("  ✓ Predictions denormalized")
+                if model_type == 'NARX' and len(predictions_final) > 0:
+                    self.progress.emit(f"  [NARX DEBUG] predictions_final (denorm) first 5: {list(predictions_final[:5])}")
+                    self.progress.emit(f"  [NARX DEBUG] predictions_final stats: min={float(np.min(predictions_final)):.4f}, max={float(np.max(predictions_final)):.4f}")
             else:
                 predictions_final = predictions_normalized.flatten()
             
@@ -713,6 +759,9 @@ class VEstimStandaloneTestingManager(QObject):
             # Get actual values from original dataframe
             if target_column in self.original_test_df.columns:
                 actual_values = self.original_test_df[target_column].values
+                if model_type == 'NARX':
+                    self.progress.emit(f"  [NARX DEBUG] actual_values (original) first 5: {list(actual_values[:5])}")
+                    self.progress.emit(f"  [NARX DEBUG] actual_values stats: min={float(np.min(actual_values)):.4f}, max={float(np.max(actual_values)):.4f}")
             else:
                 actual_values = None
 
