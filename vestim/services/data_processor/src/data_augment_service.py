@@ -13,10 +13,10 @@
 # ---------------------------------------------------------------------------------
 
 import os
-import io # Import io for string buffer
 import re
 import glob
 import shutil
+import math
 import numpy as np
 import pandas as pd
 import logging
@@ -118,11 +118,7 @@ class DataAugmentService:
         Returns:
             Resampled DataFrame
         """
-        self.logger.info(f"--- Entering resample_data for frequency: {frequency} ---")
-        buffer = io.StringIO()
-        df.info(buf=buffer)
-        info_str = buffer.getvalue()
-        self.logger.info(f"Initial DataFrame to resample_data:\n{info_str}\n{df.head().to_string()}")
+        self.logger.info(f"Resampling started: frequency={frequency}, input_shape={df.shape}")
         
         if progress_callback:
             progress_callback(10)
@@ -207,7 +203,6 @@ class DataAugmentService:
             
             # Apply ffill only. Subsequent padding must handle potential leading NaNs.
             resampled_df = df_for_resampling.resample(pandas_freq).ffill()
-            self.logger.info(f"DataFrame after .resample().ffill(). Shape: {resampled_df.shape}. Head:\n{resampled_df.head().to_string()}")
 
             # Drop any leading rows that are all NaN after ffill (except for the time index)
             # This can happen if the resampling starts before the first actual data point.
@@ -222,7 +217,7 @@ class DataAugmentService:
                     first_valid_index = resampled_df.dropna(how='all').index.min()
                     if pd.notna(first_valid_index):
                         resampled_df = resampled_df.loc[first_valid_index:]
-                        self.logger.info(f"Shape after dropping leading NaN rows: {resampled_df.shape}. New Head:\n{resampled_df.head().to_string()}")
+                        self.logger.info(f"Dropped leading all-NaN resampled rows. Updated shape: {resampled_df.shape}")
                     else:
                         self.logger.warning("Resampled DataFrame became all NaN after ffill. Returning empty.")
                         resampled_df = pd.DataFrame(columns=df_for_resampling.columns) # Keep columns for consistency
@@ -461,10 +456,107 @@ class DataAugmentService:
 
         padded_df = pd.concat([padding_df, df], ignore_index=True)
         self.logger.info(f"Padding applied. Original shape: {df.shape}, New shape: {padded_df.shape}")
-        
-        self.logger.info(f"Padded DataFrame head (first 5 rows):\n{padded_df.head(5).to_string()}")
 
         return padded_df
+
+    def remove_padding(self, df: pd.DataFrame, padding_length: int) -> pd.DataFrame:
+        """
+        Removes prepended padding rows from the beginning of a DataFrame.
+
+        Args:
+            df: Input DataFrame (potentially padded).
+            padding_length: Number of leading rows to remove.
+
+        Returns:
+            Unpadded DataFrame with reset index.
+        """
+        if padding_length <= 0 or df is None or df.empty:
+            return df
+
+        if padding_length >= len(df):
+            self.logger.warning(
+                f"Requested to remove {padding_length} padding rows from DataFrame of length {len(df)}. Returning empty DataFrame."
+            )
+            return df.iloc[0:0].copy()
+
+        unpadded_df = df.iloc[padding_length:].reset_index(drop=True)
+        self.logger.info(
+            f"Removed {padding_length} leading padding rows. Original shape: {df.shape}, New shape: {unpadded_df.shape}"
+        )
+        return unpadded_df
+
+    def calculate_min_filter_padding(self, corner_frequency: float, sampling_rate: float, filter_order: int = 4) -> int:
+        """
+        Calculate a conservative minimum padding length for causal low-pass filtering.
+
+        The estimate uses settling-time and filter-order heuristics so filter startup
+        transients are absorbed in prepended samples and can be removed safely.
+        """
+        try:
+            corner_frequency = float(corner_frequency)
+            sampling_rate = float(sampling_rate)
+            filter_order = int(filter_order)
+        except (TypeError, ValueError):
+            self.logger.warning(
+                "Invalid filter configuration for padding calculation; using fallback padding length of 1."
+            )
+            return 1
+
+        if corner_frequency <= 0 or sampling_rate <= 0:
+            self.logger.warning(
+                f"Non-positive corner_frequency ({corner_frequency}) or sampling_rate ({sampling_rate}) for padding calculation; using 1."
+            )
+            return 1
+
+        # Approximate low-pass time constant and use ~5 tau settling duration.
+        settling_time_seconds = 5.0 / (2.0 * math.pi * corner_frequency)
+        settling_samples = int(math.ceil(settling_time_seconds * sampling_rate))
+
+        # Ensure enough history relative to filter order.
+        order_based_min = max(1, 3 * (filter_order + 1))
+
+        min_padding = max(1, settling_samples, order_based_min)
+        return min_padding
+
+    def determine_effective_filter_padding(self,
+                                           filter_configs: Optional[List[Dict[str, Any]]],
+                                           user_padding_length: Optional[int] = None) -> int:
+        """
+        Determine effective temporary padding length used for pre-filter transients.
+
+        Returns max(user_padding_length, min required by all configured filters).
+        """
+        user_padding = int(user_padding_length) if user_padding_length and user_padding_length > 0 else 0
+        min_required_from_filters = 0
+
+        if filter_configs:
+            per_filter_requirements = []
+            for config in filter_configs:
+                try:
+                    required = self.calculate_min_filter_padding(
+                        corner_frequency=config.get('corner_frequency'),
+                        sampling_rate=config.get('sampling_rate'),
+                        filter_order=config.get('filter_order', 4)
+                    )
+                    per_filter_requirements.append({
+                        'column': config.get('column'),
+                        'corner_frequency': config.get('corner_frequency'),
+                        'sampling_rate': config.get('sampling_rate'),
+                        'filter_order': config.get('filter_order', 4),
+                        'required_padding': required
+                    })
+                    min_required_from_filters = max(min_required_from_filters, required)
+                except Exception as e:
+                    self.logger.warning(f"Could not compute required filter padding from config {config}: {e}")
+
+        effective_padding = max(user_padding, min_required_from_filters)
+        if filter_configs:
+            self.logger.info(
+                f"Filter padding decision: user_padding={user_padding}, "
+                f"auto_min_filter_padding={min_required_from_filters}, effective_padding={effective_padding}, "
+                f"per_filter={per_filter_requirements}"
+            )
+        return effective_padding
 
     def apply_normalization(self, df: pd.DataFrame, scaler: object, columns_to_normalize: List[str], normalize_all_numeric: bool = True) -> pd.DataFrame:
         """

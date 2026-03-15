@@ -310,21 +310,28 @@ class VEstimStandaloneTestingManager(QObject):
             if resampling_info.get('applied', False):
                 self.progress.emit(f"Applying resampling to {resampling_info.get('frequency', 'unknown')} frequency...")
                 result_df = self.data_augment_service.resample_data(result_df, resampling_info.get('frequency'))
-            
-            # Apply padding if needed
+
             padding_info = metadata.get('padding', {})
-            if padding_info.get('applied', False):
-                padding_length = padding_info.get('length', 0)
-                self.padding_length = padding_length
-                self.progress.emit(f"Applying padding (length: {padding_length})...")
-                result_df = self.data_augment_service.pad_data(
-                    result_df,
-                    padding_length,
-                    resample_freq_for_time_padding=padding_info.get('resampling_frequency_for_padding')
-                )
-            
+
             # Apply filters
             applied_filters = metadata.get('applied_filters', [])
+            temp_filter_padding_length = 0
+
+            if applied_filters and padding_info.get('applied', False):
+                padding_mode = padding_info.get('mode')
+                removed_before_save = padding_info.get('removed_before_save', False)
+
+                if padding_mode == 'temporary_pre_filter' or removed_before_save:
+                    temp_filter_padding_length = int(padding_info.get('length', 0) or 0)
+
+            if applied_filters and temp_filter_padding_length > 0:
+                self.progress.emit(f"Applying temporary pre-filter padding (length: {temp_filter_padding_length})...")
+                result_df = self.data_augment_service.pad_data(
+                    result_df,
+                    temp_filter_padding_length,
+                    resample_freq_for_time_padding=padding_info.get('resampling_frequency_for_padding')
+                )
+
             for filter_config in applied_filters:
                 column_to_filter = filter_config['column']
                 # Check if column exists, if not provide helpful error
@@ -344,6 +351,23 @@ class VEstimStandaloneTestingManager(QObject):
                     filter_order=filter_config['filter_order'],
                     output_column_name=filter_config['output_column_name']
                 )
+
+            if applied_filters and temp_filter_padding_length > 0:
+                self.progress.emit(f"Removing temporary filter padding (length: {temp_filter_padding_length})...")
+                result_df = self.data_augment_service.remove_padding(result_df, temp_filter_padding_length)
+                self.padding_length = 0
+
+            # Apply persistent padding only for non-filter workflows / legacy metadata.
+            if (not applied_filters) and padding_info.get('applied', False):
+                padding_length = int(padding_info.get('length', 0) or 0)
+                if padding_length > 0:
+                    self.padding_length = padding_length
+                    self.progress.emit(f"Applying padding (length: {padding_length})...")
+                    result_df = self.data_augment_service.pad_data(
+                        result_df,
+                        padding_length,
+                        resample_freq_for_time_padding=padding_info.get('resampling_frequency_for_padding')
+                    )
             
             # Apply calculated columns
             created_columns = metadata.get('created_columns', [])

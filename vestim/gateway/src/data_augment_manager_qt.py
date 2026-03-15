@@ -115,6 +115,18 @@ class DataAugmentManager(QObject): # Inherit from QObject
 
            all_files_to_process = []
            train_files_for_stats_calc = []
+           effective_filter_padding = self.service.determine_effective_filter_padding(
+               filter_configs,
+               padding_length
+           ) if filter_configs else 0
+
+           if filter_configs:
+               self.logger.info(
+                   f"Temporary pre-filter padding enabled: {effective_filter_padding} rows "
+                   f"(added before filtering, removed after filtering)."
+               )
+           elif padding_length and padding_length > 0:
+               self.logger.info(f"Persistent padding enabled (no filters): {padding_length} rows.")
 
            if train_processed_dir and os.path.isdir(train_processed_dir):
                 train_files_for_stats_calc.extend(glob.glob(os.path.join(train_processed_dir, "*.csv")))
@@ -140,6 +152,13 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                 df_temp_for_stats = self.service.resample_data(df_temp_for_stats, resampling_frequency)
                             
                             if filter_configs and df_temp_for_stats is not None and not df_temp_for_stats.empty:
+                                if effective_filter_padding > 0:
+                                    df_temp_for_stats = self.service.pad_data(
+                                        df_temp_for_stats,
+                                        effective_filter_padding,
+                                        resample_freq_for_time_padding=resampling_frequency
+                                    )
+
                                 for config in filter_configs:
                                     output_column_name = config.get('output_column_name')
                                     df_temp_for_stats = self.service.apply_butterworth_filter(
@@ -149,6 +168,12 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                         sampling_rate=config['sampling_rate'],
                                         filter_order=config.get('filter_order', 4),
                                         output_column_name=output_column_name
+                                    )
+
+                                if effective_filter_padding > 0:
+                                    df_temp_for_stats = self.service.remove_padding(
+                                        df_temp_for_stats,
+                                        effective_filter_padding
                                     )
 
                             if column_formulas and df_temp_for_stats is not None and not df_temp_for_stats.empty:
@@ -249,6 +274,14 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             actual_resampling_frequency_for_padding = resampling_frequency
                     
                     if filter_configs and df is not None and not df.empty:
+                        if effective_filter_padding > 0:
+                            self.logger.info(f"[{os.path.basename(file_path)}] Adding temporary pre-filter padding: {effective_filter_padding} rows")
+                            df = self.service.pad_data(
+                                df,
+                                effective_filter_padding,
+                                resample_freq_for_time_padding=actual_resampling_frequency_for_padding
+                            )
+
                         for config in filter_configs:
                             try:
                                 df = self.service.apply_butterworth_filter(
@@ -261,6 +294,10 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                 )
                             except Exception as e_filter:
                                 self.logger.error(f"Error applying filter for {file_path}: {e_filter}", exc_info=True)
+
+                        if effective_filter_padding > 0 and df is not None and not df.empty:
+                            self.logger.info(f"[{os.path.basename(file_path)}] Removing temporary pre-filter padding: {effective_filter_padding} rows")
+                            df = self.service.remove_padding(df, effective_filter_padding)
                    
                     formula_error_occurred = False
                     if column_formulas and df is not None and not df.empty:
@@ -296,7 +333,16 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                 self.logger.error(f"Error applying noise injection for {file_path}: {e_noise}", exc_info=True)
                     
                     if not formula_error_occurred and padding_length and padding_length > 0 and df is not None and not df.empty:
-                        df = self.service.pad_data(df, padding_length, resample_freq_for_time_padding=actual_resampling_frequency_for_padding)
+                        if filter_configs:
+                            self.logger.debug(
+                                f"[{os.path.basename(file_path)}] Persistent padding skipped because temporary filter padding is already applied/removed."
+                            )
+                        else:
+                            df = self.service.pad_data(
+                                df,
+                                padding_length,
+                                resample_freq_for_time_padding=actual_resampling_frequency_for_padding
+                            )
 
                     if not formula_error_occurred and normalize_data and global_scaler and df is not None and not df.empty:
                         try:
@@ -344,10 +390,14 @@ class DataAugmentManager(QObject): # Inherit from QObject
            
            # Prepare padding info  
            padding_info = {
-               'applied': padding_length is not None and padding_length > 0,
-               'length': padding_length,
-               'resampling_frequency_for_padding': resampling_frequency
-           } if (padding_length and padding_length > 0) else {'applied': False}
+               'applied': True,
+               'length': effective_filter_padding if filter_configs else padding_length,
+               'resampling_frequency_for_padding': resampling_frequency,
+               'mode': 'temporary_pre_filter' if filter_configs else 'persistent',
+               'removed_before_save': bool(filter_configs),
+               'user_padding_length': padding_length if (padding_length and padding_length > 0) else 0,
+               'auto_filter_min_padding_length': effective_filter_padding if filter_configs else 0
+           } if ((padding_length and padding_length > 0) or (filter_configs and effective_filter_padding > 0)) else {'applied': False}
            
            self.service.update_augmentation_metadata(
                job_folder, processed_files_metadata, 
