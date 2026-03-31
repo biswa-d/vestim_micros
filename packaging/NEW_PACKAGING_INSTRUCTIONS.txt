@@ -21,6 +21,7 @@ When a user runs the generated installer (`PyBattML_..._standalone_test.exe`):
     *   **PyTorch Variant Selection:** Selects the correct PyTorch package (`cu121`, `cu118`, or `cpu`) based on the detected hardware.
     *   **Virtual Environment Creation:** Creates a new Python virtual environment (`venv`) in the installation directory.
     *   **Dynamic Dependency Installation:** Installs all necessary libraries (like pandas, scikit-learn, etc.) from a hardcoded list within the script. It then installs the hardware-specific version of PyTorch. **These libraries are NOT bundled in the installer.**
+    *   **Supply-Chain Guard for Base Packages:** For PyPI-installed base dependencies, the installer resolves and pins only stable releases that are at least 30 days old before installing. This reduces exposure to very recent potentially compromised releases.
     *   **Application File Extraction:** Extracts the core `vestim` application code, launcher scripts, and user documentation from itself into the installation directory.
     *   **Launcher & Shortcut Creation:** Creates `.bat` launcher scripts and shortcuts that use the Python executable from the newly created `venv`.
     *   **Uninstaller Creation:** Generates an uninstaller and adds an entry to Windows' "Add or remove programs".

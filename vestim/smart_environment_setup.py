@@ -11,8 +11,22 @@ import json
 import tempfile
 import time
 import shutil
+import datetime
+import re
+import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Optional, Tuple, Dict, List
+
+try:
+    from packaging.version import Version, InvalidVersion
+except Exception:
+    try:
+        from pip._vendor.packaging.version import Version, InvalidVersion
+    except Exception:
+        Version = None
+        class InvalidVersion(Exception):
+            pass
 
 
 class SmartEnvironmentSetup:
@@ -783,23 +797,8 @@ class SmartEnvironmentSetup:
                 self.log(f"Could not query venv interpreter info: {ei}", "WARNING")
 
             for req in base_requirements:
-                self.log(f"Installing {req}...")
-                result = subprocess.run([
-                    venv_python, "-m", "pip", "install", req
-                ], capture_output=True, text=True, timeout=300)
-                if result.returncode != 0:
+                if not self._install_with_release_age_guard(venv_python, req, min_age_days=30, timeout_seconds=300):
                     self.log(f"Package install failed: {req}", "ERROR")
-                    # Emit trimmed outputs for readability
-                    stdout = (result.stdout or "").strip()
-                    stderr = (result.stderr or "").strip()
-                    if stdout:
-                        self.log("  pip stdout:", "ERROR")
-                        for line in stdout.splitlines():
-                            self.log(f"    {line}", "ERROR")
-                    if stderr:
-                        self.log("  pip stderr:", "ERROR")
-                        for line in stderr.splitlines():
-                            self.log(f"    {line}", "ERROR")
                     return False
             
             return True
@@ -807,6 +806,120 @@ class SmartEnvironmentSetup:
         except Exception as e:
             self.log(f"Failed to install base requirements: {e}", "ERROR")
             return False
+
+    def _split_min_requirement(self, requirement: str) -> Tuple[str, Optional[str]]:
+        req = requirement.strip()
+        m = re.match(r'^([A-Za-z0-9_.-]+)\s*>=\s*([A-Za-z0-9_.+\-]+)$', req)
+        if m:
+            return m.group(1), m.group(2)
+        m_eq = re.match(r'^([A-Za-z0-9_.-]+)\s*==\s*([A-Za-z0-9_.+\-]+)$', req)
+        if m_eq:
+            return m_eq.group(1), m_eq.group(2)
+        return req, None
+
+    def _parse_upload_time(self, timestamp: str) -> Optional[datetime.datetime]:
+        if not timestamp:
+            return None
+        try:
+            ts = timestamp.replace('Z', '+00:00')
+            dt = datetime.datetime.fromisoformat(ts)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=datetime.timezone.utc)
+            return dt.astimezone(datetime.timezone.utc)
+        except Exception:
+            return None
+
+    def _get_safe_pypi_versions(self, package_name: str, min_version: Optional[str], min_age_days: int = 30) -> List[str]:
+        if Version is None:
+            self.log("packaging version parser is unavailable; cannot enforce release-age policy", "ERROR")
+            return []
+
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=min_age_days)
+        min_ver_obj = None
+        if min_version:
+            try:
+                min_ver_obj = Version(min_version)
+            except InvalidVersion:
+                self.log(f"Invalid minimum version for {package_name}: {min_version}", "ERROR")
+                return []
+
+        url = f"https://pypi.org/pypi/{package_name}/json"
+        try:
+            with urllib.request.urlopen(url, timeout=20) as response:
+                payload = json.loads(response.read().decode('utf-8'))
+        except urllib.error.URLError as e:
+            self.log(f"Failed to query PyPI metadata for {package_name}: {e}", "ERROR")
+            return []
+        except Exception as e:
+            self.log(f"Unexpected PyPI metadata error for {package_name}: {e}", "ERROR")
+            return []
+
+        releases = payload.get("releases", {})
+        candidates = []
+        for raw_version, files in releases.items():
+            if not files:
+                continue
+            try:
+                ver = Version(raw_version)
+            except InvalidVersion:
+                continue
+
+            if ver.is_prerelease or ver.is_devrelease:
+                continue
+            if min_ver_obj and ver < min_ver_obj:
+                continue
+
+            upload_times = []
+            for item in files:
+                ts = item.get("upload_time_iso_8601") or item.get("upload_time")
+                parsed = self._parse_upload_time(ts)
+                if parsed is not None:
+                    upload_times.append(parsed)
+            if not upload_times:
+                continue
+
+            release_time = max(upload_times)
+            if release_time > cutoff:
+                continue
+
+            candidates.append((ver, raw_version, release_time))
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return [raw for _, raw, _ in candidates]
+
+    def _install_with_release_age_guard(self, venv_python: str, requirement: str, min_age_days: int = 30, timeout_seconds: int = 300) -> bool:
+        package_name, min_version = self._split_min_requirement(requirement)
+        safe_versions = self._get_safe_pypi_versions(package_name, min_version, min_age_days=min_age_days)
+
+        if not safe_versions:
+            self.log(
+                f"No stable versions for {package_name} satisfy >= {min_version or 'unspecified'} and are at least {min_age_days} days old",
+                "ERROR"
+            )
+            return False
+
+        max_attempts = min(5, len(safe_versions))
+        for pinned_version in safe_versions[:max_attempts]:
+            pinned_requirement = f"{package_name}=={pinned_version}"
+            self.log(f"Installing guarded package {pinned_requirement} (stable, >= {min_age_days} days old)...")
+            result = subprocess.run(
+                [venv_python, "-m", "pip", "install", pinned_requirement],
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+            if result.returncode == 0:
+                return True
+
+            self.log(f"Install attempt failed for {pinned_requirement}, trying next eligible version...", "WARNING")
+            stderr = (result.stderr or "").strip()
+            if stderr:
+                tail_lines = stderr.splitlines()[-5:]
+                for line in tail_lines:
+                    self.log(f"  {line}", "WARNING")
+
+        self.log(f"All guarded install attempts failed for {package_name}", "ERROR")
+        return False
     
     def install_pytorch(self) -> bool:
         """Install appropriate PyTorch variant"""
@@ -903,9 +1016,8 @@ class SmartEnvironmentSetup:
             venv_python = self.install_config["venv_python"]
             
             # Install nvidia-ml-py3 for GPU monitoring
-            subprocess.run([
-                venv_python, "-m", "pip", "install", "nvidia-ml-py3>=7.352.0"
-            ], check=True, timeout=120)
+            if not self._install_with_release_age_guard(venv_python, "nvidia-ml-py3>=7.352.0", min_age_days=30, timeout_seconds=120):
+                raise RuntimeError("nvidia-ml-py3 guarded install failed")
             
             return True
             

@@ -1,6 +1,7 @@
 import os
 import json
 import datetime
+import re
 import pandas as pd
 import joblib
 import torch
@@ -22,7 +23,7 @@ class VEstimStandaloneTestingManager(QObject):
     results_ready = pyqtSignal(dict)
     augmentation_required = pyqtSignal(pd.DataFrame, list)
 
-    def __init__(self, job_folder_path, test_data_path, session_timestamp=None):
+    def __init__(self, job_folder_path, test_data_path, session_timestamp=None, inference_filter_override=None):
         super().__init__()
         self.job_folder_path = job_folder_path
         self.test_data_path = test_data_path
@@ -31,6 +32,7 @@ class VEstimStandaloneTestingManager(QObject):
         self.test_df = None
         self.overall_results = {}
         self.padding_length = 0
+        self.inference_filter_override = inference_filter_override or None
     
     def start(self):
         """Start the testing process (called by test selection GUI)"""
@@ -44,6 +46,10 @@ class VEstimStandaloneTestingManager(QObject):
         try:
             self.progress.emit("Starting test...")
             self.progress.emit("Loading configurations...")
+            if self.inference_filter_override:
+                self.progress.emit(
+                    f"Using standalone inference filter override: {self.inference_filter_override.get('INFERENCE_FILTER_TYPE', 'None')}"
+                )
             job_metadata_path = os.path.join(self.job_folder_path, 'job_metadata.json')
             self.aug_metadata_path = os.path.join(self.job_folder_path, 'augmentation_metadata.json')
             
@@ -174,26 +180,71 @@ class VEstimStandaloneTestingManager(QObject):
                         
                         # Pre-process object-type columns (like 'Prog Time', 'Step Time') to numeric
                         # before calling scaler.transform(), since the scaler was trained on numeric values
+                        mm_ss_pattern = re.compile(r'^\d+:\d+(?:\.\d+)?$')
+                        hh_mm_ss_pattern = re.compile(r'^\d+:\d{2}:\d{2}(?:\.\d+)?$')
+
                         for col in self.test_df.columns:
                             col_dtype_str = str(self.test_df[col].dtype)
                             if col in scaler_features and col_dtype_str in ('object', 'string', 'str'):
                                 self.progress.emit(f"[DEBUG] Found object column in scaler: '{col}'")
-                                # Convert MM:SS.S format (e.g., '56:43.4') to total seconds
                                 try:
-                                    sample_val = str(self.test_df[col].iloc[0]) if len(self.test_df) > 0 else ""
+                                    col_as_str = self.test_df[col].astype(str).str.strip()
+                                    non_empty = col_as_str[col_as_str != '']
+                                    sample_val = non_empty.iloc[0] if len(non_empty) > 0 else ""
                                     self.progress.emit(f"[DEBUG] Sample value from '{col}': {sample_val}")
-                                    if ':' in sample_val:
-                                        self.progress.emit(f"[DEBUG] Detected ':' in '{col}', converting MM:SS format")
-                                        # MM:SS.S format - convert to total seconds
+
+                                    # MM:SS(.s) formatted elapsed time (e.g. 56:43.4)
+                                    if sample_val and mm_ss_pattern.match(sample_val):
+                                        self.progress.emit(f"[DEBUG] Detected MM:SS format in '{col}', converting to seconds")
                                         def mm_ss_to_seconds(x):
-                                            if isinstance(x, str) and ':' in x:
-                                                parts = x.split(':')
+                                            if pd.isna(x):
+                                                return np.nan
+                                            value = str(x).strip()
+                                            if value == '':
+                                                return np.nan
+                                            if mm_ss_pattern.match(value):
+                                                parts = value.split(':')
                                                 return int(parts[0]) * 60 + float(parts[1])
-                                            return float(x) if x != '' else np.nan
+                                            numeric = pd.to_numeric(value, errors='coerce')
+                                            return numeric if not pd.isna(numeric) else np.nan
                                         
                                         self.test_df[col] = self.test_df[col].apply(mm_ss_to_seconds)
                                         self.progress.emit(f"[DEBUG] After conversion, '{col}' dtype: {self.test_df[col].dtype}")
                                         self.progress.emit(f"Converted '{col}' from MM:SS format to seconds.")
+
+                                    # HH:MM:SS(.s) duration format
+                                    elif sample_val and hh_mm_ss_pattern.match(sample_val):
+                                        self.progress.emit(f"[DEBUG] Detected HH:MM:SS format in '{col}', converting to seconds")
+
+                                        def hh_mm_ss_to_seconds(x):
+                                            if pd.isna(x):
+                                                return np.nan
+                                            value = str(x).strip()
+                                            if value == '':
+                                                return np.nan
+                                            if hh_mm_ss_pattern.match(value):
+                                                parts = value.split(':')
+                                                return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+                                            numeric = pd.to_numeric(value, errors='coerce')
+                                            return numeric if not pd.isna(numeric) else np.nan
+
+                                        self.test_df[col] = self.test_df[col].apply(hh_mm_ss_to_seconds)
+                                        self.progress.emit(f"[DEBUG] After conversion, '{col}' dtype: {self.test_df[col].dtype}")
+                                        self.progress.emit(f"Converted '{col}' from HH:MM:SS format to seconds.")
+
+                                    # Date-time strings (e.g. 10-13-2025 19:33:39.903)
+                                    elif sample_val and any(ch in sample_val for ch in ('-', '/')) and ':' in sample_val and ' ' in sample_val:
+                                        self.progress.emit(f"[DEBUG] Detected datetime-like format in '{col}', converting to elapsed seconds")
+                                        parsed_dt = pd.to_datetime(self.test_df[col], errors='coerce')
+                                        if parsed_dt.notna().any():
+                                            first_ts = parsed_dt.dropna().iloc[0]
+                                            self.test_df[col] = (parsed_dt - first_ts).dt.total_seconds()
+                                            self.progress.emit(f"[DEBUG] After datetime conversion, '{col}' dtype: {self.test_df[col].dtype}")
+                                            self.progress.emit(f"Converted '{col}' from datetime to elapsed seconds.")
+                                        else:
+                                            self.test_df[col] = pd.to_numeric(self.test_df[col], errors='coerce')
+                                            self.progress.emit(f"[DEBUG] Datetime parse failed; fallback to to_numeric for '{col}'")
+
                                     else:
                                         self.progress.emit(f"[DEBUG] No ':' found, trying generic numeric conversion for '{col}'")
                                         # Try generic numeric conversion
@@ -477,6 +528,7 @@ class VEstimStandaloneTestingManager(QObject):
         """Test a single model using the existing task structure."""
         model = None
         try:
+            task_info = dict(task_info)
             arch_name = task_info['architecture_name']
             task_name = task_info['task_name']
             task_path = task_info['task_path']
@@ -491,7 +543,10 @@ class VEstimStandaloneTestingManager(QObject):
             # Extract model configuration from task_info
             model_metadata = task_info.get('model_metadata', {})
             model_type = model_metadata.get('model_type', task_info.get('model_type', 'FNN'))
-            hyperparams = task_info.get('hyperparams', {})
+            hyperparams = dict(task_info.get('hyperparams', {}))
+            if self.inference_filter_override:
+                hyperparams.update(self.inference_filter_override)
+                task_info['hyperparams'] = hyperparams
             data_config = task_info.get('data_config', {})
             training_config = task_info.get('training_config', {})
             
@@ -664,6 +719,8 @@ class VEstimStandaloneTestingManager(QObject):
                 predictions_normalized = apply_inference_filter(predictions_normalized.flatten(), {'hyperparams': hyperparams})
                 predictions_normalized = predictions_normalized.reshape(-1, 1)
                 self.progress.emit(f"  ✓ {filter_type} filter applied")
+            elif self.inference_filter_override and filter_type == 'None':
+                self.progress.emit("  Standalone inference filter override disabled filtering for this run.")
             
             # Denormalize predictions
             if scaler and len(predictions_normalized) > 0:
