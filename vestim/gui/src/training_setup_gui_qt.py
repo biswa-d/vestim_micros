@@ -182,7 +182,31 @@ class VEstimTrainSetupGUI(QWidget):
                             resampling_info = aug_meta.get('resampling', {}) if isinstance(aug_meta, dict) else {}
                             if resampling_info.get('applied', False):
                                 frequency = resampling_info.get('frequency', 'unknown')
-                                resampling_label = QLabel(f"resampling: applied ({frequency})")
+                                source_rate_hz = resampling_info.get('source_frequency_hz', resampling_info.get('original_sample_rate_hz'))
+                                if not source_rate_hz:
+                                    try:
+                                        import re
+                                        match = re.match(r'^\s*(\d*\.?\d+)\s*(m?hz)\s*$', str(frequency), flags=re.IGNORECASE)
+                                        if match:
+                                            target_hz = float(match.group(1))
+                                            if match.group(2).lower() == 'mhz':
+                                                target_hz /= 1000.0
+                                            for file_meta in aug_meta.get('processed_files', []):
+                                                orig_shape = file_meta.get('original_shape', [])
+                                                aug_shape = file_meta.get('augmented_shape', [])
+                                                if isinstance(orig_shape, list) and isinstance(aug_shape, list) and orig_shape and aug_shape and aug_shape[0]:
+                                                    ratio = float(orig_shape[0]) / float(aug_shape[0])
+                                                    source_rate_hz = target_hz * ratio
+                                                    break
+                                    except Exception:
+                                        source_rate_hz = None
+
+                                if source_rate_hz:
+                                    resampling_text = f"resampling: applied ({frequency}, source≈{float(source_rate_hz):.4g}Hz)"
+                                else:
+                                    resampling_text = f"resampling: applied ({frequency}, source=unknown)"
+
+                                resampling_label = QLabel(resampling_text)
                                 resampling_label.setStyleSheet("color: #0b6337; font-size: 12px; font-weight: bold;")
                                 resampling_row = QHBoxLayout()
                                 resampling_row.addStretch(1)
