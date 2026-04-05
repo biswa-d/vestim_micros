@@ -561,7 +561,7 @@ class DataAugmentGUI(QMainWindow):
         frequency_label = QLabel("Resampling Frequency:")
         frequency_layout.addWidget(frequency_label)
         self.frequency_combo = QComboBox()
-        self.frequency_combo.addItems(["0.1Hz", "0.5Hz", "1Hz", "5Hz", "10Hz"])
+        self.frequency_combo.addItems(["1mHz", "0.1Hz", "0.5Hz", "1Hz", "5Hz", "10Hz"])
         self.frequency_combo.setEnabled(False)
         frequency_layout.addWidget(self.frequency_combo)
         resampling_layout.addLayout(frequency_layout)

@@ -71,7 +71,55 @@ class VEstimTestingManager:
         self.lock = Lock()
         self.successful_tests = 0
         self.failed_tests = 0
+        self._resampling_applied_for_job = False
         print("Initialization complete.")
+
+    def _load_job_resampling_applied(self) -> bool:
+        """Check augmentation metadata to determine if resampling was applied for this job."""
+        try:
+            job_folder = self.job_manager.get_job_folder()
+            if not job_folder:
+                return False
+            metadata_path = os.path.join(job_folder, 'augmentation_metadata.json')
+            if not os.path.exists(metadata_path):
+                return False
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+            resampling_info = metadata.get('resampling', {}) if isinstance(metadata, dict) else {}
+            return bool(resampling_info.get('applied', False))
+        except Exception as e:
+            self.logger.warning(f"Could not determine resampling metadata state: {e}")
+            return False
+
+    @staticmethod
+    def _extract_timestamp_like_array(df: pd.DataFrame):
+        """Extract a usable x-axis from a dataframe, preferring time-like columns, then sample/index columns."""
+        def _valid_series_or_none(series: pd.Series):
+            if series is None or series.empty:
+                return None
+            non_empty = series.dropna()
+            if non_empty.empty:
+                return None
+            if non_empty.dtype == object:
+                cleaned = non_empty.astype(str).str.strip()
+                cleaned = cleaned[~cleaned.isin(['', 'nan', 'NaN', 'None', 'NaT'])]
+                if cleaned.empty:
+                    return None
+            return series.values
+
+        for col in df.columns:
+            normalized = col.lower().replace(" ", "")
+            if 'time' in normalized or 'date' in normalized:
+                valid = _valid_series_or_none(df[col])
+                if valid is not None:
+                    return valid
+        for col in df.columns:
+            normalized = col.lower().replace(" ", "")
+            if 'sample' in normalized or normalized in ['index', 'idx']:
+                valid = _valid_series_or_none(df[col])
+                if valid is not None:
+                    return valid
+        return None
 
     def start_testing(self, queue):
         """Start the testing process and store the queue for results."""
@@ -89,6 +137,7 @@ class VEstimTestingManager:
         try:
             print("Getting test folder and results save directory...")
             test_folder = self.job_manager.get_test_folder()
+            self._resampling_applied_for_job = self._load_job_resampling_applied()
             self.results_summary.clear()
             
             # Reset counters
@@ -217,58 +266,66 @@ class VEstimTestingManager:
                             warmup_samples=lookback_val  # Use lookback as warmup period
                         )
                         
-                        # Get timestamps from the corresponding RAW test file since processed files may not have them
-                        # Try to find the raw file that corresponds to this processed file
+                        # Build timestamp axis for output CSV/plots.
+                        # If resampling was applied, ALWAYS prefer processed test file axis so output length
+                        # and sampling grid match the resampled evaluation file.
                         timestamps = None
                         try:
-                            # Extract base filename (remove path and extension)
-                            processed_filename = os.path.basename(test_file_path)
-                            base_name = os.path.splitext(processed_filename)[0]
-                            
-                            # Look for the raw file in the raw_data directory
-                            raw_data_dir = test_file_path.replace('processed_data', 'raw_data')
-                            raw_file_dir = os.path.dirname(raw_data_dir)
-                            
-                            # Try common raw file extensions
-                            raw_extensions = ['.csv', '.xlsx', '.mat']
-                            raw_file_path = None
-                            
-                            for ext in raw_extensions:
-                                potential_raw_file = os.path.join(raw_file_dir, base_name + ext)
-                                if os.path.exists(potential_raw_file):
-                                    raw_file_path = potential_raw_file
-                                    break
-                            
-                            if raw_file_path and raw_file_path.endswith('.csv'):
-                                print(f"Loading timestamps from raw file: {raw_file_path}")
-                                raw_df = pd.read_csv(raw_file_path)
-                                
-                                # Handle different possible timestamp column names
-                                for col in raw_df.columns:
-                                    if 'time' in col.lower().replace(" ", ""):
-                                        timestamps = raw_df[col].values
-                                        print(f"Found timestamp column '{col}' in raw file")
-                                        break
+                            if self._resampling_applied_for_job:
+                                timestamps = self._extract_timestamp_like_array(test_df)
+                                if timestamps is not None:
+                                    print("Using processed/resampled test file axis for timestamps")
+                                else:
+                                    print("No timestamp/sample column in processed resampled file; using index fallback")
                             else:
-                                print(f"Raw file not found or not CSV, falling back to processed file timestamps")
-                                # Fallback to processed file timestamps
-                                for col in test_df.columns:
-                                    if 'time' in col.lower().replace(" ", ""):
-                                        timestamps = test_df[col].values
-                                        print(f"Found timestamp column '{col}' in processed file")
+                                # Extract base filename (remove path and extension)
+                                processed_filename = os.path.basename(test_file_path)
+                                base_name = os.path.splitext(processed_filename)[0]
+
+                                # Look for the raw file in the raw_data directory
+                                raw_data_dir = test_file_path.replace('processed_data', 'raw_data')
+                                raw_file_dir = os.path.dirname(raw_data_dir)
+
+                                # Try common raw file extensions
+                                raw_extensions = ['.csv', '.xlsx', '.mat']
+                                raw_file_path = None
+
+                                for ext in raw_extensions:
+                                    potential_raw_file = os.path.join(raw_file_dir, base_name + ext)
+                                    if os.path.exists(potential_raw_file):
+                                        raw_file_path = potential_raw_file
                                         break
+
+                                if raw_file_path and raw_file_path.endswith('.csv'):
+                                    print(f"Loading timestamps from raw file: {raw_file_path}")
+                                    raw_df = pd.read_csv(raw_file_path)
+                                    timestamps = self._extract_timestamp_like_array(raw_df)
+                                    if timestamps is not None:
+                                        print("Found timestamp/sample axis in raw file")
+                                else:
+                                    print(f"Raw file not found or not CSV, falling back to processed file timestamps")
+                                    timestamps = self._extract_timestamp_like_array(test_df)
+                                    if timestamps is not None:
+                                        print("Found timestamp/sample axis in processed file")
                                         
                         except Exception as e:
                             print(f"Error loading timestamps from raw file: {e}")
                             # Final fallback to processed file
-                            for col in test_df.columns:
-                                if 'time' in col.lower().replace(" ", ""):
-                                    timestamps = test_df[col].values
-                                    break
+                            timestamps = self._extract_timestamp_like_array(test_df)
                         
                         if timestamps is None:
                             print("Warning: No timestamp column found, using index as fallback")
                             timestamps = np.arange(len(file_results.get('predictions', [])))
+                        else:
+                            ts_series = pd.Series(np.ravel(np.asarray(timestamps)))
+                            valid_ts = ts_series.dropna()
+                            if valid_ts.empty:
+                                timestamps = np.arange(len(file_results.get('predictions', [])))
+                            elif valid_ts.dtype == object:
+                                cleaned = valid_ts.astype(str).str.strip()
+                                cleaned = cleaned[~cleaned.isin(['', 'nan', 'NaN', 'None', 'NaT'])]
+                                if cleaned.empty:
+                                    timestamps = np.arange(len(file_results.get('predictions', [])))
                         
                         # Store timestamps in file_results for later use
                         if timestamps is not None:
@@ -345,9 +402,33 @@ class VEstimTestingManager:
                     
                     # Calculate difference for CSV
                     # Predictions and true values are in their original scale from file_results
-                    y_true_scaled = file_results['true_values']
-                    y_pred_scaled = file_results['predictions']
-                    
+                    y_true_scaled = np.ravel(np.asarray(file_results['true_values']))
+                    y_pred_scaled = np.ravel(np.asarray(file_results['predictions']))
+
+                    # Get timestamps from file_results or create fallback and enforce equal lengths
+                    timestamps = file_results.get('timestamps', np.arange(len(y_true_scaled)))
+                    timestamps = np.ravel(np.asarray(timestamps))
+
+                    len_true = len(y_true_scaled)
+                    len_pred = len(y_pred_scaled)
+                    len_ts = len(timestamps)
+                    target_len = min(len_true, len_pred, len_ts)
+
+                    if target_len <= 0:
+                        raise ValueError(
+                            f"Invalid test output lengths: true={len_true}, pred={len_pred}, timestamps={len_ts}"
+                        )
+
+                    if len_true != len_pred or len_true != len_ts:
+                        self.logger.warning(
+                            f"Length mismatch for {test_file}. Truncating to {target_len} rows "
+                            f"(true={len_true}, pred={len_pred}, timestamps={len_ts})."
+                        )
+
+                    y_true_scaled = y_true_scaled[-target_len:]
+                    y_pred_scaled = y_pred_scaled[-target_len:]
+                    timestamps = timestamps[-target_len:]
+
                     difference = y_true_scaled - y_pred_scaled
                     # Apply appropriate multiplier based on target type for consistent error reporting
                     if "voltage" in target_column_name.lower():
@@ -359,9 +440,6 @@ class VEstimTestingManager:
                     
                     # Save predictions with dynamic column names - matching training GUI conventions
                     predictions_file = os.path.join(test_results_dir, f"{file_name}_predictions.csv")
-                    
-                    # Get timestamps from file_results or create fallback
-                    timestamps = file_results.get('timestamps', np.arange(len(y_true_scaled)))
                     
                     # Debug: Check timestamp data
                     if len(timestamps) > 0:
@@ -450,7 +528,6 @@ class VEstimTestingManager:
                                 print(f"[TESTING MGR] *** NO DIRECTORY *** No task_dir or model_dir found in task")
                         except Exception as e:
                             print(f"[TESTING MGR] *** ERROR READING FILE *** {e}")
-                            import traceback
                             traceback.print_exc()
                             self.logger.warning(f"Could not read training summary from disk for task {task['task_id']}: {e}")
                     else:

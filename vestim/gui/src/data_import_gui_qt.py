@@ -34,7 +34,7 @@ from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI  # Import the new 
 from vestim.services.data_processor.src.data_processor_qt_csv import DataProcessorCSV
 from vestim.services.data_processor.src.data_processor_qt_mat import DataProcessorMAT
 from vestim.services.data_processor.src.data_processor_qt_xlsx import DataProcessorXLSX
-from vestim.config_manager import get_data_directory, get_default_folders, update_last_used_folders, get_default_file_format
+from vestim.config_manager import get_data_directory, get_default_folders, update_last_used_folders, get_default_file_format, get_projects_directory
 from vestim.gui.src.adaptive_gui_utils import scale_font, scale_widget_size, get_adaptive_stylesheet
 
 import logging
@@ -362,8 +362,11 @@ class DataImportGUI(QMainWindow):
             self.auto_select_all_files(self.test_list_widget)
 
     def select_train_folder(self):
-        # Get default data directory from config, fallback to current directory
-        default_dir = get_data_directory() or os.getcwd()
+        default_settings = get_default_folders()
+        default_dir = self._get_initial_browse_directory(
+            self.train_folder_path,
+            default_settings.get("train_folder", "")
+        )
         new_folder = QFileDialog.getExistingDirectory(self, "Select Training Folder", default_dir)
         if new_folder:
             self.train_folder_path = new_folder
@@ -373,12 +376,16 @@ class DataImportGUI(QMainWindow):
             self.update_button_text(self.train_select_button, new_folder, "Train")
             self.populate_file_list(new_folder, self.train_list_widget, selected_format)
             self.auto_select_all_files(self.train_list_widget)
+            self.persist_current_folder_settings()
             logger.info(f"Selected training folder: {new_folder}. Populated for format: {selected_format}.")
         self.check_folders_selected()
 
     def select_test_folder(self):
-        # Get default data directory from config, fallback to current directory
-        default_dir = get_data_directory() or os.getcwd()
+        default_settings = get_default_folders()
+        default_dir = self._get_initial_browse_directory(
+            self.test_folder_path,
+            default_settings.get("test_folder", "")
+        )
         new_folder = QFileDialog.getExistingDirectory(self, "Select Testing Folder", default_dir)
         if new_folder:
             self.test_folder_path = new_folder
@@ -388,12 +395,16 @@ class DataImportGUI(QMainWindow):
             self.update_button_text(self.test_select_button, new_folder, "Test")
             self.populate_file_list(new_folder, self.test_list_widget, selected_format)
             self.auto_select_all_files(self.test_list_widget)
+            self.persist_current_folder_settings()
             logger.info(f"Selected testing folder: {new_folder}. Populated for format: {selected_format}.")
         self.check_folders_selected()
 
     def select_val_folder(self):
-        # Get default data directory from config, fallback to current directory
-        default_dir = get_data_directory() or os.getcwd()
+        default_settings = get_default_folders()
+        default_dir = self._get_initial_browse_directory(
+            self.val_folder_path,
+            default_settings.get("val_folder", "")
+        )
         new_folder = QFileDialog.getExistingDirectory(self, "Select Validation Folder", default_dir)
         if new_folder:
             self.val_folder_path = new_folder
@@ -403,8 +414,36 @@ class DataImportGUI(QMainWindow):
             self.update_button_text(self.val_select_button, new_folder, "Validation")
             self.populate_file_list(new_folder, self.val_list_widget, selected_format)
             self.auto_select_all_files(self.val_list_widget)
+            self.persist_current_folder_settings()
             logger.info(f"Selected validation folder: {new_folder}. Populated for format: {selected_format}.")
         self.check_folders_selected()
+
+    def _get_initial_browse_directory(self, current_path: str, saved_path: str) -> str:
+        """Resolve the starting directory for folder selection dialogs."""
+        candidate_paths = [
+            current_path,
+            saved_path,
+            get_projects_directory(),
+            get_data_directory(),
+            os.getcwd()
+        ]
+        for path in candidate_paths:
+            if path and os.path.isdir(path):
+                return path
+        return os.path.expanduser("~")
+
+    def persist_current_folder_settings(self):
+        """Persist currently selected folders and file format as last-used settings."""
+        try:
+            selected_format = self.data_source_combo.currentText()
+            update_last_used_folders(
+                train_folder=self.train_folder_path or None,
+                val_folder=self.val_folder_path or None,
+                test_folder=self.test_folder_path or None,
+                file_format=selected_format
+            )
+        except Exception as e:
+            logger.error(f"Error persisting current folder settings: {e}", exc_info=True)
 
     def populate_file_list(self, folder_path, list_widget, file_format):
         """
@@ -502,12 +541,7 @@ class DataImportGUI(QMainWindow):
             
         # Save current settings as new defaults
         selected_format = self.data_source_combo.currentText()
-        update_last_used_folders(
-            train_folder=self.train_folder_path,
-            val_folder=self.val_folder_path, 
-            test_folder=self.test_folder_path,
-            file_format=selected_format
-        )
+        self.persist_current_folder_settings()
         logger.info(f"Saved current settings as defaults: Train={self.train_folder_path}, Val={self.val_folder_path}, Test={self.test_folder_path}, Format={selected_format}")
         
         # Update the button label and color when the process starts

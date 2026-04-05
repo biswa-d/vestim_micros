@@ -14,6 +14,7 @@ from vestim.services.model_training.src.FNN_model import FNNModel
 from vestim.services.model_training.src.LSTM_model import LSTMModel
 from vestim.services.model_training.src.GRU_model import GRUModel
 from vestim.services.model_testing.src.testing_service import apply_inference_filter
+from vestim.services.model_testing.src.continuous_testing_service import ContinuousTestingService
 from vestim.services.data_processor.src import normalization_service as norm_svc
 
 class VEstimStandaloneTestingManager(QObject):
@@ -33,6 +34,10 @@ class VEstimStandaloneTestingManager(QObject):
         self.overall_results = {}
         self.padding_length = 0
         self.inference_filter_override = inference_filter_override or None
+        self.resampling_applied = False
+        self.resampling_frequency = None
+        self.augmented_test_df = None
+        self.inference_test_file_path = None
     
     def start(self):
         """Start the testing process (called by test selection GUI)"""
@@ -44,6 +49,10 @@ class VEstimStandaloneTestingManager(QObject):
 
     def run_test(self):
         try:
+            self.resampling_applied = False
+            self.resampling_frequency = None
+            self.augmented_test_df = None
+            self.inference_test_file_path = None
             self.progress.emit("Starting test...")
             self.progress.emit("Loading configurations...")
             if self.inference_filter_override:
@@ -137,12 +146,14 @@ class VEstimStandaloneTestingManager(QObject):
                 
             # Save the augmented data
             augmented_df.to_csv(augmented_test_file, index=False)
+            self.inference_test_file_path = augmented_test_file
             
             # Store test session metadata
             self.test_session_id = self.session_timestamp
             self.session_dir = new_tests_dir
             
             self.test_df = augmented_df
+            self.augmented_test_df = augmented_df.copy()
             self.progress.emit("Resuming test with augmented data...")
             
 
@@ -256,7 +267,15 @@ class VEstimStandaloneTestingManager(QObject):
 
                         # Only transform columns that the scaler knows about
                         cols_to_transform = [col for col in scaler_features if col in self.test_df.columns]
+                        missing_scaler_features = [col for col in scaler_features if col not in self.test_df.columns]
                         self.progress.emit(f"[DEBUG] Columns to transform: {cols_to_transform}")
+
+                        if missing_scaler_features:
+                            raise ValueError(
+                                "Augmented test data is missing scaler-required columns: "
+                                f"{missing_scaler_features}. "
+                                "This usually means some augmentation steps (e.g., filter outputs) were not applied."
+                            )
                         
                         if cols_to_transform:
                             # Final dtype check before transform
@@ -266,6 +285,9 @@ class VEstimStandaloneTestingManager(QObject):
                             
                             self.test_df[cols_to_transform] = scaler.transform(self.test_df[cols_to_transform])
                             self.progress.emit(f"Normalization applied to {len(cols_to_transform)} columns.")
+                            # Ensure inference path uses the fully prepared (normalized) test file
+                            if self.inference_test_file_path:
+                                self.test_df.to_csv(self.inference_test_file_path, index=False)
                         else:
                             self.progress.emit("Warning: No columns could be matched with scaler.")
 
@@ -358,6 +380,8 @@ class VEstimStandaloneTestingManager(QObject):
             
             # Apply resampling if needed
             resampling_info = metadata.get('resampling', {})
+            self.resampling_applied = bool(resampling_info.get('applied', False))
+            self.resampling_frequency = resampling_info.get('frequency')
             if resampling_info.get('applied', False):
                 self.progress.emit(f"Applying resampling to {resampling_info.get('frequency', 'unknown')} frequency...")
                 result_df = self.data_augment_service.resample_data(result_df, resampling_info.get('frequency'))
@@ -569,167 +593,51 @@ class VEstimStandaloneTestingManager(QObject):
             if missing_cols:
                 raise ValueError(f"Missing required columns: {missing_cols}")
             
-            # Create model instance based on architecture and hyperparams
-            input_size = len(feature_columns)
-            if model_type == 'FNN':
-                model_input_size = input_size * lookback if training_method != 'WholeSequenceFNN' else input_size
-                hidden_sizes = hyperparams.get('HIDDEN_LAYER_SIZES', [64, 32])
-                apply_clipped_relu = hyperparams.get('normalization_applied', False)
-                model = FNNModel(
-                    input_size=model_input_size,
-                    output_size=hyperparams.get('OUTPUT_SIZE', 1),
-                    hidden_layer_sizes=hidden_sizes,
-                    activation_function=hyperparams.get('activation', 'ReLU'),
-                    dropout_prob=float(hyperparams.get('DROPOUT_PROB', 0.0)),
-                    apply_clipped_relu=apply_clipped_relu
-                )
-            elif model_type == 'LSTM':
-                apply_clipped_relu = hyperparams.get('normalization_applied', False)
-                model = LSTMModel(
-                    input_size=input_size,
-                    hidden_units=int(hyperparams.get('HIDDEN_UNITS', 64)),
-                    num_layers=int(hyperparams.get('LAYERS', 2)),
-                    device=device,
-                    dropout_prob=float(hyperparams.get('DROPOUT_PROB', 0.0)),
-                    apply_clipped_relu=apply_clipped_relu
-                )
-            elif model_type == 'GRU':
-                apply_clipped_relu = hyperparams.get('normalization_applied', False)
-                model = GRUModel(
-                    input_size=input_size,
-                    hidden_units=int(hyperparams.get('GRU_HIDDEN_UNITS', 64)),
-                    num_layers=int(hyperparams.get('GRU_LAYERS', 2)),
-                    device=device,
-                    dropout_prob=float(hyperparams.get('GRU_DROPOUT_PROB', 0.0)),
-                    apply_clipped_relu=apply_clipped_relu
-                )
-            else:
-                raise ValueError(f"Unsupported model type: {model_type}")
-            
-            # Load trained weights and move model to the correct device
-            checkpoint = torch.load(model_file, map_location=device)
-            model.load_state_dict(checkpoint.get('model_state_dict', checkpoint))
-            model.to(device)
-            model.eval()
-            
-            # Count model parameters
-            total_params = sum(p.numel() for p in model.parameters())
-            task_info['model_parameters'] = total_params
-            
-            # Prepare and run inference
-            self.progress.emit(f"  Running inference on {len(test_df)} samples...")
+            # Use the exact same inference engine as the main testing loop.
+            inference_file_path = self.inference_test_file_path or self.test_data_path
+            self.progress.emit(f"  Running continuous inference on: {os.path.basename(inference_file_path)}")
             start_time = time.time()
-            predictions_normalized = None
-            effective_samples = len(test_df)
 
-            with torch.no_grad():
-                # Use sample-by-sample inference for RNNs to avoid OOM
-                if model_type in ['LSTM', 'GRU']:
-                    data_to_process = test_df[feature_columns].values
-                    
-                    # Add warmup samples to initialize hidden states
-                    warmup_samples = lookback
-                    if len(data_to_process) > 0:
-                        first_row = data_to_process[0]
-                        warmup_data = np.array([first_row] * warmup_samples)
-                        data_full = np.vstack([warmup_data, data_to_process])
-                    else:
-                        data_full = data_to_process # Handle empty test file
-                    
-                    if data_full.size == 0:
-                        predictions_normalized = np.array([])
-                    else:
-                        X_all = torch.tensor(data_full.astype(np.float32)).view(-1, 1, len(feature_columns))
-                        
-                        y_preds_list = []
-                        h_s = None  # Hidden state for GRU/LSTM
-                        c_s = None  # Cell state for LSTM
-                        
-                        # Process data in chunks to avoid overwhelming the CPU->GPU transfer
-                        chunk_size = 10000
-                        for i in range(0, len(X_all), chunk_size):
-                            chunk = X_all[i:i+chunk_size].to(device)
-                            
-                            for t in range(len(chunk)):
-                                x_t = chunk[t].unsqueeze(0)  # Shape (1, 1, features)
-                                
-                                if model_type == 'LSTM':
-                                    y_pred, (h_s, c_s) = model(x_t, h_s, c_s)
-                                    if h_s is not None: h_s = h_s.detach()
-                                    if c_s is not None: c_s = c_s.detach()
-                                elif model_type == 'GRU':
-                                    y_pred, h_s = model(x_t, h_s)
-                                    if h_s is not None: h_s = h_s.detach()
+            service_task = dict(task_info)
+            service_task['job_metadata'] = job_metadata
+            service_task['job_folder_augmented_from'] = self.job_folder_path
+            if 'data_loader_params' not in service_task or not service_task.get('data_loader_params'):
+                service_task['data_loader_params'] = {
+                    'feature_columns': feature_columns,
+                    'target_column': target_column
+                }
 
-                                # Store predictions after warmup period
-                                if i + t >= warmup_samples:
-                                    y_preds_list.append(y_pred.squeeze().cpu().numpy())
+            continuous_testing_service = ContinuousTestingService(device=device)
+            file_results = continuous_testing_service.run_continuous_testing(
+                task=service_task,
+                model_path=model_file,
+                test_file_path=inference_file_path,
+                is_first_file=True,
+                warmup_samples=lookback
+            )
 
-                        predictions_normalized = np.array(y_preds_list).reshape(-1, 1)
+            if file_results is None:
+                raise ValueError("Continuous testing service returned no results.")
 
-                else:  # FNN and other models - use batched inference
-                    from torch.utils.data import TensorDataset, DataLoader
-                    
-                    data_to_process = test_df[feature_columns].values
-                    if training_method == 'WholeSequenceFNN':
-                        X_test_np = data_to_process
-                    else: # Sequential FNN
-                        if len(data_to_process) < lookback:
-                            raise ValueError(f"Test data length ({len(data_to_process)}) < lookback ({lookback})")
-                        X_test_np = self._create_sequences(data_to_process, lookback)
-                    
-                    if len(X_test_np) > 0:
-                        X_test = torch.tensor(X_test_np, dtype=torch.float32)
-                        test_dataset = TensorDataset(X_test)
-                        batch_size = 4096
-                        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-                        
-                        y_preds_list = []
-                        for (x_batch,) in test_loader:
-                            x_batch = x_batch.to(device)
-                            y_pred_batch = model(x_batch)
-                            y_preds_list.append(y_pred_batch.cpu().numpy())
-                        
-                        if y_preds_list:
-                            predictions_normalized = np.vstack(y_preds_list)
-                        else:
-                            predictions_normalized = np.array([])
-                    else:
-                        predictions_normalized = np.array([])
-
-            # Ensure predictions are numpy array for subsequent processing
-            if isinstance(predictions_normalized, torch.Tensor):
-                predictions_normalized = predictions_normalized.cpu().numpy()
-
-            # Remove padding from predictions if it was applied
-            if hasattr(self, 'padding_length') and self.padding_length > 0:
-                if len(predictions_normalized) > self.padding_length:
-                    self.progress.emit(f"  Removing {self.padding_length} padding predictions...")
-                    predictions_normalized = predictions_normalized[self.padding_length:]
-                    self.progress.emit(f"  ✓ Padding removed.")
-                else:
-                    self.progress.emit(f"  Warning: Predictions length ({len(predictions_normalized)}) is less than padding ({self.padding_length}). Cannot remove padding.")
-            
+            predictions_final = np.ravel(np.asarray(file_results.get('predictions', [])))
+            actual_values = np.ravel(np.asarray(file_results.get('true_values', [])))
             inference_time = time.time() - start_time
-            
-            # CRITICAL: Apply inference filters exactly like main training loop
-            filter_type = hyperparams.get('INFERENCE_FILTER_TYPE', 'None')
-            if filter_type != 'None' and len(predictions_normalized) > 0:
-                self.progress.emit(f"  Applying {filter_type} inference filter...")
-                predictions_normalized = apply_inference_filter(predictions_normalized.flatten(), {'hyperparams': hyperparams})
-                predictions_normalized = predictions_normalized.reshape(-1, 1)
-                self.progress.emit(f"  ✓ {filter_type} filter applied")
-            elif self.inference_filter_override and filter_type == 'None':
-                self.progress.emit("  Standalone inference filter override disabled filtering for this run.")
-            
-            # Denormalize predictions
-            if scaler and len(predictions_normalized) > 0:
-                predictions_final = norm_svc.inverse_transform_single_column(
-                    predictions_normalized, scaler, target_column, job_metadata.get('normalized_columns')
+
+            if len(predictions_final) == 0 or len(actual_values) == 0:
+                raise ValueError("Continuous testing returned empty predictions/targets.")
+
+            min_len = min(len(predictions_final), len(actual_values))
+            if len(predictions_final) != len(actual_values):
+                self.progress.emit(
+                    f"  Warning: prediction/target length mismatch ({len(predictions_final)} vs {len(actual_values)}). "
+                    f"Truncating to {min_len}."
                 )
-                self.progress.emit("  ✓ Predictions denormalized")
-            else:
-                predictions_final = predictions_normalized.flatten()
+                predictions_final = predictions_final[:min_len]
+                actual_values = actual_values[:min_len]
+
+            # Count model parameters from metadata when available
+            total_params = hyperparams.get('NUM_LEARNABLE_PARAMS', model_metadata.get('num_learnable_params', 'N/A'))
+            task_info['model_parameters'] = int(total_params) if isinstance(total_params, (int, float)) else total_params
             
             # Create individual task result directory using session timestamp: new_test_result_{session_timestamp}
             test_result_dir = os.path.join(task_path, f'new_test_result_{self.session_timestamp}')
@@ -755,60 +663,14 @@ class VEstimStandaloneTestingManager(QObject):
                 error_unit = "units"
                 error_multiplier = 1.0
             
-            # --- New, unified data alignment logic ---
-            self.progress.emit("  Aligning predictions with original data...")
-            
-            # Get actual values from original dataframe
-            if target_column in self.original_test_df.columns:
-                actual_values = self.original_test_df[target_column].values
-            else:
-                actual_values = None
-
-            # Determine where predictions should start
-            # Determine where predictions should start, now accounting for padding
-            padding_offset = self.padding_length if hasattr(self, 'padding_length') else 0
-
-            if model_type in ['LSTM', 'GRU']:
-                # For RNNs, warmup is handled during inference, so predictions start at index 0 of the original data
-                prediction_start_index = 0
-            elif training_method == 'WholeSequenceFNN':
-                # Predictions align with original data after padding is removed, so start at 0
-                prediction_start_index = 0
-            else:  # Sequential FNN
-                # The first valid prediction corresponds to the end of the first sequence
-                # that is completely free of padded data.
-                # This is at `padding_length + lookback - 1` in the padded data,
-                # which corresponds to `lookback - 1` in the original data.
-                prediction_start_index = lookback - 1 if lookback > 0 else 0
-
-            # Create a NaN-filled array for predictions that matches the original df length
-            predictions_aligned = np.full(len(self.original_test_df), np.nan)
-
-            # Calculate how many predictions can be placed into the aligned array
-            num_preds_to_place = min(len(predictions_final), len(predictions_aligned) - prediction_start_index)
-            
-            # Place the predictions at the correct starting index
-            if num_preds_to_place > 0:
-                predictions_aligned[prediction_start_index : prediction_start_index + num_preds_to_place] = predictions_final[:num_preds_to_place]
-
-            predicted_values = predictions_aligned # This array now has NaNs
-
-            # --- End of new logic ---
+            # Continuous service already handles warmup and returns aligned prediction/target pairs.
+            predicted_values = predictions_final
 
             # Calculate error and finalize DataFrame for CSV
             if actual_values is not None and predicted_values is not None:
-                # Important: For metric calculation, we must ignore NaNs
-                # Create a mask for valid (non-NaN) prediction entries
-                valid_indices = ~np.isnan(predicted_values)
-                
-                # Filter both actual and predicted values using the mask
-                actual_values_for_metrics = actual_values[valid_indices]
-                predicted_values_for_metrics = predicted_values[valid_indices]
-
-                # Calculate error for the entire column (with NaNs where appropriate)
-                # Suppress warnings for NaN calculations, as this is expected
-                with np.errstate(invalid='ignore'):
-                    errors_raw = predicted_values - actual_values
+                actual_values_for_metrics = actual_values
+                predicted_values_for_metrics = predicted_values
+                errors_raw = predicted_values - actual_values
                 errors_display = errors_raw * error_multiplier
                 
                 # Create a clean dataframe with only essential data for predictions CSV
@@ -846,7 +708,7 @@ class VEstimStandaloneTestingManager(QObject):
                 self.progress.emit(f"  Warning: Could not calculate metrics: {e}")
 
             training_metrics = self._extract_training_metrics(task_path, task_info)
-            num_params = hyperparams.get('NUM_LEARNABLE_PARAMS', 'N/A')
+            num_params = task_info.get('model_parameters', hyperparams.get('NUM_LEARNABLE_PARAMS', 'N/A'))
             
             results_data = {
                 'MAE': mae, 'RMSE': rmse, 'R²': r2, 'max_error': max_error,
@@ -876,9 +738,9 @@ class VEstimStandaloneTestingManager(QObject):
         finally:
             # Aggressively clean up memory after each model test
             del model
-            if 'X_test' in locals(): del X_test
-            if 'predictions_normalized' in locals(): del predictions_normalized
             if 'predictions_final' in locals(): del predictions_final
+            if 'file_results' in locals(): del file_results
+            if 'continuous_testing_service' in locals(): del continuous_testing_service
             if 'torch' in sys.modules and torch.cuda.is_available():
                 torch.cuda.empty_cache()
             gc.collect()

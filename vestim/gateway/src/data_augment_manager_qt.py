@@ -262,10 +262,11 @@ class DataAugmentManager(QObject): # Inherit from QObject
            for i, file_path in enumerate(all_files_to_process):
                 file_metadata = {'filepath': file_path, 'status': 'Skipped', 'error': 'Unknown reason'}
                 df = None
+                formula_error_occurred = False
                 try:
                     df = pd.read_csv(file_path)
                     file_metadata['original_shape'] = df.shape
-                    
+
                     actual_resampling_frequency_for_padding = None
 
                     if resampling_frequency and resampling_frequency != 'None' and df is not None and not df.empty:
@@ -299,7 +300,6 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             self.logger.info(f"[{os.path.basename(file_path)}] Removing temporary pre-filter padding: {effective_filter_padding} rows")
                             df = self.service.remove_padding(df, effective_filter_padding)
                    
-                    formula_error_occurred = False
                     if column_formulas and df is not None and not df.empty:
                         try:
                             df = self.service.create_columns(df, column_formulas, log_details=(i == 0))

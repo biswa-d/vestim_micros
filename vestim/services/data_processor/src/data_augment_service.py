@@ -51,9 +51,66 @@ class DataAugmentService:
         if self.job_manager.get_job_id() != job_id:
             self.logger.info(f"Setting JobManager's current job_id to: {job_id} (from path: {job_folder})")
             self.job_manager.job_id = job_id
-        elif self.job_manager.get_job_folder() != job_folder :
+        elif self.job_manager.get_job_folder() != job_folder:
             self.logger.info(f"JobManager's job_id '{job_id}' matches, but ensuring folder context is updated using path: {job_folder}")
             self.job_manager.job_id = job_id
+
+    def _parse_frequency_to_hz(self, frequency: str) -> float:
+        frequency_text = str(frequency).strip()
+        match = re.match(r'^\s*(\d*\.?\d+)\s*(m?hz)\s*$', frequency_text, flags=re.IGNORECASE)
+        if not match:
+            raise ValueError(f"Invalid frequency format: {frequency}. Expected values like '1Hz', '10 Hz', or '1mHz'.")
+
+        freq_value = float(match.group(1))
+        unit = match.group(2).lower()
+        if unit == 'mhz':
+            freq_value = freq_value / 1000.0
+
+        if freq_value <= 0:
+            raise ValueError(f"Frequency must be positive, got: {frequency}")
+
+        return freq_value
+
+    def _find_time_column(self, df: pd.DataFrame) -> Optional[str]:
+        preferred_candidates = ['Time', 'Timestamp', 'time', 'timestamp']
+        for col_name in preferred_candidates:
+            if col_name in df.columns and not df[col_name].isnull().all():
+                return col_name
+
+        for col in df.columns:
+            col_lower = col.lower().replace(" ", "")
+            if ('timestamp' in col_lower or 'time' in col_lower or 'date' in col_lower) and not df[col].isnull().all():
+                return col
+        return None
+
+    def _find_sample_column(self, df: pd.DataFrame) -> Optional[str]:
+        candidates = [
+            'Sample', 'sample', 'Sample_Number', 'sample_number',
+            'SampleNumber', 'sampleNumber', 'Index', 'index'
+        ]
+        for col_name in candidates:
+            if col_name in df.columns and not df[col_name].isnull().all():
+                return col_name
+        return None
+
+    def _coerce_datetime_series(self, series: pd.Series) -> pd.Series:
+        if pd.api.types.is_datetime64_any_dtype(series):
+            return series
+
+        parsed_generic = pd.to_datetime(series, errors='coerce')
+        if parsed_generic.notna().any():
+            return parsed_generic
+
+        numeric_series = pd.to_numeric(series, errors='coerce')
+        if not numeric_series.notna().any():
+            return parsed_generic
+
+        for unit in ['s', 'ms', 'us', 'ns']:
+            parsed = pd.to_datetime(numeric_series, unit=unit, errors='coerce')
+            if parsed.notna().any():
+                return parsed
+
+        return parsed_generic
 
 
     def load_processed_data(self, train_path: str, test_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -128,110 +185,118 @@ class DataAugmentService:
             if progress_callback: progress_callback(100)
             return pd.DataFrame()
 
-        time_column = None
-        # Prioritize common, exact names first, and ensure they have data
-        preferred_candidates = ['Time', 'Timestamp', 'time', 'timestamp']
-        for col_name in preferred_candidates:
-            if col_name in df.columns and not df[col_name].isnull().all():
-                time_column = col_name
-                break
-        
-        # If no preferred candidate found, search more broadly for a time-like column with data
-        if not time_column:
-            for col in df.columns:
-                col_lower = col.lower().replace(" ", "")
-                if ('timestamp' in col_lower or 'time' in col_lower or 'date' in col_lower) and not df[col].isnull().all():
-                    time_column = col
-                    break
-        
-        if not time_column:
-            self.logger.error("No time column found in DataFrame")
-            if progress_callback: progress_callback(0)
-            raise ValueError("DataFrame must contain a time-related column for resampling")
-        
-        self.logger.info(f"Using '{time_column}' as time column for resampling.")
-        
-        if not pd.api.types.is_datetime64_any_dtype(df[time_column]):
-            try:
-                self.logger.info(f"Converting '{time_column}' to datetime. Assuming seconds since epoch.")
-                df[time_column] = pd.to_datetime(df[time_column], unit='s', errors='coerce')
-                if df[time_column].isna().all():
-                    self.logger.error(f"All values in '{time_column}' became NaT. Cannot resample.")
-                    if progress_callback: progress_callback(0)
-                    raise ValueError(f"All values in time column '{time_column}' are invalid for datetime conversion.")
-                df = df.dropna(subset=[time_column])
-                if df.empty:
-                    self.logger.error(f"DataFrame became empty after dropping NaT values from '{time_column}'.")
-                    if progress_callback: progress_callback(0)
-                    raise ValueError(f"Time column '{time_column}' resulted in empty DataFrame after NaT handling.")
-            except Exception as e:
-                self.logger.error(f"Error converting '{time_column}' to datetime: {e}", exc_info=True)
-                if progress_callback: progress_callback(0)
-                raise ValueError(f"Could not convert '{time_column}' to datetime: {e}")
-        
-        if df.empty:
-            self.logger.warning("DataFrame is empty after time column processing. Returning empty DataFrame.")
-            if progress_callback: progress_callback(100)
-            return pd.DataFrame()
-
-        if progress_callback: progress_callback(30)
-        
-        df_for_resampling = df.set_index(time_column, drop=True)
-        
-        if df_for_resampling.empty:
-            self.logger.warning("df_for_resampling is empty before applying resample method.")
-            if progress_callback: progress_callback(100)
-            return pd.DataFrame()
-            
-        match = re.match(r'(\d*\.?\d*)Hz', frequency)
-        if not match:
-            self.logger.error(f"Invalid frequency format: {frequency}")
-            if progress_callback: progress_callback(0)
-            raise ValueError(f"Invalid frequency format: {frequency}. Expected format like '1Hz'")
-        
-        if progress_callback: progress_callback(50)
-        
-        freq_value = float(match.group(1))
-        period_seconds = 1.0 / freq_value
-        pandas_freq = f"{int(period_seconds)}S" if period_seconds >= 1 else f"{int(period_seconds * 1000)}L"
-        self.logger.info(f"Calculated pandas resampling frequency: {pandas_freq}")
-        
         try:
-            if not df_for_resampling.index.is_monotonic_increasing:
-                self.logger.warning(f"Time index for resampling is not monotonically increasing. Sorting index.")
-                df_for_resampling = df_for_resampling.sort_index()
-            
-            # Apply ffill only. Subsequent padding must handle potential leading NaNs.
-            resampled_df = df_for_resampling.resample(pandas_freq).ffill()
-
-            # Drop any leading rows that are all NaN after ffill (except for the time index)
-            # This can happen if the resampling starts before the first actual data point.
-            if not resampled_df.empty:
-                # Check if all data columns (excluding the index if it's already reset) are NaN for the first row
-                # If index is not yet reset, columns() gives data columns.
-                # If index is already reset, time_column needs to be excluded.
-                # At this stage, index is still the time column.
-                if resampled_df.iloc[0].isnull().all():
-                    self.logger.info(f"First row of resampled_df is all NaN. Attempting to drop leading NaN rows.")
-                    # Find first valid (non-all-NaN) row
-                    first_valid_index = resampled_df.dropna(how='all').index.min()
-                    if pd.notna(first_valid_index):
-                        resampled_df = resampled_df.loc[first_valid_index:]
-                        self.logger.info(f"Dropped leading all-NaN resampled rows. Updated shape: {resampled_df.shape}")
-                    else:
-                        self.logger.warning("Resampled DataFrame became all NaN after ffill. Returning empty.")
-                        resampled_df = pd.DataFrame(columns=df_for_resampling.columns) # Keep columns for consistency
-
-            if progress_callback: progress_callback(80)
-            resampled_df = resampled_df.reset_index()
-            self.logger.info(f"Resampling successful. Final shape: {resampled_df.shape}")
-            if progress_callback: progress_callback(100)
-            return resampled_df
-            
+            target_hz = self._parse_frequency_to_hz(frequency)
         except Exception as e:
-            self.logger.error(f"Error during resampling: {e}", exc_info=True)
+            self.logger.error(str(e))
             if progress_callback: progress_callback(0)
-            raise ValueError(f"Resampling failed: {e}")
+            raise
+
+        if progress_callback: progress_callback(25)
+
+        working_df = df.copy()
+        time_column = self._find_time_column(working_df)
+        sample_column = self._find_sample_column(working_df)
+        index_col_name = None
+        used_synthetic_time = False
+
+        if time_column:
+            parsed_time = self._coerce_datetime_series(working_df[time_column])
+            valid_mask = parsed_time.notna()
+            working_df = working_df.loc[valid_mask].copy()
+            parsed_time = parsed_time.loc[valid_mask]
+            if not working_df.empty:
+                duplicate_count = int(parsed_time.duplicated().sum())
+                if duplicate_count > 0:
+                    self.logger.warning(
+                        f"Time column '{time_column}' has {duplicate_count} duplicate timestamps. "
+                        "Falling back to sample-order synthetic timeline to preserve per-row cadence."
+                    )
+                else:
+                    working_df[time_column] = parsed_time
+                    index_col_name = time_column
+
+        if index_col_name is None:
+            used_synthetic_time = True
+            if sample_column:
+                sample_numeric = pd.to_numeric(working_df[sample_column], errors='coerce')
+                valid_mask = sample_numeric.notna()
+                working_df = working_df.loc[valid_mask].copy()
+                sample_numeric = sample_numeric.loc[valid_mask]
+                if working_df.empty:
+                    self.logger.error("Sample column exists but has no valid numeric values for resampling.")
+                    if progress_callback: progress_callback(0)
+                    raise ValueError("No valid sample values available for resampling.")
+                sample_start = float(sample_numeric.iloc[0])
+                sample_seconds = sample_numeric - sample_start
+            else:
+                sample_seconds = pd.Series(np.arange(len(working_df), dtype=float), index=working_df.index)
+
+            working_df['_resample_time_index'] = pd.to_datetime(sample_seconds, unit='s', origin='unix', errors='coerce')
+            working_df = working_df.dropna(subset=['_resample_time_index'])
+            if working_df.empty:
+                self.logger.error("Could not construct a valid synthetic time index for resampling.")
+                if progress_callback: progress_callback(0)
+                raise ValueError("Failed to build synthetic time index for resampling.")
+            index_col_name = '_resample_time_index'
+
+        if progress_callback: progress_callback(45)
+
+        df_for_resampling = working_df.set_index(index_col_name, drop=True).sort_index()
+
+        if df_for_resampling.empty:
+            self.logger.warning("No rows available for resampling after index preparation.")
+            if progress_callback: progress_callback(100)
+            return pd.DataFrame(columns=df.columns)
+
+        if df_for_resampling.index.has_duplicates:
+            self.logger.warning(
+                "Duplicate index labels remained after index preparation; "
+                "switching to sample-order synthetic timeline for deterministic resampling."
+            )
+            synthetic_seconds = pd.Series(np.arange(len(df_for_resampling), dtype=float), index=df_for_resampling.index)
+            df_for_resampling = df_for_resampling.copy()
+            df_for_resampling['_resample_time_index'] = pd.to_datetime(synthetic_seconds.values, unit='s', origin='unix')
+            df_for_resampling = df_for_resampling.set_index('_resample_time_index', drop=True).sort_index()
+            used_synthetic_time = True
+
+        resample_rule = pd.to_timedelta(1.0 / target_hz, unit='s')
+        numeric_cols = df_for_resampling.select_dtypes(include=[np.number]).columns.tolist()
+        non_numeric_cols = [col for col in df_for_resampling.columns if col not in numeric_cols]
+
+        numeric_resampled = pd.DataFrame(index=df_for_resampling.resample(resample_rule).asfreq().index)
+        if numeric_cols:
+            numeric_resampled = (
+                df_for_resampling[numeric_cols]
+                .resample(resample_rule)
+                .mean()
+                .interpolate(method='time', limit_direction='both')
+            )
+
+        if non_numeric_cols:
+            non_numeric_resampled = (
+                df_for_resampling[non_numeric_cols]
+                .resample(resample_rule)
+                .first()
+                .ffill()
+                .bfill()
+            )
+            resampled_df = pd.concat([numeric_resampled, non_numeric_resampled], axis=1)
+        else:
+            resampled_df = numeric_resampled
+
+        resampled_df = resampled_df.sort_index().reset_index()
+
+        if used_synthetic_time:
+            if sample_column and sample_column in resampled_df.columns:
+                elapsed_seconds = (resampled_df[index_col_name] - resampled_df[index_col_name].iloc[0]).dt.total_seconds()
+                resampled_df[sample_column] = sample_start + elapsed_seconds
+            resampled_df = resampled_df.drop(columns=[index_col_name], errors='ignore')
+
+        if progress_callback: progress_callback(90)
+        self.logger.info(f"Resampling successful. Final shape: {resampled_df.shape}")
+        if progress_callback: progress_callback(100)
+        return resampled_df
     
     @staticmethod
     def _generate_noise(mean, std, size):
@@ -415,13 +480,12 @@ class DataAugmentService:
             first_time_val_anchor = original_first_row[time_col_name] # Anchor for time decrement
             if pd.notna(first_time_val_anchor):
                 if resample_freq_for_time_padding:
-                    match = re.match(r'(\d*\.?\d*)Hz', resample_freq_for_time_padding)
-                    if match:
-                        try:
-                            freq_hz = float(match.group(1))
-                            if freq_hz > 0: time_delta_for_padding = pd.Timedelta(seconds=1.0 / freq_hz)
-                        except ValueError: self.logger.warning(f"Could not parse freq {resample_freq_for_time_padding} for time delta.")
-                    else: self.logger.warning(f"Freq format {resample_freq_for_time_padding} not recognized for time delta.")
+                    try:
+                        freq_hz = self._parse_frequency_to_hz(resample_freq_for_time_padding)
+                        if freq_hz > 0:
+                            time_delta_for_padding = pd.Timedelta(seconds=1.0 / freq_hz)
+                    except Exception:
+                        self.logger.warning(f"Freq format {resample_freq_for_time_padding} not recognized for time delta.")
                 elif len(df) >= 2:
                     second_time_val = df[time_col_name].iloc[1]
                     if pd.notna(second_time_val) and first_time_val_anchor != second_time_val:

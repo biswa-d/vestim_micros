@@ -58,6 +58,32 @@ class BaseDataHandler(ABC):
             
             # Select only the required columns to reduce memory early
             df_selected = df[required_cols].copy() # Use .copy() to avoid SettingWithCopyWarning later
+
+            # Coerce to numeric and drop rows with invalid values in required columns.
+            # This prevents corrupted CSV rows (e.g. empty trailing rows) from propagating
+            # NaN/Inf into training tensors.
+            for col in required_cols:
+                df_selected[col] = pd.to_numeric(df_selected[col], errors='coerce')
+
+            numeric_array = df_selected.to_numpy(dtype=float)
+            finite_mask = np.isfinite(numeric_array).all(axis=1)
+            invalid_row_count = int((~finite_mask).sum())
+            if invalid_row_count > 0:
+                if self.logger:
+                    self.logger.warning(
+                        f"Dropped {invalid_row_count} invalid rows with NaN/Inf values from {file_path}"
+                    )
+                else:
+                    print(f"WARNING: Dropped {invalid_row_count} invalid rows with NaN/Inf values from {file_path}")
+                df_selected = df_selected.loc[finite_mask].copy()
+
+            if df_selected.empty:
+                if self.logger:
+                    self.logger.warning(f"No valid numeric rows left after cleaning: {file_path}")
+                else:
+                    print(f"WARNING: No valid numeric rows left after cleaning: {file_path}")
+                return None
+
             return df_selected
         except FileNotFoundError:
             if self.logger:

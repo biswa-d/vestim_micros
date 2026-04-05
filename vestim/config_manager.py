@@ -231,15 +231,11 @@ class ConfigManager:
     def _save_default_settings(self):
         """Save default settings to configuration file"""
         try:
-            # Determine where to save the settings
-            if getattr(sys, 'frozen', False):
-                # Running as compiled executable - save in projects directory
-                projects_dir = self.get_projects_directory()
-                settings_path = Path(projects_dir) / "default_settings.json"
-            else:
-                # Running as script - save in script directory
-                app_dir = Path(__file__).parent
-                settings_path = app_dir / "default_settings.json"
+            # Save to projects directory in both frozen and development modes.
+            # This must match _load_default_settings(), which primarily reads from
+            # projects_dir/default_settings.json.
+            projects_dir = self.get_projects_directory()
+            settings_path = Path(projects_dir) / "default_settings.json"
             
             with open(settings_path, 'w') as f:
                 json.dump(self._default_settings, f, indent=4)

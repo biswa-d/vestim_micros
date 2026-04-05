@@ -489,18 +489,27 @@ class VEstimTestingGUI(QMainWindow):
             elif timestamp_col:
                     try:
                         ts = df[timestamp_col]
-                        if pd.api.types.is_numeric_dtype(ts):
+                        ts_non_empty = ts.dropna()
+                        if ts_non_empty.dtype == object:
+                            ts_non_empty = ts_non_empty.astype(str).str.strip()
+                            ts_non_empty = ts_non_empty[~ts_non_empty.isin(['', 'nan', 'NaN', 'None', 'NaT'])]
+
+                        if ts_non_empty.empty:
+                            x_axis, x_label = (df.index, "Sample Index")
+                        elif pd.api.types.is_numeric_dtype(ts):
                             ts_num = pd.to_numeric(ts, errors='coerce')
                             if ts_num.notna().any() and 10000 < ts_num.max() < 1_000_000:
                                 t = pd.to_datetime(ts_num, unit="D", origin="1899-12-30")
                                 x_axis = (t - t.iloc[0]).dt.total_seconds()
+                                x_label = "Time (seconds)"
                             else:
                                 x_axis = ts_num - ts_num.iloc[0]
+                                x_label = "Time (seconds)"
                         else:
                             t = pd.to_datetime(ts, errors='coerce', format='%Y-%m-%d %H:%M:%S.%f')
                             if t.notna().any():
                                 x_axis = (t - t.iloc[0]).dt.total_seconds()
-                        x_label = "Time (seconds)"
+                                x_label = "Time (seconds)"
                     except:
                         pass
 
