@@ -180,6 +180,26 @@ class VEstimTestingGUI(QMainWindow):
                     job_row.addWidget(job_label)
                     job_row.addStretch(1)
                     path_layout.addLayout(job_row)
+
+                # Resampling label (if augmentation metadata indicates resampling)
+                if job_folder:
+                    try:
+                        aug_meta_path = os.path.join(job_folder, 'augmentation_metadata.json')
+                        if os.path.exists(aug_meta_path):
+                            with open(aug_meta_path, 'r') as f:
+                                aug_meta = json.load(f)
+                            resampling_info = aug_meta.get('resampling', {}) if isinstance(aug_meta, dict) else {}
+                            if resampling_info.get('applied', False):
+                                frequency = resampling_info.get('frequency', 'unknown')
+                                resampling_label = QLabel(f"resampling: applied ({frequency})")
+                                resampling_label.setStyleSheet("color: #0b6337; font-size: 12px; font-weight: bold;")
+                                resampling_row = QHBoxLayout()
+                                resampling_row.addStretch(1)
+                                resampling_row.addWidget(resampling_label)
+                                resampling_row.addStretch(1)
+                                path_layout.addLayout(resampling_row)
+                    except Exception:
+                        pass
                 
                 self.main_layout.addWidget(path_container)
         except Exception:

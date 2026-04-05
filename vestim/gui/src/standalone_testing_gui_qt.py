@@ -137,6 +137,22 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         job_dir_label.setStyleSheet("font-size: 11pt; color: #666; margin-bottom: 20px;")
         self.main_layout.addWidget(job_dir_label)
 
+        # Show applied resampling frequency when available
+        try:
+            aug_meta_path = os.path.join(self.job_folder_path, 'augmentation_metadata.json')
+            if os.path.exists(aug_meta_path):
+                with open(aug_meta_path, 'r') as f:
+                    aug_meta = json.load(f)
+                resampling_info = aug_meta.get('resampling', {}) if isinstance(aug_meta, dict) else {}
+                if resampling_info.get('applied', False):
+                    frequency = resampling_info.get('frequency', 'unknown')
+                    resampling_label = QLabel(f"Resampling: applied ({frequency})")
+                    resampling_label.setAlignment(Qt.AlignCenter)
+                    resampling_label.setStyleSheet("font-size: 10pt; color: #0b6337; font-weight: bold; margin-bottom: 10px;")
+                    self.main_layout.addWidget(resampling_label)
+        except Exception:
+            pass
+
         # Create hyperparameters display section
         self.create_hyperparams_section()
         

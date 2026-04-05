@@ -6,7 +6,7 @@ import datetime
 import traceback
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QFileDialog, QWidget, QListWidget, QListWidgetItem, QMessageBox, QTextEdit,
-                             QGroupBox, QComboBox, QLineEdit)
+                             QGroupBox, QFormLayout, QSpinBox, QDoubleSpinBox, QComboBox)
 from PyQt5.QtCore import Qt
 from vestim.gui.src.adaptive_gui_utils import get_adaptive_stylesheet, scale_widget_size
 from vestim.gateway.src.standalone_testing_manager_qt import VEstimStandaloneTestingManager
@@ -21,6 +21,7 @@ class TestSelectionGUI(QMainWindow):
         self.test_files = []
         self.current_file_index = 0
         self.session_timestamp = None  # Will be set when testing starts
+        self.inference_filter_override = None
         self.initUI()
 
     def initUI(self):
@@ -90,8 +91,37 @@ class TestSelectionGUI(QMainWindow):
         self.files_list.setMaximumHeight(200)
         self.main_layout.addWidget(self.files_list)
 
-        # Inference filter override
-        self._create_inference_filter_section()
+        # Inference filter override controls
+        self.filter_group = QGroupBox("Inference Filter (Standalone Override)")
+        self.filter_group.setToolTip("Overrides saved model inference filter settings during standalone testing.")
+        filter_form = QFormLayout()
+
+        self.filter_type_combo = QComboBox()
+        self.filter_type_combo.addItems(["Use model default", "None", "Moving Average", "Exponential Moving Average", "Savitzky-Golay"])
+        self.filter_type_combo.currentTextChanged.connect(self._update_filter_param_visibility)
+        filter_form.addRow("Filter Type:", self.filter_type_combo)
+
+        self.filter_window_spin = QSpinBox()
+        self.filter_window_spin.setRange(1, 9999)
+        self.filter_window_spin.setSingleStep(2)
+        self.filter_window_spin.setValue(9)
+        filter_form.addRow("Window Size:", self.filter_window_spin)
+
+        self.filter_alpha_spin = QDoubleSpinBox()
+        self.filter_alpha_spin.setRange(0.0001, 1.0)
+        self.filter_alpha_spin.setSingleStep(0.01)
+        self.filter_alpha_spin.setDecimals(4)
+        self.filter_alpha_spin.setValue(0.2)
+        filter_form.addRow("Alpha:", self.filter_alpha_spin)
+
+        self.filter_polyorder_spin = QSpinBox()
+        self.filter_polyorder_spin.setRange(1, 99)
+        self.filter_polyorder_spin.setValue(2)
+        filter_form.addRow("Poly Order:", self.filter_polyorder_spin)
+
+        self.filter_group.setLayout(filter_form)
+        self.main_layout.addWidget(self.filter_group)
+        self._update_filter_param_visibility(self.filter_type_combo.currentText())
 
         # Run button
         self.run_test_button = QPushButton("Start Testing")
@@ -127,90 +157,6 @@ class TestSelectionGUI(QMainWindow):
 
         self.main_layout.addStretch()
         self.apply_styles()
-
-    def _create_inference_filter_section(self):
-        """Create standalone testing controls for inference filter override."""
-        filter_group = QGroupBox("Inference Filter")
-        filter_layout = QVBoxLayout(filter_group)
-
-        filter_desc = QLabel(
-            "Optional override for post-inference filtering during standalone testing. "
-            "Choose 'Use Job Setting' to keep the filter saved with each trained task."
-        )
-        filter_desc.setWordWrap(True)
-        filter_desc.setStyleSheet(get_adaptive_stylesheet("color: #6c757d; font-size: 9pt; margin-bottom: 6px;"))
-        filter_layout.addWidget(filter_desc)
-
-        row1 = QHBoxLayout()
-        row1.addWidget(QLabel("Filter Type:"))
-        self.inference_filter_combo = QComboBox()
-        self.inference_filter_combo.addItems([
-            "Use Job Setting",
-            "None",
-            "Moving Average",
-            "Exponential Moving Average",
-            "Savitzky-Golay"
-        ])
-        self.inference_filter_combo.currentTextChanged.connect(self.update_inference_filter_controls)
-        row1.addWidget(self.inference_filter_combo, 1)
-        filter_layout.addLayout(row1)
-
-        row2 = QHBoxLayout()
-        self.inference_window_label = QLabel("Window Size:")
-        self.inference_window_entry = QLineEdit("101")
-        self.inference_window_entry.setMaximumWidth(120)
-        row2.addWidget(self.inference_window_label)
-        row2.addWidget(self.inference_window_entry)
-
-        self.inference_alpha_label = QLabel("Alpha:")
-        self.inference_alpha_entry = QLineEdit("0.1")
-        self.inference_alpha_entry.setMaximumWidth(120)
-        row2.addWidget(self.inference_alpha_label)
-        row2.addWidget(self.inference_alpha_entry)
-
-        self.inference_poly_label = QLabel("Poly Order:")
-        self.inference_poly_entry = QLineEdit("2")
-        self.inference_poly_entry.setMaximumWidth(120)
-        row2.addWidget(self.inference_poly_label)
-        row2.addWidget(self.inference_poly_entry)
-        row2.addStretch()
-        filter_layout.addLayout(row2)
-
-        self.main_layout.addWidget(filter_group)
-        self.update_inference_filter_controls()
-
-    def update_inference_filter_controls(self):
-        """Show only relevant override controls for the selected inference filter."""
-        filter_type = self.inference_filter_combo.currentText() if hasattr(self, 'inference_filter_combo') else "Use Job Setting"
-        show_window = filter_type in ["Moving Average", "Savitzky-Golay"]
-        show_alpha = filter_type == "Exponential Moving Average"
-        show_poly = filter_type == "Savitzky-Golay"
-
-        self.inference_window_label.setVisible(show_window)
-        self.inference_window_entry.setVisible(show_window)
-        self.inference_alpha_label.setVisible(show_alpha)
-        self.inference_alpha_entry.setVisible(show_alpha)
-        self.inference_poly_label.setVisible(show_poly)
-        self.inference_poly_entry.setVisible(show_poly)
-
-    def get_inference_filter_override(self):
-        """Collect standalone-testing inference filter override settings."""
-        filter_type = self.inference_filter_combo.currentText()
-        if filter_type == "Use Job Setting":
-            return None
-
-        override = {
-            'INFERENCE_FILTER_TYPE': filter_type
-        }
-
-        if filter_type in ["Moving Average", "Savitzky-Golay"]:
-            override['INFERENCE_FILTER_WINDOW_SIZE'] = self.inference_window_entry.text().strip() or "101"
-        if filter_type == "Exponential Moving Average":
-            override['INFERENCE_FILTER_ALPHA'] = self.inference_alpha_entry.text().strip() or "0.1"
-        if filter_type == "Savitzky-Golay":
-            override['INFERENCE_FILTER_POLYORDER'] = self.inference_poly_entry.text().strip() or "2"
-
-        return override
 
     def apply_styles(self):
         button_style = get_adaptive_stylesheet("""
@@ -298,14 +244,20 @@ class TestSelectionGUI(QMainWindow):
         
         # Generate session timestamp for consistent folder organization
         self.session_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.inference_filter_override = self._get_inference_filter_override()
         
         # Disable the button and clear log
         self.run_test_button.setEnabled(False)
         self.run_test_button.setText("Testing in Progress...")
+        self.filter_group.setEnabled(False)
         self.log_widget.clear()
         
         # Process all selected files with a single GUI
         self.log_widget.append(f"Starting testing with {len(self.test_files)} file(s)")
+        if self.inference_filter_override:
+            self.log_widget.append(f"Inference filter override: {self.inference_filter_override}")
+        else:
+            self.log_widget.append("Inference filter override: using model defaults")
         
         # Launch the testing GUI ONCE to show results from all files
         self.log_widget.append("Launching standalone testing GUI...")
@@ -335,10 +287,9 @@ class TestSelectionGUI(QMainWindow):
             self.log_widget.append("Initializing testing manager...")
             QApplication.processEvents()
 
-            inference_filter_override = self.get_inference_filter_override()
-            if inference_filter_override:
+            if self.inference_filter_override:
                 self.log_widget.append(
-                    f"Using standalone inference filter override: {inference_filter_override.get('INFERENCE_FILTER_TYPE')}"
+                    f"Using standalone inference filter override: {self.inference_filter_override.get('INFERENCE_FILTER_TYPE')}"
                 )
             
             # The manager will handle augmentation and testing for this file
@@ -346,7 +297,7 @@ class TestSelectionGUI(QMainWindow):
                 self.job_folder_path,
                 test_file,
                 self.session_timestamp,
-                inference_filter_override=inference_filter_override
+                inference_filter_override=self.inference_filter_override
             )
             
             # Connect to manager signals for progress updates
@@ -474,6 +425,7 @@ class TestSelectionGUI(QMainWindow):
         # Keep button disabled after completion to prevent re-running
         self.run_test_button.setText("All Testing Complete")
         self.run_test_button.setEnabled(False)
+        self.filter_group.setEnabled(False)
         self.run_test_button.setStyleSheet("""
             QPushButton {
                 background-color: #28a745;
@@ -501,6 +453,50 @@ class TestSelectionGUI(QMainWindow):
             self.log_widget.append("All files processed (some with errors)")
             self.run_test_button.setEnabled(True)
             self.run_test_button.setText("Start Testing")
+            self.filter_group.setEnabled(True)
+
+    def _update_filter_param_visibility(self, selected_filter: str):
+        is_moving_average = selected_filter == "Moving Average"
+        is_ema = selected_filter == "Exponential Moving Average"
+        is_savgol = selected_filter == "Savitzky-Golay"
+
+        self.filter_window_spin.setVisible(is_moving_average or is_savgol)
+        self.filter_alpha_spin.setVisible(is_ema)
+        self.filter_polyorder_spin.setVisible(is_savgol)
+
+        label_for_window = self.filter_group.layout().labelForField(self.filter_window_spin)
+        label_for_alpha = self.filter_group.layout().labelForField(self.filter_alpha_spin)
+        label_for_poly = self.filter_group.layout().labelForField(self.filter_polyorder_spin)
+        if label_for_window:
+            label_for_window.setVisible(is_moving_average or is_savgol)
+        if label_for_alpha:
+            label_for_alpha.setVisible(is_ema)
+        if label_for_poly:
+            label_for_poly.setVisible(is_savgol)
+
+    def _get_inference_filter_override(self):
+        selected_filter = self.filter_type_combo.currentText()
+        if selected_filter == "Use model default":
+            return None
+        if selected_filter == "None":
+            return {'INFERENCE_FILTER_TYPE': 'None'}
+        if selected_filter == "Moving Average":
+            return {
+                'INFERENCE_FILTER_TYPE': 'Moving Average',
+                'INFERENCE_FILTER_WINDOW_SIZE': int(self.filter_window_spin.value())
+            }
+        if selected_filter == "Exponential Moving Average":
+            return {
+                'INFERENCE_FILTER_TYPE': 'Exponential Moving Average',
+                'INFERENCE_FILTER_ALPHA': float(self.filter_alpha_spin.value())
+            }
+        if selected_filter == "Savitzky-Golay":
+            return {
+                'INFERENCE_FILTER_TYPE': 'Savitzky-Golay',
+                'INFERENCE_FILTER_WINDOW_SIZE': int(self.filter_window_spin.value()),
+                'INFERENCE_FILTER_POLYORDER': int(self.filter_polyorder_spin.value())
+            }
+        return None
 
     def launch_testing_gui(self):
         """Launch the standalone testing GUI once to show results from all files"""

@@ -29,6 +29,7 @@ class VEstimStandaloneTestingManager(QObject):
         self.job_folder_path = job_folder_path
         self.test_data_path = test_data_path
         self.session_timestamp = session_timestamp or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.inference_filter_override = inference_filter_override or {}
         self.data_augment_service = DataAugmentService()
         self.test_df = None
         self.overall_results = {}
@@ -601,6 +602,8 @@ class VEstimStandaloneTestingManager(QObject):
             service_task = dict(task_info)
             service_task['job_metadata'] = job_metadata
             service_task['job_folder_augmented_from'] = self.job_folder_path
+            service_task['hyperparams'] = dict(service_task.get('hyperparams', {}))
+            self._apply_inference_filter_override(service_task['hyperparams'])
             if 'data_loader_params' not in service_task or not service_task.get('data_loader_params'):
                 service_task['data_loader_params'] = {
                     'feature_columns': feature_columns,
@@ -746,6 +749,36 @@ class VEstimStandaloneTestingManager(QObject):
             gc.collect()
             task_name = task_info.get('task_name', 'Unknown')
             self.progress.emit(f"  ✓ Cleaned up memory for task {task_name}")
+
+    def _apply_inference_filter_override(self, hyperparams: dict):
+        """Apply optional GUI-selected inference filter override to task hyperparameters."""
+        if not isinstance(hyperparams, dict):
+            return
+
+        override = self.inference_filter_override if isinstance(self.inference_filter_override, dict) else {}
+        filter_type = str(override.get('INFERENCE_FILTER_TYPE', '')).strip()
+        if not filter_type:
+            return
+
+        hyperparams['INFERENCE_FILTER_TYPE'] = filter_type
+
+        if filter_type == 'Moving Average':
+            hyperparams['INFERENCE_FILTER_WINDOW_SIZE'] = int(override.get('INFERENCE_FILTER_WINDOW_SIZE', 5))
+            hyperparams.pop('INFERENCE_FILTER_ALPHA', None)
+            hyperparams.pop('INFERENCE_FILTER_POLYORDER', None)
+        elif filter_type == 'Exponential Moving Average':
+            hyperparams['INFERENCE_FILTER_ALPHA'] = float(override.get('INFERENCE_FILTER_ALPHA', 0.2))
+            hyperparams.pop('INFERENCE_FILTER_WINDOW_SIZE', None)
+            hyperparams.pop('INFERENCE_FILTER_POLYORDER', None)
+        elif filter_type == 'Savitzky-Golay':
+            hyperparams['INFERENCE_FILTER_WINDOW_SIZE'] = int(override.get('INFERENCE_FILTER_WINDOW_SIZE', 9))
+            hyperparams['INFERENCE_FILTER_POLYORDER'] = int(override.get('INFERENCE_FILTER_POLYORDER', 2))
+            hyperparams.pop('INFERENCE_FILTER_ALPHA', None)
+        else:
+            hyperparams['INFERENCE_FILTER_TYPE'] = 'None'
+            hyperparams.pop('INFERENCE_FILTER_WINDOW_SIZE', None)
+            hyperparams.pop('INFERENCE_FILTER_ALPHA', None)
+            hyperparams.pop('INFERENCE_FILTER_POLYORDER', None)
 
     def _extract_training_metrics(self, task_path, task_info):
         """Extract training metrics from training logs and task results."""
