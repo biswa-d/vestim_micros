@@ -13,8 +13,9 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout
                             QPushButton, QLabel, QListWidget, QCheckBox, QLineEdit,
                             QComboBox, QTableWidget, QTableWidgetItem, QSizePolicy,
                             QFileDialog, QProgressBar, QWidget, QMessageBox, QDialog,
-                            QFormLayout, QGroupBox, QSpinBox, QDoubleSpinBox)
+                            QFormLayout, QGroupBox, QSpinBox, QDoubleSpinBox, QInputDialog)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject, QTimer
+from PyQt5.QtGui import QDoubleValidator
 
 import os, json
 import sys
@@ -114,13 +115,13 @@ class FormulaInputDialog(QDialog):
 
 class FilterInputDialog(QDialog):
     """Dialog for entering filter specifications."""
-    def __init__(self, available_columns, parent=None):
+    def __init__(self, available_columns, parent=None, default_sampling_rate=None):
         super().__init__(parent)
         self.available_columns = available_columns
         self.column_name = ""
         self.output_column_name = ""
         self.corner_frequency = 0.0
-        self.sampling_rate = 1.0
+        self.sampling_rate = float(default_sampling_rate) if default_sampling_rate and default_sampling_rate > 0 else 1.0
         self.initUI()
         
     def initUI(self):
@@ -138,7 +139,7 @@ class FilterInputDialog(QDialog):
         form_layout.addRow("Filter Type:", self.filter_type_combo)
         self.sampling_rate_spinbox = QDoubleSpinBox()
         self.sampling_rate_spinbox.setRange(0.01, 10000.0)
-        self.sampling_rate_spinbox.setValue(1.0)
+        self.sampling_rate_spinbox.setValue(self.sampling_rate)
         self.sampling_rate_spinbox.setSingleStep(1.0)
         form_layout.addRow("Sampling Rate (Hz):", self.sampling_rate_spinbox)
         self.filter_order_spinbox = QSpinBox()
@@ -336,12 +337,13 @@ class AugmentationWorker(QObject):
     """Worker class for running data augmentation in a separate thread."""
     criticalError = pyqtSignal(str) 
 
-    def __init__(self, data_augment_manager, job_folder, padding_length, resampling_frequency, column_formulas, normalize_data=False, filter_configs=None, noise_configs=None):
+    def __init__(self, data_augment_manager, job_folder, padding_length, resampling_frequency, source_sampling_rate_override_hz, column_formulas, normalize_data=False, filter_configs=None, noise_configs=None):
         super().__init__()
         self.data_augment_manager = data_augment_manager
         self.job_folder = job_folder
         self.padding_length = padding_length
         self.resampling_frequency = resampling_frequency
+        self.source_sampling_rate_override_hz = source_sampling_rate_override_hz
         self.column_formulas = column_formulas
         self.normalize_data = normalize_data
         self.filter_configs = filter_configs
@@ -355,6 +357,7 @@ class AugmentationWorker(QObject):
                 job_folder=self.job_folder,
                 padding_length=self.padding_length,
                 resampling_frequency=self.resampling_frequency,
+                source_sampling_rate_override_hz=self.source_sampling_rate_override_hz,
                 column_formulas=self.column_formulas,
                 normalize_data=self.normalize_data,
                 filter_configs=self.filter_configs,
@@ -379,6 +382,8 @@ class DataAugmentGUI(QMainWindow):
         self.augmentation_thread = None
         self.augmentation_worker = None
         self.hyper_param_gui = None
+        self.detected_sampling_profile = None
+        self.detected_source_sampling_hz = None
 
         if self.testing_mode:
             self.job_folder = None
@@ -402,6 +407,8 @@ class DataAugmentGUI(QMainWindow):
             self.prepopulate_for_testing()
         elif self.job_folder:
             self.load_filter_settings_last_used()
+
+        QTimer.singleShot(0, self._initialize_source_sampling_detection)
 
     def save_filter_settings(self):
         if self.settings_file and self.filter_configs:
@@ -561,10 +568,41 @@ class DataAugmentGUI(QMainWindow):
         frequency_label = QLabel("Resampling Frequency:")
         frequency_layout.addWidget(frequency_label)
         self.frequency_combo = QComboBox()
-        self.frequency_combo.addItems(["1mHz", "0.1Hz", "0.5Hz", "1Hz", "5Hz", "10Hz"])
+        self.frequency_combo.addItems(["0.001", "0.1", "0.5", "1", "2", "5", "10"])
+        self.frequency_combo.setEditable(True)
+        self.frequency_combo.setInsertPolicy(QComboBox.NoInsert)
+        if self.frequency_combo.lineEdit() is not None:
+            self.frequency_combo.lineEdit().setPlaceholderText("Enter Hz (e.g., 0.25)")
+            hz_validator = QDoubleValidator(0.000001, 100000.0, 6, self)
+            hz_validator.setNotation(QDoubleValidator.StandardNotation)
+            self.frequency_combo.lineEdit().setValidator(hz_validator)
         self.frequency_combo.setEnabled(False)
         frequency_layout.addWidget(self.frequency_combo)
         resampling_layout.addLayout(frequency_layout)
+
+        source_rate_layout = QHBoxLayout()
+        source_rate_label = QLabel("Original Sampling Rate (Hz, optional):")
+        source_rate_layout.addWidget(source_rate_label)
+        self.source_sampling_rate_override_edit = QLineEdit()
+        self.source_sampling_rate_override_edit.setPlaceholderText("Auto-detect from timestamps")
+        self.source_sampling_rate_override_edit.setToolTip("Leave blank to auto-detect from data timestamps. Enter a positive Hz value to override.")
+        self.source_sampling_rate_override_edit.setEnabled(False)
+        source_rate_layout.addWidget(self.source_sampling_rate_override_edit)
+        resampling_layout.addLayout(source_rate_layout)
+
+        detected_source_layout = QHBoxLayout()
+        detected_source_label = QLabel("Detected Original Sampling Rate (Hz):")
+        detected_source_layout.addWidget(detected_source_label)
+        self.detected_sampling_rate_value_label = QLabel("Pending")
+        self.detected_sampling_rate_value_label.setStyleSheet("font-weight: bold; color: #0b6337;")
+        detected_source_layout.addWidget(self.detected_sampling_rate_value_label)
+        detected_source_layout.addStretch(1)
+        resampling_layout.addLayout(detected_source_layout)
+
+        self.source_sampling_detected_label = QLabel("Auto-detect: pending")
+        self.source_sampling_detected_label.setStyleSheet("color: #555; font-size: 9pt;")
+        resampling_layout.addWidget(self.source_sampling_detected_label)
+
         resampling_group.setLayout(resampling_layout)
         bottom_row_layout.addWidget(resampling_group)
 
@@ -673,6 +711,7 @@ class DataAugmentGUI(QMainWindow):
                     self.column_creation_checkbox.setEnabled(True)
                     self.filtering_checkbox.setEnabled(True)
                     self.normalization_checkbox.setEnabled(True)
+                    self._initialize_source_sampling_detection()
                 else:
                     self.train_df = None
                     self.apply_button.setEnabled(False)
@@ -693,6 +732,177 @@ class DataAugmentGUI(QMainWindow):
 
     def toggle_resampling_options(self, state):
         self.frequency_combo.setEnabled(state == Qt.Checked)
+        self.source_sampling_rate_override_edit.setEnabled(state == Qt.Checked)
+        self._update_detected_sampling_rate_label()
+
+    def _initialize_source_sampling_detection(self):
+        profile = None
+
+        if self.job_folder:
+            try:
+                self.logger.info(f"Starting source sampling detection for augmentation GUI launch (job={self.job_folder})")
+                profile = self.data_augment_manager.detect_source_sampling_from_job(self.job_folder)
+            except Exception as e:
+                self.logger.error(f"Sampling detection failed during GUI launch: {e}", exc_info=True)
+
+        if not profile and self.train_df is not None and not self.train_df.empty:
+            try:
+                profile = self.data_augment_manager.service.detect_sampling_profile(self.train_df)
+                profile = dict(profile) if isinstance(profile, dict) else {}
+                profile.setdefault('source_file', 'sample_train_dataframe')
+                profile.setdefault('source_stage', 'train_processed')
+                profile.setdefault('scanned_files', 1)
+            except Exception as e:
+                self.logger.error(f"Sampling detection fallback failed: {e}", exc_info=True)
+                profile = {'source_hz': None, 'reason': 'parse_error'}
+
+        self._set_detected_sampling_profile(profile if isinstance(profile, dict) else None)
+        self._sync_filter_sampling_rate_from_detected()
+        self._update_detected_sampling_rate_label()
+
+    def _set_detected_sampling_profile(self, profile):
+        profile = profile or {}
+        self.detected_sampling_profile = profile
+        source_hz = profile.get('source_hz')
+        self.detected_source_sampling_hz = float(source_hz) if source_hz and source_hz > 0 else None
+
+        if self.detected_source_sampling_hz:
+            mode = profile.get('source_mode', 'auto_detected')
+            source_stage = profile.get('source_stage', 'unknown')
+            source_file = profile.get('source_file')
+            source_file_name = os.path.basename(source_file) if source_file else 'unknown'
+            self.logger.info(
+                f"Data Augment GUI launch sampling detection: Original sampling rate = "
+                f"{self.detected_source_sampling_hz:.6g} Hz (mode={mode}, stage={source_stage}, file={source_file_name})"
+            )
+        else:
+            reason = profile.get('reason', 'unknown')
+            scanned_files = profile.get('scanned_files', 0)
+            self.logger.warning(
+                f"Data Augment GUI launch sampling detection unavailable (reason={reason}, scanned_files={scanned_files})"
+            )
+
+    def _sync_filter_sampling_rate_from_detected(self):
+        if not self.detected_source_sampling_hz or not self.filter_configs:
+            return
+
+        updated = 0
+        for config in self.filter_configs:
+            if config.get('sampling_rate_source', 'manual') == 'auto':
+                config['sampling_rate'] = float(self.detected_source_sampling_hz)
+                updated += 1
+
+        if updated:
+            self.filter_list.clear()
+            for config in self.filter_configs:
+                self.filter_list.addItem(
+                    f"Order {config['filter_order']} Filter '{config['column']}' at {config['corner_frequency']}Hz "
+                    f"(Fs={config['sampling_rate']}Hz) -> {config['output_column_name']}"
+                )
+            self.logger.info(
+                f"Synchronized {updated} auto filter sampling rate(s) to detected source rate "
+                f"{self.detected_source_sampling_hz:.6g} Hz at GUI launch."
+            )
+
+    def _update_detected_sampling_rate_label(self):
+        if not hasattr(self, 'source_sampling_detected_label'):
+            return
+        profile = self.detected_sampling_profile or {}
+
+        source_hz = profile.get('source_hz')
+        if not source_hz:
+            reason = profile.get('reason', 'unknown')
+            self.detected_sampling_rate_value_label.setText("Unavailable")
+            self.detected_sampling_rate_value_label.setStyleSheet("font-weight: bold; color: #a94442;")
+            self.source_sampling_detected_label.setText(f"Auto-detect: unavailable ({reason})")
+            return
+
+        source_hz = float(source_hz)
+        self.detected_sampling_rate_value_label.setText(f"{source_hz:.6g}")
+        self.detected_sampling_rate_value_label.setStyleSheet("font-weight: bold; color: #0b6337;")
+
+        source_stage = profile.get('source_stage')
+        source_file = profile.get('source_file')
+        source_file_name = os.path.basename(source_file) if source_file else None
+
+        if profile.get('mixed', False):
+            rates = profile.get('mixed_rates_hz', [])
+            rates_txt = ", ".join([f"{float(r):.4g}Hz" for r in rates]) if rates else "mixed"
+            suffix = f" | source={source_stage}/{source_file_name}" if source_stage and source_file_name else ""
+            self.source_sampling_detected_label.setText(
+                f"Auto-detect: mixed ({rates_txt}), dominant≈{source_hz:.4g}Hz{suffix}"
+            )
+        else:
+            suffix = f" | source={source_stage}/{source_file_name}" if source_stage and source_file_name else ""
+            self.source_sampling_detected_label.setText(f"Auto-detect: {source_hz:.4g}Hz{suffix}")
+
+    def _resolve_effective_source_sampling_rate(self, require_for_processing=False):
+        source_rate_text = self.source_sampling_rate_override_edit.text().strip() if hasattr(self, 'source_sampling_rate_override_edit') else ''
+        if source_rate_text:
+            try:
+                source_hz = float(source_rate_text)
+                if source_hz <= 0:
+                    raise ValueError()
+                return source_hz, 'manual_override'
+            except ValueError:
+                QMessageBox.warning(self, "Invalid Sampling Rate", "Original sampling rate override must be a positive number (Hz).")
+                return None, 'invalid_override'
+
+        if self.detected_source_sampling_hz and self.detected_source_sampling_hz > 0:
+            detected_mode = 'auto_detected'
+            if isinstance(self.detected_sampling_profile, dict):
+                detected_mode = self.detected_sampling_profile.get('source_mode', 'auto_detected')
+            return float(self.detected_source_sampling_hz), detected_mode
+
+        profile = self.data_augment_manager.service.detect_sampling_profile(self.train_df) if self.train_df is not None else {}
+        detected_hz = profile.get('source_hz') if isinstance(profile, dict) else None
+        if detected_hz and detected_hz > 0:
+            profile = dict(profile)
+            profile.setdefault('source_stage', 'train_processed')
+            profile.setdefault('source_file', 'sample_train_dataframe')
+            self._set_detected_sampling_profile(profile)
+            self._update_detected_sampling_rate_label()
+            return float(detected_hz), profile.get('source_mode', 'auto_detected')
+
+        if require_for_processing:
+            reason = profile.get('reason', 'unknown') if isinstance(profile, dict) else 'unknown'
+            user_value, ok = QInputDialog.getDouble(
+                self,
+                "Sampling Rate Required",
+                f"Could not auto-detect source sampling rate ({reason}).\nEnter source sampling rate in Hz:",
+                1.0,
+                0.0001,
+                100000.0,
+                6
+            )
+            if ok and user_value > 0:
+                self.source_sampling_rate_override_edit.setText(f"{user_value:.6g}")
+                return float(user_value), 'manual_override'
+            return None, 'missing_required'
+
+        return None, 'unavailable'
+
+    def _get_validated_resampling_frequency(self):
+        if not self.resampling_checkbox.isChecked():
+            return None
+
+        freq_text = self.frequency_combo.currentText().strip() if hasattr(self, 'frequency_combo') else ""
+        if not freq_text:
+            QMessageBox.warning(self, "Missing Resampling Frequency", "Please enter a resampling frequency in Hz.")
+            return None
+
+        try:
+            freq_hz = float(freq_text)
+            if freq_hz <= 0:
+                raise ValueError()
+            return f"{freq_hz:.12g}Hz"
+        except ValueError:
+            QMessageBox.warning(
+                self,
+                "Invalid Resampling Frequency",
+                "Resampling frequency must be a positive numeric value in Hz (for example: 0.25, 1, 2, 10)."
+            )
+            return None
     
     def toggle_column_creation(self, state):
         self.add_formula_button.setEnabled(state == Qt.Checked)
@@ -753,7 +963,8 @@ class DataAugmentGUI(QMainWindow):
             QMessageBox.warning(self, "No Filterable Columns", "No suitable numeric columns are available for filtering.")
             return
             
-        dialog = FilterInputDialog(columns_for_filter, self)
+        detected_source_hz, _ = self._resolve_effective_source_sampling_rate(require_for_processing=False)
+        dialog = FilterInputDialog(columns_for_filter, self, default_sampling_rate=detected_source_hz)
         if dialog.exec_() == QDialog.Accepted:
             column_name, output_column_name, corner_frequency, sampling_rate, filter_order = dialog.column_name, dialog.output_column_name, dialog.corner_frequency, dialog.sampling_rate, dialog.filter_order
 
@@ -765,7 +976,14 @@ class DataAugmentGUI(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Could not apply filter: {e}")
             else:
                 self.filter_list.addItem(f"Order {filter_order} Filter '{column_name}' at {corner_frequency}Hz (Fs={sampling_rate}Hz) -> {output_column_name}")
-                self.filter_configs.append({"column": column_name, "output_column_name": output_column_name, "corner_frequency": corner_frequency, "sampling_rate": sampling_rate, "filter_order": filter_order})
+                self.filter_configs.append({
+                    "column": column_name,
+                    "output_column_name": output_column_name,
+                    "corner_frequency": corner_frequency,
+                    "sampling_rate": sampling_rate,
+                    "sampling_rate_source": "manual" if detected_source_hz is None or abs(sampling_rate - detected_source_hz) > 1e-9 else "auto",
+                    "filter_order": filter_order
+                })
                 self.remove_filter_button.setEnabled(True)
 
     def remove_filter(self):
@@ -798,6 +1016,7 @@ class DataAugmentGUI(QMainWindow):
                 "output_column_name": dialog.output_column_name,
                 "corner_frequency": dialog.corner_frequency,
                 "sampling_rate": dialog.sampling_rate,
+                "sampling_rate_source": "manual",
                 "filter_order": dialog.filter_order
             }
             self.filter_list.item(row).setText(f"Order {dialog.filter_order} Filter '{dialog.column_name}' at {dialog.corner_frequency}Hz (Fs={dialog.sampling_rate}Hz) -> {dialog.output_column_name}")
@@ -904,7 +1123,22 @@ class DataAugmentGUI(QMainWindow):
         self.main_layout.insertWidget(self.main_layout.indexOf(self.progress_bar), self.status_label)
 
         padding_length = self.padding_length_spinbox.value() if self.padding_checkbox.isChecked() else 0
-        resampling_frequency = self.frequency_combo.currentText() if self.resampling_checkbox.isChecked() else None
+        resampling_frequency = self._get_validated_resampling_frequency()
+        if self.resampling_checkbox.isChecked() and not resampling_frequency:
+            self.apply_button.setEnabled(True)
+            self.cancel_button.setEnabled(True)
+            return
+        need_source_rate = self.resampling_checkbox.isChecked() or (self.filtering_checkbox.isChecked() and len(self.filter_configs) > 0)
+        source_sampling_rate_override_hz, source_mode = self._resolve_effective_source_sampling_rate(require_for_processing=need_source_rate)
+        if need_source_rate and source_sampling_rate_override_hz is None:
+            self.apply_button.setEnabled(True)
+            self.cancel_button.setEnabled(True)
+            return
+
+        if self.filtering_checkbox.isChecked() and self.filter_configs:
+            for config in self.filter_configs:
+                if config.get('sampling_rate_source', 'auto') == 'auto' and source_sampling_rate_override_hz:
+                    config['sampling_rate'] = float(source_sampling_rate_override_hz)
         column_formulas = self.created_columns if self.column_creation_checkbox.isChecked() else None
         filter_configs = self.filter_configs if self.filtering_checkbox.isChecked() else None
         noise_configs = self.noise_configs if self.noise_injection_checkbox.isChecked() else None
@@ -913,6 +1147,7 @@ class DataAugmentGUI(QMainWindow):
         self.augmentation_thread = QThread()
         self.augmentation_worker = AugmentationWorker(
             self.data_augment_manager, self.job_folder, padding_length, resampling_frequency,
+            source_sampling_rate_override_hz,
             column_formulas, normalize_data_flag, filter_configs, noise_configs
         )
         self.augmentation_worker.moveToThread(self.augmentation_thread)
@@ -1023,6 +1258,8 @@ class DataAugmentGUI(QMainWindow):
                 self.resampling_checkbox.setEnabled(False)
             if hasattr(self, 'frequency_combo'):
                 self.frequency_combo.setEnabled(False)
+            if hasattr(self, 'source_sampling_rate_override_edit'):
+                self.source_sampling_rate_override_edit.setEnabled(False)
             if hasattr(self, 'normalization_checkbox'):
                 self.normalization_checkbox.setEnabled(False)
                 
@@ -1091,6 +1328,7 @@ class DataAugmentGUI(QMainWindow):
                         self.logger.error(f"Error applying loaded filter for column '{setting['column']}': {e}")
             if self.filter_list.count() > 0:
                 self.remove_filter_button.setEnabled(True)
+        self._sync_filter_sampling_rate_from_detected()
 
     def prepopulate_for_testing(self):
         self.setWindowTitle("VEstim Data Augmentation (Testing Mode)")

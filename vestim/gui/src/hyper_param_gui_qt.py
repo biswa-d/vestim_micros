@@ -582,7 +582,10 @@ class VEstimHyperParamGUI(QWidget):
         # FIXED:--- Clear previous model-specific QLineEdit entries from self.param_entries ---
         # FIXED:Define keys for model-specific parameters that might exist from a previous selection
         # Updated to use RNN_LAYER_SIZES instead of separate LAYERS/HIDDEN_UNITS fields
-        rnn_specific_keys = ["RNN_LAYER_SIZES", "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS"] # FIXED:Include both new and legacy keys
+        rnn_specific_keys = [
+            "RNN_LAYER_SIZES", "LAYERS", "HIDDEN_UNITS", "GRU_LAYERS", "GRU_HIDDEN_UNITS",
+            "LSTM_DROPOUT_PROB", "GRU_DROPOUT_PROB"
+        ] # FIXED:Include both new/legacy keys and dropout fields
         fnn_specific_keys = ["FNN_HIDDEN_LAYERS", "FNN_DROPOUT_PROB", "FNN_ACTIVATION"] # FIXED:Add FNN specific QLineEdit keys
         
         all_model_specific_keys = rnn_specific_keys + fnn_specific_keys
@@ -1350,11 +1353,21 @@ class VEstimHyperParamGUI(QWidget):
             self.logger.warning("No parameters found to update the GUI.")
             return
 
-        # CRITICAL: Clear all text fields that are NOT in loaded params to prevent stale values
+        # CRITICAL: Remove stale/deleted widget refs and clear text fields not in loaded params.
+        stale_param_names = []
         for param_name, entry in list(self.param_entries.items()):
-            if param_name not in self.params:
-                if isinstance(entry, QLineEdit):
+            try:
+                if entry is None:
+                    stale_param_names.append(param_name)
+                    continue
+
+                if param_name not in self.params and isinstance(entry, QLineEdit):
                     entry.clear()  # Clear text fields not in loaded params
+            except RuntimeError:
+                stale_param_names.append(param_name)
+
+        for stale_key in stale_param_names:
+            self.param_entries.pop(stale_key, None)
                     
         # Update standard hyperparameters (text fields, dropdowns, checkboxes)
         for param_name, entry in list(self.param_entries.items()):
@@ -1362,22 +1375,25 @@ class VEstimHyperParamGUI(QWidget):
                 value = self.params[param_name]
 
                 # Handle different widget types correctly
-                if isinstance(entry, QLineEdit):
-                    entry.setText(str(value))  # FIXED:Convert value to string for text fields
+                try:
+                    if isinstance(entry, QLineEdit):
+                        entry.setText(str(value))  # FIXED:Convert value to string for text fields
 
-                elif isinstance(entry, QComboBox):
-                    index = entry.findText(str(value))  # FIXED:Get index for dropdowns
-                    if index != -1:
-                        entry.setCurrentIndex(index)
+                    elif isinstance(entry, QComboBox):
+                        index = entry.findText(str(value))  # FIXED:Get index for dropdowns
+                        if index != -1:
+                            entry.setCurrentIndex(index)
 
-                elif isinstance(entry, QCheckBox):
-                    entry.setChecked(bool(value))  # FIXED:Ensure checkbox reflects state
+                    elif isinstance(entry, QCheckBox):
+                        entry.setChecked(bool(value))  # FIXED:Ensure checkbox reflects state
 
-                elif isinstance(entry, QListWidget):  # FIXED:Multi-Select Feature List
-                    selected_items = set(value) if isinstance(value, list) else set([value])
-                    for i in range(entry.count()):
-                        item = entry.item(i)
-                        item.setSelected(item.text() in selected_items)
+                    elif isinstance(entry, QListWidget):  # FIXED:Multi-Select Feature List
+                        selected_items = set(value) if isinstance(value, list) else set([value])
+                        for i in range(entry.count()):
+                            item = entry.item(i)
+                            item.setSelected(item.text() in selected_items)
+                except RuntimeError:
+                    self.param_entries.pop(param_name, None)
 
         # Update model parameters (ensure proper model-specific parameter refresh)
         if "MODEL_TYPE" in self.params:
@@ -1409,12 +1425,15 @@ class VEstimHyperParamGUI(QWidget):
         for param_name, entry in list(self.param_entries.items()):
             if param_name in self.params:
                 value = self.params[param_name]
-                if isinstance(entry, QLineEdit):
-                    entry.setText(str(value))
-                elif isinstance(entry, QComboBox):
-                    index = entry.findText(str(value))
-                    if index != -1:
-                        entry.setCurrentIndex(index)
+                try:
+                    if isinstance(entry, QLineEdit):
+                        entry.setText(str(value))
+                    elif isinstance(entry, QComboBox):
+                        index = entry.findText(str(value))
+                        if index != -1:
+                            entry.setCurrentIndex(index)
+                except RuntimeError:
+                    self.param_entries.pop(param_name, None)
 
         # FIXED:Populate Max Training Time H, M, S fields from MAX_TRAINING_TIME_SECONDS
         # CRITICAL FIX: Explicitly update ALL Exploit LR fields (may not be in loaded params)

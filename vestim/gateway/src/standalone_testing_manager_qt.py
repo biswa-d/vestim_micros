@@ -39,6 +39,99 @@ class VEstimStandaloneTestingManager(QObject):
         self.resampling_frequency = None
         self.augmented_test_df = None
         self.inference_test_file_path = None
+
+    @staticmethod
+    def _extract_timestamp_like_array(df: pd.DataFrame):
+        """Extract a usable x-axis from a dataframe, preferring time-like columns, then sample/index columns."""
+        if df is None or df.empty:
+            return None
+
+        def _looks_like_datetime_text(series: pd.Series) -> bool:
+            sample = series.dropna().astype(str).str.strip().head(10)
+            if sample.empty:
+                return False
+            if sample.str.fullmatch(r'\d+').all():
+                return False
+            return sample.str.contains(r'[-/:T ]', regex=True).any()
+
+        def _valid_series_or_none(series: pd.Series):
+            if series is None or series.empty:
+                return None
+            non_empty = series.dropna()
+            if non_empty.empty:
+                return None
+            if pd.api.types.is_datetime64_any_dtype(non_empty):
+                return series.values
+            if pd.api.types.is_numeric_dtype(non_empty):
+                return None
+            if non_empty.dtype == object:
+                cleaned = non_empty.astype(str).str.strip()
+                cleaned = cleaned[~cleaned.isin(['', 'nan', 'NaN', 'None', 'NaT'])]
+                if cleaned.empty or not _looks_like_datetime_text(cleaned):
+                    return None
+                parsed = pd.to_datetime(cleaned, errors='coerce', dayfirst=True)
+                if parsed.notna().sum() >= 2:
+                    return parsed.values
+                return None
+            return None
+
+        for col in df.columns:
+            normalized = col.lower().replace(" ", "")
+            if normalized in {'time(h)', 'time_hours', 'hours'}:
+                continue
+            if 'time' in normalized or 'date' in normalized:
+                valid = _valid_series_or_none(df[col])
+                if valid is not None:
+                    return valid
+
+        for col in df.columns:
+            normalized = col.lower().replace(" ", "")
+            if 'sample' in normalized or normalized in ['index', 'idx']:
+                valid = _valid_series_or_none(df[col])
+                if valid is not None:
+                    return valid
+
+        return None
+
+    @staticmethod
+    def _build_time_hours_from_axis(axis_values, length_fallback: int):
+        """Build a stable Time (h) array from an existing axis; falls back to 1 Hz index-based hours."""
+        if axis_values is None:
+            return np.arange(length_fallback, dtype=float) / 3600.0
+
+        axis_series = pd.Series(np.ravel(np.asarray(axis_values)))
+        if axis_series.empty:
+            return np.arange(length_fallback, dtype=float) / 3600.0
+
+        def _parse_datetime(series: pd.Series) -> pd.Series:
+            if pd.api.types.is_datetime64_any_dtype(series):
+                return series
+
+            parsed_default = pd.to_datetime(series, errors='coerce')
+            parsed_dayfirst = pd.to_datetime(series, errors='coerce', dayfirst=True)
+            parsed = parsed_dayfirst if parsed_dayfirst.notna().sum() > parsed_default.notna().sum() else parsed_default
+            if parsed.notna().sum() >= 2:
+                return parsed
+
+            numeric = pd.to_numeric(series, errors='coerce')
+            if numeric.notna().sum() >= 2:
+                for unit in ['s', 'ms', 'us', 'ns']:
+                    parsed_unit = pd.to_datetime(numeric, unit=unit, errors='coerce')
+                    if parsed_unit.notna().sum() >= 2:
+                        return parsed_unit
+
+            return parsed
+
+        parsed = _parse_datetime(axis_series)
+        if parsed.notna().sum() >= 2:
+            valid = parsed.dropna()
+            base_time = valid.iloc[0]
+            elapsed = (parsed.ffill().bfill() - base_time).dt.total_seconds() / 3600.0
+            elapsed = elapsed.astype(float)
+            elapsed = np.maximum(elapsed.to_numpy(), 0.0)
+            return elapsed
+
+        return np.arange(len(axis_series), dtype=float) / 3600.0
     
     def start(self):
         """Start the testing process (called by test selection GUI)"""
@@ -175,6 +268,10 @@ class VEstimStandaloneTestingManager(QObject):
                     # Only normalize columns that actually exist in the test data
                     # (augmentation may not have been applied yet for raw test files)
                     available_normalized_cols = [col for col in normalized_columns if col in self.test_df.columns]
+                    available_normalized_cols = [
+                        col for col in available_normalized_cols
+                        if not any(key in col.lower().replace(" ", "") for key in ['time', 'date', 'timestamp', 'sample', 'index'])
+                    ]
                     missing_cols = [col for col in normalized_columns if col not in self.test_df.columns]
                     
                     if missing_cols:
@@ -378,14 +475,6 @@ class VEstimStandaloneTestingManager(QObject):
             
             result_df = df.copy()
             self.padding_length = 0
-            
-            # Apply resampling if needed
-            resampling_info = metadata.get('resampling', {})
-            self.resampling_applied = bool(resampling_info.get('applied', False))
-            self.resampling_frequency = resampling_info.get('frequency')
-            if resampling_info.get('applied', False):
-                self.progress.emit(f"Applying resampling to {resampling_info.get('frequency', 'unknown')} frequency...")
-                result_df = self.data_augment_service.resample_data(result_df, resampling_info.get('frequency'))
 
             padding_info = metadata.get('padding', {})
 
@@ -433,6 +522,26 @@ class VEstimStandaloneTestingManager(QObject):
                 result_df = self.data_augment_service.remove_padding(result_df, temp_filter_padding_length)
                 self.padding_length = 0
 
+            # Apply calculated columns before resampling so derived features are resampled with the rest.
+            created_columns = metadata.get('created_columns', [])
+            if created_columns:
+                column_formulas = [(col['column_name'], col['formula']) for col in created_columns]
+                self.progress.emit(f"Creating {len(column_formulas)} calculated columns...")
+                result_df = self.data_augment_service.create_columns(result_df, column_formulas)
+
+            # Apply resampling after filtering and column creation to match the main augmentation pipeline.
+            resampling_info = metadata.get('resampling', {})
+            self.resampling_applied = bool(resampling_info.get('applied', False))
+            self.resampling_frequency = resampling_info.get('frequency')
+            if resampling_info.get('applied', False):
+                self.progress.emit(f"Applying resampling to {resampling_info.get('frequency', 'unknown')} frequency...")
+                source_hz = resampling_info.get('source_frequency_hz', resampling_info.get('original_sample_rate_hz'))
+                result_df = self.data_augment_service.resample_data(
+                    result_df,
+                    resampling_info.get('frequency'),
+                    source_sampling_rate_hz=source_hz
+                )
+
             # Apply persistent padding only for non-filter workflows / legacy metadata.
             if (not applied_filters) and padding_info.get('applied', False):
                 padding_length = int(padding_info.get('length', 0) or 0)
@@ -444,13 +553,6 @@ class VEstimStandaloneTestingManager(QObject):
                         padding_length,
                         resample_freq_for_time_padding=padding_info.get('resampling_frequency_for_padding')
                     )
-            
-            # Apply calculated columns
-            created_columns = metadata.get('created_columns', [])
-            if created_columns:
-                column_formulas = [(col['column_name'], col['formula']) for col in created_columns]
-                self.progress.emit(f"Creating {len(column_formulas)} calculated columns...")
-                result_df = self.data_augment_service.create_columns(result_df, column_formulas)
             
             self.progress.emit(f"✓ Automatic augmentation completed. Shape: {result_df.shape}")
             return result_df
@@ -629,14 +731,40 @@ class VEstimStandaloneTestingManager(QObject):
             if len(predictions_final) == 0 or len(actual_values) == 0:
                 raise ValueError("Continuous testing returned empty predictions/targets.")
 
-            min_len = min(len(predictions_final), len(actual_values))
-            if len(predictions_final) != len(actual_values):
+            timestamps = None
+            if isinstance(self.augmented_test_df, pd.DataFrame) and not self.augmented_test_df.empty:
+                timestamps = self._extract_timestamp_like_array(self.augmented_test_df)
+            if timestamps is None and isinstance(test_df, pd.DataFrame) and not test_df.empty:
+                timestamps = self._extract_timestamp_like_array(test_df)
+            if timestamps is None and inference_file_path and os.path.exists(inference_file_path) and inference_file_path.lower().endswith('.csv'):
+                try:
+                    inference_df = pd.read_csv(inference_file_path)
+                    timestamps = self._extract_timestamp_like_array(inference_df)
+                except Exception:
+                    timestamps = None
+
+            if timestamps is None:
+                timestamps = np.arange(len(predictions_final))
+
+            timestamps = np.ravel(np.asarray(timestamps))
+            target_len = min(len(predictions_final), len(actual_values), len(timestamps))
+
+            if len(predictions_final) != len(actual_values) or len(predictions_final) != len(timestamps):
                 self.progress.emit(
-                    f"  Warning: prediction/target length mismatch ({len(predictions_final)} vs {len(actual_values)}). "
-                    f"Truncating to {min_len}."
+                    f"  Warning: prediction/target/timestamp length mismatch "
+                    f"({len(predictions_final)} vs {len(actual_values)} vs {len(timestamps)}). "
+                    f"Truncating to {target_len}."
                 )
-                predictions_final = predictions_final[:min_len]
-                actual_values = actual_values[:min_len]
+
+            if target_len <= 0:
+                raise ValueError(
+                    f"Invalid test output lengths: pred={len(predictions_final)}, true={len(actual_values)}, timestamps={len(timestamps)}"
+                )
+
+            predictions_final = predictions_final[-target_len:]
+            actual_values = actual_values[-target_len:]
+            timestamps = timestamps[-target_len:]
+            time_hours = self._build_time_hours_from_axis(timestamps, target_len)
 
             # Count model parameters from metadata when available
             total_params = hyperparams.get('NUM_LEARNABLE_PARAMS', model_metadata.get('num_learnable_params', 'N/A'))
@@ -677,11 +805,8 @@ class VEstimStandaloneTestingManager(QObject):
                 errors_display = errors_raw * error_multiplier
                 
                 # Create a clean dataframe with only essential data for predictions CSV
-                # Generate time axis assuming 1 Hz sampling frequency (can be made configurable later)
-                sampling_freq_hz = 1.0  # Default to 1 Hz
-                time_hours = np.arange(len(actual_values)) / (sampling_freq_hz * 3600.0)  # Convert to hours
-                
                 final_df = pd.DataFrame({
+                    'Timestamp': timestamps,
                     'Time (h)': time_hours,
                     f'True_{target_display}': actual_values,
                     f'Predicted_{target_display}': predicted_values,

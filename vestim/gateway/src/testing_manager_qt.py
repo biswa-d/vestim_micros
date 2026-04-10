@@ -94,21 +94,39 @@ class VEstimTestingManager:
     @staticmethod
     def _extract_timestamp_like_array(df: pd.DataFrame):
         """Extract a usable x-axis from a dataframe, preferring time-like columns, then sample/index columns."""
+        def _looks_like_datetime_text(series: pd.Series) -> bool:
+            sample = series.dropna().astype(str).str.strip().head(10)
+            if sample.empty:
+                return False
+            if sample.str.fullmatch(r'\d+').all():
+                return False
+            return sample.str.contains(r'[-/:T ]', regex=True).any()
+
         def _valid_series_or_none(series: pd.Series):
             if series is None or series.empty:
                 return None
             non_empty = series.dropna()
             if non_empty.empty:
                 return None
+            if pd.api.types.is_datetime64_any_dtype(non_empty):
+                return series.values
+            if pd.api.types.is_numeric_dtype(non_empty):
+                return None
             if non_empty.dtype == object:
                 cleaned = non_empty.astype(str).str.strip()
                 cleaned = cleaned[~cleaned.isin(['', 'nan', 'NaN', 'None', 'NaT'])]
-                if cleaned.empty:
+                if cleaned.empty or not _looks_like_datetime_text(cleaned):
                     return None
-            return series.values
+                parsed = pd.to_datetime(cleaned, errors='coerce', dayfirst=True)
+                if parsed.notna().sum() >= 2:
+                    return parsed.values
+                return None
+            return None
 
         for col in df.columns:
             normalized = col.lower().replace(" ", "")
+            if normalized in {'time(h)', 'time_hours', 'hours'}:
+                continue
             if 'time' in normalized or 'date' in normalized:
                 valid = _valid_series_or_none(df[col])
                 if valid is not None:
@@ -120,6 +138,46 @@ class VEstimTestingManager:
                 if valid is not None:
                     return valid
         return None
+
+    @staticmethod
+    def _build_time_hours_from_axis(axis_values, length_fallback: int):
+        """Build a stable Time (h) array from an existing axis; falls back to 1 Hz index-based hours."""
+        if axis_values is None:
+            return np.arange(length_fallback, dtype=float) / 3600.0
+
+        axis_series = pd.Series(np.ravel(np.asarray(axis_values)))
+        if axis_series.empty:
+            return np.arange(length_fallback, dtype=float) / 3600.0
+
+        def _parse_datetime(series: pd.Series) -> pd.Series:
+            if pd.api.types.is_datetime64_any_dtype(series):
+                return series
+
+            parsed_default = pd.to_datetime(series, errors='coerce')
+            parsed_dayfirst = pd.to_datetime(series, errors='coerce', dayfirst=True)
+            parsed = parsed_dayfirst if parsed_dayfirst.notna().sum() > parsed_default.notna().sum() else parsed_default
+            if parsed.notna().sum() >= 2:
+                return parsed
+
+            numeric = pd.to_numeric(series, errors='coerce')
+            if numeric.notna().sum() >= 2:
+                for unit in ['s', 'ms', 'us', 'ns']:
+                    parsed_unit = pd.to_datetime(numeric, unit=unit, errors='coerce')
+                    if parsed_unit.notna().sum() >= 2:
+                        return parsed_unit
+
+            return parsed
+
+        parsed = _parse_datetime(axis_series)
+        if parsed.notna().sum() >= 2:
+            valid = parsed.dropna()
+            base_time = valid.iloc[0]
+            elapsed = (parsed.ffill().bfill() - base_time).dt.total_seconds() / 3600.0
+            elapsed = elapsed.astype(float)
+            elapsed = np.maximum(elapsed.to_numpy(), 0.0)
+            return elapsed
+
+        return np.arange(len(axis_series), dtype=float) / 3600.0
 
     def start_testing(self, queue):
         """Start the testing process and store the queue for results."""
@@ -428,6 +486,7 @@ class VEstimTestingManager:
                     y_true_scaled = y_true_scaled[-target_len:]
                     y_pred_scaled = y_pred_scaled[-target_len:]
                     timestamps = timestamps[-target_len:]
+                    time_hours = self._build_time_hours_from_axis(timestamps, target_len)
 
                     difference = y_true_scaled - y_pred_scaled
                     # Apply appropriate multiplier based on target type for consistent error reporting
@@ -453,6 +512,7 @@ class VEstimTestingManager:
                     # Prepare data for DataFrame
                     data_for_csv = {
                         'Timestamp': timestamps,
+                        'Time (h)': time_hours,
                         f'True {target_column_name} {csv_unit_display}': y_true_scaled,
                         f'Predicted {target_column_name} {csv_unit_display}': y_pred_scaled,
                     }

@@ -37,6 +37,9 @@ class DataAugmentService:
         """Initialize the DataAugmentService"""
         self.logger = logging.getLogger(__name__)
         self.job_manager = JobManager() # Instantiate JobManager
+        self.last_resample_source_hz: Optional[float] = None
+        self.last_resample_source_mode: Optional[str] = None
+        self.last_sampling_profile: Optional[Dict[str, Any]] = None
 
     def _set_job_context(self, job_folder: str):
         """Sets the JobManager's context to the given job_folder."""
@@ -78,8 +81,9 @@ class DataAugmentService:
                 return col_name
 
         for col in df.columns:
-            col_lower = col.lower().replace(" ", "")
-            if ('timestamp' in col_lower or 'time' in col_lower or 'date' in col_lower) and not df[col].isnull().all():
+            col_lower = str(col).lower().strip()
+            normalized = re.sub(r'[^a-z0-9]+', '', col_lower)
+            if ('timestamp' in normalized or 'time' in normalized or 'date' in normalized) and not df[col].isnull().all():
                 return col
         return None
 
@@ -97,7 +101,14 @@ class DataAugmentService:
         if pd.api.types.is_datetime64_any_dtype(series):
             return series
 
-        parsed_generic = pd.to_datetime(series, errors='coerce')
+        parsed_default = pd.to_datetime(series, errors='coerce')
+        parsed_dayfirst = pd.to_datetime(series, errors='coerce', dayfirst=True)
+
+        if parsed_dayfirst.notna().sum() > parsed_default.notna().sum():
+            parsed_generic = parsed_dayfirst
+        else:
+            parsed_generic = parsed_default
+
         if parsed_generic.notna().any():
             return parsed_generic
 
@@ -111,6 +122,172 @@ class DataAugmentService:
                 return parsed
 
         return parsed_generic
+
+    def _estimate_sampling_hz_from_datetime(self, parsed_time: pd.Series) -> Optional[float]:
+        if parsed_time is None or parsed_time.empty:
+            return None
+
+        valid_time = parsed_time.dropna()
+        if valid_time.shape[0] < 2:
+            return None
+
+        ordered = valid_time.reset_index(drop=True)
+        direct_deltas = ordered.diff().dt.total_seconds()
+        direct_positive = direct_deltas[direct_deltas > 0]
+
+        candidates: List[float] = []
+        if not direct_positive.empty:
+            direct_rate = 1.0 / direct_positive
+            direct_rate = direct_rate.replace([np.inf, -np.inf], np.nan).dropna()
+            direct_rate = direct_rate[direct_rate > 0]
+            if not direct_rate.empty:
+                candidates.append(float(direct_rate.median()))
+
+        unique_times = ordered.drop_duplicates(keep='first')
+        if unique_times.shape[0] >= 2:
+            unique_positions = unique_times.index.to_numpy(dtype=float)
+            unique_seconds = unique_times.astype('int64').to_numpy(dtype=float) / 1e9
+            dt = np.diff(unique_seconds)
+            pos = np.diff(unique_positions)
+            valid = (dt > 0) & (pos > 0)
+            if np.any(valid):
+                rate_per_span = pos[valid] / dt[valid]
+                finite_rate = rate_per_span[np.isfinite(rate_per_span) & (rate_per_span > 0)]
+                if finite_rate.size > 0:
+                    candidates.append(float(np.median(finite_rate)))
+
+        if not candidates:
+            return None
+        return float(np.median(candidates))
+
+    def _detect_sampling_profile_from_datetime(self, parsed_time: pd.Series) -> Dict[str, Any]:
+        profile = {
+            'source_hz': None,
+            'source_mode': 'unknown',
+            'mixed': False,
+            'mixed_rates_hz': [],
+            'reason': None
+        }
+
+        if parsed_time is None or parsed_time.empty:
+            profile['reason'] = 'no_timestamp_data'
+            return profile
+
+        valid = parsed_time.dropna().reset_index(drop=True)
+        if valid.shape[0] < 2:
+            profile['reason'] = 'insufficient_valid_timestamps'
+            return profile
+
+        deltas = valid.diff().dt.total_seconds()
+        deltas = deltas[(deltas > 0) & np.isfinite(deltas)]
+        if deltas.empty:
+            profile['reason'] = 'no_positive_time_deltas'
+            return profile
+
+        delta_ms = np.round(deltas.to_numpy(dtype=float) * 1000.0, 6)
+        counts = pd.Series(delta_ms).value_counts()
+        if counts.empty:
+            profile['reason'] = 'delta_histogram_empty'
+            return profile
+
+        dominant_ms = float(counts.index[0])
+        if dominant_ms <= 0:
+            profile['reason'] = 'non_positive_dominant_delta'
+            return profile
+
+        dominant_hz = 1000.0 / dominant_ms
+        profile['source_hz'] = float(dominant_hz)
+        profile['source_mode'] = 'auto_detected'
+        profile['reason'] = 'ok'
+
+        total = int(counts.sum())
+        significant = counts[counts >= max(2, int(0.1 * total))]
+        if len(significant) > 1:
+            rates = []
+            for ms in significant.index:
+                if ms > 0:
+                    rates.append(float(1000.0 / float(ms)))
+            rates = sorted(set(round(r, 6) for r in rates))
+            if len(rates) > 1:
+                profile['mixed'] = True
+                profile['mixed_rates_hz'] = rates
+                profile['source_mode'] = 'auto_mixed'
+
+        return profile
+
+    def detect_sampling_profile(self, df: pd.DataFrame) -> Dict[str, Any]:
+        profile = {
+            'source_hz': None,
+            'source_mode': 'unknown',
+            'mixed': False,
+            'mixed_rates_hz': [],
+            'reason': None
+        }
+
+        if df is None or df.empty:
+            profile['reason'] = 'empty_dataframe'
+            return profile
+
+        time_column = self._find_time_column(df)
+        if not time_column:
+            profile['reason'] = 'no_time_column'
+            return profile
+
+        parsed_time = self._coerce_datetime_series(df[time_column])
+        profile = self._detect_sampling_profile_from_datetime(parsed_time)
+        self.last_sampling_profile = profile
+        return profile
+
+    def estimate_source_sampling_hz(self, df: pd.DataFrame) -> Optional[float]:
+        profile = self.detect_sampling_profile(df)
+        source_hz = profile.get('source_hz')
+        if source_hz and source_hz > 0:
+            return float(source_hz)
+        return None
+
+    def _build_time_index(self,
+                          working_df: pd.DataFrame,
+                          parsed_time: Optional[pd.Series],
+                          source_hz: Optional[float]) -> Tuple[pd.Series, bool]:
+        if parsed_time is not None and parsed_time.notna().sum() >= 2:
+            time_series = parsed_time.copy()
+            valid_mask = time_series.notna()
+            valid_values = time_series.loc[valid_mask]
+            valid_positions = np.flatnonzero(valid_mask.to_numpy())
+            unique_keep = ~valid_values.duplicated(keep='first')
+
+            if unique_keep.sum() >= 2:
+                anchor_positions = valid_positions[unique_keep.to_numpy()]
+                anchor_ns = valid_values.loc[unique_keep].astype('int64').to_numpy(dtype=float)
+                if np.all(np.diff(anchor_ns) > 0):
+                    interp_ns = np.interp(
+                        np.arange(len(working_df), dtype=float),
+                        anchor_positions.astype(float),
+                        anchor_ns
+                    )
+
+                    min_step_ns = int(round((1.0 / source_hz) * 1e9)) if source_hz and source_hz > 0 else 1
+                    if min_step_ns < 1:
+                        min_step_ns = 1
+                    interp_ns = np.maximum.accumulate(interp_ns)
+                    for i in range(1, interp_ns.shape[0]):
+                        if interp_ns[i] <= interp_ns[i - 1]:
+                            interp_ns[i] = interp_ns[i - 1] + min_step_ns
+
+                    rebuilt = pd.to_datetime(interp_ns.astype('int64'), errors='coerce')
+                    if rebuilt.notna().sum() >= 2:
+                        return rebuilt, False
+
+            first_valid_timestamp = time_series.loc[valid_mask].iloc[0]
+            effective_hz = float(source_hz) if source_hz and source_hz > 0 else 1.0
+            synthetic_seconds = np.arange(len(working_df), dtype=float) / effective_hz
+            synthetic_time = pd.to_datetime(synthetic_seconds, unit='s', origin=first_valid_timestamp, errors='coerce')
+            return synthetic_time, True
+
+        effective_hz = float(source_hz) if source_hz and source_hz > 0 else 1.0
+        synthetic_seconds = np.arange(len(working_df), dtype=float) / effective_hz
+        synthetic_time = pd.to_datetime(synthetic_seconds, unit='s', origin='unix', errors='coerce')
+        return synthetic_time, True
 
 
     def load_processed_data(self, train_path: str, test_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -163,7 +340,11 @@ class DataAugmentService:
         self.logger.info(f"Successfully loaded data. Train shape: {train_df.shape}, Test shape: {test_df.shape}")
         return train_df, test_df
     
-    def resample_data(self, df: pd.DataFrame, frequency: str, progress_callback=None) -> pd.DataFrame:
+    def resample_data(self,
+                      df: pd.DataFrame,
+                      frequency: str,
+                      progress_callback=None,
+                      source_sampling_rate_hz: Optional[float] = None) -> pd.DataFrame:
         """
         Resample data to the specified frequency
         
@@ -185,6 +366,9 @@ class DataAugmentService:
             if progress_callback: progress_callback(100)
             return pd.DataFrame()
 
+        self.last_resample_source_hz = None
+        self.last_resample_source_mode = None
+
         try:
             target_hz = self._parse_frequency_to_hz(frequency)
         except Exception as e:
@@ -196,53 +380,39 @@ class DataAugmentService:
 
         working_df = df.copy()
         time_column = self._find_time_column(working_df)
-        sample_column = self._find_sample_column(working_df)
-        index_col_name = None
-        used_synthetic_time = False
+        parsed_time: Optional[pd.Series] = None
 
         if time_column:
             parsed_time = self._coerce_datetime_series(working_df[time_column])
-            valid_mask = parsed_time.notna()
-            working_df = working_df.loc[valid_mask].copy()
-            parsed_time = parsed_time.loc[valid_mask]
-            if not working_df.empty:
-                duplicate_count = int(parsed_time.duplicated().sum())
-                if duplicate_count > 0:
-                    self.logger.warning(
-                        f"Time column '{time_column}' has {duplicate_count} duplicate timestamps. "
-                        "Falling back to sample-order synthetic timeline to preserve per-row cadence."
-                    )
-                else:
-                    working_df[time_column] = parsed_time
-                    index_col_name = time_column
 
-        if index_col_name is None:
-            used_synthetic_time = True
-            if sample_column:
-                sample_numeric = pd.to_numeric(working_df[sample_column], errors='coerce')
-                valid_mask = sample_numeric.notna()
-                working_df = working_df.loc[valid_mask].copy()
-                sample_numeric = sample_numeric.loc[valid_mask]
-                if working_df.empty:
-                    self.logger.error("Sample column exists but has no valid numeric values for resampling.")
-                    if progress_callback: progress_callback(0)
-                    raise ValueError("No valid sample values available for resampling.")
-                sample_start = float(sample_numeric.iloc[0])
-                sample_seconds = sample_numeric - sample_start
-            else:
-                sample_seconds = pd.Series(np.arange(len(working_df), dtype=float), index=working_df.index)
+        detected_source_hz = self._estimate_sampling_hz_from_datetime(parsed_time) if parsed_time is not None else None
 
-            working_df['_resample_time_index'] = pd.to_datetime(sample_seconds, unit='s', origin='unix', errors='coerce')
-            working_df = working_df.dropna(subset=['_resample_time_index'])
-            if working_df.empty:
-                self.logger.error("Could not construct a valid synthetic time index for resampling.")
-                if progress_callback: progress_callback(0)
-                raise ValueError("Failed to build synthetic time index for resampling.")
-            index_col_name = '_resample_time_index'
+        if source_sampling_rate_hz is not None:
+            if source_sampling_rate_hz <= 0:
+                raise ValueError(f"source_sampling_rate_hz must be positive, got: {source_sampling_rate_hz}")
+            source_hz = float(source_sampling_rate_hz)
+            source_mode = 'manual_override'
+        elif detected_source_hz and detected_source_hz > 0:
+            source_hz = float(detected_source_hz)
+            source_mode = 'auto_detected'
+        else:
+            source_hz = 1.0
+            source_mode = 'fallback_default'
+
+        self.last_resample_source_hz = source_hz
+        self.last_resample_source_mode = source_mode
+
+        time_index, used_synthetic_time = self._build_time_index(working_df, parsed_time, source_hz)
+        working_df['_resample_time_index'] = time_index
+        working_df = working_df.dropna(subset=['_resample_time_index'])
+        if working_df.empty:
+            self.logger.error("Could not construct a valid time index for resampling.")
+            if progress_callback: progress_callback(0)
+            raise ValueError("Failed to build time index for resampling.")
 
         if progress_callback: progress_callback(45)
 
-        df_for_resampling = working_df.set_index(index_col_name, drop=True).sort_index()
+        df_for_resampling = working_df.set_index('_resample_time_index', drop=True).sort_index()
 
         if df_for_resampling.empty:
             self.logger.warning("No rows available for resampling after index preparation.")
@@ -254,7 +424,7 @@ class DataAugmentService:
                 "Duplicate index labels remained after index preparation; "
                 "switching to sample-order synthetic timeline for deterministic resampling."
             )
-            synthetic_seconds = pd.Series(np.arange(len(df_for_resampling), dtype=float), index=df_for_resampling.index)
+            synthetic_seconds = pd.Series(np.arange(len(df_for_resampling), dtype=float) / source_hz, index=df_for_resampling.index)
             df_for_resampling = df_for_resampling.copy()
             df_for_resampling['_resample_time_index'] = pd.to_datetime(synthetic_seconds.values, unit='s', origin='unix')
             df_for_resampling = df_for_resampling.set_index('_resample_time_index', drop=True).sort_index()
@@ -287,14 +457,19 @@ class DataAugmentService:
 
         resampled_df = resampled_df.sort_index().reset_index()
 
-        if used_synthetic_time:
-            if sample_column and sample_column in resampled_df.columns:
-                elapsed_seconds = (resampled_df[index_col_name] - resampled_df[index_col_name].iloc[0]).dt.total_seconds()
-                resampled_df[sample_column] = sample_start + elapsed_seconds
-            resampled_df = resampled_df.drop(columns=[index_col_name], errors='ignore')
+        if time_column:
+            # Always preserve a real timestamp column in the final output so downstream
+            # prediction exports and plots can align against the resampled timeline.
+            resampled_df[time_column] = resampled_df['_resample_time_index']
+            resampled_df = resampled_df.drop(columns=['_resample_time_index'], errors='ignore')
+        else:
+            resampled_df = resampled_df.drop(columns=['_resample_time_index'], errors='ignore')
 
         if progress_callback: progress_callback(90)
-        self.logger.info(f"Resampling successful. Final shape: {resampled_df.shape}")
+        self.logger.info(
+            f"Resampling successful. Final shape: {resampled_df.shape}, "
+            f"target_hz={target_hz}, source_hz={source_hz}, mode={source_mode}"
+        )
         if progress_callback: progress_callback(100)
         return resampled_df
     
@@ -644,20 +819,33 @@ class DataAugmentService:
             self.logger.error("No scaler object provided for normalization. Returning original DataFrame.")
             return df
         
-        all_numeric_columns_in_df = df.select_dtypes(include=np.number).columns.tolist()
+        time_column = self._find_time_column(df)
+        preserved_time = df[time_column].copy(deep=True) if time_column and time_column in df.columns else None
+
+        if time_column and time_column in df.columns:
+            transform_df = df.drop(columns=[time_column]).copy()
+        else:
+            transform_df = df.copy()
+
+        normalized_basis_cols = [col for col in columns_to_normalize if col in transform_df.columns]
+        all_numeric_columns_in_df = transform_df.select_dtypes(include=np.number).columns.tolist()
         
         # The scaler was fitted on `columns_to_normalize`. We pass this as `feature_columns`.
         # The columns we want to *apply* the transform to is determined by `normalize_all_numeric`.
         
-        cols_to_apply_transform = all_numeric_columns_in_df if normalize_all_numeric else columns_to_normalize
+        cols_to_apply_transform = all_numeric_columns_in_df if normalize_all_numeric else normalized_basis_cols
 
         try:
             transformed_df = norm_svc.transform_data(
-                data_df=df,
+                data_df=transform_df,
                 scaler=scaler,
-                feature_columns=columns_to_normalize, # The columns the scaler was FIT on
+                feature_columns=normalized_basis_cols, # The columns the scaler was FIT on
                 all_numeric_columns=cols_to_apply_transform # The columns to APPLY the transform to
             )
+
+            if preserved_time is not None and len(transformed_df) == len(preserved_time):
+                insert_idx = df.columns.get_loc(time_column) if time_column in df.columns else len(transformed_df.columns)
+                transformed_df.insert(insert_idx, time_column, preserved_time.values)
             # self.logger.info("Normalization function executed.") # Too verbose
             return transformed_df
         except Exception as e:

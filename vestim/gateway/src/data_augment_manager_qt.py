@@ -81,6 +81,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
                            job_folder: str,
                            padding_length: Optional[int] = None,
                            resampling_frequency: Optional[str] = None,
+                           source_sampling_rate_override_hz: Optional[float] = None,
                            column_formulas: Optional[List[Tuple[str, str]]] = None,
                            normalize_data: bool = False,
                            normalization_feature_columns: Optional[List[str]] = None,
@@ -115,6 +116,8 @@ class DataAugmentManager(QObject): # Inherit from QObject
 
            all_files_to_process = []
            train_files_for_stats_calc = []
+           resampling_source_hz = None
+           resampling_source_mode = 'unknown'
            effective_filter_padding = self.service.determine_effective_filter_padding(
                filter_configs,
                padding_length
@@ -136,6 +139,39 @@ class DataAugmentManager(QObject): # Inherit from QObject
                 all_files_to_process.extend(glob.glob(os.path.join(val_processed_dir, "*.csv")))
            if test_processed_dir and os.path.isdir(test_processed_dir):
                 all_files_to_process.extend(glob.glob(os.path.join(test_processed_dir, "*.csv")))
+
+           if resampling_frequency and resampling_frequency != 'None':
+                if source_sampling_rate_override_hz is not None:
+                    resampling_source_hz = float(source_sampling_rate_override_hz)
+                    resampling_source_mode = 'manual_override'
+                else:
+                    candidate_files = train_files_for_stats_calc if train_files_for_stats_calc else all_files_to_process
+                    last_profile_reason = None
+                    last_profile_file = None
+                    for candidate_file in candidate_files:
+                        try:
+                            candidate_df = pd.read_csv(candidate_file)
+                            sampling_profile = self.service.detect_sampling_profile(candidate_df)
+                            estimated_hz = sampling_profile.get('source_hz')
+                            last_profile_reason = sampling_profile.get('reason')
+                            last_profile_file = candidate_file
+                            if estimated_hz and estimated_hz > 0:
+                                resampling_source_hz = float(estimated_hz)
+                                resampling_source_mode = sampling_profile.get('source_mode', 'auto_detected')
+                                break
+                        except Exception as e_est:
+                            self.logger.debug(f"Sampling-rate estimation skipped for {candidate_file}: {e_est}")
+
+                if resampling_source_hz:
+                    self.logger.info(
+                        f"Resampling source sampling rate resolved: {resampling_source_hz:.6g} Hz "
+                        f"(mode={resampling_source_mode})"
+                    )
+                else:
+                    self.logger.warning(
+                        f"Could not infer source sampling rate from data; reason={last_profile_reason}, "
+                        f"last_checked_file={last_profile_file}. Resampling service fallback will be used."
+                    )
             
            if normalize_data:
                 if not train_files_for_stats_calc:
@@ -148,15 +184,13 @@ class DataAugmentManager(QObject): # Inherit from QObject
                     for train_file_path_for_stats in train_files_for_stats_calc:
                         try:
                             df_temp_for_stats = pd.read_csv(train_file_path_for_stats)
-                            if resampling_frequency and resampling_frequency != 'None' and not df_temp_for_stats.empty:
-                                df_temp_for_stats = self.service.resample_data(df_temp_for_stats, resampling_frequency)
-                            
+
                             if filter_configs and df_temp_for_stats is not None and not df_temp_for_stats.empty:
                                 if effective_filter_padding > 0:
                                     df_temp_for_stats = self.service.pad_data(
                                         df_temp_for_stats,
                                         effective_filter_padding,
-                                        resample_freq_for_time_padding=resampling_frequency
+                                        resample_freq_for_time_padding=None
                                     )
 
                                 for config in filter_configs:
@@ -178,6 +212,16 @@ class DataAugmentManager(QObject): # Inherit from QObject
 
                             if column_formulas and df_temp_for_stats is not None and not df_temp_for_stats.empty:
                                 df_temp_for_stats = self.service.create_columns(df_temp_for_stats, column_formulas)
+
+                            if resampling_frequency and resampling_frequency != 'None' and not df_temp_for_stats.empty:
+                                df_temp_for_stats = self.service.resample_data(
+                                    df_temp_for_stats,
+                                    resampling_frequency,
+                                    source_sampling_rate_hz=resampling_source_hz
+                                )
+                                if self.service.last_resample_source_hz and not resampling_source_hz:
+                                    resampling_source_hz = self.service.last_resample_source_hz
+                                    resampling_source_mode = self.service.last_resample_source_mode or 'auto_detected'
                             
                             if df_temp_for_stats is not None and not df_temp_for_stats.empty:
                                 dataframes_for_stats.append(df_temp_for_stats)
@@ -213,6 +257,12 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                     col for col in feature_columns_for_scaler_basis
                                     if col.lower().replace(" ", "") not in normalized_exclude_set
                                 ]
+
+                            # Hard safety: never normalize time/date/sample/index-like columns.
+                            actual_columns_to_normalize = [
+                                col for col in actual_columns_to_normalize
+                                if not any(key in col.lower().replace(" ", "") for key in ['time', 'date', 'timestamp', 'sample', 'index'])
+                            ]
 
                             if not actual_columns_to_normalize:
                                 self.logger.warning("No columns remaining for normalization after exclusions. Skipping normalization.")
@@ -267,12 +317,41 @@ class DataAugmentManager(QObject): # Inherit from QObject
                     df = pd.read_csv(file_path)
                     file_metadata['original_shape'] = df.shape
 
-                    actual_resampling_frequency_for_padding = None
+                    original_time_col = self.service._find_time_column(df)
+                    original_time_snapshot = None
+                    if original_time_col and original_time_col in df.columns:
+                        original_time_snapshot = df[original_time_col].copy(deep=True)
 
-                    if resampling_frequency and resampling_frequency != 'None' and df is not None and not df.empty:
-                        df = self.service.resample_data(df, resampling_frequency)
-                        if df is not None and not df.empty:
-                            actual_resampling_frequency_for_padding = resampling_frequency
+                    # If processed_data already lost timestamp values, try recovering from matching raw_data file.
+                    if (
+                        (original_time_snapshot is None)
+                        or (pd.Series(original_time_snapshot).notna().sum() == 0)
+                    ):
+                        try:
+                            raw_file_path = file_path.replace(
+                                os.path.join('processed_data', ''),
+                                os.path.join('raw_data', '')
+                            )
+                            if os.path.exists(raw_file_path):
+                                raw_df = pd.read_csv(raw_file_path)
+                                raw_time_col = self.service._find_time_column(raw_df)
+                                if raw_time_col and raw_time_col in raw_df.columns:
+                                    raw_snapshot = raw_df[raw_time_col].copy(deep=True)
+                                    if pd.Series(raw_snapshot).notna().sum() > 0:
+                                        original_time_col = raw_time_col
+                                        original_time_snapshot = raw_snapshot
+                                        file_metadata['timestamp_snapshot_source'] = 'raw_data'
+                                        self.logger.info(
+                                            f"[{os.path.basename(file_path)}] Using timestamp snapshot from raw_data file: "
+                                            f"{os.path.basename(raw_file_path)} (column={raw_time_col})"
+                                        )
+                        except Exception as e_raw_ts:
+                            self.logger.warning(
+                                f"[{os.path.basename(file_path)}] Could not load timestamp snapshot from raw_data: {e_raw_ts}",
+                                exc_info=True
+                            )
+
+                    actual_resampling_frequency_for_padding = None
                     
                     if filter_configs and df is not None and not df.empty:
                         if effective_filter_padding > 0:
@@ -280,7 +359,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             df = self.service.pad_data(
                                 df,
                                 effective_filter_padding,
-                                resample_freq_for_time_padding=actual_resampling_frequency_for_padding
+                                resample_freq_for_time_padding=None
                             )
 
                         for config in filter_configs:
@@ -299,7 +378,7 @@ class DataAugmentManager(QObject): # Inherit from QObject
                         if effective_filter_padding > 0 and df is not None and not df.empty:
                             self.logger.info(f"[{os.path.basename(file_path)}] Removing temporary pre-filter padding: {effective_filter_padding} rows")
                             df = self.service.remove_padding(df, effective_filter_padding)
-                   
+
                     if column_formulas and df is not None and not df.empty:
                         try:
                             df = self.service.create_columns(df, column_formulas, log_details=(i == 0))
@@ -310,6 +389,18 @@ class DataAugmentManager(QObject): # Inherit from QObject
                             file_metadata['status'] = 'Failed'
                             file_metadata['error'] = error_msg
                             formula_error_occurred = True 
+
+                    if resampling_frequency and resampling_frequency != 'None' and df is not None and not df.empty:
+                        df = self.service.resample_data(
+                            df,
+                            resampling_frequency,
+                            source_sampling_rate_hz=resampling_source_hz
+                        )
+                        if self.service.last_resample_source_hz and not resampling_source_hz:
+                            resampling_source_hz = self.service.last_resample_source_hz
+                            resampling_source_mode = self.service.last_resample_source_mode or 'auto_detected'
+                        if df is not None and not df.empty:
+                            actual_resampling_frequency_for_padding = resampling_frequency
                     
                     # Apply noise injection if configured
                     if not formula_error_occurred and noise_configs and df is not None and not df.empty:
@@ -346,11 +437,86 @@ class DataAugmentManager(QObject): # Inherit from QObject
 
                     if not formula_error_occurred and normalize_data and global_scaler and df is not None and not df.empty:
                         try:
+                            # Explicit snapshot/restore safeguard to keep timestamp intact through normalization.
+                            timestamp_col = self.service._find_time_column(df)
+                            timestamp_snapshot = None
+                            if timestamp_col and timestamp_col in df.columns:
+                                timestamp_snapshot = df[timestamp_col].copy(deep=True)
+
                             df = self.service.apply_normalization(df, global_scaler, actual_columns_to_normalize)
+
+                            if (
+                                timestamp_snapshot is not None
+                                and timestamp_col in df.columns
+                                and len(df) == len(timestamp_snapshot)
+                            ):
+                                df[timestamp_col] = timestamp_snapshot.values
+                                file_metadata['timestamp_restored_after_normalization'] = True
                         except Exception as e_norm:
                             self.logger.error(f"Error during normalization for {file_path}: {e_norm}", exc_info=True)
                             file_metadata['status'] = 'Failed'
                             file_metadata['error'] = f"Normalization error: {e_norm}"
+
+                    # Final hard safeguard: if timestamp became missing/empty after augmentation,
+                    # restore from original per-file snapshot (with alignment when lengths differ).
+                    if (
+                        file_metadata.get('status') != 'Failed'
+                        and df is not None
+                        and not df.empty
+                        and original_time_snapshot is not None
+                        and len(original_time_snapshot) > 0
+                    ):
+                        try:
+                            target_time_col = self.service._find_time_column(df) or original_time_col
+                            if target_time_col not in df.columns:
+                                df[target_time_col] = np.nan
+
+                            target_time_non_null = int(df[target_time_col].notna().sum())
+                            if target_time_non_null == 0:
+                                if len(original_time_snapshot) == len(df):
+                                    df[target_time_col] = original_time_snapshot.values
+                                    file_metadata['timestamp_restored_after_resampling'] = True
+                                    file_metadata['timestamp_restore_mode'] = 'direct_copy'
+                                else:
+                                    original_series = pd.Series(original_time_snapshot).reset_index(drop=True)
+                                    original_parsed = pd.to_datetime(original_series, errors='coerce', dayfirst=True)
+                                    if original_parsed.notna().sum() >= 2:
+                                        src_x = np.linspace(0.0, 1.0, num=len(original_parsed), dtype=float)
+                                        dst_x = np.linspace(0.0, 1.0, num=len(df), dtype=float)
+                                        src_ns = original_parsed.astype('int64').to_numpy(dtype=float)
+                                        restored_ns = np.interp(dst_x, src_x, src_ns)
+                                        restored_time = pd.to_datetime(restored_ns.astype('int64'), errors='coerce')
+                                        df[target_time_col] = restored_time
+                                        file_metadata['timestamp_restored_after_resampling'] = True
+                                        file_metadata['timestamp_restore_mode'] = 'interpolated_datetime'
+                                    else:
+                                        src_pos = np.linspace(0, len(original_series) - 1, num=len(df))
+                                        nearest_idx = np.clip(np.round(src_pos).astype(int), 0, len(original_series) - 1)
+                                        df[target_time_col] = original_series.iloc[nearest_idx].values
+                                        file_metadata['timestamp_restored_after_resampling'] = True
+                                        file_metadata['timestamp_restore_mode'] = 'nearest_index'
+
+                                restored_non_null = int(pd.Series(df[target_time_col]).notna().sum())
+                                self.logger.info(
+                                    f"[{os.path.basename(file_path)}] Timestamp safeguard applied: "
+                                    f"column={target_time_col}, restored_non_null={restored_non_null}, "
+                                    f"mode={file_metadata.get('timestamp_restore_mode', 'n/a')}"
+                                )
+
+                            final_non_null = int(pd.Series(df[target_time_col]).notna().sum())
+                            if final_non_null == 0:
+                                file_metadata['status'] = 'Failed'
+                                file_metadata['error'] = (
+                                    f"Timestamp column '{target_time_col}' remained empty after restoration safeguards."
+                                )
+                                self.logger.error(
+                                    f"[{os.path.basename(file_path)}] {file_metadata['error']}"
+                                )
+                        except Exception as e_ts_restore:
+                            self.logger.warning(
+                                f"[{os.path.basename(file_path)}] Timestamp safeguard failed: {e_ts_restore}",
+                                exc_info=True
+                            )
 
                     if file_metadata['status'] != 'Failed' and df is not None and not df.empty:
                         self.service.save_single_augmented_file(df, file_path)
@@ -385,7 +551,11 @@ class DataAugmentManager(QObject): # Inherit from QObject
            # Prepare resampling info
            resampling_info = {
                'applied': resampling_frequency is not None,
-               'frequency': resampling_frequency
+               'frequency': resampling_frequency,
+               'source_frequency_hz': resampling_source_hz,
+               'source_frequency_mode': resampling_source_mode,
+               'mixed_source_rates_hz': self.service.last_sampling_profile.get('mixed_rates_hz', []) if self.service.last_sampling_profile else [],
+               'source_detection_reason': self.service.last_sampling_profile.get('reason') if self.service.last_sampling_profile else None
            } if resampling_frequency else {'applied': False}
            
            # Prepare padding info  
@@ -526,6 +696,95 @@ class DataAugmentManager(QObject): # Inherit from QObject
         except Exception as e:
             self.logger.error(f"Failed to load sample train dataframe for job {current_job_id}: {e}", exc_info=True)
             return None
+
+    def detect_source_sampling_from_job(self, job_folder: str, max_files_to_scan: int = 36) -> Dict[str, Any]:
+        """
+        Detect source sampling profile by scanning representative CSV files in a job.
+        Priority: train/processed_data -> train/raw_data -> val/test processed/raw.
+        Returns profile with additional context fields for GUI/logging.
+        """
+        result: Dict[str, Any] = {
+            'source_hz': None,
+            'source_mode': 'unknown',
+            'mixed': False,
+            'mixed_rates_hz': [],
+            'reason': 'no_files_scanned',
+            'source_file': None,
+            'source_stage': None,
+            'scanned_files': 0
+        }
+
+        self._set_job_context(job_folder)
+
+        # Original/source cadence should come from raw files first.
+        stage_dirs: List[Tuple[str, str]] = [
+            ('train_raw', os.path.join(job_folder, 'train_data', 'raw_data')),
+            ('val_raw', os.path.join(job_folder, 'val_data', 'raw_data')),
+            ('test_raw', os.path.join(job_folder, 'test_data', 'raw_data')),
+            ('train_processed', os.path.join(job_folder, 'train_data', 'processed_data')),
+            ('val_processed', os.path.join(job_folder, 'val_data', 'processed_data')),
+            ('test_processed', os.path.join(job_folder, 'test_data', 'processed_data')),
+        ]
+
+        available_files = 0
+        for _, stage_dir in stage_dirs:
+            if os.path.isdir(stage_dir):
+                available_files += len(glob.glob(os.path.join(stage_dir, "*.csv")))
+
+        if available_files <= 0:
+            self.logger.warning(f"Sampling detection at GUI launch: no CSV files found for job {job_folder}.")
+            return result
+
+        stage_count = max(1, len(stage_dirs))
+        per_stage_cap = max(1, int(np.ceil(float(max_files_to_scan) / float(stage_count))))
+
+        last_reason = 'unknown'
+        for stage_name, stage_dir in stage_dirs:
+            if result['scanned_files'] >= max_files_to_scan:
+                break
+            if not os.path.isdir(stage_dir):
+                continue
+
+            stage_files = sorted(glob.glob(os.path.join(stage_dir, "*.csv")))
+            stage_scanned = 0
+            for file_path in stage_files:
+                if result['scanned_files'] >= max_files_to_scan or stage_scanned >= per_stage_cap:
+                    break
+                try:
+                    df = pd.read_csv(file_path)
+                    profile = self.service.detect_sampling_profile(df)
+                    result['scanned_files'] += 1
+                    stage_scanned += 1
+
+                    detected_hz = profile.get('source_hz')
+                    last_reason = profile.get('reason', 'unknown')
+
+                    if not detected_hz and last_reason == 'no_time_column':
+                        preview_cols = ", ".join([str(c) for c in list(df.columns)[:8]])
+                        self.logger.debug(
+                            f"Sampling detection no_time_column for {stage_name}:{os.path.basename(file_path)}; "
+                            f"columns_preview=[{preview_cols}]"
+                        )
+
+                    if detected_hz and detected_hz > 0:
+                        result.update(profile)
+                        result['source_file'] = file_path
+                        result['source_stage'] = stage_name
+                        self.logger.info(
+                            f"Sampling detection at GUI launch: detected {float(detected_hz):.6g} Hz "
+                            f"(mode={profile.get('source_mode', 'auto_detected')}, mixed={profile.get('mixed', False)}) "
+                            f"from {stage_name}: {file_path}"
+                        )
+                        return result
+                except Exception as e:
+                    self.logger.debug(f"Sampling detection skipped for {file_path}: {e}")
+
+        result['reason'] = last_reason
+        self.logger.warning(
+            f"Sampling detection at GUI launch: unavailable after scanning {result['scanned_files']} file(s), "
+            f"reason={last_reason}, job={job_folder}"
+        )
+        return result
 
     def _save_simple_data_reference(self, job_folder: str):
         """
