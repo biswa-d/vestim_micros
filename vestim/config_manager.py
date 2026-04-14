@@ -333,7 +333,16 @@ class ConfigManager:
             "SEQUENCE_SPLIT_METHOD": "temporal",
             "MAX_TRAIN_HOURS": "0",
             "MAX_TRAIN_MINUTES": "30",
-            "MAX_TRAIN_SECONDS": "0"
+            "MAX_TRAIN_SECONDS": "0",
+            "PHYSICS_DTDT_CONSTRAINT_ENABLED": False,
+            "PHYSICS_DTDT_LOSS_WEIGHT": "0.0",
+            "PHYSICS_D2YDT2_LOSS_WEIGHT": "0.0",
+            "PHYSICS_DTDT_DT_SECONDS": "1.0",
+            "PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE": False,
+            "PHYSICS_DTDT_MAX_ABS_MODE": "absolute",
+            "PHYSICS_DTDT_MAX_ABS": "0.0",
+            "PHYSICS_DTDT_MAX_ABS_FRACTION": "1.0",
+            "PHYSICS_DTDT_MAX_ABS_WEIGHT": "1.0"
         }
     
     def load_hyperparams_from_root(self):

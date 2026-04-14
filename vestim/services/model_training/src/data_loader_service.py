@@ -6,12 +6,58 @@ try:
 except ImportError:
     import pandas as pd
 import torch
-from torch.utils.data import DataLoader, TensorDataset, SubsetRandomSampler
+from torch.utils.data import DataLoader, TensorDataset, SubsetRandomSampler, Sampler
 from datetime import datetime
 import gc  # For garbage collection
 import logging
 from vestim.services.model_training.src.sequence_rnn_data_handler import SequenceRNNDataHandler
 from vestim.services.model_training.src.whole_sequence_fnn_data_handler import WholeSequenceFNNDataHandler
+
+
+class EpochShuffledContiguousBatchSampler(Sampler):
+    """
+    Yields contiguous index blocks of size batch_size.
+    The block order is reshuffled each time __iter__ is called (each epoch),
+    while preserving sample order inside each batch.
+    """
+
+    def __init__(self, dataset_size: int, batch_size: int, seed: int = None, drop_last: bool = True):
+        self.dataset_size = int(max(0, dataset_size))
+        self.batch_size = int(max(1, batch_size))
+        self.seed = seed
+        self.drop_last = bool(drop_last)
+        self.epoch = 0
+
+        self.full_batches = self.dataset_size // self.batch_size
+        self.remainder = self.dataset_size % self.batch_size
+
+    def __len__(self):
+        if self.drop_last:
+            return self.full_batches
+        return self.full_batches + (1 if self.remainder > 0 else 0)
+
+    def __iter__(self):
+        if self.full_batches <= 0 and (self.drop_last or self.dataset_size == 0):
+            return
+
+        if self.seed is None:
+            rng = np.random.default_rng()
+        else:
+            rng = np.random.default_rng(self.seed + self.epoch)
+
+        batch_order = np.arange(self.full_batches)
+        rng.shuffle(batch_order)
+        self.epoch += 1
+
+        for batch_idx in batch_order:
+            start = int(batch_idx) * self.batch_size
+            end = start + self.batch_size
+            yield list(range(start, end))
+
+        if not self.drop_last and self.remainder > 0:
+            start = self.full_batches * self.batch_size
+            end = self.dataset_size
+            yield list(range(start, end))
 
 class DataLoaderService:
     def __init__(self):
@@ -322,7 +368,7 @@ class DataLoaderService:
         
         return train_loader, val_loader
     
-    def _create_fnn_dataloader(self, X, y, batch_size, num_workers, seed, is_training=True):
+    def _create_fnn_dataloader(self, X, y, batch_size, num_workers, seed, is_training=True, contiguous_batches_only=False):
         """
         Creates a DataLoader for FNN with proper batch handling.
         """
@@ -340,15 +386,29 @@ class DataLoaderService:
         # Create dataset
         dataset = TensorDataset(X_tensor, y_tensor)
         
-        # For FNN, we want shuffling at the batch level, not sample level
-        # So we shuffle=True for training and False for validation
-        shuffle_batches = is_training
-        
         # The freeze_support() call in the main script should prevent multiprocessing issues.
         optimized_num_workers = num_workers
         pin_memory_flag = torch.cuda.is_available()
         prefetch_factor_value = 2 if optimized_num_workers > 0 else None
-        
+
+        if contiguous_batches_only and is_training:
+            batch_sampler = EpochShuffledContiguousBatchSampler(
+                dataset_size=len(dataset),
+                batch_size=batch_size,
+                seed=seed,
+                drop_last=True
+            )
+            loader = DataLoader(
+                dataset,
+                batch_sampler=batch_sampler,
+                num_workers=optimized_num_workers,
+                pin_memory=pin_memory_flag,
+                prefetch_factor=prefetch_factor_value,
+                persistent_workers=False
+            )
+            return loader
+
+        shuffle_batches = is_training and not contiguous_batches_only
         loader = DataLoader(
             dataset,
             batch_size=batch_size,
@@ -579,6 +639,7 @@ class DataLoaderService:
                                                  lookback: int = None,
                                                  concatenate_raw_data: bool = False,
                                                  seed: int = None, model_type: str = "LSTM",
+                                                 enforce_contiguous_fnn_batches: bool = False,
                                                  create_test_loader: bool = True,
                                                  pin_memory: bool = None,
                                                  prefetch_factor: int = None,
@@ -600,9 +661,21 @@ class DataLoaderService:
             # If only the size is needed, we can return early
             return None, None, total_size_mb
 
-        # Reference code approach: BOTH train and validation use SubsetRandomSampler (both shuffled!)
-        train_loader = self._create_loader_from_tensors(train_X, train_y, batch_size, num_workers, True, "train", pin_memory, prefetch_factor, persistent_workers)
-        val_loader = self._create_loader_from_tensors(val_X, val_y, batch_size, num_workers, True, "validation", pin_memory, prefetch_factor, persistent_workers)
+        if model_type == "FNN" and enforce_contiguous_fnn_batches:
+            self.logger.info(
+                "FNN hybrid-physics mode enabled: preserving contiguous samples inside each batch "
+                "and shuffling only batch order between epochs."
+            )
+            train_loader = self._create_fnn_dataloader(
+                train_X, train_y, batch_size, num_workers, seed, is_training=True, contiguous_batches_only=True
+            )
+            val_loader = self._create_fnn_dataloader(
+                val_X, val_y, batch_size, num_workers, seed, is_training=False, contiguous_batches_only=True
+            )
+        else:
+            # Reference code approach: BOTH train and validation use SubsetRandomSampler (both shuffled!)
+            train_loader = self._create_loader_from_tensors(train_X, train_y, batch_size, num_workers, True, "train", pin_memory, prefetch_factor, persistent_workers)
+            val_loader = self._create_loader_from_tensors(val_X, val_y, batch_size, num_workers, True, "validation", pin_memory, prefetch_factor, persistent_workers)
 
         if create_test_loader:
             test_folder = os.path.join(job_folder_path, 'test_data', 'processed_data')

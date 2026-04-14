@@ -422,7 +422,14 @@ class DataAugmentGUI(QMainWindow):
         if self.last_used_settings_file:
             try:
                 os.makedirs(os.path.dirname(self.last_used_settings_file), exist_ok=True)
-                settings_to_save = self.filter_configs if self.filtering_checkbox.isChecked() else []
+                settings_to_save = {
+                    "filter_configs": self.filter_configs if self.filtering_checkbox.isChecked() else [],
+                    "resampling": {
+                        "enabled": self.resampling_checkbox.isChecked(),
+                        "frequency": self.frequency_combo.currentText().strip() if hasattr(self, 'frequency_combo') else "",
+                        "source_sampling_rate_override_hz": self.source_sampling_rate_override_edit.text().strip() if hasattr(self, 'source_sampling_rate_override_edit') else ""
+                    }
+                }
                 with open(self.last_used_settings_file, "w") as f:
                     json.dump(settings_to_save, f)
                 self.logger.info(f"Saved last used filter settings to {self.last_used_settings_file}")
@@ -1304,14 +1311,36 @@ class DataAugmentGUI(QMainWindow):
             self.logger.error(f"Error reading last used filter settings file: {e}")
             return
         
-        if not loaded_settings:
+        if isinstance(loaded_settings, dict):
+            filter_settings = loaded_settings.get("filter_configs", [])
+            resampling_settings = loaded_settings.get("resampling", {}) if isinstance(loaded_settings.get("resampling", {}), dict) else {}
+        else:
+            filter_settings = loaded_settings if isinstance(loaded_settings, list) else []
+            resampling_settings = {}
+
+        if not filter_settings:
             self.filtering_checkbox.setChecked(False)
+
+        if resampling_settings:
+            try:
+                if hasattr(self, 'resampling_checkbox'):
+                    self.resampling_checkbox.setChecked(bool(resampling_settings.get("enabled", False)))
+                if hasattr(self, 'frequency_combo'):
+                    freq_value = str(resampling_settings.get("frequency", "")).strip()
+                    if freq_value:
+                        self.frequency_combo.setCurrentText(freq_value)
+                if hasattr(self, 'source_sampling_rate_override_edit'):
+                    override_value = str(resampling_settings.get("source_sampling_rate_override_hz", "")).strip()
+                    if override_value:
+                        self.source_sampling_rate_override_edit.setText(override_value)
+            except Exception as e:
+                self.logger.warning(f"Could not restore resampling settings from last used file: {e}")
 
         if not self.train_df is None:
             available_columns = self.train_df.columns.tolist()
             self.filter_list.clear()
             self.filter_configs.clear()
-            for setting in loaded_settings:
+            for setting in filter_settings:
                 if setting.get("column") in available_columns:
                     try:
                         self.train_df = self.data_augment_manager.service.apply_butterworth_filter(

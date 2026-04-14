@@ -542,15 +542,21 @@ class VEstimStandaloneTestingManager(QObject):
                     source_sampling_rate_hz=source_hz
                 )
 
-            # Apply persistent padding only for non-filter workflows / legacy metadata.
-            if (not applied_filters) and padding_info.get('applied', False):
-                padding_length = int(padding_info.get('length', 0) or 0)
-                if padding_length > 0:
-                    self.padding_length = padding_length
-                    self.progress.emit(f"Applying padding (length: {padding_length})...")
+            # Apply persistent test padding (for warmup) after filter-related temporary padding is removed.
+            if padding_info.get('applied', False):
+                persistent_scope = str(padding_info.get('persistent_scope', 'legacy')).strip().lower()
+                if persistent_scope == 'test_only':
+                    persistent_padding_length = int(padding_info.get('user_padding_length', 0) or 0)
+                else:
+                    # Legacy behavior: only non-filter metadata used `length` as persistent padding.
+                    persistent_padding_length = int(padding_info.get('length', 0) or 0) if (not applied_filters) else 0
+
+                if persistent_padding_length > 0:
+                    self.padding_length = persistent_padding_length
+                    self.progress.emit(f"Applying persistent test padding (length: {persistent_padding_length})...")
                     result_df = self.data_augment_service.pad_data(
                         result_df,
-                        padding_length,
+                        persistent_padding_length,
                         resample_freq_for_time_padding=padding_info.get('resampling_frequency_for_padding')
                     )
             

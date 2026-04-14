@@ -3,7 +3,43 @@ from logging.handlers import RotatingFileHandler
 import sys
 import os # Import the os module
 
+
+class SafeRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that tolerates Windows file-lock rollover failures."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('delay', True)
+        super().__init__(*args, **kwargs)
+
+    def doRollover(self):
+        try:
+            super().doRollover()
+        except PermissionError:
+            # Another process has the file open (WinError 32). Skip rollover silently.
+            # Keep writing to the current log file to avoid noisy traceback spam.
+            try:
+                if self.stream:
+                    self.stream.close()
+            except Exception:
+                pass
+            self.stream = None
+
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except PermissionError:
+            # Suppress intermittent file lock errors during emit/rollover.
+            pass
+        except OSError as exc:
+            if getattr(exc, 'winerror', None) == 32:
+                # Suppress Windows sharing violation.
+                return
+            raise
+
 def setup_logger(log_file='default.log'):
+    # Prevent logging internals from printing traceback spam to stderr in production.
+    logging.raiseExceptions = False
+
     logger = logging.getLogger()
     # If the root logger already has handlers, assume it's configured and return it.
     # This prevents adding duplicate handlers if setup_logger is called multiple times.
@@ -27,7 +63,7 @@ def setup_logger(log_file='default.log'):
     logger.addHandler(console_handler)
 
     # Rotating File Handler (5 MB max, keep 3 backups)
-    file_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=3)
+    file_handler = SafeRotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=3)
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')) # Corrected back to %(message)s
     logger.addHandler(file_handler)
@@ -40,6 +76,7 @@ def configure_job_specific_logging(job_folder_path, log_file_name='job.log'):
     Removes existing file handlers and adds a new one for the job.
     """
     logger = logging.getLogger()
+    logging.raiseExceptions = False
     
     # Forcefully remove ALL existing handlers from the root logger
     for handler in logger.handlers[:]:
@@ -56,7 +93,7 @@ def configure_job_specific_logging(job_folder_path, log_file_name='job.log'):
     # Ensure the directory for the job log file exists
     os.makedirs(os.path.dirname(job_log_file), exist_ok=True)
         
-    job_file_handler = RotatingFileHandler(job_log_file, maxBytes=5*1024*1024, backupCount=3)
+    job_file_handler = SafeRotatingFileHandler(job_log_file, maxBytes=5*1024*1024, backupCount=3)
     job_file_handler.setLevel(logging.DEBUG) # Or INFO, as per requirements
     job_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')) # Moved %(name)s
     logger.addHandler(job_file_handler)

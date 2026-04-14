@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, 
     QWidget, QTreeWidget, QTreeWidgetItem, QProgressBar, QDialog, QMessageBox, 
     QGridLayout, QFrame, QAction, QFileDialog, QTabWidget, QLineEdit, QComboBox,
-    QCheckBox, QGroupBox
+    QCheckBox, QGroupBox, QScrollArea
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt5.QtGui import QFont, QDesktopServices, QPixmap, QImage, QClipboard
@@ -93,6 +93,7 @@ class VEstimTestingGUI(QMainWindow):
             "NUM_WORKERS": "# CPU Threads", "PIN_MEMORY": "Fast CPU-GPU Transfer",
             "PREFETCH_FACTOR": "Batch Pre-loading", "USE_CUDA_GRAPHS": "CUDA Graphs"
         }
+        self.param_labels["PHYSICS_D2YDT2_LOSS_WEIGHT"] = "Physics D²Y/Dt² Loss Weight"
 
         self.queue = Queue()
         self.timer_running = True
@@ -238,7 +239,14 @@ class VEstimTestingGUI(QMainWindow):
                 background-color: #ffffff;
             }
         """)
-        self.main_layout.addWidget(self.hyperparam_frame)
+        self.hyperparam_scroll = QScrollArea()
+        self.hyperparam_scroll.setWidgetResizable(True)
+        self.hyperparam_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.hyperparam_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.hyperparam_scroll.setFrameShape(QFrame.NoFrame)
+        self.hyperparam_scroll.setFixedHeight(250)
+        self.hyperparam_scroll.setWidget(self.hyperparam_frame)
+        self.main_layout.addWidget(self.hyperparam_scroll)
         self.hyper_params = self.params
         self.display_hyperparameters(self.hyper_params)
         
@@ -292,6 +300,7 @@ class VEstimTestingGUI(QMainWindow):
         filter_layout.addWidget(clear_btn)
         
         filter_group.setLayout(filter_layout)
+        filter_group.setFixedHeight(70)
         self.main_layout.addWidget(filter_group)
 
         self.tree = QTreeWidget()
@@ -310,6 +319,9 @@ class VEstimTestingGUI(QMainWindow):
         self.tree.setColumnWidth(9, 100)
         self.tree.setColumnWidth(10, 70)
         self.tree.setColumnWidth(11, 100)
+        self.tree.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tree.setFixedHeight(240)
         self.main_layout.addWidget(self.tree)
 
         self.status_label = QLabel("Preparing test data...")

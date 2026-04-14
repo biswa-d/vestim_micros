@@ -259,8 +259,15 @@ class VEstimHyperParamGUI(QWidget):
         self.add_exploit_lr_widgets(exploit_lr_layout)
         exploit_lr_group.setLayout(exploit_lr_layout)
 
+        derivative_group = QGroupBox("Hybrid Loss Constraint")
+        derivative_group.setStyleSheet("QGroupBox { font-size: 9pt; font-weight: bold; }")
+        derivative_layout = QFormLayout()
+        self.add_derivative_constraint_controls(derivative_layout)
+        derivative_group.setLayout(derivative_layout)
+
         lr_layout.addWidget(scheduler_group)
         lr_layout.addWidget(exploit_lr_group)
+        lr_layout.addWidget(derivative_group)
         lr_group.setLayout(lr_layout)
 
         # Add widgets to the 3-column grid layout
@@ -1056,6 +1063,128 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["MAX_TRAIN_SECONDS"] = self.max_time_seconds_entry
 
         layout.addLayout(validation_form_layout)
+
+    def add_derivative_constraint_controls(self, form_layout):
+        """Adds hybrid loss derivative controls in the 3rd column."""
+        derivative_header = QLabel("Derivative Constraint (dY/dt):")
+        derivative_header.setStyleSheet("font-size: 9pt; font-weight: bold;")
+        derivative_header.setToolTip("Optional derivative-based regularization for any target variable.")
+        form_layout.addRow(derivative_header)
+
+        self.physics_dtdt_enabled_checkbox = QCheckBox("Enable hybrid loss (MSE + derivative penalty)")
+        self.physics_dtdt_enabled_checkbox.setChecked(bool(self.params.get("PHYSICS_DTDT_CONSTRAINT_ENABLED", False)))
+        self.physics_dtdt_enabled_checkbox.setToolTip("Adds a derivative-matching loss term to the base MSE.")
+        self.physics_dtdt_enabled_checkbox.stateChanged.connect(self.update_physics_dtdt_controls)
+        self.param_entries["PHYSICS_DTDT_CONSTRAINT_ENABLED"] = self.physics_dtdt_enabled_checkbox
+        form_layout.addRow(self.physics_dtdt_enabled_checkbox)
+
+        physics_loss_weight_label = QLabel("Derivative Loss Weight (λ):")
+        physics_loss_weight_label.setStyleSheet("font-size: 9pt;")
+        physics_loss_weight_label.setToolTip("Weight for derivative matching loss. Set 0 to disable effect.")
+        self.physics_dtdt_loss_weight_entry = QLineEdit(str(self.params.get("PHYSICS_DTDT_LOSS_WEIGHT", "0.0")))
+        self.physics_dtdt_loss_weight_entry.setToolTip("Example: 0.5, 1.0, 2.0")
+        self.physics_dtdt_loss_weight_entry.textChanged.connect(self.on_param_text_changed)
+        self.param_entries["PHYSICS_DTDT_LOSS_WEIGHT"] = self.physics_dtdt_loss_weight_entry
+        form_layout.addRow(physics_loss_weight_label, self.physics_dtdt_loss_weight_entry)
+
+        physics_d2_loss_weight_label = QLabel("2nd-Derivative Weight (μ):")
+        physics_d2_loss_weight_label.setStyleSheet("font-size: 9pt;")
+        physics_d2_loss_weight_label.setToolTip("Weight for curvature/inertia term using d²Y/dt² matching. Set 0 to disable.")
+        self.physics_d2ydt2_loss_weight_entry = QLineEdit(str(self.params.get("PHYSICS_D2YDT2_LOSS_WEIGHT", "0.0")))
+        self.physics_d2ydt2_loss_weight_entry.setToolTip("Example: 0.1, 0.5, 1.0")
+        self.physics_d2ydt2_loss_weight_entry.textChanged.connect(self.on_param_text_changed)
+        self.param_entries["PHYSICS_D2YDT2_LOSS_WEIGHT"] = self.physics_d2ydt2_loss_weight_entry
+        form_layout.addRow(physics_d2_loss_weight_label, self.physics_d2ydt2_loss_weight_entry)
+
+        physics_dt_seconds_label = QLabel("Δt (seconds):")
+        physics_dt_seconds_label.setStyleSheet("font-size: 9pt;")
+        physics_dt_seconds_label.setToolTip("Time step used to compute dY/dt = ΔY / Δt")
+        self.physics_dtdt_dt_seconds_entry = QLineEdit(str(self.params.get("PHYSICS_DTDT_DT_SECONDS", "1.0")))
+        self.physics_dtdt_dt_seconds_entry.setToolTip("Must be > 0. Example: 1.0")
+        self.physics_dtdt_dt_seconds_entry.textChanged.connect(self.on_param_text_changed)
+        self.param_entries["PHYSICS_DTDT_DT_SECONDS"] = self.physics_dtdt_dt_seconds_entry
+        form_layout.addRow(physics_dt_seconds_label, self.physics_dtdt_dt_seconds_entry)
+
+        self.physics_target_only_temp_checkbox = QCheckBox("Limit to temperature-like target names")
+        self.physics_target_only_temp_checkbox.setChecked(bool(self.params.get("PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE", False)))
+        self.physics_target_only_temp_checkbox.setToolTip("If checked, derivative penalty only applies when target name includes 'temp'/'temperature'.")
+        self.param_entries["PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE"] = self.physics_target_only_temp_checkbox
+        form_layout.addRow(self.physics_target_only_temp_checkbox)
+
+        physics_max_abs_mode_label = QLabel("Max |dY/dt| Mode:")
+        physics_max_abs_mode_label.setStyleSheet("font-size: 9pt;")
+        physics_max_abs_mode_label.setToolTip("Choose fixed absolute limit or fraction of true batch max |dY/dt|.")
+        self.physics_dtdt_max_abs_mode_combo = QComboBox()
+        self.physics_dtdt_max_abs_mode_combo.addItems(["absolute", "fraction_of_true_batch_max"])
+        max_abs_mode_value = str(self.params.get("PHYSICS_DTDT_MAX_ABS_MODE", "absolute"))
+        max_abs_mode_index = self.physics_dtdt_max_abs_mode_combo.findText(max_abs_mode_value)
+        if max_abs_mode_index >= 0:
+            self.physics_dtdt_max_abs_mode_combo.setCurrentIndex(max_abs_mode_index)
+        self.physics_dtdt_max_abs_mode_combo.currentIndexChanged.connect(self.update_physics_max_abs_mode)
+        self.param_entries["PHYSICS_DTDT_MAX_ABS_MODE"] = self.physics_dtdt_max_abs_mode_combo
+        form_layout.addRow(physics_max_abs_mode_label, self.physics_dtdt_max_abs_mode_combo)
+
+        self.physics_dtdt_max_abs_label = QLabel("Max |dY/dt| (absolute):")
+        self.physics_dtdt_max_abs_label.setStyleSheet("font-size: 9pt;")
+        self.physics_dtdt_max_abs_label.setToolTip("Absolute cap for |dY/dt| in target scale. Set 0 to disable cap.")
+        self.physics_dtdt_max_abs_entry = QLineEdit(str(self.params.get("PHYSICS_DTDT_MAX_ABS", "0.0")))
+        self.physics_dtdt_max_abs_entry.setToolTip("Example: 0.5")
+        self.physics_dtdt_max_abs_entry.textChanged.connect(self.on_param_text_changed)
+        self.param_entries["PHYSICS_DTDT_MAX_ABS"] = self.physics_dtdt_max_abs_entry
+        form_layout.addRow(self.physics_dtdt_max_abs_label, self.physics_dtdt_max_abs_entry)
+
+        self.physics_dtdt_max_abs_fraction_label = QLabel("Max |dY/dt| Fraction (0-1):")
+        self.physics_dtdt_max_abs_fraction_label.setStyleSheet("font-size: 9pt;")
+        self.physics_dtdt_max_abs_fraction_label.setToolTip("Fraction × max(|dY/dt_true|) from current batch. Must be between 0 and 1.")
+        self.physics_dtdt_max_abs_fraction_entry = QLineEdit(str(self.params.get("PHYSICS_DTDT_MAX_ABS_FRACTION", "1.0")))
+        self.physics_dtdt_max_abs_fraction_entry.setToolTip("Example: 0.8 means cap at 80% of true batch max derivative")
+        self.physics_dtdt_max_abs_fraction_entry.textChanged.connect(self.on_param_text_changed)
+        self.param_entries["PHYSICS_DTDT_MAX_ABS_FRACTION"] = self.physics_dtdt_max_abs_fraction_entry
+        form_layout.addRow(self.physics_dtdt_max_abs_fraction_label, self.physics_dtdt_max_abs_fraction_entry)
+
+        physics_max_abs_weight_label = QLabel("Max |dY/dt| Penalty Weight:")
+        physics_max_abs_weight_label.setStyleSheet("font-size: 9pt;")
+        physics_max_abs_weight_label.setToolTip("Weight for the slope-bound penalty term when max |dY/dt| is exceeded.")
+        self.physics_dtdt_max_abs_weight_entry = QLineEdit(str(self.params.get("PHYSICS_DTDT_MAX_ABS_WEIGHT", "1.0")))
+        self.physics_dtdt_max_abs_weight_entry.setToolTip("Example: 1.0")
+        self.physics_dtdt_max_abs_weight_entry.textChanged.connect(self.on_param_text_changed)
+        self.param_entries["PHYSICS_DTDT_MAX_ABS_WEIGHT"] = self.physics_dtdt_max_abs_weight_entry
+        form_layout.addRow(physics_max_abs_weight_label, self.physics_dtdt_max_abs_weight_entry)
+
+        self._physics_dtdt_control_widgets = [
+            self.physics_dtdt_loss_weight_entry,
+            self.physics_d2ydt2_loss_weight_entry,
+            self.physics_dtdt_dt_seconds_entry,
+            self.physics_target_only_temp_checkbox,
+            self.physics_dtdt_max_abs_mode_combo,
+            self.physics_dtdt_max_abs_entry,
+            self.physics_dtdt_max_abs_fraction_entry,
+            self.physics_dtdt_max_abs_weight_entry,
+            self.physics_dtdt_max_abs_label,
+            self.physics_dtdt_max_abs_fraction_label
+        ]
+
+        self.update_physics_dtdt_controls()
+        self.update_physics_max_abs_mode()
+
+    def update_physics_dtdt_controls(self):
+        """Enable/disable derivative controls based on the master checkbox."""
+        if not hasattr(self, 'physics_dtdt_enabled_checkbox'):
+            return
+        enabled = self.physics_dtdt_enabled_checkbox.isChecked()
+        for widget in getattr(self, '_physics_dtdt_control_widgets', []):
+            widget.setEnabled(enabled)
+
+    def update_physics_max_abs_mode(self):
+        """Toggle visibility for absolute vs fraction-based derivative max slope control."""
+        if not hasattr(self, 'physics_dtdt_max_abs_mode_combo'):
+            return
+        mode = self.physics_dtdt_max_abs_mode_combo.currentText().strip().lower()
+        is_fraction_mode = mode == "fraction_of_true_batch_max"
+        self.physics_dtdt_max_abs_label.setVisible(not is_fraction_mode)
+        self.physics_dtdt_max_abs_entry.setVisible(not is_fraction_mode)
+        self.physics_dtdt_max_abs_fraction_label.setVisible(is_fraction_mode)
+        self.physics_dtdt_max_abs_fraction_entry.setVisible(is_fraction_mode)
         
     def add_device_selection(self, layout):
         """Adds device selection UI components."""
@@ -1418,6 +1547,8 @@ class VEstimHyperParamGUI(QWidget):
         self.update_model_params()
         self.update_scheduler_settings()
         self.update_training_method() # FIXED:This will also handle batch size visibility
+        self.update_physics_dtdt_controls()
+        self.update_physics_max_abs_mode()
 
         # CRITICAL FIX: Re-apply loaded parameters AFTER update methods that recreate widgets
         # update_model_params() and update_scheduler_settings() recreate widgets, losing loaded values
@@ -1740,6 +1871,25 @@ class VEstimHyperParamGUI(QWidget):
                 new_params["TRAINING_METHOD"] = "Sequence-to-Sequence"
                 self.logger.info("Converted 'Whole Sequence' to 'Sequence-to-Sequence' for LSTM/GRU model")
 
+        # Physics controls: enforce valid fraction when fraction-based max abs mode is selected
+        physics_enabled = bool(new_params.get("PHYSICS_DTDT_CONSTRAINT_ENABLED", False))
+        if physics_enabled:
+            mode = str(new_params.get("PHYSICS_DTDT_MAX_ABS_MODE", "absolute")).strip().lower()
+            if mode == "fraction_of_true_batch_max":
+                fraction_raw = str(new_params.get("PHYSICS_DTDT_MAX_ABS_FRACTION", "")).strip()
+                if fraction_raw == "":
+                    QMessageBox.warning(self, "Invalid Input", "PHYSICS_DTDT_MAX_ABS_FRACTION is required in fraction mode.")
+                    return None
+                try:
+                    fraction_value = float(fraction_raw)
+                except ValueError:
+                    QMessageBox.warning(self, "Invalid Input", "PHYSICS_DTDT_MAX_ABS_FRACTION must be a valid number in [0, 1].")
+                    return None
+                if fraction_value < 0.0 or fraction_value > 1.0:
+                    QMessageBox.warning(self, "Invalid Input", "PHYSICS_DTDT_MAX_ABS_FRACTION must be between 0 and 1.")
+                    return None
+                new_params["PHYSICS_DTDT_MAX_ABS_FRACTION"] = str(fraction_value)
+
         return new_params
 
 
@@ -1982,6 +2132,13 @@ class VEstimHyperParamGUI(QWidget):
             "COSINE_T0": {"type": "int", "min": 1},
             "COSINE_T_MULT": {"type": "int", "min": 1},
             "COSINE_ETA_MIN": {"type": "float", "min": 0.0},
+            # Physics dT/dt
+            "PHYSICS_DTDT_LOSS_WEIGHT": {"type": "float", "min": 0.0},
+            "PHYSICS_D2YDT2_LOSS_WEIGHT": {"type": "float", "min": 0.0},
+            "PHYSICS_DTDT_DT_SECONDS": {"type": "float", "min": 1e-12},
+            "PHYSICS_DTDT_MAX_ABS": {"type": "float", "min": 0.0},
+            "PHYSICS_DTDT_MAX_ABS_FRACTION": {"type": "float", "min": 0.0, "max": 1.0},
+            "PHYSICS_DTDT_MAX_ABS_WEIGHT": {"type": "float", "min": 0.0},
             # Device and data loading
             "NUM_WORKERS": {"type": "int", "min": 0},
             "PREFETCH_FACTOR": {"type": "int", "min": 1},

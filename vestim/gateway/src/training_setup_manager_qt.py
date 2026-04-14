@@ -402,8 +402,13 @@ class VEstimTrainingSetupManager:
         job_normalization_metadata = self.load_job_normalization_metadata()
         max_training_time_seconds_arg = self.params.get('MAX_TRAINING_TIME_SECONDS', 0)
 
-        # Define parameters that can be grid-searched, including LOOKBACK for sequence length
-        grid_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'LR_PARAM', 'LR_PERIOD', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'BATCH_SIZE', 'OPTIMIZER_TYPE', 'LOOKBACK']
+        model_type = self.params.get('MODEL_TYPE', 'LSTM')
+
+        # Define parameters that can be grid-searched.
+        # LOOKBACK is only relevant for sequence models.
+        grid_keys = ['MAX_EPOCHS', 'INITIAL_LR', 'LR_PARAM', 'LR_PERIOD', 'PLATEAU_PATIENCE', 'PLATEAU_FACTOR', 'BATCH_SIZE', 'OPTIMIZER_TYPE']
+        if model_type in ['LSTM', 'GRU', 'LSTM_EMA', 'LSTM_LPF']:
+            grid_keys.append('LOOKBACK')
         
         param_grid = {}
         for key in grid_keys:
@@ -701,9 +706,10 @@ class VEstimTrainingSetupManager:
             layers = 1  # FNN doesn't have "layers" in the RNN sense
 
         # Build a clean hyperparameter dictionary for the final task
+        default_training_method = 'WholeSequenceFNN' if model_type == 'FNN' else 'Sequence-to-Sequence'
         final_hyperparams = {
             'MODEL_TYPE': model_type,
-            'TRAINING_METHOD': hyperparams.get('TRAINING_METHOD', 'Sequence-to-Sequence'),
+            'TRAINING_METHOD': hyperparams.get('TRAINING_METHOD', default_training_method),
             'INPUT_SIZE': input_size,
             'OUTPUT_SIZE': output_size,
             'BATCH_TRAINING': hyperparams.get('BATCH_TRAINING', True),
@@ -790,7 +796,7 @@ class VEstimTrainingSetupManager:
             if final_hyperparams['TRAINING_METHOD'] != 'Sequence-to-Sequence':
                  final_hyperparams['LOOKBACK'] = 'N/A'
             else:
-                 final_hyperparams['LOOKBACK'] = hyperparams['LOOKBACK']
+                  final_hyperparams['LOOKBACK'] = hyperparams.get('LOOKBACK', 'N/A')
             
             # Determine lookback for data loader, defaulting to 0 if not applicable
         if final_hyperparams.get('LOOKBACK') == 'N/A':

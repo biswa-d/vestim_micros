@@ -424,15 +424,21 @@ class DataAugmentManager(QObject): # Inherit from QObject
                                 self.logger.error(f"Error applying noise injection for {file_path}: {e_noise}", exc_info=True)
                     
                     if not formula_error_occurred and padding_length and padding_length > 0 and df is not None and not df.empty:
-                        if filter_configs:
-                            self.logger.debug(
-                                f"[{os.path.basename(file_path)}] Persistent padding skipped because temporary filter padding is already applied/removed."
+                        normalized_path = file_path.replace('\\', '/').lower()
+                        is_test_processed_file = '/test_data/processed_data/' in normalized_path
+
+                        if is_test_processed_file:
+                            self.logger.info(
+                                f"[{os.path.basename(file_path)}] Applying TEST-ONLY persistent padding: {padding_length} rows"
                             )
-                        else:
                             df = self.service.pad_data(
                                 df,
                                 padding_length,
                                 resample_freq_for_time_padding=actual_resampling_frequency_for_padding
+                            )
+                        else:
+                            self.logger.debug(
+                                f"[{os.path.basename(file_path)}] Skipping persistent padding for non-test file (train/val)."
                             )
 
                     if not formula_error_occurred and normalize_data and global_scaler and df is not None and not df.empty:
@@ -558,16 +564,30 @@ class DataAugmentManager(QObject): # Inherit from QObject
                'source_detection_reason': self.service.last_sampling_profile.get('reason') if self.service.last_sampling_profile else None
            } if resampling_frequency else {'applied': False}
            
-           # Prepare padding info  
-           padding_info = {
-               'applied': True,
-               'length': effective_filter_padding if filter_configs else padding_length,
-               'resampling_frequency_for_padding': resampling_frequency,
-               'mode': 'temporary_pre_filter' if filter_configs else 'persistent',
-               'removed_before_save': bool(filter_configs),
-               'user_padding_length': padding_length if (padding_length and padding_length > 0) else 0,
-               'auto_filter_min_padding_length': effective_filter_padding if filter_configs else 0
-           } if ((padding_length and padding_length > 0) or (filter_configs and effective_filter_padding > 0)) else {'applied': False}
+           # Prepare padding info
+           user_padding_len = padding_length if (padding_length and padding_length > 0) else 0
+           has_temp_filter_padding = bool(filter_configs and effective_filter_padding > 0)
+           has_test_persistent_padding = bool(user_padding_len > 0)
+           if has_temp_filter_padding or has_test_persistent_padding:
+               if has_temp_filter_padding and has_test_persistent_padding:
+                   padding_mode = 'temporary_pre_filter_plus_test_persistent'
+               elif has_temp_filter_padding:
+                   padding_mode = 'temporary_pre_filter'
+               else:
+                   padding_mode = 'test_only_persistent'
+
+               padding_info = {
+                   'applied': True,
+                   'length': effective_filter_padding if has_temp_filter_padding else user_padding_len,
+                   'resampling_frequency_for_padding': resampling_frequency,
+                   'mode': padding_mode,
+                   'removed_before_save': bool(has_temp_filter_padding),
+                   'user_padding_length': user_padding_len,
+                   'auto_filter_min_padding_length': effective_filter_padding if has_temp_filter_padding else 0,
+                   'persistent_scope': 'test_only'
+               }
+           else:
+               padding_info = {'applied': False}
            
            self.service.update_augmentation_metadata(
                job_folder, processed_files_metadata, 

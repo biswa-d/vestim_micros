@@ -310,7 +310,8 @@ class VEstimHyperParamManager:
                             self.logger.error(f"Invalid integer value for {key}: {value}")
                             raise ValueError(f"Invalid value for {key}: Expected integers, got {value}")
 
-                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB', 'LR_PARAM', 'PLATEAU_FACTOR', 'FNN_DROPOUT_PROB', 'EXPLOIT_LR', 'FINAL_LR']:
+                elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB', 'LR_PARAM', 'PLATEAU_FACTOR', 'FNN_DROPOUT_PROB', 'EXPLOIT_LR', 'FINAL_LR',
+                             'PHYSICS_DTDT_LOSS_WEIGHT', 'PHYSICS_D2YDT2_LOSS_WEIGHT', 'PHYSICS_DTDT_DT_SECONDS', 'PHYSICS_DTDT_MAX_ABS', 'PHYSICS_DTDT_MAX_ABS_FRACTION', 'PHYSICS_DTDT_MAX_ABS_WEIGHT']:
                     # Check if it's boundary format [min,max] first
                     if value.strip().startswith('[') and value.strip().endswith(']'):
                         # Boundary format validation for Optuna
@@ -337,8 +338,11 @@ class VEstimHyperParamManager:
                             raise ValueError(f"Invalid value for {key}: Expected floats, got {value}")
 
                 # Ensure boolean conversion for checkboxes (if applicable)
-                elif key in ['BATCH_TRAINING']:
+                elif key in ['BATCH_TRAINING', 'PHYSICS_DTDT_CONSTRAINT_ENABLED', 'PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE']:
                     validated_params[key] = value.lower() in ['true', '1', 'yes']
+
+                elif key == 'PHYSICS_DTDT_MAX_ABS_MODE':
+                    validated_params[key] = value.strip().lower()
 
                 else:
                     validated_params[key] = value
@@ -360,6 +364,15 @@ class VEstimHyperParamManager:
         validated_params["INFERENCE_FILTER_WINDOW_SIZE"] = params.get("INFERENCE_FILTER_WINDOW_SIZE", "101")
         validated_params["INFERENCE_FILTER_ALPHA"] = params.get("INFERENCE_FILTER_ALPHA", "0.1")
         validated_params["INFERENCE_FILTER_POLYORDER"] = params.get("INFERENCE_FILTER_POLYORDER", "2")
+        validated_params["PHYSICS_DTDT_CONSTRAINT_ENABLED"] = params.get("PHYSICS_DTDT_CONSTRAINT_ENABLED", False)
+        validated_params["PHYSICS_DTDT_LOSS_WEIGHT"] = params.get("PHYSICS_DTDT_LOSS_WEIGHT", "0.0")
+        validated_params["PHYSICS_D2YDT2_LOSS_WEIGHT"] = params.get("PHYSICS_D2YDT2_LOSS_WEIGHT", "0.0")
+        validated_params["PHYSICS_DTDT_DT_SECONDS"] = params.get("PHYSICS_DTDT_DT_SECONDS", "1.0")
+        validated_params["PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE"] = params.get("PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE", False)
+        validated_params["PHYSICS_DTDT_MAX_ABS_MODE"] = params.get("PHYSICS_DTDT_MAX_ABS_MODE", "absolute")
+        validated_params["PHYSICS_DTDT_MAX_ABS"] = params.get("PHYSICS_DTDT_MAX_ABS", "0.0")
+        validated_params["PHYSICS_DTDT_MAX_ABS_FRACTION"] = params.get("PHYSICS_DTDT_MAX_ABS_FRACTION", "1.0")
+        validated_params["PHYSICS_DTDT_MAX_ABS_WEIGHT"] = params.get("PHYSICS_DTDT_MAX_ABS_WEIGHT", "1.0")
 
         # === Critical validation for learning rates ===
         initial_lr_str = validated_params.get('INITIAL_LR', '')
@@ -472,6 +485,13 @@ class VEstimHyperParamManager:
             'COSINE_T0': {'type': 'int', 'min': 1},
             'COSINE_T_MULT': {'type': 'int', 'min': 1},
             'COSINE_ETA_MIN': {'type': 'float', 'min': 0.0},
+            # Physics dT/dt
+            'PHYSICS_DTDT_LOSS_WEIGHT': {'type': 'float', 'min': 0.0},
+            'PHYSICS_D2YDT2_LOSS_WEIGHT': {'type': 'float', 'min': 0.0},
+            'PHYSICS_DTDT_DT_SECONDS': {'type': 'float', 'min': 1e-12},
+            'PHYSICS_DTDT_MAX_ABS': {'type': 'float', 'min': 0.0},
+            'PHYSICS_DTDT_MAX_ABS_FRACTION': {'type': 'float', 'min': 0.0, 'max': 1.0},
+            'PHYSICS_DTDT_MAX_ABS_WEIGHT': {'type': 'float', 'min': 0.0},
             # Exploit phase
             'EXPLOIT_REPETITIONS': {'type': 'int', 'min': 0},
             'EXPLOIT_EPOCHS': {'type': 'int', 'min': 0},
@@ -576,6 +596,21 @@ class VEstimHyperParamManager:
         if int(params_to_filter.get('MAX_TRAINING_TIME_SECONDS', 0)) == 0:
             params_to_filter.pop('MAX_TRAINING_TIME_SECONDS', None)
 
+        physics_enabled_raw = params_to_filter.get('PHYSICS_DTDT_CONSTRAINT_ENABLED', False)
+        physics_enabled = physics_enabled_raw if isinstance(physics_enabled_raw, bool) else str(physics_enabled_raw).strip().lower() in ['true', '1', 'yes']
+        if not physics_enabled:
+            for param in [
+                'PHYSICS_DTDT_LOSS_WEIGHT',
+                'PHYSICS_D2YDT2_LOSS_WEIGHT',
+                'PHYSICS_DTDT_DT_SECONDS',
+                'PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE',
+                'PHYSICS_DTDT_MAX_ABS_MODE',
+                'PHYSICS_DTDT_MAX_ABS',
+                'PHYSICS_DTDT_MAX_ABS_FRACTION',
+                'PHYSICS_DTDT_MAX_ABS_WEIGHT'
+            ]:
+                params_to_filter.pop(param, None)
+
         # --- Reordering ---
         ordered_params = {}
         order = [
@@ -599,7 +634,11 @@ class VEstimHyperParamManager:
             # Inference Filter
             "INFERENCE_FILTER_TYPE", "INFERENCE_FILTER_WINDOW_SIZE", "INFERENCE_FILTER_ALPHA", "INFERENCE_FILTER_POLYORDER",
             # Performance
-            "NUM_WORKERS", "PIN_MEMORY", "PREFETCH_FACTOR", "MAX_TRAINING_TIME_SECONDS"
+            "NUM_WORKERS", "PIN_MEMORY", "PREFETCH_FACTOR", "MAX_TRAINING_TIME_SECONDS",
+            # Physics dT/dt constraints
+            "PHYSICS_DTDT_CONSTRAINT_ENABLED", "PHYSICS_DTDT_LOSS_WEIGHT", "PHYSICS_D2YDT2_LOSS_WEIGHT", "PHYSICS_DTDT_DT_SECONDS",
+            "PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE", "PHYSICS_DTDT_MAX_ABS_MODE", "PHYSICS_DTDT_MAX_ABS",
+            "PHYSICS_DTDT_MAX_ABS_FRACTION", "PHYSICS_DTDT_MAX_ABS_WEIGHT"
         ]
         
         for key in order:

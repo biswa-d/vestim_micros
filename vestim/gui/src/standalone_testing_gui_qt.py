@@ -84,6 +84,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             'MAX_TRAINING_TIME_SECONDS': 'Max Training Time',
             'FEATURE_COLUMNS': 'Feature Columns',
             'TARGET_COLUMN': 'Target Column',
+            'PHYSICS_D2YDT2_LOSS_WEIGHT': 'Physics D²Y/Dt² Loss Weight',
             'INFERENCE_FILTER_TYPE': 'Inference Filter',
             'INFERENCE_FILTER_WINDOW_SIZE': 'Filter Window Size',
             'INFERENCE_FILTER_ALPHA': 'Filter Alpha',

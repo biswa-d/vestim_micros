@@ -744,6 +744,18 @@ class TrainingTaskManager:
         seed = int(task['hyperparams'].get('SEED', 2000))
         training_method = task['hyperparams'].get('TRAINING_METHOD', 'Sequence-to-Sequence')
         model_type = task['hyperparams'].get('MODEL_TYPE', 'LSTM')
+        physics_enabled = str(task['hyperparams'].get('PHYSICS_DTDT_CONSTRAINT_ENABLED', False)).strip().lower() in ['true', '1', 'yes']
+        try:
+            physics_weight = float(task['hyperparams'].get('PHYSICS_DTDT_LOSS_WEIGHT', 0.0))
+        except (TypeError, ValueError):
+            physics_weight = 0.0
+        try:
+            physics_d2_weight = float(task['hyperparams'].get('PHYSICS_D2YDT2_LOSS_WEIGHT', 0.0))
+        except (TypeError, ValueError):
+            physics_d2_weight = 0.0
+        enforce_contiguous_fnn_batches = (model_type == 'FNN' and physics_enabled and (physics_weight > 0 or physics_d2_weight > 0))
+        if enforce_contiguous_fnn_batches:
+            self.logger.info("FNN + hybrid physics loss detected: using contiguous-in-batch loading with epoch-level batch-order shuffling.")
         job_folder_path = self.job_manager.get_job_folder()
 
         if model_type in ['LSTM', 'GRU'] and training_method == "Sequence-to-Sequence":
@@ -792,7 +804,8 @@ class TrainingTaskManager:
                     target_col=target_col, batch_size=int(task['data_loader_params'].get('batch_size', 32)),
                     num_workers=num_workers, lookback=int(task['data_loader_params'].get('lookback', 50)),
                     seed=seed, model_type=model_type, create_test_loader=False, pin_memory=pin_memory,
-                    prefetch_factor=prefetch_factor, persistent_workers=persistent_workers
+                    prefetch_factor=prefetch_factor, persistent_workers=persistent_workers,
+                    enforce_contiguous_fnn_batches=enforce_contiguous_fnn_batches
                 )
         else:
             self.logger.info(f"Using standard data loader creation for model type: {model_type}")
@@ -807,7 +820,8 @@ class TrainingTaskManager:
                 num_workers=num_workers, lookback=int(task['data_loader_params'].get('lookback', 50)),
                 concatenate_raw_data=(training_method == 'Whole Sequence' and model_type in ['LSTM', 'GRU']),
                 seed=seed, model_type=model_type, create_test_loader=False, pin_memory=pin_memory,
-                prefetch_factor=prefetch_factor, persistent_workers=persistent_workers
+                prefetch_factor=prefetch_factor, persistent_workers=persistent_workers,
+                enforce_contiguous_fnn_batches=enforce_contiguous_fnn_batches
             )
 
         try:
