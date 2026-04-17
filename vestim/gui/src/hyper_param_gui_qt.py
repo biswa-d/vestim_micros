@@ -1096,6 +1096,15 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["PHYSICS_D2YDT2_LOSS_WEIGHT"] = self.physics_d2ydt2_loss_weight_entry
         form_layout.addRow(physics_d2_loss_weight_label, self.physics_d2ydt2_loss_weight_entry)
 
+        physics_smooth_label = QLabel("Prediction Smoothness Weight:")
+        physics_smooth_label.setStyleSheet("font-size: 9pt;")
+        physics_smooth_label.setToolTip("Penalizes prediction wiggles directly. Set 0 to disable.")
+        self.physics_smoothness_loss_weight_entry = QLineEdit(str(self.params.get("PHYSICS_SMOOTHNESS_LOSS_WEIGHT", "0.0")))
+        self.physics_smoothness_loss_weight_entry.setToolTip("Example: 0.01, 0.1, 1.0")
+        self.physics_smoothness_loss_weight_entry.textChanged.connect(self.on_param_text_changed)
+        self.param_entries["PHYSICS_SMOOTHNESS_LOSS_WEIGHT"] = self.physics_smoothness_loss_weight_entry
+        form_layout.addRow(physics_smooth_label, self.physics_smoothness_loss_weight_entry)
+
         physics_dt_seconds_label = QLabel("Δt (seconds):")
         physics_dt_seconds_label.setStyleSheet("font-size: 9pt;")
         physics_dt_seconds_label.setToolTip("Time step used to compute dY/dt = ΔY / Δt")
@@ -1154,6 +1163,7 @@ class VEstimHyperParamGUI(QWidget):
         self._physics_dtdt_control_widgets = [
             self.physics_dtdt_loss_weight_entry,
             self.physics_d2ydt2_loss_weight_entry,
+            self.physics_smoothness_loss_weight_entry,
             self.physics_dtdt_dt_seconds_entry,
             self.physics_target_only_temp_checkbox,
             self.physics_dtdt_max_abs_mode_combo,
@@ -1312,7 +1322,14 @@ class VEstimHyperParamGUI(QWidget):
         filter_type_label = QLabel("Filter Type:")
         filter_type_label.setStyleSheet("font-size: 9pt;")
         self.filter_type_combo = QComboBox()
-        self.filter_type_combo.addItems(["None", "Moving Average", "Exponential Moving Average", "Savitzky-Golay"])
+        self.filter_type_combo.addItems([
+            "None",
+            "Moving Average",
+            "Exponential Moving Average",
+            "Savitzky-Golay",
+            "Median + Savitzky-Golay",
+            "Median + Butterworth (zero-phase)",
+        ])
         self.param_entries["INFERENCE_FILTER_TYPE"] = self.filter_type_combo
         form_layout.addRow(filter_type_label, self.filter_type_combo)
 
@@ -1322,7 +1339,7 @@ class VEstimHyperParamGUI(QWidget):
         self.param_entries["INFERENCE_FILTER_WINDOW_SIZE"] = self.filter_window_entry
         form_layout.addRow(self.filter_window_label, self.filter_window_entry)
 
-        self.filter_alpha_label = QLabel("Alpha (EMA):")
+        self.filter_alpha_label = QLabel("Alpha / Cutoff:")
         self.filter_alpha_label.setStyleSheet("font-size: 9pt;")
         self.filter_alpha_entry = QLineEdit("0.1")
         self.param_entries["INFERENCE_FILTER_ALPHA"] = self.filter_alpha_entry
@@ -1347,15 +1364,17 @@ class VEstimHyperParamGUI(QWidget):
         is_ma = (filter_type == "Moving Average")
         is_ema = (filter_type == "Exponential Moving Average")
         is_savgol = (filter_type == "Savitzky-Golay")
+        is_median_savgol = (filter_type == "Median + Savitzky-Golay")
+        is_median_butter = (filter_type == "Median + Butterworth (zero-phase)")
 
-        self.filter_window_label.setVisible(is_ma or is_savgol)
-        self.filter_window_entry.setVisible(is_ma or is_savgol)
+        self.filter_window_label.setVisible(is_ma or is_savgol or is_median_savgol or is_median_butter)
+        self.filter_window_entry.setVisible(is_ma or is_savgol or is_median_savgol or is_median_butter)
         
-        self.filter_alpha_label.setVisible(is_ema)
-        self.filter_alpha_entry.setVisible(is_ema)
+        self.filter_alpha_label.setVisible(is_ema or is_median_butter)
+        self.filter_alpha_entry.setVisible(is_ema or is_median_butter)
 
-        self.filter_polyorder_label.setVisible(is_savgol)
-        self.filter_polyorder_entry.setVisible(is_savgol)
+        self.filter_polyorder_label.setVisible(is_savgol or is_median_savgol)
+        self.filter_polyorder_entry.setVisible(is_savgol or is_median_savgol)
 
     def get_selected_features(self):
         """Retrieve selected feature columns as a list."""
@@ -2135,6 +2154,7 @@ class VEstimHyperParamGUI(QWidget):
             # Physics dT/dt
             "PHYSICS_DTDT_LOSS_WEIGHT": {"type": "float", "min": 0.0},
             "PHYSICS_D2YDT2_LOSS_WEIGHT": {"type": "float", "min": 0.0},
+            "PHYSICS_SMOOTHNESS_LOSS_WEIGHT": {"type": "float", "min": 0.0},
             "PHYSICS_DTDT_DT_SECONDS": {"type": "float", "min": 1e-12},
             "PHYSICS_DTDT_MAX_ABS": {"type": "float", "min": 0.0},
             "PHYSICS_DTDT_MAX_ABS_FRACTION": {"type": "float", "min": 0.0, "max": 1.0},

@@ -311,7 +311,7 @@ class VEstimHyperParamManager:
                             raise ValueError(f"Invalid value for {key}: Expected integers, got {value}")
 
                 elif key in ['INITIAL_LR', 'LR_DROP_FACTOR', 'DROPOUT_PROB', 'LR_PARAM', 'PLATEAU_FACTOR', 'FNN_DROPOUT_PROB', 'EXPLOIT_LR', 'FINAL_LR',
-                             'PHYSICS_DTDT_LOSS_WEIGHT', 'PHYSICS_D2YDT2_LOSS_WEIGHT', 'PHYSICS_DTDT_DT_SECONDS', 'PHYSICS_DTDT_MAX_ABS', 'PHYSICS_DTDT_MAX_ABS_FRACTION', 'PHYSICS_DTDT_MAX_ABS_WEIGHT']:
+                             'PHYSICS_DTDT_LOSS_WEIGHT', 'PHYSICS_D2YDT2_LOSS_WEIGHT', 'PHYSICS_SMOOTHNESS_LOSS_WEIGHT', 'PHYSICS_DTDT_DT_SECONDS', 'PHYSICS_DTDT_MAX_ABS', 'PHYSICS_DTDT_MAX_ABS_FRACTION', 'PHYSICS_DTDT_MAX_ABS_WEIGHT']:
                     # Check if it's boundary format [min,max] first
                     if value.strip().startswith('[') and value.strip().endswith(']'):
                         # Boundary format validation for Optuna
@@ -367,6 +367,7 @@ class VEstimHyperParamManager:
         validated_params["PHYSICS_DTDT_CONSTRAINT_ENABLED"] = params.get("PHYSICS_DTDT_CONSTRAINT_ENABLED", False)
         validated_params["PHYSICS_DTDT_LOSS_WEIGHT"] = params.get("PHYSICS_DTDT_LOSS_WEIGHT", "0.0")
         validated_params["PHYSICS_D2YDT2_LOSS_WEIGHT"] = params.get("PHYSICS_D2YDT2_LOSS_WEIGHT", "0.0")
+        validated_params["PHYSICS_SMOOTHNESS_LOSS_WEIGHT"] = params.get("PHYSICS_SMOOTHNESS_LOSS_WEIGHT", "0.0")
         validated_params["PHYSICS_DTDT_DT_SECONDS"] = params.get("PHYSICS_DTDT_DT_SECONDS", "1.0")
         validated_params["PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE"] = params.get("PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE", False)
         validated_params["PHYSICS_DTDT_MAX_ABS_MODE"] = params.get("PHYSICS_DTDT_MAX_ABS_MODE", "absolute")
@@ -488,6 +489,7 @@ class VEstimHyperParamManager:
             # Physics dT/dt
             'PHYSICS_DTDT_LOSS_WEIGHT': {'type': 'float', 'min': 0.0},
             'PHYSICS_D2YDT2_LOSS_WEIGHT': {'type': 'float', 'min': 0.0},
+            'PHYSICS_SMOOTHNESS_LOSS_WEIGHT': {'type': 'float', 'min': 0.0},
             'PHYSICS_DTDT_DT_SECONDS': {'type': 'float', 'min': 1e-12},
             'PHYSICS_DTDT_MAX_ABS': {'type': 'float', 'min': 0.0},
             'PHYSICS_DTDT_MAX_ABS_FRACTION': {'type': 'float', 'min': 0.0, 'max': 1.0},
@@ -602,6 +604,7 @@ class VEstimHyperParamManager:
             for param in [
                 'PHYSICS_DTDT_LOSS_WEIGHT',
                 'PHYSICS_D2YDT2_LOSS_WEIGHT',
+                'PHYSICS_SMOOTHNESS_LOSS_WEIGHT',
                 'PHYSICS_DTDT_DT_SECONDS',
                 'PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE',
                 'PHYSICS_DTDT_MAX_ABS_MODE',
@@ -636,7 +639,7 @@ class VEstimHyperParamManager:
             # Performance
             "NUM_WORKERS", "PIN_MEMORY", "PREFETCH_FACTOR", "MAX_TRAINING_TIME_SECONDS",
             # Physics dT/dt constraints
-            "PHYSICS_DTDT_CONSTRAINT_ENABLED", "PHYSICS_DTDT_LOSS_WEIGHT", "PHYSICS_D2YDT2_LOSS_WEIGHT", "PHYSICS_DTDT_DT_SECONDS",
+            "PHYSICS_DTDT_CONSTRAINT_ENABLED", "PHYSICS_DTDT_LOSS_WEIGHT", "PHYSICS_D2YDT2_LOSS_WEIGHT", "PHYSICS_SMOOTHNESS_LOSS_WEIGHT", "PHYSICS_DTDT_DT_SECONDS",
             "PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE", "PHYSICS_DTDT_MAX_ABS_MODE", "PHYSICS_DTDT_MAX_ABS",
             "PHYSICS_DTDT_MAX_ABS_FRACTION", "PHYSICS_DTDT_MAX_ABS_WEIGHT"
         ]

@@ -753,7 +753,11 @@ class TrainingTaskManager:
             physics_d2_weight = float(task['hyperparams'].get('PHYSICS_D2YDT2_LOSS_WEIGHT', 0.0))
         except (TypeError, ValueError):
             physics_d2_weight = 0.0
-        enforce_contiguous_fnn_batches = (model_type == 'FNN' and physics_enabled and (physics_weight > 0 or physics_d2_weight > 0))
+        try:
+            smoothness_weight = float(task['hyperparams'].get('PHYSICS_SMOOTHNESS_LOSS_WEIGHT', 0.0))
+        except (TypeError, ValueError):
+            smoothness_weight = 0.0
+        enforce_contiguous_fnn_batches = (model_type == 'FNN' and ((physics_enabled and (physics_weight > 0 or physics_d2_weight > 0)) or smoothness_weight > 0))
         if enforce_contiguous_fnn_batches:
             self.logger.info("FNN + hybrid physics loss detected: using contiguous-in-batch loading with epoch-level batch-order shuffling.")
         job_folder_path = self.job_manager.get_job_folder()

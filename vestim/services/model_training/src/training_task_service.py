@@ -104,6 +104,39 @@ class TrainingTaskService:
             second_order_weight = 0.0
         return (first_order_weight > 0) or (second_order_weight > 0)
 
+    def _is_smoothness_enabled(self, task):
+        hyperparams = task.get('hyperparams', {}) if isinstance(task, dict) else {}
+        try:
+            weight = float(hyperparams.get('PHYSICS_SMOOTHNESS_LOSS_WEIGHT', 0.0))
+        except Exception:
+            weight = 0.0
+        return weight > 0
+
+    def _prediction_smoothness_penalty(self, y_pred, task):
+        hyperparams = task.get('hyperparams', {}) if isinstance(task, dict) else {}
+        try:
+            smooth_weight = float(hyperparams.get('PHYSICS_SMOOTHNESS_LOSS_WEIGHT', 0.0))
+        except Exception:
+            smooth_weight = 0.0
+
+        if smooth_weight <= 0:
+            return torch.tensor(0.0, device=y_pred.device, dtype=y_pred.dtype)
+
+        pred_seq = y_pred
+        if pred_seq.ndim > 1 and pred_seq.shape[-1] == 1:
+            pred_seq = pred_seq.squeeze(-1)
+
+        if pred_seq.ndim == 1:
+            if pred_seq.shape[0] < 2:
+                return torch.tensor(0.0, device=y_pred.device, dtype=y_pred.dtype)
+            diffs = torch.diff(pred_seq, dim=0)
+        else:
+            if pred_seq.shape[1] < 2:
+                return torch.tensor(0.0, device=y_pred.device, dtype=y_pred.dtype)
+            diffs = torch.diff(pred_seq, dim=1)
+
+        return smooth_weight * torch.mean(diffs * diffs)
+
     def _is_temperature_target(self, task):
         if not isinstance(task, dict):
             return False
@@ -190,6 +223,7 @@ class TrainingTaskService:
             f"Hybrid loss mode: {'ENABLED' if enabled else 'DISABLED'} | "
             f"lambda_d1={hyperparams.get('PHYSICS_DTDT_LOSS_WEIGHT', 0.0)} | "
             f"mu_d2={hyperparams.get('PHYSICS_D2YDT2_LOSS_WEIGHT', 0.0)} | "
+            f"smooth={hyperparams.get('PHYSICS_SMOOTHNESS_LOSS_WEIGHT', 0.0)} | "
             f"dt={hyperparams.get('PHYSICS_DTDT_DT_SECONDS', 1.0)}s | "
             f"bound_mode={mode}"
         )
@@ -423,7 +457,8 @@ class TrainingTaskService:
 
                 base_loss = self.criterion(y_pred, y_batch)
                 physics_penalty = self._physics_dtdt_penalty(y_pred, y_batch, task)
-                loss = base_loss + physics_penalty
+                smoothness_penalty = self._prediction_smoothness_penalty(y_pred, task)
+                loss = base_loss + physics_penalty + smoothness_penalty
                 
                 # Check for invalid loss before backpropagation
                 if not torch.isfinite(loss):
@@ -478,19 +513,19 @@ class TrainingTaskService:
                 log_callback = task.get('log_callback')
                 if log_callback:
                     # GUI callback - keep this frequent for user feedback
-                    if hybrid_loss_enabled:
+                    if hybrid_loss_enabled or self._is_smoothness_enabled(task):
                         log_callback(
                             f"  Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, "
-                            f"Base(MSE): {base_loss.item():.4f}, HybridPenalty: {physics_penalty.item():.4f}, Total: {loss.item():.4f}"
+                            f"Base(MSE): {base_loss.item():.4f}, PhysicsPenalty: {physics_penalty.item():.4f}, SmoothPenalty: {smoothness_penalty.item():.4f}, Total: {loss.item():.4f}"
                         )
                     else:
                         log_callback(f"  Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}")
                 else:
                     # Terminal logging - reduce frequency
-                    if hybrid_loss_enabled:
+                    if hybrid_loss_enabled or self._is_smoothness_enabled(task):
                         print(
                             f"Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, "
-                            f"Base(MSE): {base_loss.item():.4f}, HybridPenalty: {physics_penalty.item():.4f}, Total: {loss.item():.4f}"
+                            f"Base(MSE): {base_loss.item():.4f}, PhysicsPenalty: {physics_penalty.item():.4f}, SmoothPenalty: {smoothness_penalty.item():.4f}, Total: {loss.item():.4f}"
                         )
                     else:
                         print(f"Epoch: {epoch}, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}")
@@ -592,7 +627,8 @@ class TrainingTaskService:
 
                         base_loss = self.criterion(y_pred, y_batch)
                         physics_penalty = self._physics_dtdt_penalty(y_pred, y_batch, task)
-                        loss = base_loss + physics_penalty
+                        smoothness_penalty = self._prediction_smoothness_penalty(y_pred, task)
+                        loss = base_loss + physics_penalty + smoothness_penalty
                 else:
                     if model_type == "LSTM_LPF":
                         # Reset pre-allocated tensors to zeros
@@ -626,7 +662,8 @@ class TrainingTaskService:
 
                     base_loss = self.criterion(y_pred, y_batch)
                     physics_penalty = self._physics_dtdt_penalty(y_pred, y_batch, task)
-                    loss = base_loss + physics_penalty
+                smoothness_penalty = self._prediction_smoothness_penalty(y_pred, task)
+                loss = base_loss + physics_penalty + smoothness_penalty
 
                 # Keep loss on GPU to avoid synchronization
                 total_val_loss.append(loss.detach())

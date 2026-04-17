@@ -94,6 +94,7 @@ class VEstimTestingGUI(QMainWindow):
             "PREFETCH_FACTOR": "Batch Pre-loading", "USE_CUDA_GRAPHS": "CUDA Graphs"
         }
         self.param_labels["PHYSICS_D2YDT2_LOSS_WEIGHT"] = "Physics D²Y/Dt² Loss Weight"
+        self.param_labels["PHYSICS_SMOOTHNESS_LOSS_WEIGHT"] = "Prediction Smoothness Weight"
 
         self.queue = Queue()
         self.timer_running = True

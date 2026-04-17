@@ -905,6 +905,14 @@ class VEstimStandaloneTestingManager(QObject):
             hyperparams['INFERENCE_FILTER_WINDOW_SIZE'] = int(override.get('INFERENCE_FILTER_WINDOW_SIZE', 9))
             hyperparams['INFERENCE_FILTER_POLYORDER'] = int(override.get('INFERENCE_FILTER_POLYORDER', 2))
             hyperparams.pop('INFERENCE_FILTER_ALPHA', None)
+        elif filter_type == 'Median + Savitzky-Golay':
+            hyperparams['INFERENCE_FILTER_WINDOW_SIZE'] = int(override.get('INFERENCE_FILTER_WINDOW_SIZE', 9))
+            hyperparams['INFERENCE_FILTER_POLYORDER'] = int(override.get('INFERENCE_FILTER_POLYORDER', 2))
+            hyperparams.pop('INFERENCE_FILTER_ALPHA', None)
+        elif filter_type == 'Median + Butterworth (zero-phase)':
+            hyperparams['INFERENCE_FILTER_WINDOW_SIZE'] = int(override.get('INFERENCE_FILTER_WINDOW_SIZE', 9))
+            hyperparams['INFERENCE_FILTER_ALPHA'] = float(override.get('INFERENCE_FILTER_ALPHA', 0.08))
+            hyperparams.pop('INFERENCE_FILTER_POLYORDER', None)
         else:
             hyperparams['INFERENCE_FILTER_TYPE'] = 'None'
             hyperparams.pop('INFERENCE_FILTER_WINDOW_SIZE', None)

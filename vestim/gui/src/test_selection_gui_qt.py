@@ -97,7 +97,15 @@ class TestSelectionGUI(QMainWindow):
         filter_form = QFormLayout()
 
         self.filter_type_combo = QComboBox()
-        self.filter_type_combo.addItems(["Use model default", "None", "Moving Average", "Exponential Moving Average", "Savitzky-Golay"])
+        self.filter_type_combo.addItems([
+            "Use model default",
+            "None",
+            "Moving Average",
+            "Exponential Moving Average",
+            "Savitzky-Golay",
+            "Median + Savitzky-Golay",
+            "Median + Butterworth (zero-phase)",
+        ])
         self.filter_type_combo.currentTextChanged.connect(self._update_filter_param_visibility)
         filter_form.addRow("Filter Type:", self.filter_type_combo)
 
@@ -112,7 +120,7 @@ class TestSelectionGUI(QMainWindow):
         self.filter_alpha_spin.setSingleStep(0.01)
         self.filter_alpha_spin.setDecimals(4)
         self.filter_alpha_spin.setValue(0.2)
-        filter_form.addRow("Alpha:", self.filter_alpha_spin)
+        filter_form.addRow("Alpha / Cutoff:", self.filter_alpha_spin)
 
         self.filter_polyorder_spin = QSpinBox()
         self.filter_polyorder_spin.setRange(1, 99)
@@ -459,20 +467,22 @@ class TestSelectionGUI(QMainWindow):
         is_moving_average = selected_filter == "Moving Average"
         is_ema = selected_filter == "Exponential Moving Average"
         is_savgol = selected_filter == "Savitzky-Golay"
+        is_median_savgol = selected_filter == "Median + Savitzky-Golay"
+        is_median_butter = selected_filter == "Median + Butterworth (zero-phase)"
 
-        self.filter_window_spin.setVisible(is_moving_average or is_savgol)
-        self.filter_alpha_spin.setVisible(is_ema)
-        self.filter_polyorder_spin.setVisible(is_savgol)
+        self.filter_window_spin.setVisible(is_moving_average or is_savgol or is_median_savgol or is_median_butter)
+        self.filter_alpha_spin.setVisible(is_ema or is_median_butter)
+        self.filter_polyorder_spin.setVisible(is_savgol or is_median_savgol)
 
         label_for_window = self.filter_group.layout().labelForField(self.filter_window_spin)
         label_for_alpha = self.filter_group.layout().labelForField(self.filter_alpha_spin)
         label_for_poly = self.filter_group.layout().labelForField(self.filter_polyorder_spin)
         if label_for_window:
-            label_for_window.setVisible(is_moving_average or is_savgol)
+            label_for_window.setVisible(is_moving_average or is_savgol or is_median_savgol or is_median_butter)
         if label_for_alpha:
-            label_for_alpha.setVisible(is_ema)
+            label_for_alpha.setVisible(is_ema or is_median_butter)
         if label_for_poly:
-            label_for_poly.setVisible(is_savgol)
+            label_for_poly.setVisible(is_savgol or is_median_savgol)
 
     def _get_inference_filter_override(self):
         selected_filter = self.filter_type_combo.currentText()
@@ -495,6 +505,18 @@ class TestSelectionGUI(QMainWindow):
                 'INFERENCE_FILTER_TYPE': 'Savitzky-Golay',
                 'INFERENCE_FILTER_WINDOW_SIZE': int(self.filter_window_spin.value()),
                 'INFERENCE_FILTER_POLYORDER': int(self.filter_polyorder_spin.value())
+            }
+        if selected_filter == "Median + Savitzky-Golay":
+            return {
+                'INFERENCE_FILTER_TYPE': 'Median + Savitzky-Golay',
+                'INFERENCE_FILTER_WINDOW_SIZE': int(self.filter_window_spin.value()),
+                'INFERENCE_FILTER_POLYORDER': int(self.filter_polyorder_spin.value())
+            }
+        if selected_filter == "Median + Butterworth (zero-phase)":
+            return {
+                'INFERENCE_FILTER_TYPE': 'Median + Butterworth (zero-phase)',
+                'INFERENCE_FILTER_WINDOW_SIZE': int(self.filter_window_spin.value()),
+                'INFERENCE_FILTER_ALPHA': float(self.filter_alpha_spin.value())
             }
         return None
 

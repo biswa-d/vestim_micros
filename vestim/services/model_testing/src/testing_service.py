@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from scipy.signal import savgol_filter
+from scipy.signal import savgol_filter, butter, filtfilt
 from vestim.services.model_training.src.LSTM_model_service_test import LSTMModel, LSTMModelLN, LSTMModelBN # Keep imports for type hinting if model object is used
 from vestim.services.model_training.src.GRU_model import GRUModel # Add GRU model import
 from vestim.services.model_training.src.FNN_model import FNNModel # Add FNN model import
@@ -16,66 +16,105 @@ def apply_inference_filter(predictions, task_info):
     """
     Applies a post-inference filter to the predictions based on task_info.
     """
-    filter_type = task_info.get('hyperparams', {}).get('INFERENCE_FILTER_TYPE', 'None')
+    hyperparams = task_info.get('hyperparams', {})
+    filter_type = hyperparams.get('INFERENCE_FILTER_TYPE', 'None')
+    pred_array = np.asarray(predictions, dtype=float)
+
+    def _safe_window_size(requested_window: int, n_samples: int, minimum: int = 1) -> int:
+        if n_samples <= 0:
+            return minimum
+        window = max(minimum, int(requested_window))
+        if window > n_samples:
+            window = n_samples
+        if window % 2 == 0:
+            window -= 1
+        if window < minimum:
+            window = minimum
+        return window
+
+    def _apply_centered_median(data: np.ndarray, window_size: int) -> np.ndarray:
+        if data.size <= 1:
+            return data
+        return pd.Series(data).rolling(window=window_size, min_periods=1, center=True).median().values
     
     if filter_type == 'None':
-        return predictions
+        return pred_array
         
     try:
         if filter_type == 'Moving Average':
-            window_size = int(task_info['hyperparams']['INFERENCE_FILTER_WINDOW_SIZE'])
+            window_size = max(1, int(hyperparams.get('INFERENCE_FILTER_WINDOW_SIZE', 5)))
             print(f"DEBUG: Applying Moving Average filter with window size: {window_size}")
-            return pd.Series(predictions).rolling(window=window_size, min_periods=1).mean().values
+            return pd.Series(pred_array).rolling(window=window_size, min_periods=1).mean().values
             
         elif filter_type == 'Exponential Moving Average':
-            alpha = float(task_info['hyperparams']['INFERENCE_FILTER_ALPHA'])
+            alpha = float(hyperparams.get('INFERENCE_FILTER_ALPHA', 0.1))
             print(f"DEBUG: Applying Exponential Moving Average filter with alpha: {alpha}")
-            return pd.Series(predictions).ewm(alpha=alpha, adjust=False).mean().values
+            return pd.Series(pred_array).ewm(alpha=alpha, adjust=False).mean().values
             
         elif filter_type == 'Savitzky-Golay':
-            window_size = int(task_info['hyperparams']['INFERENCE_FILTER_WINDOW_SIZE'])
-            polyorder = int(task_info['hyperparams']['INFERENCE_FILTER_POLYORDER'])
-            # Ensure window_size is odd and greater than polyorder
-            if window_size % 2 == 0:
-                window_size += 1
-            if window_size <= polyorder:
-                window_size = polyorder + 1
-                if window_size % 2 == 0:
-                    window_size += 1
+            window_size = _safe_window_size(
+                hyperparams.get('INFERENCE_FILTER_WINDOW_SIZE', 9),
+                pred_array.size,
+                minimum=3
+            )
+            if window_size < 3:
+                return pred_array
+            polyorder = max(1, int(hyperparams.get('INFERENCE_FILTER_POLYORDER', 2)))
+            polyorder = min(polyorder, window_size - 1)
             print(f"DEBUG: Applying Savitzky-Golay filter with window size: {window_size} and polynomial order: {polyorder}")
-            return savgol_filter(predictions, window_size, polyorder)
-            
-        elif filter_type == 'Savitzky-Golay':
-            window_size = int(task_info['hyperparams']['INFERENCE_FILTER_WINDOW_SIZE'])
-            polyorder = int(task_info['hyperparams']['INFERENCE_FILTER_POLYORDER'])
-            # Ensure window_size is odd and greater than polyorder
-            if window_size % 2 == 0:
-                window_size += 1
-            if window_size <= polyorder:
-                window_size = polyorder + 1
-                if window_size % 2 == 0:
-                    window_size += 1
-            print(f"DEBUG: Applying Savitzky-Golay filter with window size: {window_size} and polynomial order: {polyorder}")
-            return savgol_filter(predictions, window_size, polyorder)
-            
-        elif filter_type == 'Savitzky-Golay':
-            window_size = int(task_info['hyperparams']['INFERENCE_FILTER_WINDOW_SIZE'])
-            polyorder = int(task_info['hyperparams']['INFERENCE_FILTER_POLYORDER'])
-            # Ensure window_size is odd and greater than polyorder
-            if window_size % 2 == 0:
-                window_size += 1
-            if window_size <= polyorder:
-                window_size = polyorder + 1
-                if window_size % 2 == 0:
-                    window_size += 1
-            print(f"DEBUG: Applying Savitzky-Golay filter with window size: {window_size} and polynomial order: {polyorder}")
-            return savgol_filter(predictions, window_size, polyorder)
+            return savgol_filter(pred_array, window_size, polyorder)
+
+        elif filter_type == 'Median + Savitzky-Golay':
+            median_window = _safe_window_size(
+                hyperparams.get('INFERENCE_FILTER_WINDOW_SIZE', 9),
+                pred_array.size,
+                minimum=3
+            )
+            median_out = _apply_centered_median(pred_array, median_window)
+            if median_out.size < 3:
+                return median_out
+
+            sg_window = _safe_window_size(median_window, median_out.size, minimum=3)
+            polyorder = max(1, int(hyperparams.get('INFERENCE_FILTER_POLYORDER', 2)))
+            polyorder = min(polyorder, sg_window - 1)
+            print(
+                f"DEBUG: Applying Median + Savitzky-Golay filter "
+                f"with median window: {median_window}, SG window: {sg_window}, polyorder: {polyorder}"
+            )
+            return savgol_filter(median_out, sg_window, polyorder)
+
+        elif filter_type == 'Median + Butterworth (zero-phase)':
+            median_window = _safe_window_size(
+                hyperparams.get('INFERENCE_FILTER_WINDOW_SIZE', 9),
+                pred_array.size,
+                minimum=3
+            )
+            median_out = _apply_centered_median(pred_array, median_window)
+
+            # Reuse INFERENCE_FILTER_ALPHA as normalized cutoff for a mild low-pass.
+            cutoff = float(hyperparams.get('INFERENCE_FILTER_ALPHA', 0.08))
+            cutoff = float(np.clip(cutoff, 0.01, 0.45))
+            filter_order = 2
+            b, a = butter(filter_order, cutoff, btype='low', analog=False)
+            padlen = 3 * max(len(a), len(b))
+            if median_out.size <= padlen:
+                print(
+                    f"DEBUG: Median + Butterworth skipped filtfilt (len={median_out.size}, padlen={padlen}); "
+                    "returning median-only output"
+                )
+                return median_out
+
+            print(
+                f"DEBUG: Applying Median + Butterworth (zero-phase) "
+                f"with median window: {median_window}, cutoff: {cutoff}, order: {filter_order}"
+            )
+            return filtfilt(b, a, median_out)
             
     except Exception as e:
         print(f"Warning: Could not apply inference filter '{filter_type}'. Error: {e}. Returning original predictions.")
-        return predictions
+        return pred_array
         
-    return predictions
+    return pred_array
 
 class VEstimTestingService:
     def __init__(self, device='cpu'):

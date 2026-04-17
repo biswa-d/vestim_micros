@@ -337,6 +337,7 @@ class ConfigManager:
             "PHYSICS_DTDT_CONSTRAINT_ENABLED": False,
             "PHYSICS_DTDT_LOSS_WEIGHT": "0.0",
             "PHYSICS_D2YDT2_LOSS_WEIGHT": "0.0",
+            "PHYSICS_SMOOTHNESS_LOSS_WEIGHT": "0.0",
             "PHYSICS_DTDT_DT_SECONDS": "1.0",
             "PHYSICS_DTDT_TARGET_ONLY_TEMPERATURE": False,
             "PHYSICS_DTDT_MAX_ABS_MODE": "absolute",
