@@ -26,6 +26,7 @@ import logging
 import traceback
 import subprocess
 import platform
+import numbers
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -584,6 +585,27 @@ class VEstimStandaloneTestingGUI(QMainWindow):
         self.sort_combo.setCurrentIndex(0)
         self.apply_filters()
 
+    def _coerce_numeric(self, value):
+        """Return float for numeric-like values; otherwise None."""
+        try:
+            if value is None:
+                return None
+            if isinstance(value, numbers.Real):
+                if pd.isna(value):
+                    return None
+                return float(value)
+            if isinstance(value, str):
+                v = value.strip()
+                if not v or v.upper() == 'N/A':
+                    return None
+                parsed = pd.to_numeric(v, errors='coerce')
+                if pd.isna(parsed):
+                    return None
+                return float(parsed)
+        except Exception:
+            return None
+        return None
+
     def add_result_row(self, result):
         """Add result row matching the desired main testing GUI format"""
         
@@ -606,20 +628,20 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 self.headers_updated = True
             
             # Get all metrics
-            rmse = result.get('RMSE', 'N/A')
-            max_error = result.get('max_error', 'N/A')
-            r2 = result.get('R²', 'N/A')
+            rmse = self._coerce_numeric(result.get('RMSE', result.get('rmse', 'N/A')))
+            max_error = self._coerce_numeric(result.get('max_error', result.get('MAXE', result.get('max_abs_error', 'N/A'))))
+            r2 = self._coerce_numeric(result.get('R²', result.get('r2', 'N/A')))
             
             # Determine error unit and convert metrics
             error_unit = ""
             if "voltage" in target_column.lower():
                 error_unit = "mV"
-                if isinstance(rmse, (int, float)): rmse *= 1000
-                if isinstance(max_error, (int, float)): max_error *= 1000
+                if rmse is not None: rmse *= 1000
+                if max_error is not None: max_error *= 1000
             elif "soc" in target_column.lower():
                 error_unit = "%SOC"
-                if isinstance(rmse, (int, float)): rmse *= 100
-                if isinstance(max_error, (int, float)): max_error *= 100
+                if rmse is not None: rmse *= 100
+                if max_error is not None: max_error *= 100
             elif "temperature" in target_column.lower():
                 error_unit = "°C"
 
@@ -657,9 +679,9 @@ class VEstimStandaloneTestingGUI(QMainWindow):
             item.setText(6, val_display)                               # Best Valid Loss
             item.setText(7, epochs_display)                            # Epochs Trained
             
-            rmse_display = f"{rmse:.2f}" if isinstance(rmse, (int, float)) else "N/A"
-            max_error_display = f"{max_error:.2f}" if isinstance(max_error, (int, float)) else "N/A"
-            r2_display = f"{r2:.4f}" if isinstance(r2, (int, float)) else "N/A"
+            rmse_display = f"{rmse:.2f}" if rmse is not None else "N/A"
+            max_error_display = f"{max_error:.2f}" if max_error is not None else "N/A"
+            r2_display = f"{r2:.4f}" if r2 is not None else "N/A"
             item.setText(8, rmse_display)                              # Test RMSE (mV)
             item.setText(9, max_error_display)                         # Test MAXE (mV)
             item.setText(10, r2_display)                               # R2
@@ -677,7 +699,7 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 'target_column': target_column,
                 'target_display': target_column,
                 'error_unit': error_unit,
-                'metrics': {'RMSE': rmse, 'MAXE': max_error, 'R2': r2}
+                'metrics': {'RMSE': rmse if rmse is not None else 'N/A', 'MAXE': max_error if max_error is not None else 'N/A', 'R2': r2 if r2 is not None else 'N/A'}
             }
 
             # Set the widget for the item AFTER adding the item to the tree
@@ -708,9 +730,9 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 'max_error_str': str(max_error_display),
                 'r2_str': str(r2_display),
                 'best_valid_loss_float': float(val_loss) if isinstance(val_loss, (int, float)) else float('inf'),
-                'rmse_float': float(rmse) if isinstance(rmse, (int, float)) else float('inf'),
-                'maxe_float': float(max_error) if isinstance(max_error, (int, float)) else float('inf'),
-                'r2_float': float(r2) if isinstance(r2, (int, float)) else float('-inf'),
+                'rmse_float': float(rmse) if rmse is not None else float('inf'),
+                'maxe_float': float(max_error) if max_error is not None else float('inf'),
+                'r2_float': float(r2) if r2 is not None else float('-inf'),
                 'plot_data': plot_data,
             }
             self.all_tree_items.append(item_data)
@@ -1277,21 +1299,21 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                 # Get testing metrics
                 mae = result.get('mae', float('nan'))
                 mse = result.get('mse', float('nan'))
-                rmse = result.get('rmse_unconverted', float('nan'))
+                rmse = self._coerce_numeric(result.get('rmse_unconverted', result.get('RMSE', float('nan'))))
                 mape = result.get('mape', float('nan'))
-                r2 = result.get('r2', float('nan'))
-                max_error = result.get('max_error_unconverted', float('nan'))
+                r2 = self._coerce_numeric(result.get('r2', result.get('R²', float('nan'))))
+                max_error = self._coerce_numeric(result.get('max_error_unconverted', result.get('max_error', float('nan'))))
                 
                 # Apply unit conversion to test metrics (same as GUI logic)
                 if "voltage" in target_column.lower():
-                    if isinstance(rmse, (int, float)) and not pd.isna(rmse):
+                    if rmse is not None:
                         rmse = rmse * 1000  # Convert V to mV
-                    if isinstance(max_error, (int, float)) and not pd.isna(max_error):
+                    if max_error is not None:
                         max_error = max_error * 1000  # Convert V to mV
                 elif "soc" in target_column.lower():
-                    if isinstance(rmse, (int, float)) and not pd.isna(rmse):
+                    if rmse is not None:
                         rmse = rmse * 100  # Convert fraction to %SOC
-                    if isinstance(max_error, (int, float)) and not pd.isna(max_error):
+                    if max_error is not None:
                         max_error = max_error * 100  # Convert fraction to %SOC
                 
                 # Get parameter count - ensure it's exact number, not abbreviated
@@ -1320,9 +1342,9 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                     f"Best Train Loss ({error_unit_display})": best_train_loss,
                     f"Best Valid Loss ({error_unit_display})": best_val_loss,
                     "Epochs Trained": epochs_trained,
-                    f"Test RMSE ({error_unit_display})": f"{rmse:.5f}" if not pd.isna(rmse) else "N/A",
-                    f"Test MAXE ({error_unit_display})": f"{max_error:.5f}" if not pd.isna(max_error) else "N/A",
-                    "R2": f"{r2:.5f}" if not pd.isna(r2) else "N/A"
+                    f"Test RMSE ({error_unit_display})": f"{rmse:.5f}" if rmse is not None else "N/A",
+                    f"Test MAXE ({error_unit_display})": f"{max_error:.5f}" if max_error is not None else "N/A",
+                    "R2": f"{r2:.5f}" if r2 is not None else "N/A"
                 }
                 summary_data.append(summary_row)
             

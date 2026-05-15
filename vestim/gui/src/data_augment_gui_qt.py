@@ -1303,15 +1303,46 @@ class DataAugmentGUI(QMainWindow):
         except Exception as e:
             self.logger.error(f"Error reading last used filter settings file: {e}")
             return
-        
-        if not loaded_settings:
+
+        # Backward-compatible shape handling:
+        # - legacy: [ {filter_config}, ... ]
+        # - current: {"filter_configs": [ {filter_config}, ... ], ... }
+        if isinstance(loaded_settings, dict):
+            loaded_filter_settings = loaded_settings.get("filter_configs", [])
+        elif isinstance(loaded_settings, list):
+            loaded_filter_settings = loaded_settings
+        else:
+            self.logger.warning(
+                f"Unexpected format in {self.last_used_settings_file}: "
+                f"{type(loaded_settings).__name__}. Ignoring saved filter settings."
+            )
+            loaded_filter_settings = []
+
+        if not loaded_filter_settings:
             self.filtering_checkbox.setChecked(False)
 
         if not self.train_df is None:
             available_columns = self.train_df.columns.tolist()
             self.filter_list.clear()
             self.filter_configs.clear()
-            for setting in loaded_settings:
+            required_keys = {
+                "column", "corner_frequency", "sampling_rate", "filter_order", "output_column_name"
+            }
+
+            for i, setting in enumerate(loaded_filter_settings):
+                if not isinstance(setting, dict):
+                    self.logger.warning(
+                        f"Skipping invalid filter setting at index {i}: expected dict, got {type(setting).__name__}"
+                    )
+                    continue
+
+                missing_keys = required_keys - set(setting.keys())
+                if missing_keys:
+                    self.logger.warning(
+                        f"Skipping filter setting at index {i} due to missing keys: {sorted(missing_keys)}"
+                    )
+                    continue
+
                 if setting.get("column") in available_columns:
                     try:
                         self.train_df = self.data_augment_manager.service.apply_butterworth_filter(
@@ -1326,6 +1357,10 @@ class DataAugmentGUI(QMainWindow):
                         self.filter_list.addItem(f"Order {setting['filter_order']} Filter '{setting['column']}' at {setting['corner_frequency']}Hz (Fs={setting['sampling_rate']}Hz) -> {setting['output_column_name']}")
                     except Exception as e:
                         self.logger.error(f"Error applying loaded filter for column '{setting['column']}': {e}")
+                else:
+                    self.logger.info(
+                        f"Skipping saved filter for unavailable column '{setting.get('column')}'."
+                    )
             if self.filter_list.count() > 0:
                 self.remove_filter_button.setEnabled(True)
         self._sync_filter_sampling_rate_from_detected()
