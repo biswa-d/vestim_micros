@@ -518,44 +518,23 @@ class VEstimTestingGUI(QMainWindow):
             mean_error = np.mean(errors_for_plot)
             std_error = np.std(errors_for_plot)
 
-            x_axis, x_label = (df.index, "Sample Index")
+            # X-axis handling: prefer the explicit plotting axis saved in the CSV.
+            # If the file does not have a clean time column, fall back to a regular
+            # sample-based axis so wall-clock pauses do not inflate the plot span.
+            x_axis, x_label = (np.arange(len(df), dtype=float) / 3600.0, "Time (hours)")
 
-            # 1) Prefer Time (h) column if present (clean, generated time axis)
             if "Time (h)" in df.columns:
                 x_axis, x_label = df["Time (h)"], "Time (hours)"
-            # 2) Fall back to explicit seconds if present
             elif any(cand in df.columns for cand in ("Time (s)", "Time_s", "Seconds", "time_s")):
                 for cand in ("Time (s)", "Time_s", "Seconds", "time_s"):
                     if cand in df.columns:
                         x_axis, x_label = df[cand], "Time (seconds)"
                         break
-            # 3) Last resort: try to parse timestamp columns
-            elif timestamp_col:
-                    try:
-                        ts = df[timestamp_col]
-                        ts_non_empty = ts.dropna()
-                        if ts_non_empty.dtype == object:
-                            ts_non_empty = ts_non_empty.astype(str).str.strip()
-                            ts_non_empty = ts_non_empty[~ts_non_empty.isin(['', 'nan', 'NaN', 'None', 'NaT'])]
-
-                        if ts_non_empty.empty:
-                            x_axis, x_label = (df.index, "Sample Index")
-                        elif pd.api.types.is_numeric_dtype(ts):
-                            ts_num = pd.to_numeric(ts, errors='coerce')
-                            if ts_num.notna().any() and 10000 < ts_num.max() < 1_000_000:
-                                t = pd.to_datetime(ts_num, unit="D", origin="1899-12-30")
-                                x_axis = (t - t.iloc[0]).dt.total_seconds()
-                                x_label = "Time (seconds)"
-                            else:
-                                x_axis = ts_num - ts_num.iloc[0]
-                                x_label = "Time (seconds)"
-                        else:
-                            t = pd.to_datetime(ts, errors='coerce', format='%Y-%m-%d %H:%M:%S.%f')
-                            if t.notna().any():
-                                x_axis = (t - t.iloc[0]).dt.total_seconds()
-                                x_label = "Time (seconds)"
-                    except:
-                        pass
+            elif timestamp_col and pd.api.types.is_numeric_dtype(df[timestamp_col]):
+                ts_num = pd.to_numeric(df[timestamp_col], errors='coerce')
+                if ts_num.notna().any():
+                    x_axis = ts_num - ts_num.iloc[0]
+                    x_label = "Time (seconds)"
 
             # Final fallback if degenerate
             try:

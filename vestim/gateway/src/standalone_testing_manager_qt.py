@@ -69,9 +69,33 @@ class VEstimStandaloneTestingManager(QObject):
                 cleaned = cleaned[~cleaned.isin(['', 'nan', 'NaN', 'None', 'NaT'])]
                 if cleaned.empty or not _looks_like_datetime_text(cleaned):
                     return None
-                parsed = pd.to_datetime(cleaned, errors='coerce', dayfirst=True)
-                if parsed.notna().sum() >= 2:
-                    return parsed.values
+                parsed_default = pd.to_datetime(cleaned, errors='coerce')
+                parsed_dayfirst = pd.to_datetime(cleaned, errors='coerce', dayfirst=True)
+
+                def _score_parsed(parsed_series: pd.Series):
+                    if parsed_series is None or parsed_series.notna().sum() < 2:
+                        return None
+                    valid = parsed_series.dropna()
+                    base_time = valid.iloc[0]
+                    elapsed = (parsed_series.ffill().bfill() - base_time).dt.total_seconds() / 3600.0
+                    elapsed_np = np.maximum(elapsed.astype(float).to_numpy(), 0.0)
+                    finite_vals = elapsed_np[np.isfinite(elapsed_np)]
+                    if finite_vals.size < 2:
+                        return None
+                    diffs = np.diff(finite_vals)
+                    negative_step_count = int(np.sum(diffs < 0))
+                    span = float(np.nanmax(finite_vals) - np.nanmin(finite_vals))
+                    return negative_step_count, span, elapsed_np
+
+                scored_default = _score_parsed(parsed_default)
+                scored_dayfirst = _score_parsed(parsed_dayfirst)
+
+                if scored_default is not None and scored_dayfirst is not None:
+                    return (parsed_dayfirst if (scored_dayfirst[0], scored_dayfirst[1]) < (scored_default[0], scored_default[1]) else parsed_default).values
+                if scored_dayfirst is not None:
+                    return parsed_dayfirst.values
+                if scored_default is not None:
+                    return parsed_default.values
                 return None
             return None
 
@@ -103,33 +127,90 @@ class VEstimStandaloneTestingManager(QObject):
         if axis_series.empty:
             return np.arange(length_fallback, dtype=float) / 3600.0
 
+        def _evaluate_elapsed_hours(parsed_series: pd.Series):
+            """Return (ok, elapsed_hours_np, score_tuple) where lower score is better."""
+            if parsed_series is None or parsed_series.notna().sum() < 2:
+                return False, None, None
+
+            valid = parsed_series.dropna()
+            base_time = valid.iloc[0]
+            elapsed = (parsed_series.ffill().bfill() - base_time).dt.total_seconds() / 3600.0
+            elapsed = elapsed.astype(float)
+            elapsed_np = elapsed.to_numpy()
+
+            finite_mask = np.isfinite(elapsed_np)
+            if finite_mask.sum() < 2:
+                return False, None, None
+
+            finite_vals = elapsed_np[finite_mask]
+            span = float(np.nanmax(finite_vals) - np.nanmin(finite_vals))
+            diffs = np.diff(finite_vals)
+            negative_step_count = int(np.sum(diffs < 0))
+
+            # Scoring: prefer monotonic/non-negative progression and smaller span.
+            score = (negative_step_count, span)
+            return True, np.maximum(elapsed_np, 0.0), score
+
         def _parse_datetime(series: pd.Series) -> pd.Series:
             if pd.api.types.is_datetime64_any_dtype(series):
                 return series
 
             parsed_default = pd.to_datetime(series, errors='coerce')
             parsed_dayfirst = pd.to_datetime(series, errors='coerce', dayfirst=True)
-            parsed = parsed_dayfirst if parsed_dayfirst.notna().sum() > parsed_default.notna().sum() else parsed_default
-            if parsed.notna().sum() >= 2:
-                return parsed
+
+            # If both parse, choose the interpretation with more plausible elapsed timeline.
+            ok_default, elapsed_default, score_default = _evaluate_elapsed_hours(parsed_default)
+            ok_dayfirst, elapsed_dayfirst, score_dayfirst = _evaluate_elapsed_hours(parsed_dayfirst)
+
+            if ok_default and ok_dayfirst:
+                # This directly fixes ambiguous dates like 4/8/2024 where MM/DD and DD/MM
+                # both parse, but only one yields realistic consecutive-time progression.
+                return parsed_dayfirst if score_dayfirst < score_default else parsed_default
+            if ok_dayfirst:
+                return parsed_dayfirst
+            if ok_default:
+                return parsed_default
 
             numeric = pd.to_numeric(series, errors='coerce')
             if numeric.notna().sum() >= 2:
+                # Numeric timestamps may be epoch-like; evaluate candidate units and keep the
+                # timeline with most plausible progression.
+                best_parsed = None
+                best_score = None
                 for unit in ['s', 'ms', 'us', 'ns']:
                     parsed_unit = pd.to_datetime(numeric, unit=unit, errors='coerce')
-                    if parsed_unit.notna().sum() >= 2:
-                        return parsed_unit
+                    ok, _elapsed, score = _evaluate_elapsed_hours(parsed_unit)
+                    if ok and (best_score is None or score < best_score):
+                        best_parsed = parsed_unit
+                        best_score = score
+                if best_parsed is not None:
+                    return best_parsed
 
-            return parsed
+            # Fallback to whichever datetime parse had fewer NaT values.
+            return parsed_dayfirst if parsed_dayfirst.notna().sum() > parsed_default.notna().sum() else parsed_default
 
         parsed = _parse_datetime(axis_series)
         if parsed.notna().sum() >= 2:
             valid = parsed.dropna()
-            base_time = valid.iloc[0]
-            elapsed = (parsed.ffill().bfill() - base_time).dt.total_seconds() / 3600.0
+            elapsed = (parsed.ffill().bfill() - valid.iloc[0]).dt.total_seconds() / 3600.0
             elapsed = elapsed.astype(float)
-            elapsed = np.maximum(elapsed.to_numpy(), 0.0)
-            return elapsed
+            elapsed_np = np.maximum(elapsed.to_numpy(), 0.0)
+
+            finite_vals = elapsed_np[np.isfinite(elapsed_np)]
+            if finite_vals.size >= 2:
+                diffs = np.diff(finite_vals)
+                positive_diffs = diffs[diffs > 0]
+
+                if positive_diffs.size > 0:
+                    median_step = float(np.median(positive_diffs))
+                    max_step = float(np.max(positive_diffs))
+
+                    # Treat large wall-clock jumps as bad timeline data.
+                    # The saved plot should reflect cycle progress, not calendar gaps.
+                    if max_step > 1.0 or (median_step > 0 and max_step > median_step * 1000.0):
+                        return np.arange(length_fallback, dtype=float) / 3600.0
+
+            return elapsed_np
 
         return np.arange(len(axis_series), dtype=float) / 3600.0
     
