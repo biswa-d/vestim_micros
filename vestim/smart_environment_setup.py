@@ -1302,18 +1302,27 @@ $Shortcut.Save()
 
             prog_id = "PyBattML.ProjectFile"
             open_command = f'"{launcher_path}" "%1"'
+            icon_path = self.install_config.get("icon_path")
+            if not icon_path or not Path(icon_path).exists():
+                icon_path = str(self.install_dir / "PyBattML_icon.ico")
 
             reg_commands_hklm = f'''
 reg add "HKLM\\Software\\Classes\\.pbmlproj" /ve /t REG_SZ /d "{prog_id}" /f
 reg add "HKLM\\Software\\Classes\\{prog_id}" /ve /t REG_SZ /d "PyBattML Project File" /f
-reg add "HKLM\\Software\\Classes\\{prog_id}\\DefaultIcon" /ve /t REG_SZ /d "{self.install_dir}\\PyBattML_icon.ico,0" /f
+reg add "HKLM\\Software\\Classes\\{prog_id}" /v "FriendlyTypeName" /t REG_SZ /d "PyBattML Project" /f
+reg add "HKLM\\Software\\Classes\\{prog_id}\\DefaultIcon" /ve /t REG_SZ /d "{icon_path},0" /f
+reg add "HKLM\\Software\\Classes\\{prog_id}\\shell" /ve /t REG_SZ /d "open" /f
+reg add "HKLM\\Software\\Classes\\{prog_id}\\shell\\open" /ve /t REG_SZ /d "Open with PyBattML" /f
 reg add "HKLM\\Software\\Classes\\{prog_id}\\shell\\open\\command" /ve /t REG_SZ /d "{open_command}" /f
 '''
 
             reg_commands_hkcu = f'''
 reg add "HKCU\\Software\\Classes\\.pbmlproj" /ve /t REG_SZ /d "{prog_id}" /f
 reg add "HKCU\\Software\\Classes\\{prog_id}" /ve /t REG_SZ /d "PyBattML Project File" /f
-reg add "HKCU\\Software\\Classes\\{prog_id}\\DefaultIcon" /ve /t REG_SZ /d "{self.install_dir}\\PyBattML_icon.ico,0" /f
+reg add "HKCU\\Software\\Classes\\{prog_id}" /v "FriendlyTypeName" /t REG_SZ /d "PyBattML Project" /f
+reg add "HKCU\\Software\\Classes\\{prog_id}\\DefaultIcon" /ve /t REG_SZ /d "{icon_path},0" /f
+reg add "HKCU\\Software\\Classes\\{prog_id}\\shell" /ve /t REG_SZ /d "open" /f
+reg add "HKCU\\Software\\Classes\\{prog_id}\\shell\\open" /ve /t REG_SZ /d "Open with PyBattML" /f
 reg add "HKCU\\Software\\Classes\\{prog_id}\\shell\\open\\command" /ve /t REG_SZ /d "{open_command}" /f
 '''
 

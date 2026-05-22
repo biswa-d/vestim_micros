@@ -1,6 +1,10 @@
 {
   "schema_version": "1.0",
   "project_name": "Sample Shared Battery Project",
+  "branding": {
+    "icon": "./project_config/PyBattML_icon.ico",
+    "display_name": "Sample Shared Battery Project"
+  },
   "config": {
     "relative_path": "./project_config"
   },

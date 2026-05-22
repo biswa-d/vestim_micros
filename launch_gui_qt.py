@@ -120,6 +120,7 @@ _preflight_check_torch()
 
 from PyQt5.QtWidgets import QApplication
 from vestim.gui.src.welcome_gui_qt import WelcomeGUI
+from vestim.gui.src.data_import_gui_qt import DataImportGUI
 from vestim.utils import gpu_setup
 from vestim.config_manager import get_config_manager, set_project_launch_context, get_project_launch_context
 import logging
@@ -263,10 +264,16 @@ def main():
     projects_dir = config_manager.get_projects_directory()
     logger.info(f"Vestim starting - Projects directory: {projects_dir}")
     
-    # Launch the main welcome screen
+    # Launch flow:
+    # - If started with a .pbmlproj, go directly to Data Import (guided project flow)
+    # - Otherwise, show Welcome screen
     launch_context = get_project_launch_context()
-    welcome_screen = WelcomeGUI(launch_context=launch_context)
-    welcome_screen.show()
+    if launch_context:
+        data_import_screen = DataImportGUI(launch_context=launch_context)
+        data_import_screen.show()
+    else:
+        welcome_screen = WelcomeGUI(launch_context=launch_context)
+        welcome_screen.show()
     
     try:
         # Start the application
