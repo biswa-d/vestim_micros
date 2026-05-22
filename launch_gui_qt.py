@@ -121,7 +121,7 @@ _preflight_check_torch()
 from PyQt5.QtWidgets import QApplication
 from vestim.gui.src.welcome_gui_qt import WelcomeGUI
 from vestim.utils import gpu_setup
-from vestim.config_manager import get_config_manager
+from vestim.config_manager import get_config_manager, set_project_launch_context, get_project_launch_context
 import logging
 
 # Set up a logger for the launcher
@@ -241,6 +241,16 @@ def main():
     if '--install-gpu' in sys.argv:
         gpu_setup.install_gpu_pytorch()
         sys.exit(0)
+
+    # Optional project file argument (.pbmlproj) for guided launch
+    project_file_arg = None
+    for arg in sys.argv[1:]:
+        if isinstance(arg, str) and arg.lower().endswith('.pbmlproj'):
+            project_file_arg = arg
+            break
+
+    if project_file_arg:
+        set_project_launch_context(project_file_arg)
         
     app = QApplication(sys.argv)
     _qt_application = app
@@ -254,7 +264,8 @@ def main():
     logger.info(f"Vestim starting - Projects directory: {projects_dir}")
     
     # Launch the main welcome screen
-    welcome_screen = WelcomeGUI()
+    launch_context = get_project_launch_context()
+    welcome_screen = WelcomeGUI(launch_context=launch_context)
     welcome_screen.show()
     
     try:

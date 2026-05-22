@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "project_name": "Sample Shared Battery Project",
+  "config": {
+    "relative_path": "./project_config"
+  },
+  "startup": {
+    "flow": "training",
+    "auto_open_data_import": true,
+    "auto_continue_to_augmentation": false
+  }
+}

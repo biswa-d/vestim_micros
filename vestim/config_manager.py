@@ -15,8 +15,68 @@ class ConfigManager:
         self._data_dir = None
         self._defaults_dir = None
         self._default_settings = {}
+        self._project_launch_context = None
         self._load_config()
         self._load_default_settings()
+
+    def set_project_launch_context(self, project_file_path):
+        """Load and store project launch context from a .pbmlproj file path."""
+        try:
+            if not project_file_path:
+                self._project_launch_context = None
+                return
+
+            project_file = Path(project_file_path).resolve()
+            if not project_file.exists():
+                print(f"Project file not found: {project_file}")
+                self._project_launch_context = None
+                return
+
+            with open(project_file, 'r', encoding='utf-8') as f:
+                project_payload = json.load(f)
+
+            config_rel = (project_payload.get('config') or {}).get('relative_path', './project_config')
+            config_dir = (project_file.parent / config_rel).resolve()
+
+            dataset_defaults = {}
+            augmentation_defaults = {}
+
+            dataset_path = config_dir / 'dataset_defaults.json'
+            if dataset_path.exists():
+                with open(dataset_path, 'r', encoding='utf-8') as f:
+                    dataset_defaults = json.load(f)
+
+            augmentation_path = config_dir / 'augmentation_defaults.json'
+            if augmentation_path.exists():
+                with open(augmentation_path, 'r', encoding='utf-8') as f:
+                    augmentation_defaults = json.load(f)
+
+            self._project_launch_context = {
+                'project_file_path': str(project_file),
+                'project_dir': str(project_file.parent),
+                'config_dir': str(config_dir),
+                'project_payload': project_payload,
+                'dataset_defaults': dataset_defaults,
+                'augmentation_defaults': augmentation_defaults,
+            }
+
+            print(f"Loaded project launch context: {project_file}")
+        except Exception as e:
+            print(f"Error loading project launch context: {e}")
+            self._project_launch_context = None
+
+    def get_project_launch_context(self):
+        return self._project_launch_context
+
+    def get_project_dataset_defaults(self):
+        if not self._project_launch_context:
+            return {}
+        return self._project_launch_context.get('dataset_defaults', {}) or {}
+
+    def get_project_augmentation_defaults(self):
+        if not self._project_launch_context:
+            return {}
+        return self._project_launch_context.get('augmentation_defaults', {}) or {}
     
     def _load_config(self):
         """
@@ -564,3 +624,19 @@ def get_default_hyperparams():
 def load_hyperparams_from_root():
     """Convenience function to load hyperparameters from root hyperparams.json"""
     return get_config_manager().load_hyperparams_from_root()
+
+def set_project_launch_context(project_file_path):
+    """Convenience function to set project launch context from .pbmlproj."""
+    return get_config_manager().set_project_launch_context(project_file_path)
+
+def get_project_launch_context():
+    """Convenience function to get project launch context."""
+    return get_config_manager().get_project_launch_context()
+
+def get_project_dataset_defaults():
+    """Convenience function to get project dataset defaults."""
+    return get_config_manager().get_project_dataset_defaults()
+
+def get_project_augmentation_defaults():
+    """Convenience function to get project augmentation defaults."""
+    return get_config_manager().get_project_augmentation_defaults()

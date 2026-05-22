@@ -370,13 +370,14 @@ class AugmentationWorker(QObject):
 class DataAugmentGUI(QMainWindow):
     augmentation_complete = pyqtSignal(pd.DataFrame)
 
-    def __init__(self, job_manager=None, testing_mode=False, test_df=None, filter_configs=None):
+    def __init__(self, job_manager=None, testing_mode=False, test_df=None, filter_configs=None, project_augmentation_defaults=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.job_manager = job_manager
         self.testing_mode = testing_mode
         self.test_df_for_augmentation = test_df
         self.preloaded_filter_configs = filter_configs
+        self.project_augmentation_defaults = project_augmentation_defaults or {}
 
         self.data_augment_manager = DataAugmentManager(job_manager=self.job_manager)
         self.augmentation_thread = None
@@ -408,7 +409,53 @@ class DataAugmentGUI(QMainWindow):
         elif self.job_folder:
             self.load_filter_settings_last_used()
 
+        self.apply_project_augmentation_defaults()
+
         QTimer.singleShot(0, self._initialize_source_sampling_detection)
+
+    def apply_project_augmentation_defaults(self):
+        """Apply project-provided augmentation defaults to UI controls."""
+        try:
+            defaults = self.project_augmentation_defaults or {}
+            if not isinstance(defaults, dict) or not defaults:
+                return
+
+            filtering = defaults.get('filtering', {}) or {}
+            if isinstance(filtering, dict) and 'enabled' in filtering:
+                self.filtering_checkbox.setChecked(bool(filtering.get('enabled')))
+
+            normalization = defaults.get('normalization', {}) or {}
+            if isinstance(normalization, dict) and 'enabled' in normalization:
+                self.normalization_checkbox.setChecked(bool(normalization.get('enabled')))
+
+            resampling = defaults.get('resampling', {}) or {}
+            if isinstance(resampling, dict):
+                if 'enabled' in resampling:
+                    self.resampling_checkbox.setChecked(bool(resampling.get('enabled')))
+                target_hz = resampling.get('target_hz', None)
+                if target_hz is not None:
+                    self.frequency_combo.setCurrentText(str(target_hz))
+
+            padding = defaults.get('padding', {}) or {}
+            if isinstance(padding, dict):
+                if 'enabled' in padding:
+                    self.padding_checkbox.setChecked(bool(padding.get('enabled')))
+                if 'length' in padding:
+                    try:
+                        self.padding_length_spinbox.setValue(int(padding.get('length')))
+                    except Exception:
+                        pass
+
+            column_creation = defaults.get('column_creation', {}) or {}
+            if isinstance(column_creation, dict) and 'enabled' in column_creation:
+                self.column_creation_checkbox.setChecked(bool(column_creation.get('enabled')))
+
+            noise = defaults.get('noise', {}) or {}
+            if isinstance(noise, dict) and 'enabled' in noise:
+                self.noise_injection_checkbox.setChecked(bool(noise.get('enabled')))
+
+        except Exception as e:
+            self.logger.error(f"Could not apply project augmentation defaults: {e}", exc_info=True)
 
     def save_filter_settings(self):
         if self.settings_file and self.filter_configs:

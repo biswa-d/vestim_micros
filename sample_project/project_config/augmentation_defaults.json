@@ -1,0 +1,1 @@
+{"schema_version":"1.0","filtering":{"enabled":true,"configs":[]},"normalization":{"enabled":true},"resampling":{"enabled":false,"target_hz":null},"padding":{"enabled":false,"length":0},"noise":{"enabled":false,"configs":[]},"column_creation":{"enabled":false,"formulas":[]}}

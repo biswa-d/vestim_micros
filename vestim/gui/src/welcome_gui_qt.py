@@ -6,10 +6,15 @@ from vestim.gui.src.test_selection_gui_qt import TestSelectionGUI
 from vestim.gui.src.adaptive_gui_utils import get_adaptive_stylesheet, scale_widget_size
 
 class WelcomeGUI(QMainWindow):
-    def __init__(self):
+    def __init__(self, launch_context=None):
         super().__init__()
+        self.launch_context = launch_context or {}
         self.setWindowTitle("Welcome to PyBattML")
         self.initUI()
+
+        # If launched from a project file, go directly to guided training flow
+        if self.launch_context:
+            self.start_new_training()
 
     def initUI(self):
         # Set window size consistent with DataImportGUI
@@ -104,7 +109,7 @@ class WelcomeGUI(QMainWindow):
         self.central_widget.setStyleSheet("background-color: #f8f9fa;")
 
     def start_new_training(self):
-        self.data_import_gui = DataImportGUI()
+        self.data_import_gui = DataImportGUI(launch_context=self.launch_context)
         self.data_import_gui.show()
         self.close()
 

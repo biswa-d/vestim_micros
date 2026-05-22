@@ -34,7 +34,7 @@ from vestim.gui.src.data_augment_gui_qt import DataAugmentGUI  # Import the new 
 from vestim.services.data_processor.src.data_processor_qt_csv import DataProcessorCSV
 from vestim.services.data_processor.src.data_processor_qt_mat import DataProcessorMAT
 from vestim.services.data_processor.src.data_processor_qt_xlsx import DataProcessorXLSX
-from vestim.config_manager import get_data_directory, get_default_folders, update_last_used_folders, get_default_file_format, get_projects_directory
+from vestim.config_manager import get_data_directory, get_default_folders, update_last_used_folders, get_default_file_format, get_projects_directory, get_project_dataset_defaults, get_project_augmentation_defaults
 from vestim.gui.src.adaptive_gui_utils import scale_font, scale_widget_size, get_adaptive_stylesheet
 
 import logging
@@ -81,9 +81,12 @@ def shorten_path_for_display(full_path, max_levels=3):
         return os.path.basename(full_path)
 
 class DataImportGUI(QMainWindow):
-    def __init__(self):
+    def __init__(self, launch_context=None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
+        self.launch_context = launch_context or {}
+        self.project_dataset_defaults = get_project_dataset_defaults() or {}
+        self.project_augmentation_defaults = get_project_augmentation_defaults() or {}
         self.job_manager = JobManager()
         self.train_folder_path = ""
         self.val_folder_path = ""  # NEW: Added validation folder
@@ -631,7 +634,10 @@ class DataImportGUI(QMainWindow):
     def move_to_next_screen(self, job_folder):
         # Changed to open the Data Augmentation GUI instead of Hyperparameter GUI
         self.close()
-        self.data_augment_gui = DataAugmentGUI(job_manager=self.job_manager)
+        self.data_augment_gui = DataAugmentGUI(
+            job_manager=self.job_manager,
+            project_augmentation_defaults=self.project_augmentation_defaults
+        )
         self.data_augment_gui.show()
 
     def show_error(self, message):
@@ -642,17 +648,32 @@ class DataImportGUI(QMainWindow):
         """Load default settings and populate the GUI with last used folders"""
         try:
             default_settings = get_default_folders()
+
+            # Project-file defaults take precedence when available
+            project_defaults = self.project_dataset_defaults or {}
+            splits = project_defaults.get("splits", {}) if isinstance(project_defaults, dict) else {}
             
             # Set default file format
-            default_format = get_default_file_format()
+            default_format = project_defaults.get("file_format") or get_default_file_format()
             format_index = self.data_source_combo.findText(default_format)
             if format_index >= 0:
                 self.data_source_combo.setCurrentIndex(format_index)
             
             # Load default folder paths
-            train_folder = default_settings.get("train_folder", "")
-            val_folder = default_settings.get("val_folder", "")
-            test_folder = default_settings.get("test_folder", "")
+            train_folder = splits.get("train") or default_settings.get("train_folder", "")
+            val_folder = splits.get("val") or default_settings.get("val_folder", "")
+            test_folder = splits.get("test") or default_settings.get("test_folder", "")
+
+            # Resolve project-relative paths if context exists
+            project_dir = self.launch_context.get("project_dir") if isinstance(self.launch_context, dict) else None
+            if project_dir:
+                def _resolve_if_relative(p):
+                    if not p:
+                        return p
+                    return p if os.path.isabs(p) else os.path.normpath(os.path.join(project_dir, p))
+                train_folder = _resolve_if_relative(train_folder)
+                val_folder = _resolve_if_relative(val_folder)
+                test_folder = _resolve_if_relative(test_folder)
             
             # Auto-populate folders if they exist and contain files
             if train_folder and os.path.exists(train_folder):

@@ -1284,6 +1284,57 @@ $Shortcut.Save()
             self.log(f"Failed to clean up old Start Menu entries: {e}", "WARNING")
             return True  # Don't fail installation for this
 
+    def register_project_file_association(self) -> bool:
+        """Register .pbmlproj file association to open with installed PyBattML launcher."""
+        self.log("=== Registering .pbmlproj File Association ===")
+
+        try:
+            if sys.platform != "win32":
+                self.log("File association registration is only implemented for Windows")
+                return True
+
+            import subprocess
+
+            launcher_path = self.install_config.get("launcher_script")
+            if not launcher_path or not Path(launcher_path).exists():
+                self.log("Launcher script not found, cannot register file association", "WARNING")
+                return False
+
+            prog_id = "PyBattML.ProjectFile"
+            open_command = f'"{launcher_path}" "%1"'
+
+            reg_commands_hklm = f'''
+reg add "HKLM\\Software\\Classes\\.pbmlproj" /ve /t REG_SZ /d "{prog_id}" /f
+reg add "HKLM\\Software\\Classes\\{prog_id}" /ve /t REG_SZ /d "PyBattML Project File" /f
+reg add "HKLM\\Software\\Classes\\{prog_id}\\DefaultIcon" /ve /t REG_SZ /d "{self.install_dir}\\PyBattML_icon.ico,0" /f
+reg add "HKLM\\Software\\Classes\\{prog_id}\\shell\\open\\command" /ve /t REG_SZ /d "{open_command}" /f
+'''
+
+            reg_commands_hkcu = f'''
+reg add "HKCU\\Software\\Classes\\.pbmlproj" /ve /t REG_SZ /d "{prog_id}" /f
+reg add "HKCU\\Software\\Classes\\{prog_id}" /ve /t REG_SZ /d "PyBattML Project File" /f
+reg add "HKCU\\Software\\Classes\\{prog_id}\\DefaultIcon" /ve /t REG_SZ /d "{self.install_dir}\\PyBattML_icon.ico,0" /f
+reg add "HKCU\\Software\\Classes\\{prog_id}\\shell\\open\\command" /ve /t REG_SZ /d "{open_command}" /f
+'''
+
+            result = subprocess.run(['powershell', '-Command', reg_commands_hklm], capture_output=True, text=True)
+            if result.returncode == 0:
+                self.log("System-wide .pbmlproj association created successfully")
+                return True
+
+            self.log("System-wide association failed, trying user-specific association...", "WARNING")
+            result = subprocess.run(['powershell', '-Command', reg_commands_hkcu], capture_output=True, text=True)
+            if result.returncode == 0:
+                self.log("User-specific .pbmlproj association created successfully")
+                return True
+
+            self.log(f"Failed to create .pbmlproj association: {result.stderr}", "WARNING")
+            return False
+
+        except Exception as e:
+            self.log(f"Error while registering .pbmlproj association: {e}", "WARNING")
+            return False
+
     def create_uninstaller(self) -> bool:
         """Create uninstaller script and registry entry"""
         self.log("=== Creating Uninstaller ===")
@@ -1324,6 +1375,10 @@ if exist "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\PyBattML.lnk" del
 echo Removing registry entries...
 reg delete "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /f >nul 2>&1
 reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML" /f >nul 2>&1
+reg delete "HKLM\\Software\\Classes\\.pbmlproj" /f >nul 2>&1
+reg delete "HKCU\\Software\\Classes\\.pbmlproj" /f >nul 2>&1
+reg delete "HKLM\\Software\\Classes\\PyBattML.ProjectFile" /f >nul 2>&1
+reg delete "HKCU\\Software\\Classes\\PyBattML.ProjectFile" /f >nul 2>&1
 
 :: Stop any running processes
 echo Stopping PyBattML processes...
@@ -1692,7 +1747,11 @@ reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PyBattML
             # Create launcher
             if not self.create_launcher_script():
                 return False
-                
+
+            # Register .pbmlproj file association for double-click opening
+            if not self.register_project_file_association():
+                self.log(".pbmlproj association registration failed, but continuing...", "WARNING")
+                 
             # Clean up old Start Menu entries
             self.cleanup_old_start_menu_entries()
             

@@ -1,0 +1,1 @@
+{"schema_version":"1.0","dataset_root":"./data","splits":{"train":"./data/train_data","val":"./data/val_data","test":"./data/test_data"},"file_format":"csv","auto_select_all_files":true}
