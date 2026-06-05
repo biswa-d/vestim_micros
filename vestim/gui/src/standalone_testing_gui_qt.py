@@ -1100,29 +1100,48 @@ class VEstimStandaloneTestingGUI(QMainWindow):
                         if hasattr(scaler_obj, 'feature_names_in_'):
                             feature_names = list(scaler_obj.feature_names_in_)
                             print(f"[DEBUG] Available features: {feature_names}")
-                            
-                            # Look for target column name variations
-                            target_variations = [
-                                target_col.lower(), target_col.upper(), target_col.capitalize(),
-                                'Voltage', 'voltage', 'VOLTAGE',  # Common voltage variations
-                                'SOC', 'soc', 'Soc',              # Common SOC variations  
-                                'Temperature', 'temperature', 'TEMPERATURE', 'Temp', 'temp'  # Temperature variations
-                            ]
-                            
-                            for variation in target_variations:
-                                if variation in feature_names:
-                                    target_idx = feature_names.index(variation)
-                                    print(f"[DEBUG] Found target column '{variation}' at index {target_idx}")
-                                    break
+
+                            # Prefer the exact target column from hyperparams/result data.
+                            # Scaler feature names are case-sensitive, while user/project
+                            # column names can include units such as "Voltage(V)".
+                            normalized_feature_names = {
+                                str(name).strip().lower(): idx
+                                for idx, name in enumerate(feature_names)
+                            }
+                            target_key = str(target_col).strip().lower()
+                            if target_key in normalized_feature_names:
+                                target_idx = normalized_feature_names[target_key]
+                                print(f"[DEBUG] Found exact target column '{feature_names[target_idx]}' at index {target_idx}")
+                            else:
+                                # Look only for aliases that match the requested target type.
+                                target_lower = target_key
+                                if "voltage" in target_lower:
+                                    target_variations = ['Voltage(V)', 'voltage(v)', 'Voltage', 'voltage', 'VOLTAGE']
+                                elif "soc" in target_lower:
+                                    target_variations = ['SOC', 'soc', 'Soc']
+                                elif "temperature" in target_lower or "temp" in target_lower:
+                                    target_variations = [
+                                        'Temperature (C)', 'temperature (c)', 'Temperature(C)', 'temperature(c)',
+                                        'Temperature', 'temperature', 'TEMPERATURE', 'Temp', 'temp'
+                                    ]
+                                else:
+                                    target_variations = [target_col]
+
+                                for variation in target_variations:
+                                    variation_key = str(variation).strip().lower()
+                                    if variation_key in normalized_feature_names:
+                                        target_idx = normalized_feature_names[variation_key]
+                                        print(f"[DEBUG] Found target column alias '{feature_names[target_idx]}' at index {target_idx}")
+                                        break
                         
                         if target_idx == -1:
                             # Fallback: assume target is the voltage column (index 2 based on scaler output)
                             if "voltage" in target_col.lower():
                                 target_idx = 2  # From scaler inspection: Voltage is at index 2
                             elif "soc" in target_col.lower():
-                                target_idx = 10  # From scaler inspection: SOC is at index 10
+                                target_idx = 9  # From scaler inspection: SOC is at index 9
                             elif "temperature" in target_col.lower():
-                                target_idx = 4   # From scaler inspection: Temperature is at index 4
+                                target_idx = 8   # From scaler inspection: Temperature is at index 8
                             else:
                                 target_idx = 2   # Default to voltage
                             print(f"[DEBUG] Using fallback target index {target_idx} for {target_col}")
