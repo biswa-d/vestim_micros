@@ -127,6 +127,9 @@ jobs/
 # mkdocs documentation
 /site
 *.csv
+*.fig
+*.png
+*.json
 
 # mypy
 .mypy_cache/
