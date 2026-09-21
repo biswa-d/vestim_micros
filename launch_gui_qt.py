@@ -122,7 +122,12 @@ from PyQt5.QtWidgets import QApplication
 from vestim.gui.src.welcome_gui_qt import WelcomeGUI
 from vestim.gui.src.data_import_gui_qt import DataImportGUI
 from vestim.utils import gpu_setup
-from vestim.config_manager import get_config_manager, set_project_launch_context, get_project_launch_context
+from vestim.config_manager import (
+    get_config_manager,
+    set_project_launch_context,
+    get_project_launch_context,
+    get_project_startup_settings,
+)
 import logging
 
 # Set up a logger for the launcher
@@ -266,10 +271,13 @@ def main():
     
     # Launch flow:
     # - If started with a .pbmlproj, go directly to Data Import (guided project flow)
-    # - Otherwise, show Welcome screen
+    # - Otherwise, show Welcome screen unless startup settings explicitly prefer the import flow
     launch_context = get_project_launch_context()
-    if launch_context:
-        data_import_screen = DataImportGUI(launch_context=launch_context)
+    startup_settings = get_project_startup_settings(launch_context)
+    should_open_data_import = bool(project_file_arg) or startup_settings.get('auto_open_data_import', True)
+
+    if should_open_data_import:
+        data_import_screen = DataImportGUI(launch_context=launch_context or {})
         data_import_screen.show()
     else:
         welcome_screen = WelcomeGUI(launch_context=launch_context)

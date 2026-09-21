@@ -1,0 +1,20 @@
+DATA CLEANUP SUMMARY
+==================================================
+Job Folder: C:\Users\dehuryb\Documents\PyBattML_Projects\job_20260122-104126
+Cleanup Date: 2026-01-22T12:06:57.705403
+
+FOLDERS REMOVED TO SAVE SPACE:
+• train_data/ (raw_data and processed_data)
+• val_data/ (raw_data and processed_data)
+• test_data/ (raw_data and processed_data)
+
+PRESERVED FILES:
+• All models, predictions, and results
+• data_files_reference.txt (file names and sample counts)
+• Scaler files with min/max statistics (in scalers/ folder)
+• All plots and training histories
+
+NOTE:
+• Original data files remain in their source locations
+• This cleanup only removes copied/processed data to save space
+• Full traceability is maintained through reference files

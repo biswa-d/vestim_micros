@@ -77,6 +77,24 @@ class ConfigManager:
         if not self._project_launch_context:
             return {}
         return self._project_launch_context.get('augmentation_defaults', {}) or {}
+
+    def get_project_startup_settings(self, launch_context=None):
+        """Return startup behavior for a launch context, defaulting to guided data-import flow."""
+        payload = None
+        if isinstance(launch_context, dict):
+            payload = launch_context.get('project_payload') or {}
+        elif launch_context is not None:
+            payload = getattr(launch_context, 'get', lambda *_: None)('project_payload') or {}
+
+        startup = payload.get('startup', {}) if isinstance(payload, dict) else {}
+        if not isinstance(startup, dict):
+            startup = {}
+
+        return {
+            'flow': startup.get('flow', 'training'),
+            'auto_open_data_import': startup.get('auto_open_data_import', True),
+            'auto_continue_to_augmentation': startup.get('auto_continue_to_augmentation', False),
+        }
     
     def _load_config(self):
         """
@@ -640,3 +658,8 @@ def get_project_dataset_defaults():
 def get_project_augmentation_defaults():
     """Convenience function to get project augmentation defaults."""
     return get_config_manager().get_project_augmentation_defaults()
+
+
+def get_project_startup_settings(launch_context=None):
+    """Convenience function to get startup settings for a project launch context."""
+    return get_config_manager().get_project_startup_settings(launch_context)
