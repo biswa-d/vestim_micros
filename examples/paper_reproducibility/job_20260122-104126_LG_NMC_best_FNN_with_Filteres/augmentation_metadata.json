@@ -1,0 +1,852 @@
+{
+  "job_id": "job_20260122-104126",
+  "augmentation_run_date": "2026-01-22 10:42:34",
+  "applied_filters": [
+    {
+      "column": "Power",
+      "output_column_name": "P_filter_2",
+      "corner_frequency": 0.002,
+      "sampling_rate": 1.0,
+      "filter_order": 1
+    },
+    {
+      "column": "Power",
+      "output_column_name": "P_filter_0p2",
+      "corner_frequency": 0.0002,
+      "sampling_rate": 1.0,
+      "filter_order": 1
+    }
+  ],
+  "created_columns": [],
+  "resampling": {
+    "applied": false
+  },
+  "padding": {
+    "applied": false
+  },
+  "normalization": {
+    "applied": true,
+    "scaler_path": "scalers\\augmentation_scaler.joblib",
+    "normalized_columns": [
+      "Voltage",
+      "Current",
+      "Ah",
+      "Wh",
+      "Power",
+      "Battery_Temp_degC",
+      "SOC",
+      "P_filter_2",
+      "P_filter_0p2"
+    ]
+  },
+  "processed_files": [
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\109_Mixed1_n20C.csv",
+      "status": "Success",
+      "original_shape": [
+        75492,
+        10
+      ],
+      "augmented_shape": [
+        75492,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\110_Mixed2_n20C.csv",
+      "status": "Success",
+      "original_shape": [
+        74795,
+        10
+      ],
+      "augmented_shape": [
+        74795,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\114_Reordered1_n20C.csv",
+      "status": "Success",
+      "original_shape": [
+        80167,
+        10
+      ],
+      "augmented_shape": [
+        80167,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\119_ReorderedUS06_n20C.csv",
+      "status": "Success",
+      "original_shape": [
+        60517,
+        10
+      ],
+      "augmented_shape": [
+        60517,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\126_Mixed1_n10C.csv",
+      "status": "Success",
+      "original_shape": [
+        76294,
+        10
+      ],
+      "augmented_shape": [
+        76294,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\127_Mixed2_n10C.csv",
+      "status": "Success",
+      "original_shape": [
+        74867,
+        10
+      ],
+      "augmented_shape": [
+        74867,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\131_Reordered1_n10C.csv",
+      "status": "Success",
+      "original_shape": [
+        79477,
+        10
+      ],
+      "augmented_shape": [
+        79477,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\136_ReorderedUS06_n10C.csv",
+      "status": "Success",
+      "original_shape": [
+        56516,
+        10
+      ],
+      "augmented_shape": [
+        56516,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\14_Mixed1_40C.csv",
+      "status": "Success",
+      "original_shape": [
+        65740,
+        10
+      ],
+      "augmented_shape": [
+        65740,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\15_Mixed2_40C.csv",
+      "status": "Success",
+      "original_shape": [
+        65155,
+        10
+      ],
+      "augmented_shape": [
+        65155,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\19_Reordered1_40C.csv",
+      "status": "Success",
+      "original_shape": [
+        71214,
+        10
+      ],
+      "augmented_shape": [
+        71214,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\24_ReorderedUS06_40C.csv",
+      "status": "Success",
+      "original_shape": [
+        43937,
+        10
+      ],
+      "augmented_shape": [
+        43937,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\38_Mixed1_25C.csv",
+      "status": "Success",
+      "original_shape": [
+        54937,
+        10
+      ],
+      "augmented_shape": [
+        54937,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\39_Mixed2_25C.csv",
+      "status": "Success",
+      "original_shape": [
+        53981,
+        10
+      ],
+      "augmented_shape": [
+        53981,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\43_Reordered1_25C.csv",
+      "status": "Success",
+      "original_shape": [
+        59845,
+        10
+      ],
+      "augmented_shape": [
+        59845,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\48_ReorderedUS06_25C.csv",
+      "status": "Success",
+      "original_shape": [
+        32942,
+        10
+      ],
+      "augmented_shape": [
+        32942,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\61_Mixed1_10C.csv",
+      "status": "Success",
+      "original_shape": [
+        69045,
+        10
+      ],
+      "augmented_shape": [
+        69045,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\62_Mixed2_10C.csv",
+      "status": "Success",
+      "original_shape": [
+        68018,
+        10
+      ],
+      "augmented_shape": [
+        68018,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\66_Reordered1_10C.csv",
+      "status": "Success",
+      "original_shape": [
+        73404,
+        10
+      ],
+      "augmented_shape": [
+        73404,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\71_ReorderedUS06_10C.csv",
+      "status": "Success",
+      "original_shape": [
+        47237,
+        10
+      ],
+      "augmented_shape": [
+        47237,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\87_Mixed1_0C.csv",
+      "status": "Success",
+      "original_shape": [
+        72461,
+        10
+      ],
+      "augmented_shape": [
+        72461,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\88_Mixed2_0C.csv",
+      "status": "Success",
+      "original_shape": [
+        79743,
+        10
+      ],
+      "augmented_shape": [
+        79743,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\92_Reordered1_0C.csv",
+      "status": "Success",
+      "original_shape": [
+        88404,
+        10
+      ],
+      "augmented_shape": [
+        88404,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\train_data\\processed_data\\97_ReorderedUS06_0C.csv",
+      "status": "Success",
+      "original_shape": [
+        53219,
+        10
+      ],
+      "augmented_shape": [
+        53219,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\val_data\\processed_data\\113_Mixed5_n20C.csv",
+      "status": "Success",
+      "original_shape": [
+        75614,
+        10
+      ],
+      "augmented_shape": [
+        75614,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\val_data\\processed_data\\130_Mixed5_n10C.csv",
+      "status": "Success",
+      "original_shape": [
+        75915,
+        10
+      ],
+      "augmented_shape": [
+        75915,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\val_data\\processed_data\\18_Mixed5_40C.csv",
+      "status": "Success",
+      "original_shape": [
+        65682,
+        10
+      ],
+      "augmented_shape": [
+        65682,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\val_data\\processed_data\\42_Mixed5_25C.csv",
+      "status": "Success",
+      "original_shape": [
+        54649,
+        10
+      ],
+      "augmented_shape": [
+        54649,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\val_data\\processed_data\\65_Mixed5_10C.csv",
+      "status": "Success",
+      "original_shape": [
+        68739,
+        10
+      ],
+      "augmented_shape": [
+        68739,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\val_data\\processed_data\\91_Mixed5_0C.csv",
+      "status": "Success",
+      "original_shape": [
+        83254,
+        10
+      ],
+      "augmented_shape": [
+        83254,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    },
+    {
+      "filepath": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\test_data\\processed_data\\108_US06_n20C.csv",
+      "status": "Success",
+      "original_shape": [
+        57848,
+        10
+      ],
+      "augmented_shape": [
+        57848,
+        12
+      ],
+      "columns": [
+        "TimeStamp",
+        "Status",
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "Time",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+      ]
+    }
+  ],
+  "total_files_processed": 31,
+  "metadata_version": "2.0"
+}

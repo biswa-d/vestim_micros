@@ -1,0 +1,20 @@
+{
+    "job_id": "job_20260122-104126",
+    "creation_date": "2026-01-22T10:41:26.462005",
+    "train_folder_path": "C:/Users/dehuryb/code/Data/E66_All_Temp/PyBattML/cell_train_small",
+    "val_folder_path": "C:/Users/dehuryb/code/Data/E66_All_Temp/PyBattML/valid_data",
+    "test_folder_path": "C:/Users/dehuryb/code/Data/E66_All_Temp/PyBattML/test_data",
+    "normalization_applied": true,
+    "scaler_path": "scalers\\augmentation_scaler.joblib",
+    "normalized_columns": [
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "SOC",
+        "P_filter_2",
+        "P_filter_0p2"
+    ]
+}

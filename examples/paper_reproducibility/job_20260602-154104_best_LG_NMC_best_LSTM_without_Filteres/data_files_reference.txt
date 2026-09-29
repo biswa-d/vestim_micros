@@ -1,0 +1,49 @@
+DATA FILES REFERENCE
+==================================================
+Job: job_20260602-154104
+Created: 2026-06-02T15:41:59.508943
+
+ORIGINAL DATA SOURCES:
+  - Training: /mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/data/cell_train_small
+  - Validation: /mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/data/valid_data
+  - Test: /mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/data/test_small
+
+TRAINING FILES (24 files, 1,577,407 total samples):
+  • 110_Mixed2_n20C.csv - 74,795 samples
+  • 43_Reordered1_25C.csv - 59,845 samples
+  • 39_Mixed2_25C.csv - 53,981 samples
+  • 126_Mixed1_n10C.csv - 76,294 samples
+  • 114_Reordered1_n20C.csv - 80,167 samples
+  • 14_Mixed1_40C.csv - 65,740 samples
+  • 119_ReorderedUS06_n20C.csv - 60,517 samples
+  • 62_Mixed2_10C.csv - 68,018 samples
+  • 24_ReorderedUS06_40C.csv - 43,937 samples
+  • 66_Reordered1_10C.csv - 73,404 samples
+  • 92_Reordered1_0C.csv - 88,404 samples
+  • 19_Reordered1_40C.csv - 71,214 samples
+  • 127_Mixed2_n10C.csv - 74,867 samples
+  • 97_ReorderedUS06_0C.csv - 53,219 samples
+  • 38_Mixed1_25C.csv - 54,937 samples
+  • 87_Mixed1_0C.csv - 72,461 samples
+  • 61_Mixed1_10C.csv - 69,045 samples
+  • 88_Mixed2_0C.csv - 79,743 samples
+  • 71_ReorderedUS06_10C.csv - 47,237 samples
+  • 136_ReorderedUS06_n10C.csv - 56,516 samples
+  • 109_Mixed1_n20C.csv - 75,492 samples
+  • 131_Reordered1_n10C.csv - 79,477 samples
+  • 48_ReorderedUS06_25C.csv - 32,942 samples
+  • 15_Mixed2_40C.csv - 65,155 samples
+
+VALIDATION FILES (6 files, 423,853 total samples):
+  • 42_Mixed5_25C.csv - 54,649 samples
+  • 91_Mixed5_0C.csv - 83,254 samples
+  • 130_Mixed5_n10C.csv - 75,915 samples
+  • 113_Mixed5_n20C.csv - 75,614 samples
+  • 18_Mixed5_40C.csv - 65,682 samples
+  • 65_Mixed5_10C.csv - 68,739 samples
+
+TEST FILES (1 files, 20,079 total samples):
+  • 85_US06_0C.csv - 20,079 samples
+
+NOTE: Original data files remain in their source locations.
+Scaler statistics (min/max values) are saved separately in scalers/ folder.

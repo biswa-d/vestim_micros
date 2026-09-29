@@ -1,0 +1,113 @@
+{
+    "task_id": "task_20260122104310_3_rep_3",
+    "repetition": 3,
+    "model_name": null,
+    "model_dir": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\models\\FNN_90_45",
+    "task_dir": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\models\\FNN_90_45\\B4096_Adam_LR_RLROP_VP180_rep_3",
+    "model_path": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\models\\FNN_90_45\\untrained_model_template.pth",
+    "logs_dir": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\models\\FNN_90_45\\B4096_Adam_LR_RLROP_VP180_rep_3\\logs",
+    "model_metadata": {
+        "model_type": "FNN",
+        "num_learnable_params": 4681,
+        "input_size": 5,
+        "output_size": 1
+    },
+    "hyperparams": {
+        "MODEL_TYPE": "FNN",
+        "TRAINING_METHOD": "WholeSequenceFNN",
+        "INPUT_SIZE": 5,
+        "OUTPUT_SIZE": 1,
+        "BATCH_TRAINING": true,
+        "BATCH_SIZE": "4096",
+        "MAX_EPOCHS": "800",
+        "INITIAL_LR": "0.001",
+        "OPTIMIZER_TYPE": "Adam",
+        "VALID_PATIENCE": "180",
+        "VALID_FREQUENCY": "1",
+        "SCHEDULER_TYPE": "ReduceLROnPlateau",
+        "REPETITIONS": 10,
+        "CURRENT_REPETITION": 3,
+        "NUM_LEARNABLE_PARAMS": 4681,
+        "DEVICE_SELECTION": "cuda:0",
+        "NUM_WORKERS": "8",
+        "normalization_applied": true,
+        "FEATURE_COLUMNS": [
+            "Power",
+            "Battery_Temp_degC",
+            "SOC",
+            "P_filter_2",
+            "P_filter_0p2"
+        ],
+        "TARGET_COLUMN": "Voltage",
+        "CURRENT_DEVICE": "CUDA:0 (NVIDIA GeForce RTX 5070)",
+        "PLATEAU_PATIENCE": "30",
+        "PLATEAU_FACTOR": "0.8",
+        "EXPLOIT_LR": "1e-5",
+        "EXPLOIT_EPOCHS": "15",
+        "EXPLOIT_REPETITIONS": "0",
+        "FINAL_LR": "1e-7",
+        "INFERENCE_FILTER_TYPE": "None",
+        "INFERENCE_FILTER_WINDOW_SIZE": "101",
+        "INFERENCE_FILTER_ALPHA": "0.1",
+        "INFERENCE_FILTER_POLYORDER": "2",
+        "HIDDEN_LAYER_SIZES": [
+            90,
+            45
+        ],
+        "DROPOUT_PROB": 0.02,
+        "LOOKBACK": "N/A"
+    },
+    "data_loader_params": {
+        "lookback": 0,
+        "batch_size": "4096",
+        "feature_columns": [
+            "Power",
+            "Battery_Temp_degC",
+            "SOC",
+            "P_filter_2",
+            "P_filter_0p2"
+        ],
+        "target_column": "Voltage",
+        "num_workers": "8",
+        "pin_memory": true,
+        "prefetch_factor": "16"
+    },
+    "training_params": {
+        "early_stopping": true,
+        "early_stopping_patience": "180",
+        "save_best_model": true,
+        "checkpoint_dir": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\models\\FNN_90_45\\B4096_Adam_LR_RLROP_VP180_rep_3\\logs\\checkpoints",
+        "best_model_path": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\models\\FNN_90_45\\B4096_Adam_LR_RLROP_VP180_rep_3\\best_model.pth",
+        "max_training_time_seconds": 0
+    },
+    "results": {
+        "best_val_loss": Infinity,
+        "best_epoch": 0,
+        "training_time": 0,
+        "early_stopped": false,
+        "completed": false
+    },
+    "csv_log_file": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\models\\FNN_90_45\\B4096_Adam_LR_RLROP_VP180_rep_3\\logs\\training_progress.csv",
+    "db_log_file": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126\\models\\FNN_90_45\\B4096_Adam_LR_RLROP_VP180_rep_3\\logs\\task_20260122104310_3_rep_3_training.db",
+    "job_metadata": {
+        "job_id": "job_20260122-104126",
+        "creation_date": "2026-01-22T10:41:26.462005",
+        "train_folder_path": "C:/Users/dehuryb/code/Data/E66_All_Temp/PyBattML/cell_train_small",
+        "val_folder_path": "C:/Users/dehuryb/code/Data/E66_All_Temp/PyBattML/valid_data",
+        "test_folder_path": "C:/Users/dehuryb/code/Data/E66_All_Temp/PyBattML/test_data",
+        "normalization_applied": true,
+        "scaler_path": "scalers\\augmentation_scaler.joblib",
+        "normalized_columns": [
+            "Voltage",
+            "Current",
+            "Ah",
+            "Wh",
+            "Power",
+            "Battery_Temp_degC",
+            "SOC",
+            "P_filter_2",
+            "P_filter_0p2"
+        ]
+    },
+    "job_folder_augmented_from": "C:\\Users\\dehuryb\\Documents\\PyBattML_Projects\\job_20260122-104126"
+}

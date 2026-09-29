@@ -36,7 +36,7 @@ except ImportError:
     _HAS_MPL = False
 
 # ==================================================================
-#  Model definitions  (copied from vestim – self-contained)
+#  Model definitions  (copied from vestim â€“ self-contained)
 # ==================================================================
 
 class FNNModel(nn.Module):
@@ -75,11 +75,11 @@ class _GRULN(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, dropout):
         super().__init__()
         self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout)
-        self.ln = nn.LayerNorm(hidden_size)
+        self.layer_norm = nn.LayerNorm(hidden_size)
 
-    def forward(self, x, hx):
+    def forward(self, x, hx=None):
         x, hx = self.gru(x, hx)
-        return self.ln(x), hx
+        return self.layer_norm(x), hx
 
 
 class GRUModel(nn.Module):
@@ -117,7 +117,7 @@ class GRUModel(nn.Module):
         if self.apply_output_dropout and self.dropout is not None:
             out = self.dropout(out)
         out = self.fc(out[:, -1, :])
-        return out, h_n
+        return self.final_activation(out), h_n
 
 
 class LSTMModel(nn.Module):
@@ -187,19 +187,23 @@ def _find_job_dir(provided: str | None) -> Path:
             raise FileNotFoundError(f"Job directory not found: {p}")
         return p
     here = Path(__file__).resolve().parent
-    candidates = sorted(here.glob("job_*"))
+    candidates = sorted(p for p in here.glob("job_*") if p.is_dir())
     if not candidates:
         raise FileNotFoundError("No job_* folder found. Pass --job-dir.")
+    if len(candidates) > 1:
+        raise ValueError("Multiple jobs found. Select with --job-dir.")
     return candidates[0]
 
 
 def _collect_test_files(test_path: str | None) -> list[Path]:
     if test_path is None:
         here = Path(__file__).resolve().parent
-        for d in sorted(here.iterdir()):
-            if d.is_dir() and d.name.lower().endswith("_test_data"):
-                test_path = str(d)
-                break
+        candidates = [d for d in sorted(here.iterdir())
+                      if d.is_dir() and d.name.lower().endswith("_test_data")]
+        if len(candidates) > 1:
+            raise ValueError("Multiple test folders found. Pass --test-dir or --test-file.")
+        if candidates:
+            test_path = str(candidates[0])
         if test_path is None:
             raise FileNotFoundError("No *_test_data folder found. Pass --test-dir or --test-file.")
     p = Path(test_path).expanduser().resolve()
@@ -233,26 +237,22 @@ def _find_model_dir(job_dir: Path, explicit: str | None) -> Path:
             "Expected a task folder containing task_info.json and "
             "best_model.pth / best_model_export.pt."
         )
-    candidates = sorted(candidates, key=lambda p: str(p))
     if len(candidates) > 1:
-        print(f"  NOTE: found {len(candidates)} trained model folders, using the first:")
-        for c in candidates:
-            print(f"    - {c.relative_to(job_dir)}")
+        raise ValueError("Multiple models found. Select with --model-dir: " +
+                         ", ".join(str(c) for c in candidates))
     return candidates[0]
 
 
 def _build_task(job_dir: Path, model_dir: Path) -> dict[str, Any]:
     ti = _load_json(model_dir / "task_info.json")
-    jm = _load_json(job_dir / "job_metadata.json") if (job_dir / "job_metadata.json").exists() else {}
+    jm = _load_json(job_dir / "job_metadata.json")
     hp = dict(ti.get("hyperparams", {}))
     mm = dict(ti.get("model_metadata", {}))
     dl = dict(ti.get("data_loader_params", {}))
 
-    mtype = str(mm.get("model_type") or hp.get("MODEL_TYPE") or "LSTM")
-    for prefix in ("FNN", "LSTM", "GRU"):
-        if mtype.upper().startswith(prefix):
-            mtype = prefix
-            break
+    mtype = str(mm.get("model_type") or hp.get("MODEL_TYPE") or "").upper()
+    if mtype not in {"FNN", "LSTM", "GRU"}:
+        raise ValueError(f"Unsupported model type: {mtype}. Supported: FNN, LSTM, GRU.")
 
     best = model_dir / "best_model.pth"
     if not best.exists():
@@ -283,7 +283,7 @@ def _load_model(task: dict, device: torch.device) -> nn.Module:
     mtype = task["model_type"]
     model_path = task["best_model_path"]
 
-    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=True)
 
     input_size = hp["INPUT_SIZE"] if "INPUT_SIZE" in hp else len(task["data_loader_params"]["feature_columns"])
 
@@ -312,7 +312,9 @@ def _load_model(task: dict, device: torch.device) -> nn.Module:
             dropout = float(dropout)
         if mtype == "GRU":
             model = GRUModel(input_size, hidden, layers, output_size=1,
-                             dropout_prob=dropout, device=device)
+                             dropout_prob=dropout, device=device,
+                             apply_clipped_relu=bool(hp.get("normalization_applied", False)),
+                             use_layer_norm=bool(hp.get("GRU_USE_LAYERNORM", False)))
         else:
             model = LSTMModel(input_size, hidden, layers, device, dropout_prob=dropout)
 
@@ -337,21 +339,26 @@ def _load_scaler(task: dict) -> Any | None:
         return None
     rel = jm.get("scaler_path", "scalers/augmentation_scaler.joblib")
     job_dir = Path(task["job_folder_augmented_from"])
-    sp = job_dir / rel
+    rel = str(rel).replace(chr(92), "/")
+    relative = Path(rel)
+    if relative.is_absolute() or ":" in rel or ".." in relative.parts:
+        relative = Path("scalers") / relative.name
+    sp = job_dir / relative
     if not sp.exists():
-        print(f"  Scaler not found: {sp}")
-        return None
+        sp = job_dir / "scalers" / Path(rel).name
+    if not sp.exists():
+        raise FileNotFoundError(f"Training used normalization; required scaler missing: {sp}")
     sc = joblib.load(sp)
     print(f"  Scaler loaded: {sp.name}")
     return sc
 
 
-def _inverse_y(values: np.ndarray, scaler, target_col: str) -> np.ndarray:
+def _inverse_y(values: np.ndarray, scaler, target_col: str, fallback=None) -> np.ndarray:
     if scaler is None:
         return values
     try:
         fn = getattr(scaler, "feature_names_in_", None)
-        cols = list(fn) if fn is not None else []
+        cols = list(fn) if fn is not None else list(fallback or [])
     except Exception:
         cols = []
     if target_col not in cols:
@@ -361,8 +368,12 @@ def _inverse_y(values: np.ndarray, scaler, target_col: str) -> np.ndarray:
         data_min = np.asarray(scaler.data_min_).flatten()
         data_max = np.asarray(scaler.data_max_).flatten()
         lo, hi = data_min[idx], data_max[idx]
+        if tuple(scaler.feature_range) != (0, 1):
+            raise ValueError("Repository parity requires MinMaxScaler feature_range=(0, 1)")
         return values * (hi - lo) + lo
-    return values
+    if hasattr(scaler, "mean_") and hasattr(scaler, "scale_"):
+        return values * scaler.scale_[idx] + scaler.mean_[idx]
+    raise ValueError(f"Unsupported scaler: {type(scaler).__name__}")
 
 
 def _scaler_columns(scaler, fallback: list[str] | None) -> list[str]:
@@ -389,8 +400,6 @@ def _apply_augmentation(df: pd.DataFrame, job_dir: Path) -> pd.DataFrame:
 
     metadata = _load_json(meta_path)
     applied_filters = metadata.get("applied_filters", [])
-    if not applied_filters:
-        return df
 
     padding_info = metadata.get("padding", {})
     resampling_info = metadata.get("resampling", {})
@@ -458,8 +467,7 @@ def _run_inference(model: nn.Module, model_type: str, scaler, task: dict,
 
     for c in feats + [target]:
         if c not in df.columns:
-            print(f"  SKIP: column '{c}' not in test file")
-            return None
+            raise ValueError(f"Required column {c!r} not in {test_file}")
 
     # Mirror the repo pipeline: normalize every scaler-known column first,
     # run inference on the normalized features, then denormalize the target.
@@ -469,16 +477,16 @@ def _run_inference(model: nn.Module, model_type: str, scaler, task: dict,
     if normalization_applied:
         scaler_cols = _scaler_columns(scaler, task["job_metadata"].get("normalized_columns", []))
         if not scaler_cols:
-            print("  WARNING: scaler has no column names; cannot normalize inputs")
-            normalization_applied = False
+            raise ValueError("Scaler column names missing from scaler and job metadata")
         else:
             missing_scaler = [c for c in scaler_cols if c not in df.columns]
             if missing_scaler:
-                print(f"  SKIP: scaler-required columns missing: {missing_scaler}")
-                return None
+                raise ValueError(f"Scaler-required columns missing: {missing_scaler}")
             df[scaler_cols] = scaler.transform(df[scaler_cols])
 
-    df_num = df[feats + [target]].select_dtypes(include=[np.number])
+    df_num = df[list(dict.fromkeys(feats + [target]))].apply(pd.to_numeric, errors="raise")
+    if df_num.empty or not np.isfinite(df_num.to_numpy()).all():
+        raise ValueError(f"Empty data or non-finite inputs/target in {test_file}")
     orig_len = len(df_num)
 
     if model_type != "FNN" and warmup > 0:
@@ -509,9 +517,10 @@ def _run_inference(model: nn.Module, model_type: str, scaler, task: dict,
     y_pred = np.array(preds, dtype=np.float32)[:orig_len]
     y_true = df_num[target].values[:orig_len].astype(np.float32)
 
+    y_pred = _filter_predictions(y_pred, task["hyperparams"])
     if normalization_applied:
-        y_pred = _inverse_y(y_pred, scaler, target)
-        y_true = _inverse_y(y_true, scaler, target)
+        y_pred = _inverse_y(y_pred, scaler, target, scaler_cols)
+        y_true = _inverse_y(y_true, scaler, target, scaler_cols)
 
     mult = _error_multiplier(y_true, target)
     rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)) * mult)
@@ -525,7 +534,9 @@ def _save_outputs(out_dir: Path, raw_df: pd.DataFrame,
                   tv: np.ndarray, pv: np.ndarray,
                   target_col: str, model_type: str, skip_plot: bool) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    n = min(len(raw_df), len(tv), len(pv))
+    if not len(raw_df) == len(tv) == len(pv):
+        raise ValueError("Output frame and predictions must have matching lengths")
+    n = len(tv)
     mult = _error_multiplier(tv[:n], target_col)
 
     df = raw_df.iloc[:n].copy()
@@ -546,7 +557,7 @@ def _save_outputs(out_dir: Path, raw_df: pd.DataFrame,
         ax2.plot(x, (tv[:n] - pv[:n]) * mult, color="tab:red", linewidth=1.2)
         ax2.axhline(0, color="black", linestyle="--", linewidth=0.8)
         ax2.set_xlabel("Sample index")
-        ax2.set_ylabel("Error")
+        ax2.set_ylabel(f"Error ({_error_unit(target_col)})")
         ax2.set_title("Prediction error")
         fig.tight_layout()
         fig.savefig(out_dir / "prediction_plot.png", dpi=200)
@@ -557,86 +568,199 @@ def _save_outputs(out_dir: Path, raw_df: pd.DataFrame,
 #  Main
 # ==================================================================
 
+def _filter_predictions(values, hp):
+    kind = hp.get("INFERENCE_FILTER_TYPE", "None")
+    if kind in (None, "None", ""):
+        return values
+    if kind == "Moving Average":
+        return pd.Series(values).rolling(int(hp["INFERENCE_FILTER_WINDOW_SIZE"]), min_periods=1).mean().values
+    if kind == "Exponential Moving Average":
+        return pd.Series(values).ewm(alpha=float(hp["INFERENCE_FILTER_ALPHA"]), adjust=False).mean().values
+    if kind == "Savitzky-Golay":
+        from scipy.signal import savgol_filter
+        window = int(hp["INFERENCE_FILTER_WINDOW_SIZE"])
+        order = int(hp["INFERENCE_FILTER_POLYORDER"])
+        window += (window % 2 == 0)
+        if window <= order:
+            window = order + 1
+            window += (window % 2 == 0)
+        return savgol_filter(values, window, order)
+    raise ValueError(f"Unsupported inference filter: {kind}")
+
+
+def _warmup_samples(task, override):
+    value = override if override is not None else task["hyperparams"].get(
+        "LOOKBACK", task["data_loader_params"].get("lookback", 0))
+    value = 0 if value in (None, "N/A") else int(value)
+    if value < 0:
+        raise ValueError("Warmup samples must be nonnegative")
+    return 0 if task["model_type"] == "FNN" else value
+
+
+def _error_unit(target):
+    if "voltage" in target.lower():
+        return "mV"
+    if "soc" in target.lower():
+        return "percentage points"
+    return target
+
+
+def _save_comparison(root, results):
+    for test_name, entries in results.items():
+        targets = {entry[1] for entry in entries}
+        for target in sorted(targets):
+            group = [entry for entry in entries if entry[1] == target]
+            fig, (top, bottom) = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
+            for label, _, result in group:
+                actual, predicted = result["true_values"], result["predictions"]
+                x = np.arange(len(actual))
+                # Keep each job's actual curve: preprocessing may differ between jobs.
+                top.plot(x, actual, linestyle="--", alpha=0.5, label=f"{label}: measured")
+                top.plot(x, predicted, label=f"{label}: predicted")
+                bottom.plot(x, (actual - predicted) * _error_multiplier(actual, target), label=label)
+            top.set_ylabel(target)
+            top.set_title(test_name)
+            top.legend(fontsize=7)
+            bottom.set_ylabel(f"Error ({_error_unit(target)})")
+            bottom.set_xlabel("Sample index")
+            bottom.axhline(0, color="black", linewidth=0.5)
+            fig.tight_layout()
+            safe_target = "".join(c if c.isalnum() else "_" for c in target)
+            fig.savefig(root / f"comparison_{Path(test_name).stem}_{safe_target}.png", dpi=200)
+            plt.close(fig)
+
+
+def _paper_length(filename, available):
+    """Exact endpoints from E66_voltage_plot_ECM.m, shared by all model types."""
+    import re
+    match = re.match(r"(?:\d+_)?(HWFET|LA92|UDDS|US06)_(n?\d+)C", filename)
+    endpoints = {
+        -20: (24677, 44378, 68848, 21982), -10: (27258, 48949, 77143, 22396),
+        0: (19770, 54806, 46000, 19585), 10: (26995, 55484, 82120, 22581),
+        25: (26728, 53065, 83226, 21532), 40: (27995, 55115, 84194, 23537),
+    }
+    if not match:
+        raise ValueError(f"No LG NMC paper endpoint for {filename}")
+    cycle, token = match.groups()
+    temperature = -int(token[1:]) if token.startswith("n") else int(token)
+    if temperature not in endpoints:
+        raise ValueError(f"No paper endpoint for temperature {temperature}")
+    return min(available, endpoints[temperature][("HWFET", "LA92", "UDDS", "US06").index(cycle)])
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Standalone offline inference for VEstim models")
-    parser.add_argument("--job-dir", default=None)
-    parser.add_argument("--test-dir", default=None)
-    parser.add_argument("--test-file", default=None)
-    parser.add_argument("--model-dir", default=None)
-    parser.add_argument("--output-dir", default=None)
-    parser.add_argument("--device", default="auto")
-    parser.add_argument("--warmup-samples", type=int, default=400)
+    parser = argparse.ArgumentParser(description="Portable inference and comparison for saved PyBattML jobs")
+    parser.add_argument("--job-dir", nargs="+", action="extend", help="One or more job folders; may be repeated")
+    tests = parser.add_mutually_exclusive_group()
+    tests.add_argument("--test-dir")
+    tests.add_argument("--test-file")
+    parser.add_argument("--ecm-dir", nargs="+", action="extend", help="Portable ECM model folder(s)")
+    parser.add_argument("--ecm-bias-correction", action="store_true",
+                        help="Subtract each ECM file's measured mean error (requires ground truth)")
+    parser.add_argument("--paper-window", action="store_true",
+                        help="Use the LG NMC paper's drive-cycle endpoints for every model")
+    parser.add_argument("--model-dir", help="Select a task folder when testing a single job")
+    parser.add_argument("--output-dir")
+    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--cpu-threads", type=int, default=1, help="CPU threads; 1 avoids overhead for sample-wise RNN inference")
+    parser.add_argument("--warmup-samples", type=int, help="Override saved LOOKBACK (RNN only)")
     parser.add_argument("--skip-plot", action="store_true")
     args = parser.parse_args()
-
-    job_dir = _find_job_dir(args.job_dir)
-    test_files = _collect_test_files(args.test_file if args.test_file else args.test_dir)
-    model_dir = _find_model_dir(job_dir, args.model_dir)
-    task = _build_task(job_dir, model_dir)
-
-    output_dir = (Path(args.output_dir).expanduser().resolve()
-                  if args.output_dir else job_dir / "inference_output")
-
+    if not args.skip_plot and not _HAS_MPL:
+        parser.error("Plots require matplotlib. Install requirements.txt or pass --skip-plot.")
+    jobs = [_find_job_dir(p) for p in args.job_dir] if args.job_dir else (
+        [] if args.ecm_dir else [_find_job_dir(None)])
+    ecm_dirs = [Path(p).expanduser().resolve() for p in args.ecm_dir or []]
+    all_dirs = jobs + ecm_dirs
+    if len({p.name for p in all_dirs}) != len(all_dirs):
+        parser.error("All ML and ECM model folder names must be distinct")
+    if args.ecm_bias_correction and not ecm_dirs:
+        parser.error("--ecm-bias-correction requires --ecm-dir")
+    if len(set(jobs)) != len(jobs) or len({p.name for p in jobs}) != len(jobs):
+        parser.error("Job folders must have distinct names and paths")
+    if args.model_dir and len(jobs) != 1:
+        parser.error("--model-dir is only supported with a single --job-dir")
+    test_files = _collect_test_files(args.test_file or args.test_dir)
     device = _resolve_device(args.device)
-    print(f"Job:      {job_dir}")
-    print(f"Model:    {model_dir}  ({task['model_type']})")
-    print(f"Device:   {device}")
-    print(f"Tests:    {len(test_files)} file(s)")
-    print("-" * 50)
-
-    model = _load_model(task, device)
-    scaler = _load_scaler(task)
-
-    all_metrics = []
-    target_col = task["data_loader_params"]["target_column"]
-
-    for i, tf in enumerate(test_files, 1):
-        print(f"\n[{i}/{len(test_files)}] {tf.name}")
-        res = _run_inference(model, task["model_type"], scaler, task, tf,
-                             args.warmup_samples, device)
-        if res is None:
-            continue
-
-        raw_df = pd.read_csv(tf)
-        tv = np.asarray(res["true_values"], dtype=np.float32)
-        pv = np.asarray(res["predictions"], dtype=np.float32)
-
-        file_out = output_dir / tf.stem
-        _save_outputs(file_out, raw_df, tv, pv, target_col, task["model_type"], args.skip_plot)
-
-        row = {"test_file": tf.name, "model_type": task["model_type"]}
-        for k in ("rmse", "mae", "r2"):
-            if k in res:
-                row[k] = res[k]
-                print(f"  {k}: {res[k]:.4f}")
-        all_metrics.append(row)
-
-    summary = {
-        "job_dir": str(job_dir),
-        "model_type": task["model_type"],
-        "model_dir": str(model_dir),
-        "output_dir": str(output_dir),
-        "timestamp": datetime.now().isoformat(),
-        "per_file": all_metrics,
-    }
-    output_dir.mkdir(parents=True, exist_ok=True)
-    with (output_dir / "summary.json").open("w") as fh:
-        json.dump(summary, fh, indent=2)
-
-    parts = []
-    for tf in test_files:
-        pc = output_dir / tf.stem / "predictions.csv"
-        if pc.exists():
-            df = pd.read_csv(pc)
-            df.insert(0, "Source_File", tf.name)
-            parts.append(df)
-    if parts:
-        pd.concat(parts, ignore_index=True).to_csv(output_dir / "all_predictions.csv", index=False)
-
-    print("\n" + "=" * 50)
-    print(f"Done.  Results in: {output_dir}")
+    if args.cpu_threads < 1:
+        parser.error("--cpu-threads must be positive")
+    if device.type == "cpu":
+        torch.set_num_threads(args.cpu_threads)
+    multiple = len(all_dirs) > 1
+    root = Path(args.output_dir).expanduser().resolve() if args.output_dir else (
+        Path(__file__).resolve().parent / "comparison_output" if multiple else all_dirs[0] / "inference_output")
+    root.mkdir(parents=True, exist_ok=True)
+    comparison, metrics = {}, []
+    for job in all_dirs:
+        is_ecm = job in ecm_dirs
+        if is_ecm:
+            # Explicit file loading also works in isolated Python (-I).
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("portable_ecm", Path(__file__).with_name("ecm_inference.py"))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            model = module.ECMModel(job)
+            model_dir, warmup, target, model_type = job, 0, "Voltage", "ECM_1RC"
+        else:
+            model_dir = _find_model_dir(job, args.model_dir)
+            task = _build_task(job, model_dir)
+            model, scaler = _load_model(task, device), _load_scaler(task)
+            warmup = _warmup_samples(task, args.warmup_samples)
+            target, model_type = task["data_loader_params"]["target_column"], task["model_type"]
+        out = root / job.name if multiple else root
+        out.mkdir(parents=True, exist_ok=True)
+        print(f"Job: {job.name}; device: {device}; warmup: {warmup}")
+        per_file, parts = [], []
+        for tf in test_files:
+            result = model.run(tf, args.ecm_bias_correction) if is_ecm else _run_inference(
+                model, model_type, scaler, task, tf, warmup, device)
+            frame = result["frame"].copy() if is_ecm else pd.read_csv(tf)
+            if args.paper_window:
+                length = _paper_length(tf.name, len(frame))
+                frame = frame.iloc[:length].copy()
+                for key in ("predictions", "true_values", "raw_predictions", "time_s"):
+                    if key in result:
+                        result[key] = result[key][:length]
+                actual, predicted = result["true_values"], result["predictions"]
+                multiplier = _error_multiplier(actual, target)
+                result.update(rmse=float(np.sqrt(mean_squared_error(actual, predicted))*multiplier),
+                              mae=float(mean_absolute_error(actual, predicted)*multiplier),
+                              r2=float(r2_score(actual, predicted)))
+            if is_ecm:
+                frame["Raw_Predicted_Voltage"] = result["raw_predictions"]
+            _save_outputs(out / tf.stem, frame, result["true_values"],
+                          result["predictions"], target, model_type, args.skip_plot)
+            row = dict(job=job.name, test_file=tf.name, model_type=model_type,
+                       target=target, error_unit=_error_unit(target), samples=len(result["predictions"]),
+                       **{k: result[k] for k in ("rmse", "mae", "r2")})
+            row["evaluation_window"] = "paper" if args.paper_window else "full_file"
+            if is_ecm:
+                row.update(time_policy=result["time_policy"],
+                           bias_correction_applied=result["bias_correction_applied"],
+                           full_file_raw_bias_mv=result["raw_bias_mv"],
+                           full_file_raw_rmse_mv=result["raw_rmse_mv"])
+            per_file.append(row)
+            metrics.append(row)
+            print(f"  {tf.name}: RMSE={row['rmse']:.6f} {row['error_unit']}, R2={row['r2']:.6f}")
+            frame = pd.read_csv(out / tf.stem / "predictions.csv")
+            frame.insert(0, "Source_File", tf.name)
+            parts.append(frame)
+            if multiple and not args.skip_plot:
+                comparison.setdefault(tf.name, []).append((job.name, target, result))
+        pd.concat(parts, ignore_index=True).to_csv(out / "all_predictions.csv", index=False)
+        summary = dict(job_dir=str(job), model_dir=str(model_dir), model_type=model_type,
+                       output_dir=str(out), device=str(device), warmup_samples=warmup,
+                       timestamp=datetime.now().isoformat(), per_file=per_file)
+        summary["evaluation_window"] = "paper" if args.paper_window else "full_file"
+        if is_ecm:
+            summary["ecm_config"] = model.config
+            summary["bias_correction_applied"] = args.ecm_bias_correction
+        (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    pd.DataFrame(metrics).to_csv(root / "comparison_metrics.csv", index=False)
+    if comparison:
+        _save_comparison(root, comparison)
+    print(f"Results: {root}")
 
 
 if __name__ == "__main__":
     main()
-

@@ -1,179 +1,136 @@
-# Offline inference – paper reproducibility
+# Portable paper inference
 
-This folder contains a self-contained inference script that can reproduce the paper results from a saved job folder without importing the repository code. It is intended for a new machine or a portable reproduction setup where you only have the trained job directory and test CSVs.
+Copy this directory to another machine. No installation of `vestim`, GUI,
+training code, or repository-root requirements is needed. Python 3.10+ and
+these inference dependencies are required (initial installation needs internet).
 
-## What this script does
-
-The script mirrors the repo's standalone testing flow:
-
-- loads the model from the saved job folder
-- reads `job_metadata.json` and `augmentation_metadata.json`
-- applies the same filter augmentation used during training/testing
-- normalizes all scaler columns with the saved `MinMaxScaler`
-- runs inference on the normalized inputs
-- denormalizes the target before computing RMSE, MAE, and R²
-
-This is the exact logic that matches the repo's standalone results for the shipped job folders.
-
-## System requirements
-
-The script requires a working Python environment with the usual ML stack:
-
-- Python 3.10+ recommended
-- `torch`
-- `pandas`
-- `numpy`
-- `scipy`
-- `scikit-learn`
-- `joblib`
-- `matplotlib` (optional for plots)
-
-If you are on Windows and the repo already has a local virtual environment, use it. If not, create a fresh one.
-
-## Recommended setup on a new machine
-
-### Option A: use the repo's existing environment
-
-From the repo root:
-
-```powershell
-cd c:\Biswanath_Phd\vestim_micros
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
-.\build_env\Scripts\Activate.ps1
-python -V
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-If the repo environment exists and is already configured, this is the safest route.
-
-### Option B: create a fresh virtual environment
-
-```powershell
-cd c:\Biswanath_Phd\vestim_micros
+```sh
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
+# Windows: .venv\Scripts\activate
+# Linux/macOS: source .venv/bin/activate
 python -m pip install -r requirements.txt
+python run_offline_inference.py --job-dir job_20260122-104126_LG_NMC_best_FNN_with_Filteres --test-file LG_NMC_test_data/10_UDDS_40C.csv
 ```
 
-### Option C: minimal manual install
+Alternatively, run `run_test.bat` on Windows or `bash run_test.sh` on Linux/macOS.
+These launchers create a local environment, install the inference requirements,
+and forward arguments to the script. Paths in launcher arguments are relative
+to this directory. When invoking Python directly, paths are relative to the
+current working directory. CPU is the default; pass `--device cuda` to use CUDA.
+The scaler dependency is pinned to the bundled scaler's saved version (1.7.2).
+For a different job, use the scikit-learn version that produced its scaler.
 
-If you only need this offline script and do not want the full repo stack, install the required packages directly:
+## Required files to share
 
-```powershell
-python -m pip install torch pandas numpy scipy scikit-learn joblib matplotlib
-```
-
-## Common module errors and how to avoid them
-
-### `ModuleNotFoundError: No module named 'torch'`
-
-This usually means you are running the script with the system Python instead of the project virtual environment.
-
-Fix:
-
-```powershell
-.\build_env\Scripts\Activate.ps1
-# or
-.\.venv\Scripts\Activate.ps1
-python -c "import torch; print(torch.__version__)"
-```
-
-Then run the script again.
-
-### `ModuleNotFoundError: No module named 'scipy'` or `sklearn`
-
-Install the requirements in the active environment:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-### `InconsistentVersionWarning` from scikit-learn
-
-This warning is not usually fatal, but it means the scaler may have been saved with a different scikit-learn version than the one currently installed. It is harmless for inference in most cases, but the safest approach is to use the same environment that created the job.
-
-## Portable folder layout
-
-Use a folder like this:
+Each job must include:
 
 ```text
-paper_run/
-├── run_offline_inference.py
-├── job_20260122-104126_LG_NMC_best_FNN_with_Filteres/
-│   ├── job_metadata.json
-│   ├── augmentation_metadata.json
-│   ├── hyperparams.json
-│   ├── scalers/
-│   │   └── augmentation_scaler.joblib
-│   └── models/
-│       └── FNN_90_45/
-│           └── B4096_Adam_LR_RLROP_VP180_rep_3/
-│               ├── task_info.json
-│               ├── best_model.pth
-│               └── ...
-├── test_data/
-│   └── 10_UDDS_40C.csv
-└── output/
+job_A/
+  job_metadata.json
+  augmentation_metadata.json       # required if training used augmentation
+  scalers/augmentation_scaler.joblib # required if training used normalization
+  models/FNN_90_45/repeat_3/
+    task_info.json
+    best_model.pth                  # or best_model_export.pt, a state-dict checkpoint
 ```
 
-The script can be run in either of these ways:
+`task_info.json` supplies the architecture, features, target, and hyperparameters.
+The script defines FNN, LSTM, and GRU locally and loads their weights. It uses
+job-local files, not the training machine paths saved in metadata. A trained task
+folder alone is insufficient: retain the parent job metadata and scaler.
+Only load job artifacts from a source you trust; scalers use joblib serialization.
 
-### One job + one test file
+Supply the same **raw, unnormalized CSVs** used by the repository's standalone
+workflow. Keep all scaler columns and filter source columns, including `Power`
+for the bundled job. Test CSVs are not tracked by Git; distribute them separately
+or include `LG_NMC_test_data` when sharing a folder archive. Model metadata is
+explicitly allowed by `.gitignore`.
 
-```powershell
-python run_offline_inference.py --job-dir job_20260122-104126_LG_NMC_best_FNN_with_Filteres --test-file test_data\10_UDDS_40C.csv --skip-plot --device cpu
+## Select a job or compare jobs
+
+Test all CSVs in a directory:
+
+```sh
+python run_offline_inference.py --job-dir job_A --test-dir LG_NMC_test_data
 ```
 
-### One job + a whole test-data directory
+Compare multiple trained jobs on identical data:
 
-```powershell
-python run_offline_inference.py --job-dir job_20260122-104126_LG_NMC_best_FNN_with_Filteres --test-dir test_data --skip-plot --device cpu
+```sh
+python run_offline_inference.py --job-dir job_A job_B --test-file LG_NMC_test_data/10_UDDS_40C.csv --output-dir comparison_output
 ```
 
-### Zero-arg mode (if the script is beside a single `job_*` folder and a matching `*_test_data` folder)
+You may also repeat `--job-dir`. Use distinct job folder names. With one job,
+`--model-dir job_A/models/FNN_90_45/repeat_3` selects a specific trained task.
+Multiple trained task folders require explicit selection; prepare one selected
+trained task per job for multi-job comparisons. A zero-argument run works only
+when exactly one `job_*` and one `*_test_data` directory sit beside the script.
+Ambiguous choices fail instead of silently choosing a model or dataset.
 
-```powershell
-python run_offline_inference.py
+## Outputs and plots
+
+A single job defaults to `job_A/inference_output/`; multiple jobs default to
+`comparison_output/`, with separate job subdirectories. `--output-dir` overrides
+the root. Each job produces:
+
+- Per-test `predictions.csv` and `prediction_plot.png` (target and error panels).
+- `all_predictions.csv` and `summary.json`, including metrics and effective warmup.
+- The output root contains `comparison_metrics.csv` for all requested jobs/tests.
+- Multiple jobs additionally produce overlaid prediction/error plots per test and
+  target. Axes use sample index; different target types are plotted separately.
+
+Voltage RMSE/MAE and errors are in mV, SOC errors in percentage points; prediction
+and target columns retain physical units. Error is measured minus predicted.
+Pass `--skip-plot` for CSV/JSON only. Plots are saved, not opened interactively.
+Reusing an output directory overwrites matching outputs; use a fresh directory
+for each paper run. Aggregates include only the current run's successful inputs.
+
+## Supported workflow and parity limits
+
+The script reproduces causal Butterworth input filters from
+`augmentation_metadata.json`, saved normalization, per-file recurrent state reset,
+and saved post-inference moving average, exponential moving average, or
+Savitzky-Golay filters. RNN warmup uses saved `LOOKBACK`, matching the repository's
+standalone manager; `--warmup-samples` overrides it. FNN needs no warmup.
+
+Supported architectures are the repository's fixed-width FNN, LSTM, and GRU
+(state-dict checkpoints, including FNN activation/layer normalization and GRU
+layer normalization). Missing metadata/scalers and unsupported model variants
+fail explicitly. Full pickled model objects, LSTM_EMA/LSTM_LPF, variable-width RNNs,
+resampling, padding, and calculated-column augmentation are not supported by this
+runner. The bundled FNN job uses none of these unsupported options. Add and
+validate support before sharing a comparative job that needs them.
+
+Matching results requires identical weights, metadata, raw data, warmup, and
+inference filter settings. GUI filter overrides are not stored back into every
+job. Floating-point differences across CPU/GPU and library versions are possible.
+
+## Bundled FNN versus LSTM example
+
+The LSTM job `job_20260602-154104_best_LG_NMC_best_LSTM_without_Filteres`
+uses Power, Battery_Temp_degC, and SOC, its own scaler, no input filters, and
+400 warmup samples from its saved LOOKBACK. Both jobs can use the same raw CSVs.
+From this directory:
+
+```sh
+python run_offline_inference.py --job-dir job_20260122-104126_LG_NMC_best_FNN_with_Filteres job_20260602-154104_best_LG_NMC_best_LSTM_without_Filteres --test-file LG_NMC_test_data/10_UDDS_40C.csv --output-dir comparison_output
 ```
 
-## Important notes for reproducibility
+Replace `--test-file LG_NMC_test_data/10_UDDS_40C.csv` with
+`--test-dir LG_NMC_test_data` to process all cycles. To plot only the LSTM,
+pass only its folder to `--job-dir`. Recurrent CPU inference is slower than FNN
+inference because it advances the hidden state one sample at a time.
 
-- This script is self-contained and does not import the repo package.
-- The job folder is the source of truth: model metadata, scaler, and feature columns all come from the job.
-- The raw test CSV must contain the original columns used during augmentation, especially `Power`, because the script re-applies the filter augmentation recorded in `augmentation_metadata.json`.
-- If a job folder contains multiple repeat folders, the script resolves the first valid trained model folder deterministically.
-- If you only have the final best model task directory, it will still work as long as it contains `task_info.json` and `best_model.pth` or `best_model_export.pt`.
+The LSTM scaler was saved with scikit-learn 1.2.2, whereas the FNN scaler uses
+1.7.2. The combined run was validated with the installed 1.9.0 runtime, which
+warns about both saved versions. The existing requirements pin matches the FNN
+artifact; it is not a guarantee of cross-version compatibility for other jobs.
 
-## Quickest validation run
+## ECM and a clean sharing bundle
 
-From the folder containing the script and job folder:
-
-```powershell
-python run_offline_inference.py --job-dir job_20260122-104126_LG_NMC_best_FNN_with_Filteres --test-file .\test_data\10_UDDS_40C.csv --skip-plot --device cpu
-```
-
-This produces an `inference_output` folder with per-file metrics and prediction files.
-
-## Output files
-
-The script writes results into `inference_output/`:
-
-- `summary.json`
-- `all_predictions.csv`
-- per-file folders with `predictions.csv`
-- optional plot png files
-
-That gives a clear paper-style reproducibility bundle without needing to run the repo GUI or training pipeline.
-
-## Summary
-
-If you want a clean reproduction on a new machine:
-
-1. activate the correct environment
-2. ensure dependencies are installed
-3. copy the job folder and the raw test CSV into a portable folder
-4. run `python run_offline_inference.py --job-dir ... --test-file ...`
-
-This is the safest way to reproduce the paper results without depending on the rest of the codebase.
+The runner also accepts `--ecm-dir ecm_1rc_lg_nmc`, alone or together with ML
+`--job-dir` arguments. See [ECM_README.md](ECM_README.md) for commands, parameter
+provenance, optional paper windows/bias correction, and the unresolved difference
+between the supplied timing benchmark and the historical paper ECM exports.
+`python build_share_bundle.py` creates a separate minimal distribution without
+removing the original source material.

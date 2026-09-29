@@ -1,0 +1,18 @@
+{
+    "job_id": "job_20260602-154104",
+    "creation_date": "2026-06-02T15:41:04.782892",
+    "train_folder_path": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/data/cell_train_small",
+    "val_folder_path": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/data/valid_data",
+    "test_folder_path": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/data/test_small",
+    "normalization_applied": true,
+    "scaler_path": "scalers/augmentation_scaler.joblib",
+    "normalized_columns": [
+        "Voltage",
+        "Current",
+        "Ah",
+        "Wh",
+        "Power",
+        "Battery_Temp_degC",
+        "SOC"
+    ]
+}

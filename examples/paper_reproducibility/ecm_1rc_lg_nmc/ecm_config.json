@@ -1,0 +1,36 @@
+{
+  "model_type": "ECM_1RC",
+  "name": "LG NMC 1RC (benchmark equations)",
+  "parameters": [
+    {
+      "temperature_c": -20,
+      "path": "parameters/par_optimized_n20_1RC_perstep_pybop.mat"
+    },
+    {
+      "temperature_c": -10,
+      "path": "parameters/par_optimized_n10_1RC_perstep_pybop.mat"
+    },
+    {
+      "temperature_c": 0,
+      "path": "parameters/par_optimized_0_1RC_perstep_pybop.mat"
+    },
+    {
+      "temperature_c": 10,
+      "path": "parameters/par_optimized_10_1RC_perstep_pybop.mat"
+    },
+    {
+      "temperature_c": 25,
+      "path": "parameters/par_optimized_25_1RC_perstep_pybop.mat"
+    },
+    {
+      "temperature_c": 40,
+      "path": "parameters/par_optimized_40_1RC_perstep_pybop.mat"
+    }
+  ],
+  "master_soc_temperature_c": -20,
+  "sample_interval_s": 1.0,
+  "current_convention": "negative_discharge",
+  "initial_rc_voltage_v": 0.0,
+  "source": "Highest_Final_RC_With_Temp_6Temps_1000h_Benchmark.m",
+  "reference_status": "Benchmark equations; historical test_results_all_files_1RC uses different, unconfirmed preprocessing/calibration."
+}

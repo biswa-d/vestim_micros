@@ -1,0 +1,20 @@
+DATA CLEANUP SUMMARY
+==================================================
+Job Folder: /mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/output/job_20260602-154104
+Cleanup Date: 2026-06-06T15:34:08.733983
+
+FOLDERS REMOVED TO SAVE SPACE:
+• train_data/ (raw_data and processed_data)
+• val_data/ (raw_data and processed_data)
+• test_data/ (raw_data and processed_data)
+
+PRESERVED FILES:
+• All models, predictions, and results
+• data_files_reference.txt (file names and sample counts)
+• Scaler files with min/max statistics (in scalers/ folder)
+• All plots and training histories
+
+NOTE:
+• Original data files remain in their source locations
+• This cleanup only removes copied/processed data to save space
+• Full traceability is maintained through reference files

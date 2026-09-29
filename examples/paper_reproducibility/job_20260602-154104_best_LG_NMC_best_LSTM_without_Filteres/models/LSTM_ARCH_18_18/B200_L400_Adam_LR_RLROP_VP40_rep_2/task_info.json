@@ -1,0 +1,105 @@
+{
+    "task_id": "task_20260602154356_2_rep_2",
+    "repetition": 2,
+    "model_name": null,
+    "model_dir": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/output/job_20260602-154104/models/LSTM_ARCH_18_18",
+    "task_dir": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/output/job_20260602-154104/models/LSTM_ARCH_18_18/B200_L400_Adam_LR_RLROP_VP40_rep_2",
+    "model_path": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/output/job_20260602-154104/models/LSTM_ARCH_18_18/untrained_model_template.pth",
+    "logs_dir": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/output/job_20260602-154104/models/LSTM_ARCH_18_18/B200_L400_Adam_LR_RLROP_VP40_rep_2/logs",
+    "model_metadata": {
+        "model_type": "LSTM",
+        "num_learnable_params": 4267,
+        "input_size": 3,
+        "output_size": 1
+    },
+    "hyperparams": {
+        "MODEL_TYPE": "LSTM",
+        "TRAINING_METHOD": "Sequence-to-Sequence",
+        "INPUT_SIZE": 3,
+        "OUTPUT_SIZE": 1,
+        "BATCH_TRAINING": true,
+        "BATCH_SIZE": "200",
+        "MAX_EPOCHS": "1200",
+        "INITIAL_LR": "0.0001",
+        "OPTIMIZER_TYPE": "Adam",
+        "VALID_PATIENCE": "40",
+        "VALID_FREQUENCY": "1",
+        "SCHEDULER_TYPE": "ReduceLROnPlateau",
+        "REPETITIONS": 3,
+        "CURRENT_REPETITION": 2,
+        "NUM_LEARNABLE_PARAMS": 4267,
+        "DEVICE_SELECTION": "cuda:2",
+        "NUM_WORKERS": "16",
+        "normalization_applied": true,
+        "FEATURE_COLUMNS": [
+            "Power",
+            "Battery_Temp_degC",
+            "SOC"
+        ],
+        "TARGET_COLUMN": "Voltage",
+        "CURRENT_DEVICE": "CUDA:2 (NVIDIA A100 80GB PCIe)",
+        "PLATEAU_PATIENCE": "5",
+        "PLATEAU_FACTOR": "0.8",
+        "EXPLOIT_LR": "1e-5",
+        "EXPLOIT_EPOCHS": "5",
+        "EXPLOIT_REPETITIONS": "0",
+        "FINAL_LR": "1e-7",
+        "INFERENCE_FILTER_TYPE": "None",
+        "INFERENCE_FILTER_WINDOW_SIZE": "101",
+        "INFERENCE_FILTER_ALPHA": "0.1",
+        "INFERENCE_FILTER_POLYORDER": "2",
+        "HIDDEN_UNITS": 18,
+        "LAYERS": 2,
+        "RNN_LAYER_SIZES": "18,18",
+        "LOOKBACK": "400"
+    },
+    "data_loader_params": {
+        "lookback": "400",
+        "batch_size": "200",
+        "feature_columns": [
+            "Power",
+            "Battery_Temp_degC",
+            "SOC"
+        ],
+        "target_column": "Voltage",
+        "num_workers": "16",
+        "pin_memory": true,
+        "prefetch_factor": "16"
+    },
+    "training_params": {
+        "early_stopping": true,
+        "early_stopping_patience": "40",
+        "save_best_model": true,
+        "checkpoint_dir": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/output/job_20260602-154104/models/LSTM_ARCH_18_18/B200_L400_Adam_LR_RLROP_VP40_rep_2/logs/checkpoints",
+        "best_model_path": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/output/job_20260602-154104/models/LSTM_ARCH_18_18/B200_L400_Adam_LR_RLROP_VP40_rep_2/best_model.pth",
+        "max_training_time_seconds": 0
+    },
+    "results": {
+        "best_val_loss": Infinity,
+        "best_epoch": 0,
+        "training_time": 0,
+        "early_stopped": false,
+        "completed": false
+    },
+    "csv_log_file": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/output/job_20260602-154104/models/LSTM_ARCH_18_18/B200_L400_Adam_LR_RLROP_VP40_rep_2/logs/training_progress.csv",
+    "db_log_file": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/output/job_20260602-154104/models/LSTM_ARCH_18_18/B200_L400_Adam_LR_RLROP_VP40_rep_2/logs/task_20260602154356_2_rep_2_training.db",
+    "job_metadata": {
+        "job_id": "job_20260602-154104",
+        "creation_date": "2026-06-02T15:41:04.782892",
+        "train_folder_path": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/data/cell_train_small",
+        "val_folder_path": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/data/valid_data",
+        "test_folder_path": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/data/test_small",
+        "normalization_applied": true,
+        "scaler_path": "scalers/augmentation_scaler.joblib",
+        "normalized_columns": [
+            "Voltage",
+            "Current",
+            "Ah",
+            "Wh",
+            "Power",
+            "Battery_Temp_degC",
+            "SOC"
+        ]
+    },
+    "job_folder_augmented_from": "/mnt/data1/dehuryb/PyBattML_E66_Tesla/E66/LSTM/vestim_micros/output/job_20260602-154104"
+}
